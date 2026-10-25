@@ -1,0 +1,25 @@
+{
+  "id": "T64-completion-nav",
+  "cols": 100,
+  "rows": 30,
+  "helperExit": 0,
+  "exitCode": -9,
+  "stderr": "",
+  "mockStderr": "",
+  "requestLog": "/tmp/n64/requests.jsonl",
+  "snapshotOffsets": [
+    {
+      "name": "after-slash-s",
+      "offset": 4852
+    },
+    {
+      "name": "after-down",
+      "offset": 5732
+    },
+    {
+      "name": "after-tab",
+      "offset": 7253
+    }
+  ],
+  "sessionDir": "/tmp/n64/session"
+}

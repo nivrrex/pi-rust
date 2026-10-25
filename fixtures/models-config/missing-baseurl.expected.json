@@ -1,0 +1,10 @@
+{
+  "description": "没有 baseUrl",
+  "probe": [
+    "p",
+    "m"
+  ],
+  "loadError": "Provider \"p\": Provider p: \"baseUrl\" is required when defining custom models.",
+  "found": null,
+  "modelIds": []
+}

@@ -1,0 +1,1462 @@
+case h01-printable 0 0 3
+chunk YQ==
+chunk Yg==
+chunk Yw==
+event data YQ== a 0 0
+event data Yg== b 0 0
+event data Yw== c 0 0
+case h02-utf8-multibyte 0 0 2
+chunk 5Lit
+chunk 5paH
+event data 5Lit - 0 0
+event data 5paH - 0 0
+case h03-ctrl 0 0 3
+chunk AQ==
+chunk Ag==
+chunk Aw==
+event data AQ== ctrl+a 0 0
+event data Ag== ctrl+b 0 0
+event data Aw== ctrl+c 0 0
+case h04-arrows-legacy 0 0 4
+chunk G1tB
+chunk G1tC
+chunk G1tD
+chunk G1tE
+event data G1tB up 0 0
+event data G1tC down 0 0
+event data G1tD right 0 0
+event data G1tE left 0 0
+case h05-home-end-variants 0 0 6
+chunk G1tI
+chunk G1tG
+chunk G1sxfg==
+chunk G1s0fg==
+chunk G09I
+chunk G09G
+event data G1tI home 0 0
+event data G1tG end 0 0
+event data G1sxfg== - 0 0
+event data G1s0fg== - 0 0
+event data G09I home 0 0
+event data G09G end 0 0
+case h06-insert-delete-pgup-pgdn 0 0 4
+chunk G1syfg==
+chunk G1szfg==
+chunk G1s1fg==
+chunk G1s2fg==
+event data G1syfg== insert 0 0
+event data G1szfg== delete 0 0
+event data G1s1fg== pageUp 0 0
+event data G1s2fg== pageDown 0 0
+case h07-fkeys 0 0 3
+chunk G09Q
+chunk G1sxNX4=
+chunk G1syNH4=
+event data G09Q f1 0 0
+event data G1sxNX4= f5 0 0
+event data G1syNH4= f12 0 0
+case h08-alt 0 0 2
+chunk G2E=
+chunk G2I=
+event data G2E= alt+a 0 0
+event data G2I= alt+left 0 0
+case h09-shift-ctrl 0 0 2
+chunk G1sxOzJB
+chunk G1sxOzVD
+event data G1sxOzJB shift+up 0 0
+event data G1sxOzVD ctrl+right 0 0
+case h10-kitty-csi-u 1 0 3
+chunk G1s5N3U=
+chunk G1s5Nzs1dQ==
+chunk G1s5Nzs1OjN1
+event data G1s5N3U= a 0 0
+event data G1s5Nzs1dQ== ctrl+a 0 0
+event data G1s5Nzs1OjN1 ctrl+a 1 0
+case h11-kitty-alt-key 1 0 1
+chunk G1s5Nzo2NTsydQ==
+event data G1s5Nzo2NTsydQ== shift+a 0 0
+case h12-modify-other-keys 0 0 1
+chunk G1syNzs1Ozk3fg==
+event data G1syNzs1Ozk3fg== ctrl+a 0 0
+case h13-paste-short 0 0 1
+chunk G1syMDB+aGVsbG8bWzIwMX4=
+event paste aGVsbG8=
+case h14-paste-newlines 0 0 1
+chunk G1syMDB+YQpiCmMbWzIwMX4=
+event paste YQpiCmM=
+case h15-paste-split 0 0 2
+chunk G1syMDB+YWI=
+chunk Y2QbWzIwMX4=
+event paste YWJjZA==
+case h16-paste-long 0 0 1
+chunk G1syMDB+eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHgbWzIwMX4=
+event paste eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHg=
+case h17-truncated 0 0 1
+chunk G1sxOzU=
+case h18-lone-esc 0 1 1
+chunk Gw==
+event data Gw== escape 0 0
+case h19-split-csi 0 0 3
+chunk Gw==
+chunk Ww==
+chunk QQ==
+event data G1tB up 0 0
+case h20-kitty-release 1 0 1
+chunk G1s5NzsxOjN1
+event data G1s5NzsxOjN1 a 1 0
+case s01-esc-before-flush 0 0 1
+chunk Gw==
+case s02-esc-after-flush 0 1 1
+chunk Gw==
+event data Gw== escape 0 0
+case s03-esc-then-printable-in-timeout 0 0 2
+chunk Gw==
+chunk YQ==
+event data G2E= alt+a 0 0
+case s04-esc-flush-then-printable 0 1 1
+chunk Gw==
+event data Gw== escape 0 0
+case s05-esc-then-csi-in-timeout 0 0 2
+chunk Gw==
+chunk W0E=
+event data G1tB up 0 0
+case s06-esc-flush-then-csi 0 1 1
+chunk Gw==
+event data Gw== escape 0 0
+case b01-csi-split-1 0 0 6
+chunk Gw==
+chunk Ww==
+chunk MQ==
+chunk Ow==
+chunk NQ==
+chunk QQ==
+event data G1sxOzVB ctrl+up 0 0
+case b02-csi-split-2 0 0 3
+chunk G1s=
+chunk MTs1
+chunk QQ==
+event data G1sxOzVB ctrl+up 0 0
+case b03-csi-split-3 0 0 2
+chunk G1sxOzU=
+chunk QQ==
+event data G1sxOzVB ctrl+up 0 0
+case b04-ss3-split-1 0 0 3
+chunk Gw==
+chunk Tw==
+chunk UA==
+event data G09Q f1 0 0
+case b05-ss3-split-2 0 0 2
+chunk G08=
+chunk UA==
+event data G09Q f1 0 0
+case b06-ss3-split-3 0 0 2
+chunk Gw==
+chunk T1A=
+event data G09Q f1 0 0
+case b07-osc-split-bel 0 0 6
+chunk Gw==
+chunk XQ==
+chunk MA==
+chunk Ow==
+chunk dA==
+chunk Bw==
+event data G10wO3QH - 0 0
+case b08-osc-split-st 0 0 4
+chunk G10=
+chunk MDt0
+chunk Gw==
+chunk XA==
+event data G10wO3QbXA== - 0 0
+case b09-osc-split-mixed 0 0 3
+chunk Gw==
+chunk XTA=
+chunk O3QH
+event data G10wO3QH - 0 0
+case b10-dcs-split-1 0 0 6
+chunk Gw==
+chunk UA==
+chunk Pnw=
+chunk eA==
+chunk Gw==
+chunk XA==
+event data G1A+fHgbXA== - 0 0
+case b11-dcs-split-2 0 0 3
+chunk G1A=
+chunk Pnx4
+chunk G1w=
+event data G1A+fHgbXA== - 0 0
+case b12-dcs-split-3 0 0 3
+chunk Gw==
+chunk UD58eBs=
+chunk XA==
+event data G1A+fHgbXA== - 0 0
+case b13-apc-split-1 0 0 6
+chunk Gw==
+chunk Xw==
+chunk Rw==
+chunk eA==
+chunk Gw==
+chunk XA==
+event data G19HeBtc - 0 0
+case b14-apc-split-2 0 0 3
+chunk G18=
+chunk R3g=
+chunk G1w=
+event data G19HeBtc - 0 0
+case b15-apc-split-3 0 0 3
+chunk Gw==
+chunk X0d4Gw==
+chunk XA==
+event data G19HeBtc - 0 0
+case b16-mouse-short-1 0 0 1
+chunk G1tN
+case b17-mouse-short-2 0 0 4
+chunk G1s=
+chunk TQ==
+chunk IA==
+chunk IA==
+case b18-mouse-short-3 0 0 3
+chunk G1tN
+chunk IA==
+chunk IA==
+case b19-mouse-full-6 0 0 4
+chunk G1tN
+chunk IA==
+chunk IQ==
+chunk IQ==
+event data G1tNICEh - 0 0
+case p01-paste-start-split 0 0 2
+chunk G1syMA==
+chunk MH5oaRtbMjAxfg==
+event paste aGk=
+case p02-paste-end-split 0 0 2
+chunk G1syMDB+aGkbWzIw
+chunk MX4=
+event paste aGk=
+case p03-paste-both-split 0 0 3
+chunk G1sy
+chunk MDB+YWIbWzI=
+chunk MDF+
+event paste YWI=
+case p04-paste-start-bytewise 0 0 6
+chunk Gw==
+chunk Ww==
+chunk Mg==
+chunk MA==
+chunk MA==
+chunk fngbWzIwMX4=
+event paste eA==
+case e01-esc-esc-csi 0 0 1
+chunk GxtbMjc7MTozdQ==
+event data Gw== escape 0 0
+event data G1syNzsxOjN1 escape 1 0
+case e02-esc-esc-osc 0 0 1
+chunk GxtdMDt0Bw==
+event data Gw== escape 0 0
+event data G10wO3QH - 0 0
+case e03-esc-esc-ss3 0 0 1
+chunk GxtPUA==
+event data Gw== escape 0 0
+event data G09Q f1 0 0
+case e04-esc-esc-dcs 0 0 1
+chunk GxtQPnx4G1w=
+event data Gw== escape 0 0
+event data G1A+fHgbXA== - 0 0
+case e05-esc-esc-apc 0 0 1
+chunk GxtfR3gbXA==
+event data Gw== escape 0 0
+event data G19HeBtc - 0 0
+case e06-esc-esc-plain 0 0 1
+chunk Gxth
+event data Gxs= ctrl+alt+[ 0 0
+event data YQ== a 0 0
+case r000 0 0 1
+chunk G1szfg==
+event data G1szfg== delete 0 0
+case r001 1 0 4
+chunk G1tB
+chunk G1tC
+chunk G1tB
+chunk Wg==
+event data G1tB up 0 0
+event data G1tC down 0 0
+event data G1tB up 0 0
+event data Wg== Z 0 0
+case r002 0 0 3
+chunk G1syNzs1Ozk3fg==
+chunk G1sxOzVB
+chunk G1szfg==
+event data G1syNzs1Ozk3fg== ctrl+a 0 0
+event data G1sxOzVB ctrl+up 0 0
+event data G1szfg== delete 0 0
+case r003 1 0 4
+chunk MQ==
+chunk G1sxOzVB
+chunk G1tB
+chunk MQ==
+event data MQ== 1 0 0
+event data G1sxOzVB ctrl+up 0 0
+event data G1tB up 0 0
+event data MQ== 1 0 0
+case r004 0 0 2
+chunk G2E=
+chunk G1s5Nzs1dQ==
+event data G2E= alt+a 0 0
+event data G1s5Nzs1dQ== ctrl+a 0 0
+case r005 1 0 4
+chunk Wg==
+chunk G1syNzs1Ozk3fg==
+chunk G1tB
+chunk G1syMDB+cBtbMjAxfg==
+event data Wg== Z 0 0
+event data G1syNzs1Ozk3fg== ctrl+a 0 0
+event data G1tB up 0 0
+event paste cA==
+case r006 0 0 1
+chunk G2E=
+event data G2E= alt+a 0 0
+case r007 1 0 2
+chunk G09Q
+chunk G1s5Nzs1dQ==
+event data G09Q f1 0 0
+event data G1s5Nzs1dQ== ctrl+a 0 0
+case r008 0 0 4
+chunk YQ==
+chunk AQ==
+chunk Wg==
+chunk G1syNzs1Ozk3fg==
+event data YQ== a 0 0
+event data AQ== ctrl+a 0 0
+event data Wg== Z 0 0
+event data G1syNzs1Ozk3fg== ctrl+a 0 0
+case r009 1 0 2
+chunk MQ==
+chunk G1syMDB+cBtbMjAxfg==
+event data MQ== 1 0 0
+event paste cA==
+case r010 0 0 1
+chunk G1tC
+event data G1tC down 0 0
+case r011 1 0 4
+chunk G1syNzs1Ozk3fg==
+chunk G1syNzs1Ozk3fg==
+chunk Aw==
+chunk MQ==
+event data G1syNzs1Ozk3fg== ctrl+a 0 0
+event data G1syNzs1Ozk3fg== ctrl+a 0 0
+event data Aw== ctrl+c 0 0
+event data MQ== 1 0 0
+case r012 0 0 1
+chunk G1szfg==
+event data G1szfg== delete 0 0
+case r013 1 0 1
+chunk 5Lit
+event data 5Lit - 0 0
+case r014 0 0 2
+chunk G1syNzs1Ozk3fg==
+chunk G1szfg==
+event data G1syNzs1Ozk3fg== ctrl+a 0 0
+event data G1szfg== delete 0 0
+case r015 1 0 4
+chunk MQ==
+chunk G1tC
+chunk MQ==
+chunk YQ==
+event data MQ== 1 0 0
+event data G1tC down 0 0
+event data MQ== 1 0 0
+event data YQ== a 0 0
+case r016 0 0 3
+chunk G1syNzs1Ozk3fg==
+chunk AQ==
+chunk 5Lit
+event data G1syNzs1Ozk3fg== ctrl+a 0 0
+event data AQ== ctrl+a 0 0
+event data 5Lit - 0 0
+case r017 1 0 3
+chunk G1sxOzVB
+chunk G09Q
+chunk 5Lit
+event data G1sxOzVB ctrl+up 0 0
+event data G09Q f1 0 0
+event data 5Lit - 0 0
+case r018 0 0 3
+chunk Aw==
+chunk G1szfg==
+chunk Aw==
+event data Aw== ctrl+c 0 0
+event data G1szfg== delete 0 0
+event data Aw== ctrl+c 0 0
+case r019 1 0 4
+chunk G09Q
+chunk G1szfg==
+chunk MQ==
+chunk G1sxOzVB
+event data G09Q f1 0 0
+event data G1szfg== delete 0 0
+event data MQ== 1 0 0
+event data G1sxOzVB ctrl+up 0 0
+case r020 0 0 2
+chunk G1sxOzVB
+chunk G1syNzs1Ozk3fg==
+event data G1sxOzVB ctrl+up 0 0
+event data G1syNzs1Ozk3fg== ctrl+a 0 0
+case r021 1 0 4
+chunk G2E=
+chunk Wg==
+chunk G1s5Nzs1dQ==
+chunk G1syNzs1Ozk3fg==
+event data G2E= - 0 0
+event data Wg== Z 0 0
+event data G1s5Nzs1dQ== ctrl+a 0 0
+event data G1syNzs1Ozk3fg== ctrl+a 0 0
+case r022 0 0 1
+chunk G1sxOzVB
+event data G1sxOzVB ctrl+up 0 0
+case r023 1 0 1
+chunk Wg==
+event data Wg== Z 0 0
+case r024 0 0 3
+chunk G1tB
+chunk G1tC
+chunk G1szfg==
+event data G1tB up 0 0
+event data G1tC down 0 0
+event data G1szfg== delete 0 0
+case r025 1 0 3
+chunk G1szfg==
+chunk 5Lit
+chunk G1syMDB+cBtbMjAxfg==
+event data G1szfg== delete 0 0
+event data 5Lit - 0 0
+event paste cA==
+case r026 0 0 3
+chunk YQ==
+chunk 5Lit
+chunk G1syMDB+cBtbMjAxfg==
+event data YQ== a 0 0
+event data 5Lit - 0 0
+event paste cA==
+case r027 1 0 3
+chunk MQ==
+chunk G1s5Nzs1dQ==
+chunk YQ==
+event data MQ== 1 0 0
+event data G1s5Nzs1dQ== ctrl+a 0 0
+event data YQ== a 0 0
+case r028 0 0 1
+chunk G2E=
+event data G2E= alt+a 0 0
+case r029 1 0 1
+chunk G09Q
+event data G09Q f1 0 0
+case r030 0 0 2
+chunk G1s5Nzs1dQ==
+chunk G1s5Nzs1dQ==
+event data G1s5Nzs1dQ== ctrl+a 0 0
+event data G1s5Nzs1dQ== ctrl+a 0 0
+case r031 1 0 2
+chunk G1syMDB+cBtbMjAxfg==
+chunk 5Lit
+event paste cA==
+event data 5Lit - 0 0
+case r032 0 0 4
+chunk AQ==
+chunk G1tB
+chunk G1syMDB+cBtbMjAxfg==
+chunk G1syNzs1Ozk3fg==
+event data AQ== ctrl+a 0 0
+event data G1tB up 0 0
+event paste cA==
+event data G1syNzs1Ozk3fg== ctrl+a 0 0
+case r033 1 0 4
+chunk G1syMDB+cBtbMjAxfg==
+chunk G1szfg==
+chunk MQ==
+chunk 5Lit
+event paste cA==
+event data G1szfg== delete 0 0
+event data MQ== 1 0 0
+event data 5Lit - 0 0
+case r034 0 0 4
+chunk G1syMDB+cBtbMjAxfg==
+chunk G1syMDB+cBtbMjAxfg==
+chunk G1syMDB+cBtbMjAxfg==
+chunk Aw==
+event paste cA==
+event paste cA==
+event paste cA==
+event data Aw== ctrl+c 0 0
+case r035 1 0 4
+chunk G2E=
+chunk G1sxOzVB
+chunk G1syMDB+cBtbMjAxfg==
+chunk AQ==
+event data G2E= - 0 0
+event data G1sxOzVB ctrl+up 0 0
+event paste cA==
+event data AQ== ctrl+a 0 0
+case r036 0 0 4
+chunk MQ==
+chunk Wg==
+chunk G1tC
+chunk G1syMDB+cBtbMjAxfg==
+event data MQ== 1 0 0
+event data Wg== Z 0 0
+event data G1tC down 0 0
+event paste cA==
+case r037 1 0 3
+chunk G1s5Nzs1dQ==
+chunk G1syMDB+cBtbMjAxfg==
+chunk G1syMDB+cBtbMjAxfg==
+event data G1s5Nzs1dQ== ctrl+a 0 0
+event paste cA==
+event paste cA==
+case r038 0 0 4
+chunk Aw==
+chunk G1tC
+chunk G1s5Nzs1dQ==
+chunk MQ==
+event data Aw== ctrl+c 0 0
+event data G1tC down 0 0
+event data G1s5Nzs1dQ== ctrl+a 0 0
+event data MQ== 1 0 0
+case r039 1 0 2
+chunk AQ==
+chunk Aw==
+event data AQ== ctrl+a 0 0
+event data Aw== ctrl+c 0 0
+case r040 0 0 4
+chunk 5Lit
+chunk G1szfg==
+chunk AQ==
+chunk G09Q
+event data 5Lit - 0 0
+event data G1szfg== delete 0 0
+event data AQ== ctrl+a 0 0
+event data G09Q f1 0 0
+case r041 1 0 1
+chunk Aw==
+event data Aw== ctrl+c 0 0
+case r042 0 0 1
+chunk G09Q
+event data G09Q f1 0 0
+case r043 1 0 2
+chunk MQ==
+chunk G1tB
+event data MQ== 1 0 0
+event data G1tB up 0 0
+case r044 0 0 4
+chunk G1tB
+chunk G1sxOzVB
+chunk G1s5Nzs1dQ==
+chunk G1szfg==
+event data G1tB up 0 0
+event data G1sxOzVB ctrl+up 0 0
+event data G1s5Nzs1dQ== ctrl+a 0 0
+event data G1szfg== delete 0 0
+case r045 1 0 4
+chunk G1syNzs1Ozk3fg==
+chunk Aw==
+chunk G2E=
+chunk Aw==
+event data G1syNzs1Ozk3fg== ctrl+a 0 0
+event data Aw== ctrl+c 0 0
+event data G2E= - 0 0
+event data Aw== ctrl+c 0 0
+case r046 0 0 1
+chunk G1syNzs1Ozk3fg==
+event data G1syNzs1Ozk3fg== ctrl+a 0 0
+case r047 1 0 2
+chunk G1szfg==
+chunk YQ==
+event data G1szfg== delete 0 0
+event data YQ== a 0 0
+case r048 0 0 1
+chunk G1sxOzVB
+event data G1sxOzVB ctrl+up 0 0
+case r049 1 0 1
+chunk G1szfg==
+event data G1szfg== delete 0 0
+case r050 0 0 1
+chunk G1sxOzVB
+event data G1sxOzVB ctrl+up 0 0
+case r051 1 0 4
+chunk G1syMDB+cBtbMjAxfg==
+chunk Aw==
+chunk G1syNzs1Ozk3fg==
+chunk G1tC
+event paste cA==
+event data Aw== ctrl+c 0 0
+event data G1syNzs1Ozk3fg== ctrl+a 0 0
+event data G1tC down 0 0
+case r052 0 0 1
+chunk Wg==
+event data Wg== Z 0 0
+case r053 1 0 1
+chunk Aw==
+event data Aw== ctrl+c 0 0
+case r054 0 0 3
+chunk AQ==
+chunk G1szfg==
+chunk G09Q
+event data AQ== ctrl+a 0 0
+event data G1szfg== delete 0 0
+event data G09Q f1 0 0
+case r055 1 0 3
+chunk G1szfg==
+chunk G1s5Nzs1dQ==
+chunk G1s5Nzs1dQ==
+event data G1szfg== delete 0 0
+event data G1s5Nzs1dQ== ctrl+a 0 0
+event data G1s5Nzs1dQ== ctrl+a 0 0
+case r056 0 0 2
+chunk Wg==
+chunk G1sxOzVB
+event data Wg== Z 0 0
+event data G1sxOzVB ctrl+up 0 0
+case r057 1 0 1
+chunk AQ==
+event data AQ== ctrl+a 0 0
+case r058 0 0 4
+chunk G1syNzs1Ozk3fg==
+chunk G1tC
+chunk G1tC
+chunk G1tC
+event data G1syNzs1Ozk3fg== ctrl+a 0 0
+event data G1tC down 0 0
+event data G1tC down 0 0
+event data G1tC down 0 0
+case r059 1 0 2
+chunk G09Q
+chunk G1s5Nzs1dQ==
+event data G09Q f1 0 0
+event data G1s5Nzs1dQ== ctrl+a 0 0
+case r060 0 0 2
+chunk G1syNzs1Ozk3fg==
+chunk Aw==
+event data G1syNzs1Ozk3fg== ctrl+a 0 0
+event data Aw== ctrl+c 0 0
+case r061 1 0 4
+chunk 5Lit
+chunk Wg==
+chunk G09Q
+chunk YQ==
+event data 5Lit - 0 0
+event data Wg== Z 0 0
+event data G09Q f1 0 0
+event data YQ== a 0 0
+case r062 0 0 4
+chunk Aw==
+chunk MQ==
+chunk YQ==
+chunk Wg==
+event data Aw== ctrl+c 0 0
+event data MQ== 1 0 0
+event data YQ== a 0 0
+event data Wg== Z 0 0
+case r063 1 0 1
+chunk AQ==
+event data AQ== ctrl+a 0 0
+case r064 0 0 4
+chunk G1syMDB+cBtbMjAxfg==
+chunk G1syNzs1Ozk3fg==
+chunk G2E=
+chunk MQ==
+event paste cA==
+event data G1syNzs1Ozk3fg== ctrl+a 0 0
+event data G2E= alt+a 0 0
+event data MQ== 1 0 0
+case r065 1 0 1
+chunk G1tC
+event data G1tC down 0 0
+case r066 0 0 4
+chunk YQ==
+chunk G1tC
+chunk AQ==
+chunk MQ==
+event data YQ== a 0 0
+event data G1tC down 0 0
+event data AQ== ctrl+a 0 0
+event data MQ== 1 0 0
+case r067 1 0 2
+chunk AQ==
+chunk G09Q
+event data AQ== ctrl+a 0 0
+event data G09Q f1 0 0
+case r068 0 0 1
+chunk G1syMDB+cBtbMjAxfg==
+event paste cA==
+case r069 1 0 3
+chunk G1tC
+chunk Wg==
+chunk 5Lit
+event data G1tC down 0 0
+event data Wg== Z 0 0
+event data 5Lit - 0 0
+case r070 0 0 1
+chunk G1syNzs1Ozk3fg==
+event data G1syNzs1Ozk3fg== ctrl+a 0 0
+case r071 1 0 1
+chunk MQ==
+event data MQ== 1 0 0
+case r072 0 0 3
+chunk MQ==
+chunk G2E=
+chunk G1tC
+event data MQ== 1 0 0
+event data G2E= alt+a 0 0
+event data G1tC down 0 0
+case r073 1 0 2
+chunk MQ==
+chunk G1tC
+event data MQ== 1 0 0
+event data G1tC down 0 0
+case r074 0 0 1
+chunk G1szfg==
+event data G1szfg== delete 0 0
+case r075 1 0 3
+chunk G09Q
+chunk MQ==
+chunk G1syMDB+cBtbMjAxfg==
+event data G09Q f1 0 0
+event data MQ== 1 0 0
+event paste cA==
+case r076 0 0 2
+chunk G1tB
+chunk 5Lit
+event data G1tB up 0 0
+event data 5Lit - 0 0
+case r077 1 0 4
+chunk AQ==
+chunk G1syMDB+cBtbMjAxfg==
+chunk G1sxOzVB
+chunk G1sxOzVB
+event data AQ== ctrl+a 0 0
+event paste cA==
+event data G1sxOzVB ctrl+up 0 0
+event data G1sxOzVB ctrl+up 0 0
+case r078 0 0 1
+chunk G1tB
+event data G1tB up 0 0
+case r079 1 0 4
+chunk G1tB
+chunk AQ==
+chunk MQ==
+chunk G09Q
+event data G1tB up 0 0
+event data AQ== ctrl+a 0 0
+event data MQ== 1 0 0
+event data G09Q f1 0 0
+case r080 0 0 1
+chunk G1tB
+event data G1tB up 0 0
+case r081 1 0 2
+chunk MQ==
+chunk YQ==
+event data MQ== 1 0 0
+event data YQ== a 0 0
+case r082 0 0 4
+chunk G1szfg==
+chunk YQ==
+chunk AQ==
+chunk 5Lit
+event data G1szfg== delete 0 0
+event data YQ== a 0 0
+event data AQ== ctrl+a 0 0
+event data 5Lit - 0 0
+case r083 1 0 3
+chunk G1syMDB+cBtbMjAxfg==
+chunk G1szfg==
+chunk Wg==
+event paste cA==
+event data G1szfg== delete 0 0
+event data Wg== Z 0 0
+case r084 0 0 4
+chunk G1sxOzVB
+chunk MQ==
+chunk G1tC
+chunk YQ==
+event data G1sxOzVB ctrl+up 0 0
+event data MQ== 1 0 0
+event data G1tC down 0 0
+event data YQ== a 0 0
+case r085 1 0 3
+chunk G09Q
+chunk AQ==
+chunk Wg==
+event data G09Q f1 0 0
+event data AQ== ctrl+a 0 0
+event data Wg== Z 0 0
+case r086 0 0 4
+chunk YQ==
+chunk G1s5Nzs1dQ==
+chunk G1tB
+chunk G1tB
+event data YQ== a 0 0
+event data G1s5Nzs1dQ== ctrl+a 0 0
+event data G1tB up 0 0
+event data G1tB up 0 0
+case r087 1 0 3
+chunk G1s5Nzs1dQ==
+chunk G1tB
+chunk Wg==
+event data G1s5Nzs1dQ== ctrl+a 0 0
+event data G1tB up 0 0
+event data Wg== Z 0 0
+case r088 0 0 4
+chunk G1s5Nzs1dQ==
+chunk G1syMDB+cBtbMjAxfg==
+chunk YQ==
+chunk Wg==
+event data G1s5Nzs1dQ== ctrl+a 0 0
+event paste cA==
+event data YQ== a 0 0
+event data Wg== Z 0 0
+case r089 1 0 4
+chunk Aw==
+chunk G2E=
+chunk Wg==
+chunk MQ==
+event data Aw== ctrl+c 0 0
+event data G2E= - 0 0
+event data Wg== Z 0 0
+event data MQ== 1 0 0
+case r090 0 0 4
+chunk G1syMDB+cBtbMjAxfg==
+chunk G1szfg==
+chunk Wg==
+chunk AQ==
+event paste cA==
+event data G1szfg== delete 0 0
+event data Wg== Z 0 0
+event data AQ== ctrl+a 0 0
+case r091 1 0 1
+chunk Aw==
+event data Aw== ctrl+c 0 0
+case r092 0 0 4
+chunk G09Q
+chunk G09Q
+chunk G1tC
+chunk G1tC
+event data G09Q f1 0 0
+event data G09Q f1 0 0
+event data G1tC down 0 0
+event data G1tC down 0 0
+case r093 1 0 1
+chunk G1tC
+event data G1tC down 0 0
+case r094 0 0 2
+chunk G1sxOzVB
+chunk G1tC
+event data G1sxOzVB ctrl+up 0 0
+event data G1tC down 0 0
+case r095 1 0 1
+chunk G1syNzs1Ozk3fg==
+event data G1syNzs1Ozk3fg== ctrl+a 0 0
+case r096 0 0 2
+chunk G1sxOzVB
+chunk MQ==
+event data G1sxOzVB ctrl+up 0 0
+event data MQ== 1 0 0
+case r097 1 0 1
+chunk AQ==
+event data AQ== ctrl+a 0 0
+case r098 0 0 3
+chunk G1tB
+chunk MQ==
+chunk G1szfg==
+event data G1tB up 0 0
+event data MQ== 1 0 0
+event data G1szfg== delete 0 0
+case r099 1 0 3
+chunk Aw==
+chunk Aw==
+chunk G1sxOzVB
+event data Aw== ctrl+c 0 0
+event data Aw== ctrl+c 0 0
+event data G1sxOzVB ctrl+up 0 0
+case r100 0 0 2
+chunk G1sxOzVB
+chunk G1s5Nzs1dQ==
+event data G1sxOzVB ctrl+up 0 0
+event data G1s5Nzs1dQ== ctrl+a 0 0
+case r101 1 0 3
+chunk G1tC
+chunk G2E=
+chunk Aw==
+event data G1tC down 0 0
+event data G2E= - 0 0
+event data Aw== ctrl+c 0 0
+case r102 0 0 1
+chunk G1syNzs1Ozk3fg==
+event data G1syNzs1Ozk3fg== ctrl+a 0 0
+case r103 1 0 2
+chunk YQ==
+chunk G1tB
+event data YQ== a 0 0
+event data G1tB up 0 0
+case r104 0 0 2
+chunk MQ==
+chunk G1szfg==
+event data MQ== 1 0 0
+event data G1szfg== delete 0 0
+case r105 1 0 1
+chunk G1syMDB+cBtbMjAxfg==
+event paste cA==
+case r106 0 0 4
+chunk 5Lit
+chunk G1syNzs1Ozk3fg==
+chunk AQ==
+chunk G1s5Nzs1dQ==
+event data 5Lit - 0 0
+event data G1syNzs1Ozk3fg== ctrl+a 0 0
+event data AQ== ctrl+a 0 0
+event data G1s5Nzs1dQ== ctrl+a 0 0
+case r107 1 0 2
+chunk G2E=
+chunk YQ==
+event data G2E= - 0 0
+event data YQ== a 0 0
+case r108 0 0 1
+chunk Wg==
+event data Wg== Z 0 0
+case r109 1 0 4
+chunk Wg==
+chunk Aw==
+chunk G1szfg==
+chunk Aw==
+event data Wg== Z 0 0
+event data Aw== ctrl+c 0 0
+event data G1szfg== delete 0 0
+event data Aw== ctrl+c 0 0
+case r110 0 0 2
+chunk G1szfg==
+chunk MQ==
+event data G1szfg== delete 0 0
+event data MQ== 1 0 0
+case r111 1 0 1
+chunk G1tC
+event data G1tC down 0 0
+case r112 0 0 1
+chunk G09Q
+event data G09Q f1 0 0
+case r113 1 0 2
+chunk G1tB
+chunk G1szfg==
+event data G1tB up 0 0
+event data G1szfg== delete 0 0
+case r114 0 0 2
+chunk Aw==
+chunk AQ==
+event data Aw== ctrl+c 0 0
+event data AQ== ctrl+a 0 0
+case r115 1 0 2
+chunk G1tC
+chunk YQ==
+event data G1tC down 0 0
+event data YQ== a 0 0
+case r116 0 0 2
+chunk G1tB
+chunk AQ==
+event data G1tB up 0 0
+event data AQ== ctrl+a 0 0
+case r117 1 0 3
+chunk G2E=
+chunk MQ==
+chunk G09Q
+event data G2E= - 0 0
+event data MQ== 1 0 0
+event data G09Q f1 0 0
+case r118 0 0 1
+chunk 5Lit
+event data 5Lit - 0 0
+case r119 1 0 4
+chunk G1szfg==
+chunk G1tC
+chunk MQ==
+chunk G1sxOzVB
+event data G1szfg== delete 0 0
+event data G1tC down 0 0
+event data MQ== 1 0 0
+event data G1sxOzVB ctrl+up 0 0
+case r120 0 0 2
+chunk G2E=
+chunk G2E=
+event data G2E= alt+a 0 0
+event data G2E= alt+a 0 0
+case r121 1 0 4
+chunk YQ==
+chunk AQ==
+chunk G1tB
+chunk YQ==
+event data YQ== a 0 0
+event data AQ== ctrl+a 0 0
+event data G1tB up 0 0
+event data YQ== a 0 0
+case r122 0 0 3
+chunk YQ==
+chunk YQ==
+chunk G1szfg==
+event data YQ== a 0 0
+event data YQ== a 0 0
+event data G1szfg== delete 0 0
+case r123 1 0 3
+chunk G09Q
+chunk G1syMDB+cBtbMjAxfg==
+chunk G1tB
+event data G09Q f1 0 0
+event paste cA==
+event data G1tB up 0 0
+case r124 0 0 3
+chunk G1syMDB+cBtbMjAxfg==
+chunk G1tC
+chunk G1tB
+event paste cA==
+event data G1tC down 0 0
+event data G1tB up 0 0
+case r125 1 0 2
+chunk G1sxOzVB
+chunk Wg==
+event data G1sxOzVB ctrl+up 0 0
+event data Wg== Z 0 0
+case r126 0 0 1
+chunk MQ==
+event data MQ== 1 0 0
+case r127 1 0 4
+chunk G2E=
+chunk G2E=
+chunk G1szfg==
+chunk Aw==
+event data G2E= - 0 0
+event data G2E= - 0 0
+event data G1szfg== delete 0 0
+event data Aw== ctrl+c 0 0
+case r128 0 0 4
+chunk G2E=
+chunk G1szfg==
+chunk G1syMDB+cBtbMjAxfg==
+chunk G2E=
+event data G2E= alt+a 0 0
+event data G1szfg== delete 0 0
+event paste cA==
+event data G2E= alt+a 0 0
+case r129 1 0 4
+chunk G1tB
+chunk G1tC
+chunk G2E=
+chunk G09Q
+event data G1tB up 0 0
+event data G1tC down 0 0
+event data G2E= - 0 0
+event data G09Q f1 0 0
+case r130 0 0 1
+chunk YQ==
+event data YQ== a 0 0
+case r131 1 0 4
+chunk G1syNzs1Ozk3fg==
+chunk 5Lit
+chunk G2E=
+chunk G1sxOzVB
+event data G1syNzs1Ozk3fg== ctrl+a 0 0
+event data 5Lit - 0 0
+event data G2E= - 0 0
+event data G1sxOzVB ctrl+up 0 0
+case r132 0 0 2
+chunk G09Q
+chunk G1sxOzVB
+event data G09Q f1 0 0
+event data G1sxOzVB ctrl+up 0 0
+case r133 1 0 2
+chunk YQ==
+chunk 5Lit
+event data YQ== a 0 0
+event data 5Lit - 0 0
+case r134 0 0 1
+chunk Wg==
+event data Wg== Z 0 0
+case r135 1 0 3
+chunk G1syMDB+cBtbMjAxfg==
+chunk G1syMDB+cBtbMjAxfg==
+chunk YQ==
+event paste cA==
+event paste cA==
+event data YQ== a 0 0
+case r136 0 0 2
+chunk G1tB
+chunk G09Q
+event data G1tB up 0 0
+event data G09Q f1 0 0
+case r137 1 0 3
+chunk G1szfg==
+chunk Aw==
+chunk G1szfg==
+event data G1szfg== delete 0 0
+event data Aw== ctrl+c 0 0
+event data G1szfg== delete 0 0
+case r138 0 0 4
+chunk Wg==
+chunk YQ==
+chunk G1tB
+chunk YQ==
+event data Wg== Z 0 0
+event data YQ== a 0 0
+event data G1tB up 0 0
+event data YQ== a 0 0
+case r139 1 0 3
+chunk Wg==
+chunk G1tB
+chunk G1syMDB+cBtbMjAxfg==
+event data Wg== Z 0 0
+event data G1tB up 0 0
+event paste cA==
+case r140 0 0 4
+chunk G1tC
+chunk G1tC
+chunk G1tB
+chunk G2E=
+event data G1tC down 0 0
+event data G1tC down 0 0
+event data G1tB up 0 0
+event data G2E= alt+a 0 0
+case r141 1 0 1
+chunk MQ==
+event data MQ== 1 0 0
+case r142 0 0 4
+chunk MQ==
+chunk G1sxOzVB
+chunk AQ==
+chunk G2E=
+event data MQ== 1 0 0
+event data G1sxOzVB ctrl+up 0 0
+event data AQ== ctrl+a 0 0
+event data G2E= alt+a 0 0
+case r143 1 0 2
+chunk Wg==
+chunk G2E=
+event data Wg== Z 0 0
+event data G2E= - 0 0
+case r144 0 0 2
+chunk YQ==
+chunk G1sxOzVB
+event data YQ== a 0 0
+event data G1sxOzVB ctrl+up 0 0
+case r145 1 0 4
+chunk MQ==
+chunk G1tC
+chunk Wg==
+chunk G1syMDB+cBtbMjAxfg==
+event data MQ== 1 0 0
+event data G1tC down 0 0
+event data Wg== Z 0 0
+event paste cA==
+case r146 0 0 4
+chunk Aw==
+chunk G1syNzs1Ozk3fg==
+chunk YQ==
+chunk G1tC
+event data Aw== ctrl+c 0 0
+event data G1syNzs1Ozk3fg== ctrl+a 0 0
+event data YQ== a 0 0
+event data G1tC down 0 0
+case r147 1 0 1
+chunk YQ==
+event data YQ== a 0 0
+case r148 0 0 4
+chunk AQ==
+chunk G1s5Nzs1dQ==
+chunk G1tC
+chunk G1tB
+event data AQ== ctrl+a 0 0
+event data G1s5Nzs1dQ== ctrl+a 0 0
+event data G1tC down 0 0
+event data G1tB up 0 0
+case r149 1 0 4
+chunk MQ==
+chunk Wg==
+chunk G1szfg==
+chunk 5Lit
+event data MQ== 1 0 0
+event data Wg== Z 0 0
+event data G1szfg== delete 0 0
+event data 5Lit - 0 0
+case r150 0 0 4
+chunk G2E=
+chunk G1tB
+chunk G2E=
+chunk Wg==
+event data G2E= alt+a 0 0
+event data G1tB up 0 0
+event data G2E= alt+a 0 0
+event data Wg== Z 0 0
+case r151 1 0 1
+chunk G1szfg==
+event data G1szfg== delete 0 0
+case r152 0 0 3
+chunk G1syMDB+cBtbMjAxfg==
+chunk G1syMDB+cBtbMjAxfg==
+chunk Aw==
+event paste cA==
+event paste cA==
+event data Aw== ctrl+c 0 0
+case r153 1 0 1
+chunk MQ==
+event data MQ== 1 0 0
+case r154 0 0 1
+chunk G1syMDB+cBtbMjAxfg==
+event paste cA==
+case r155 1 0 1
+chunk G09Q
+event data G09Q f1 0 0
+case r156 0 0 3
+chunk G1tC
+chunk Aw==
+chunk Aw==
+event data G1tC down 0 0
+event data Aw== ctrl+c 0 0
+event data Aw== ctrl+c 0 0
+case r157 1 0 2
+chunk G1tC
+chunk AQ==
+event data G1tC down 0 0
+event data AQ== ctrl+a 0 0
+case r158 0 0 1
+chunk G1szfg==
+event data G1szfg== delete 0 0
+case r159 1 0 4
+chunk G1sxOzVB
+chunk AQ==
+chunk G1syNzs1Ozk3fg==
+chunk G09Q
+event data G1sxOzVB ctrl+up 0 0
+event data AQ== ctrl+a 0 0
+event data G1syNzs1Ozk3fg== ctrl+a 0 0
+event data G09Q f1 0 0
+case r160 0 0 2
+chunk G2E=
+chunk G09Q
+event data G2E= alt+a 0 0
+event data G09Q f1 0 0
+case r161 1 0 3
+chunk G1syMDB+cBtbMjAxfg==
+chunk G1syNzs1Ozk3fg==
+chunk G1tB
+event paste cA==
+event data G1syNzs1Ozk3fg== ctrl+a 0 0
+event data G1tB up 0 0
+case r162 0 0 2
+chunk G1s5Nzs1dQ==
+chunk Aw==
+event data G1s5Nzs1dQ== ctrl+a 0 0
+event data Aw== ctrl+c 0 0
+case r163 1 0 2
+chunk G2E=
+chunk Wg==
+event data G2E= - 0 0
+event data Wg== Z 0 0
+case r164 0 0 2
+chunk MQ==
+chunk G1s5Nzs1dQ==
+event data MQ== 1 0 0
+event data G1s5Nzs1dQ== ctrl+a 0 0
+case r165 1 0 1
+chunk Aw==
+event data Aw== ctrl+c 0 0
+case r166 0 0 2
+chunk G1szfg==
+chunk G1tC
+event data G1szfg== delete 0 0
+event data G1tC down 0 0
+case r167 1 0 2
+chunk YQ==
+chunk AQ==
+event data YQ== a 0 0
+event data AQ== ctrl+a 0 0
+case r168 0 0 3
+chunk Wg==
+chunk 5Lit
+chunk G1szfg==
+event data Wg== Z 0 0
+event data 5Lit - 0 0
+event data G1szfg== delete 0 0
+case r169 1 0 3
+chunk G1tB
+chunk Aw==
+chunk G1tB
+event data G1tB up 0 0
+event data Aw== ctrl+c 0 0
+event data G1tB up 0 0
+case r170 0 0 3
+chunk G1syMDB+cBtbMjAxfg==
+chunk G1sxOzVB
+chunk G1syMDB+cBtbMjAxfg==
+event paste cA==
+event data G1sxOzVB ctrl+up 0 0
+event paste cA==
+case r171 1 0 1
+chunk G1tC
+event data G1tC down 0 0
+case r172 0 0 1
+chunk YQ==
+event data YQ== a 0 0
+case r173 1 0 4
+chunk Aw==
+chunk Aw==
+chunk G1s5Nzs1dQ==
+chunk G1szfg==
+event data Aw== ctrl+c 0 0
+event data Aw== ctrl+c 0 0
+event data G1s5Nzs1dQ== ctrl+a 0 0
+event data G1szfg== delete 0 0
+case r174 0 0 1
+chunk G1s5Nzs1dQ==
+event data G1s5Nzs1dQ== ctrl+a 0 0
+case r175 1 0 4
+chunk G1s5Nzs1dQ==
+chunk G1sxOzVB
+chunk G1s5Nzs1dQ==
+chunk Wg==
+event data G1s5Nzs1dQ== ctrl+a 0 0
+event data G1sxOzVB ctrl+up 0 0
+event data G1s5Nzs1dQ== ctrl+a 0 0
+event data Wg== Z 0 0
+case r176 0 0 3
+chunk MQ==
+chunk Wg==
+chunk G09Q
+event data MQ== 1 0 0
+event data Wg== Z 0 0
+event data G09Q f1 0 0
+case r177 1 0 2
+chunk G1syNzs1Ozk3fg==
+chunk G09Q
+event data G1syNzs1Ozk3fg== ctrl+a 0 0
+event data G09Q f1 0 0
+case r178 0 0 1
+chunk Wg==
+event data Wg== Z 0 0
+case r179 1 0 2
+chunk AQ==
+chunk G1syMDB+cBtbMjAxfg==
+event data AQ== ctrl+a 0 0
+event paste cA==
+case r180 0 0 1
+chunk G1s5Nzs1dQ==
+event data G1s5Nzs1dQ== ctrl+a 0 0
+case r181 1 0 1
+chunk Wg==
+event data Wg== Z 0 0
+case r182 0 0 1
+chunk G1syMDB+cBtbMjAxfg==
+event paste cA==
+case r183 1 0 4
+chunk G2E=
+chunk G1szfg==
+chunk G1tB
+chunk Wg==
+event data G2E= - 0 0
+event data G1szfg== delete 0 0
+event data G1tB up 0 0
+event data Wg== Z 0 0
+case r184 0 0 2
+chunk MQ==
+chunk G1sxOzVB
+event data MQ== 1 0 0
+event data G1sxOzVB ctrl+up 0 0
+case r185 1 0 3
+chunk G1s5Nzs1dQ==
+chunk G09Q
+chunk G1syMDB+cBtbMjAxfg==
+event data G1s5Nzs1dQ== ctrl+a 0 0
+event data G09Q f1 0 0
+event paste cA==
+case r186 0 0 3
+chunk Wg==
+chunk G1tC
+chunk G09Q
+event data Wg== Z 0 0
+event data G1tC down 0 0
+event data G09Q f1 0 0
+case r187 1 0 1
+chunk G1sxOzVB
+event data G1sxOzVB ctrl+up 0 0
+case r188 0 0 4
+chunk G1tC
+chunk AQ==
+chunk G1syMDB+cBtbMjAxfg==
+chunk G1tC
+event data G1tC down 0 0
+event data AQ== ctrl+a 0 0
+event paste cA==
+event data G1tC down 0 0
+case r189 1 0 4
+chunk AQ==
+chunk MQ==
+chunk AQ==
+chunk MQ==
+event data AQ== ctrl+a 0 0
+event data MQ== 1 0 0
+event data AQ== ctrl+a 0 0
+event data MQ== 1 0 0
+case r190 0 0 2
+chunk AQ==
+chunk G1syMDB+cBtbMjAxfg==
+event data AQ== ctrl+a 0 0
+event paste cA==
+case r191 1 0 1
+chunk Aw==
+event data Aw== ctrl+c 0 0
+case r192 0 0 3
+chunk YQ==
+chunk Aw==
+chunk YQ==
+event data YQ== a 0 0
+event data Aw== ctrl+c 0 0
+event data YQ== a 0 0
+case r193 1 0 3
+chunk Wg==
+chunk 5Lit
+chunk G1tB
+event data Wg== Z 0 0
+event data 5Lit - 0 0
+event data G1tB up 0 0
+case r194 0 0 2
+chunk 5Lit
+chunk G1syMDB+cBtbMjAxfg==
+event data 5Lit - 0 0
+event paste cA==
+case r195 1 0 3
+chunk 5Lit
+chunk G09Q
+chunk G09Q
+event data 5Lit - 0 0
+event data G09Q f1 0 0
+event data G09Q f1 0 0
+case r196 0 0 4
+chunk G1sxOzVB
+chunk 5Lit
+chunk Wg==
+chunk G09Q
+event data G1sxOzVB ctrl+up 0 0
+event data 5Lit - 0 0
+event data Wg== Z 0 0
+event data G09Q f1 0 0
+case r197 1 0 1
+chunk G1tC
+event data G1tC down 0 0
+case r198 0 0 3
+chunk G1syNzs1Ozk3fg==
+chunk G2E=
+chunk G1tB
+event data G1syNzs1Ozk3fg== ctrl+a 0 0
+event data G2E= alt+a 0 0
+event data G1tB up 0 0
+case r199 1 0 4
+chunk G1syNzs1Ozk3fg==
+chunk YQ==
+chunk Wg==
+chunk G1syMDB+cBtbMjAxfg==
+event data G1syNzs1Ozk3fg== ctrl+a 0 0
+event data YQ== a 0 0
+event data Wg== Z 0 0
+event paste cA==

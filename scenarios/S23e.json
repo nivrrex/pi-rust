@@ -1,0 +1,19 @@
+{
+  "id": "S23e",
+  "description": "多级祖先目录：cwd 无候选，文件在 work 的父目录（键用 ../AGENTS.md 写入 <tmp>），project_context 应含祖先内容",
+  "provider": "openai-completions",
+  "model": "mock-model",
+  "mode": "print",
+  "prompt": "say hi",
+  "files": {
+    "../AGENTS.md": "# 顶层祖先\n\n- 祖先级：这句话来自 work 的父目录。\n"
+  },
+  "globalFiles": {
+    "CLAUDE.md": "# 全局规则\n\n- 全局级：回答用中文。\n"
+  },
+  "responses": [
+    {
+      "file": "fixtures/sse/openai/text-basic.sse"
+    }
+  ]
+}

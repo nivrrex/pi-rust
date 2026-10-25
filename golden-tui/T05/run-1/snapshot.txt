@@ -1,0 +1,27 @@
+ pi v0.87.1
+ escape interrupt · ctrl+c/ctrl+d clear/exit · / commands · ! bash · ctrl+o more
+ Press ctrl+o to show full startup help and loaded resources.
+
+ Pi can explain its own features and look up its docs. Ask it how to use or extend Pi.
+
+[Context]
+  AGENTS.md
+
+ say hi
+
+ 标题
+
+ - 甲
+ - 乙
+
+ 行内 code 与结尾。
+
+ ```
+   fn main() {}
+ ```
+
+────────────────────────────────────────────────────────────────────────────────────────────────────
+
+────────────────────────────────────────────────────────────────────────────────────────────────────
+<TMP>/work
+1.1%/128k (auto)                                                                          mock-model

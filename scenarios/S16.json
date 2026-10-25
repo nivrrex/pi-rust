@@ -1,0 +1,51 @@
+{
+  "id": "S16",
+  "description": "rpc：set_thinking_level/set_model/get_state 后**顺序跑两轮** prompt（script 等 agent_settled 再发第二条），覆盖 model_change/thinking_level_change 条目与两轮的 usage。**方案 A（P4-5f）**：原场景把第二条 prompt 紧跟在第一条的响应之后发，形成“在飞 prompt”的竞态，TS 的异步拒绝落在本轮初始事件之后、pi-rs 是同步的——那是真实的调度差异（已记入 notes/decisions.md），不是缺陷；为让本场景有确定性判据，改成等 agent_settled 后再发第二条。",
+  "provider": "openai-completions",
+  "model": "mock-model",
+  "mode": "rpc",
+  "reasoningModel": true,
+  "commands": [
+    {
+      "type": "set_thinking_level",
+      "level": "high"
+    },
+    {
+      "type": "set_model",
+      "provider": "mock",
+      "modelId": "mock-model"
+    },
+    {
+      "type": "get_state"
+    },
+    {
+      "type": "prompt",
+      "message": "first"
+    }
+  ],
+  "responses": [
+    {
+      "file": "fixtures/sse/openai/text-basic.sse"
+    }
+  ],
+  "script": [
+    {
+      "action": "waitEvent",
+      "match": "\"type\":\"agent_settled\""
+    },
+    {
+      "action": "send",
+      "command": {
+        "type": "prompt",
+        "message": "second"
+      }
+    },
+    {
+      "action": "waitEvent",
+      "match": "\"type\":\"agent_settled\""
+    },
+    {
+      "action": "waitExit"
+    }
+  ]
+}

@@ -1,0 +1,17 @@
+{
+  "id": "T38-resume-list",
+  "cols": 100,
+  "rows": 30,
+  "helperExit": 0,
+  "exitCode": 0,
+  "stderr": "",
+  "mockStderr": "",
+  "requestLog": "/tmp/n38-3/requests.jsonl",
+  "snapshotOffsets": [
+    {
+      "name": "all-scope",
+      "offset": 8752
+    }
+  ],
+  "sessionDir": "/tmp/n38-3/session"
+}

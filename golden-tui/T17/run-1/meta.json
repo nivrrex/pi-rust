@@ -1,0 +1,21 @@
+{
+  "id": "T17",
+  "cols": 100,
+  "rows": 30,
+  "helperExit": 0,
+  "exitCode": 0,
+  "stderr": "",
+  "mockStderr": "",
+  "requestLog": "<REPO>/tmp/T17ts/run-1/requests.jsonl",
+  "snapshotOffsets": [
+    {
+      "name": "settings-open",
+      "offset": 6313
+    },
+    {
+      "name": "settings-cancelled",
+      "offset": 7494
+    }
+  ],
+  "sessionDir": "<REPO>/tmp/T17ts/run-1/session"
+}

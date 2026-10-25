@@ -1,0 +1,57 @@
+{
+  "id": "T40-continue",
+  "description": "P7-7d4 取证：TS 用 --continue 打开预置会话，看是否重放历史",
+  "provider": "openai-completions",
+  "model": "mock-model",
+  "mode": "print",
+  "prompt": "say hi",
+  "files": {
+    "AGENTS.md": "# 项目规则\n\n- 项目级：改代码前先跑测试。\n"
+  },
+  "globalFiles": {
+    "CLAUDE.md": "# 全局规则\n\n- 全局级：回答用中文。\n"
+  },
+  "tui": {
+    "cols": 100,
+    "rows": 30,
+    "snapshots": [
+      "after-continue"
+    ],
+    "steps": [
+      {
+        "action": "delay",
+        "ms": 10000
+      },
+      {
+        "action": "waitStable",
+        "quietMs": 2000,
+        "timeoutMs": 25000
+      },
+      {
+        "action": "snapshot",
+        "name": "after-continue"
+      },
+      {
+        "action": "type",
+        "text": "\u0004"
+      },
+      {
+        "action": "waitStable",
+        "quietMs": 500,
+        "timeoutMs": 10000
+      }
+    ]
+  },
+  "responses": [
+    {
+      "file": "fixtures/sse/openai/text-basic.sse"
+    }
+  ],
+  "sessionFiles": {
+    "fileName": "2026-01-01T00-00-00-000Z_01a1694e-seeded.jsonl",
+    "content": "{\"type\":\"session\",\"version\":3,\"id\":\"01a1694e-seeded\",\"timestamp\":\"2026-01-01T00:00:00.000Z\",\"cwd\":\"<CWD>\"}\n{\"type\":\"model_change\",\"id\":\"e1\",\"parentId\":null,\"timestamp\":\"2026-01-01T00:00:00.000Z\",\"provider\":\"openai-completions\",\"modelId\":\"mock-model\"}\n{\"type\":\"thinking_level_change\",\"id\":\"t1\",\"parentId\":\"e1\",\"timestamp\":\"2026-01-01T00:00:00.001Z\",\"thinkingLevel\":\"off\"}\n{\"type\":\"message\",\"id\":\"m1\",\"parentId\":\"t1\",\"timestamp\":\"2026-01-01T00:00:01.000Z\",\"message\":{\"role\":\"user\",\"content\":\"hello from seeded session\",\"timestamp\":1767225601000}}\n{\"type\":\"message\",\"id\":\"m2\",\"parentId\":\"m1\",\"timestamp\":\"2026-01-01T00:00:02.000Z\",\"message\":{\"role\":\"assistant\",\"content\":[{\"type\":\"text\",\"text\":\"seeded assistant reply\"}],\"api\":\"openai-completions\",\"provider\":\"openai-completions\",\"model\":\"mock-model\",\"usage\":{\"input\":10,\"output\":2,\"cacheRead\":0,\"cacheWrite\":0,\"reasoning\":0,\"totalTokens\":12,\"cost\":{\"input\":9.999999999999999e-06,\"output\":4e-06,\"cacheRead\":0,\"cacheWrite\":0,\"total\":1.3999999999999998e-05}},\"stopReason\":\"stop\",\"timestamp\":1767225602000}}\n"
+  },
+  "cliArgs": [
+    "--continue"
+  ]
+}

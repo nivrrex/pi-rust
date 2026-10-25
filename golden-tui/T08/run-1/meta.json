@@ -1,0 +1,17 @@
+{
+  "id": "T08",
+  "cols": 100,
+  "rows": 30,
+  "helperExit": 0,
+  "exitCode": 0,
+  "stderr": "",
+  "mockStderr": "",
+  "requestLog": "<REPO>/tmp/t08ts/run-1/requests.jsonl",
+  "snapshotOffsets": [
+    {
+      "name": "after-second",
+      "offset": 9802
+    }
+  ],
+  "sessionDir": "<REPO>/tmp/t08ts/run-1/session"
+}

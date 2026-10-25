@@ -1,0 +1,125 @@
+{
+  "id": "T67-resume-named",
+  "description": "P7-7d：/resume 里有名字的会话显示名字而非首条消息",
+  "provider": "openai-completions",
+  "model": "mock-model",
+  "mode": "tui",
+  "prompt": "say hi",
+  "files": {
+    "AGENTS.md": "# 项目规则\n\n- 项目级：改代码前先跑测试。\n"
+  },
+  "globalFiles": {},
+  "sessionFiles": [
+    {
+      "fileName": "2026-01-02T00-00-00-000Z_nnnn1111.jsonl",
+      "content": "{\"type\":\"session\",\"version\":3,\"id\":\"nnnn1111\",\"timestamp\":\"2026-01-02T00:00:00.000Z\",\"cwd\":\"<CWD>\"}\n{\"type\":\"model_change\",\"id\":\"nnnn1111e\",\"parentId\":null,\"timestamp\":\"2026-01-02T00:00:00.000Z\",\"provider\":\"openai-completions\",\"modelId\":\"mock-model\"}\n{\"type\":\"thinking_level_change\",\"id\":\"nnnn1111t\",\"parentId\":\"nnnn1111e\",\"timestamp\":\"2026-01-02T00:00:00.000Z\",\"thinkingLevel\":\"off\"}\n{\"type\":\"message\",\"id\":\"nnnn1111u\",\"parentId\":\"nnnn1111t\",\"timestamp\":\"2026-01-02T00:00:00.000Z\",\"message\":{\"role\":\"user\",\"content\":\"first message here\",\"timestamp\":1767312000000}}\n{\"type\":\"message\",\"id\":\"nnnn1111a\",\"parentId\":\"nnnn1111u\",\"timestamp\":\"2026-01-02T00:00:00.000Z\",\"message\":{\"role\":\"assistant\",\"content\":[{\"type\":\"text\",\"text\":\"ok first message here\"}],\"api\":\"openai-completions\",\"provider\":\"openai-completions\",\"model\":\"mock-model\",\"usage\":{\"input\":10,\"output\":2,\"cacheRead\":0,\"cacheWrite\":0,\"reasoning\":0,\"totalTokens\":12,\"cost\":{\"input\":1e-05,\"output\":4e-06,\"cacheRead\":0,\"cacheWrite\":0,\"total\":1.4e-05}},\"stopReason\":\"stop\",\"timestamp\":1767312001000}}\n{\"type\":\"session_info\",\"id\":\"nnnn1111n\",\"parentId\":\"nnnn1111a\",\"timestamp\":\"2026-01-02T00:00:00.000Z\",\"name\":\"my named session\"}\n"
+    },
+    {
+      "fileName": "2026-01-03T00-00-00-000Z_uuuu2222.jsonl",
+      "content": "{\"type\":\"session\",\"version\":3,\"id\":\"uuuu2222\",\"timestamp\":\"2026-01-03T00:00:00.000Z\",\"cwd\":\"<CWD>\"}\n{\"type\":\"model_change\",\"id\":\"uuuu2222e\",\"parentId\":null,\"timestamp\":\"2026-01-03T00:00:00.000Z\",\"provider\":\"openai-completions\",\"modelId\":\"mock-model\"}\n{\"type\":\"thinking_level_change\",\"id\":\"uuuu2222t\",\"parentId\":\"uuuu2222e\",\"timestamp\":\"2026-01-03T00:00:00.000Z\",\"thinkingLevel\":\"off\"}\n{\"type\":\"message\",\"id\":\"uuuu2222u\",\"parentId\":\"uuuu2222t\",\"timestamp\":\"2026-01-03T00:00:00.000Z\",\"message\":{\"role\":\"user\",\"content\":\"unnamed message\",\"timestamp\":1767398400000}}\n{\"type\":\"message\",\"id\":\"uuuu2222a\",\"parentId\":\"uuuu2222u\",\"timestamp\":\"2026-01-03T00:00:00.000Z\",\"message\":{\"role\":\"assistant\",\"content\":[{\"type\":\"text\",\"text\":\"ok unnamed message\"}],\"api\":\"openai-completions\",\"provider\":\"openai-completions\",\"model\":\"mock-model\",\"usage\":{\"input\":10,\"output\":2,\"cacheRead\":0,\"cacheWrite\":0,\"reasoning\":0,\"totalTokens\":12,\"cost\":{\"input\":1e-05,\"output\":4e-06,\"cacheRead\":0,\"cacheWrite\":0,\"total\":1.4e-05}},\"stopReason\":\"stop\",\"timestamp\":1767398401000}}\n"
+    }
+  ],
+  "responses": [
+    {
+      "file": "fixtures/sse/openai/text-basic.sse"
+    }
+  ],
+  "tui": {
+    "cols": 100,
+    "rows": 30,
+    "snapshots": [
+      "threaded",
+      "recent"
+    ],
+    "steps": [
+      {
+        "action": "waitScreen",
+        "contains": "Pi can explain",
+        "timeoutMs": 25000
+      },
+      {
+        "action": "type",
+        "text": "/resume"
+      },
+      {
+        "action": "waitStable",
+        "quietMs": 800,
+        "timeoutMs": 15000
+      },
+      {
+        "action": "type",
+        "text": "\r"
+      },
+      {
+        "action": "delay",
+        "ms": 8000
+      },
+      {
+        "action": "waitStable",
+        "quietMs": 1500,
+        "timeoutMs": 20000
+      },
+      {
+        "action": "type",
+        "text": "\t"
+      },
+      {
+        "action": "delay",
+        "ms": 4000
+      },
+      {
+        "action": "waitStable",
+        "quietMs": 1500,
+        "timeoutMs": 20000
+      },
+      {
+        "action": "snapshot",
+        "name": "threaded"
+      },
+      {
+        "action": "type",
+        "text": "\u0013"
+      },
+      {
+        "action": "delay",
+        "ms": 1200
+      },
+      {
+        "action": "waitStable",
+        "quietMs": 1200,
+        "timeoutMs": 20000
+      },
+      {
+        "action": "snapshot",
+        "name": "recent"
+      },
+      {
+        "action": "type",
+        "text": "\u001b"
+      },
+      {
+        "action": "waitStable",
+        "quietMs": 600,
+        "timeoutMs": 10000
+      },
+      {
+        "action": "type",
+        "text": "\u001b"
+      },
+      {
+        "action": "waitStable",
+        "quietMs": 600,
+        "timeoutMs": 10000
+      },
+      {
+        "action": "type",
+        "text": "\u0004"
+      },
+      {
+        "action": "waitStable",
+        "quietMs": 500,
+        "timeoutMs": 10000
+      }
+    ]
+  }
+}

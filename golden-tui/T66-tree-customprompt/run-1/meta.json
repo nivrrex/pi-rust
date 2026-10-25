@@ -1,0 +1,21 @@
+{
+  "id": "T66-tree-customprompt",
+  "cols": 100,
+  "rows": 30,
+  "helperExit": 0,
+  "exitCode": -9,
+  "stderr": "",
+  "mockStderr": "",
+  "requestLog": "/tmp/n66b/requests.jsonl",
+  "snapshotOffsets": [
+    {
+      "name": "after-summarize",
+      "offset": 15361
+    },
+    {
+      "name": "custom-prompt",
+      "offset": 15361
+    }
+  ],
+  "sessionDir": "/tmp/n66b/session"
+}

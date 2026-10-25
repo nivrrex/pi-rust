@@ -1,0 +1,44 @@
+{
+  "name": "system-only",
+  "input": {
+    "systemPrompt": "You are a mock.",
+    "hasTools": false,
+    "reasoning": null,
+    "cacheRetention": null
+  },
+  "error": null,
+  "path": "/v1/messages?beta=true",
+  "headers": {
+    "anthropic-version": "2023-06-01",
+    "x-api-key": "mock-key",
+    "content-type": "application/json"
+  },
+  "body": {
+    "model": "mock-model",
+    "messages": [
+      {
+        "role": "user",
+        "content": [
+          {
+            "type": "text",
+            "text": "hello",
+            "cache_control": {
+              "type": "ephemeral"
+            }
+          }
+        ]
+      }
+    ],
+    "max_tokens": 4096,
+    "stream": true,
+    "system": [
+      {
+        "type": "text",
+        "text": "You are a mock.",
+        "cache_control": {
+          "type": "ephemeral"
+        }
+      }
+    ]
+  }
+}

@@ -1,0 +1,93 @@
+{
+  "id": "S20e",
+  "description": "手动 compact 的成功路径 + 摘要请求先失败可重试再成功：rpc 事件流应出现三个 summarization_retry_*（ref agent-session.ts:188-205/3339-3360）",
+  "provider": "openai-completions",
+  "model": "mock-model",
+  "mode": "rpc",
+  "contextWindow": 200000,
+  "maxTokens": 1024,
+  "settings": {
+    "compaction": {
+      "enabled": true,
+      "reserveTokens": 1000,
+      "keepRecentTokens": 1
+    }
+  },
+  "script": [
+    {
+      "action": "waitState",
+      "match": "\"isStreaming\":false"
+    },
+    {
+      "action": "send",
+      "command": {
+        "type": "prompt",
+        "message": "第一轮：说点长内容"
+      }
+    },
+    {
+      "action": "waitState",
+      "match": "\"isStreaming\":false"
+    },
+    {
+      "action": "send",
+      "command": {
+        "type": "prompt",
+        "message": "第二轮：再说点长内容"
+      }
+    },
+    {
+      "action": "waitState",
+      "match": "\"isStreaming\":false"
+    },
+    {
+      "action": "send",
+      "command": {
+        "type": "compact",
+        "customInstructions": "只保留结论"
+      }
+    },
+    {
+      "action": "waitState",
+      "match": "\"isStreaming\":false"
+    },
+    {
+      "action": "send",
+      "command": {
+        "type": "get_state"
+      }
+    },
+    {
+      "action": "send",
+      "command": {
+        "type": "get_entries"
+      }
+    },
+    {
+      "action": "send",
+      "command": {
+        "type": "get_messages"
+      }
+    },
+    {
+      "action": "waitExit"
+    }
+  ],
+  "responses": [
+    {
+      "file": "fixtures/sse/openai/big-text-usage.sse"
+    },
+    {
+      "file": "fixtures/sse/openai/big-text-usage.sse"
+    },
+    {
+      "file": "fixtures/sse/openai/overflow-error.sse"
+    },
+    {
+      "file": "fixtures/sse/openai/summary.sse"
+    },
+    {
+      "file": "fixtures/sse/openai/summary.sse"
+    }
+  ]
+}

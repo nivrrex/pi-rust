@@ -1,0 +1,17 @@
+{
+  "id": "T37-resume-all",
+  "cols": 100,
+  "rows": 30,
+  "helperExit": 0,
+  "exitCode": 0,
+  "stderr": "",
+  "mockStderr": "",
+  "requestLog": "/tmp/n37-1/requests.jsonl",
+  "snapshotOffsets": [
+    {
+      "name": "all-scope",
+      "offset": 7168
+    }
+  ],
+  "sessionDir": "/tmp/n37-1/session"
+}

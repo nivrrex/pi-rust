@@ -1,0 +1,17 @@
+{
+  "id": "T12",
+  "cols": 100,
+  "rows": 30,
+  "helperExit": 0,
+  "exitCode": 0,
+  "stderr": "",
+  "mockStderr": "",
+  "requestLog": "<REPO>/tmp/t12ts/run-1/requests.jsonl",
+  "snapshotOffsets": [
+    {
+      "name": "pasted",
+      "offset": 4503
+    }
+  ],
+  "sessionDir": "<REPO>/tmp/t12ts/run-1/session"
+}

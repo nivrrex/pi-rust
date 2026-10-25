@@ -1,0 +1,17 @@
+{
+  "id": "T52-tree-summarize",
+  "cols": 100,
+  "rows": 30,
+  "helperExit": 0,
+  "exitCode": 0,
+  "stderr": "",
+  "mockStderr": "",
+  "requestLog": "/tmp/t52b-1/requests.jsonl",
+  "snapshotOffsets": [
+    {
+      "name": "after-summarize",
+      "offset": 15395
+    }
+  ],
+  "sessionDir": "/tmp/t52b-1/session"
+}

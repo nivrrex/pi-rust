@@ -1,0 +1,13 @@
+{
+  "id": "S02",
+  "description": "read 工具后回复",
+  "provider": "openai-completions",
+  "model": "mock-model",
+  "mode": "print",
+  "prompt": "read input.txt",
+  "files": { "input.txt": "alpha\nbeta\n" },
+  "responses": [
+    { "file": "fixtures/sse/openai/tool-read.sse" },
+    { "file": "fixtures/sse/openai/text-basic.sse" }
+  ]
+}

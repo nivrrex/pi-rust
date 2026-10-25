@@ -1,0 +1,25 @@
+{
+  "id": "T10",
+  "cols": 100,
+  "rows": 30,
+  "helperExit": 0,
+  "exitCode": 0,
+  "stderr": "",
+  "mockStderr": "",
+  "requestLog": "<REPO>/tmp/t10ts/run-1/requests.jsonl",
+  "snapshotOffsets": [
+    {
+      "name": "up-1",
+      "offset": 12439
+    },
+    {
+      "name": "up-2",
+      "offset": 12588
+    },
+    {
+      "name": "down-1",
+      "offset": 12738
+    }
+  ],
+  "sessionDir": "<REPO>/tmp/t10ts/run-1/session"
+}

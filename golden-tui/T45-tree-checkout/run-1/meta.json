@@ -1,0 +1,21 @@
+{
+  "id": "T45-tree-checkout",
+  "cols": 100,
+  "rows": 30,
+  "helperExit": 0,
+  "exitCode": 0,
+  "stderr": "",
+  "mockStderr": "",
+  "requestLog": "/tmp/n45d/requests.jsonl",
+  "snapshotOffsets": [
+    {
+      "name": "summarize-prompt",
+      "offset": 10737
+    },
+    {
+      "name": "after-restore",
+      "offset": 13084
+    }
+  ],
+  "sessionDir": "/tmp/n45d/session"
+}

@@ -1,0 +1,1214 @@
+//! pi-cli：`pi-rs` 二进制入口。
+//!
+//! 规格来源：`ref/pi-0.87.1/packages/coding-agent/src/main.ts` 与 `cli/args.ts`，
+//! 抽取结果见 `spec/i-cli.md`。
+//!
+//! **职责边界**：解析参数（`args.rs`，纯逻辑）、判定模式、准备运行期（`runtime.rs`）、
+//! 跑 print 模式（`print_mode.rs`）。遇到不该继续的情况一律**明确报错退出**。
+//!
+//! **与 TS 的一处有意差异**：TS 把未识别的 `--flag` 交给扩展处理；本项目没有扩展机制，
+//! 因此未识别的 `--flag` 与已识别但未实现的 flag 都报错退出，不静默忽略。
+
+#![forbid(unsafe_code)]
+
+// 用**库**里的解析器，不要在 bin 里再声明一份 `mod args;`——两份会是不同的类型
+// （`args::Args` 与 `pi_cli::args::Args`），编译器会以类型不匹配的形式指出这一点。
+use pi_cli::args::{self, AppMode, Args};
+use std::io::IsTerminal;
+use std::process::ExitCode;
+use std::sync::Arc;
+
+/// 加载内置模型目录（P7-6am/M）。
+///
+/// ref 的目录存在 `<agentDir>/models-store.json`（`core/models-store.ts:46-60`，形状为
+/// `{provider: {models:[…], checkedAt, etag}}`）；也兼容 oracle 导出的 `{provider:[…]}` 形状
+/// （如 `pi-official-catalog.json`）。缺失或解析失败都**不致命**：退回"无目录"（即原来的行为）。
+fn load_builtin_catalog(agent_dir: &std::path::Path) -> Option<pi_ai::config::BuiltInCatalog> {
+    for name in ["models-store.json", "pi-official-catalog.json"] {
+        let path = agent_dir.join(name);
+        let Ok(text) = std::fs::read_to_string(&path) else {
+            continue;
+        };
+        match pi_ai::config::BuiltInCatalog::from_json(&text) {
+            Ok(catalog) => return Some(catalog),
+            Err(error) => eprintln!("pi-rs: {} 忽略（{error}）", path.display()),
+        }
+    }
+    None
+}
+
+fn main() -> ExitCode {
+    let argv: Vec<String> = std::env::args().skip(1).collect();
+    let parsed = args::parse(&argv);
+
+    if parsed.has_errors() {
+        // 解析期诊断的打印格式照 `main.ts:608-615`：`Error: <message>` / `Warning: <message>`
+        // （TS 对任一 error 诊断 `process.exit(1)`；W1(b) 实测缺值 strerr =
+        // `Error: --tui-mode requires regular or fullscreen`）。
+        for diagnostic in &parsed.diagnostics {
+            let prefix = if diagnostic.is_error {
+                "Error"
+            } else {
+                "Warning"
+            };
+            eprintln!("{prefix}: {}", diagnostic.message);
+        }
+        return ExitCode::from(1);
+    }
+    if parsed.help {
+        print_help();
+        return ExitCode::SUCCESS;
+    }
+    if parsed.version {
+        println!("pi-rs {}", pi_core::VERSION);
+        return ExitCode::SUCCESS;
+    }
+    // `--tui-mode` 的取值校验（ref `cli/args.ts:213-219`；**运行期文案以 W1(d) 实测为准**：
+    // TS 对非法值输出 `Error: Invalid TUI mode "<v>". Valid values: regular, fullscreen` 并 rc=1）。
+    if let Some(mode) = parsed.tui_mode.as_deref() {
+        if mode != "regular" && mode != "fullscreen" {
+            eprintln!("Error: Invalid TUI mode \"{mode}\". Valid values: regular, fullscreen");
+            return ExitCode::from(1);
+        }
+    }
+    if let Some(code) = reject_unsupported(&parsed) {
+        return code;
+    }
+
+    let mode = parsed.app_mode(
+        std::io::stdin().is_terminal(),
+        std::io::stdout().is_terminal(),
+    );
+    match mode {
+        AppMode::PrintText => run_print(&parsed, false),
+        AppMode::PrintJson => run_print(&parsed, true),
+        AppMode::Rpc => run_rpc(&parsed),
+        // 交互模式（P7-3/W2）：`--tui-mode fullscreen` 本批仍拒绝；`regular`（默认）在 TTY 下进最小 TUI。
+        AppMode::Interactive => {
+            if parsed.tui_mode.as_deref() == Some("fullscreen") {
+                eprintln!("pi-rs: --tui-mode fullscreen 尚未实现（本批只做 regular 的最小 TUI）");
+                return ExitCode::from(1);
+            }
+            if !std::io::stdin().is_terminal() {
+                eprintln!("pi-rs: 模式 interactive 需要 TTY（stdin 不是终端）；用 -p/--print 或 --mode rpc");
+                return ExitCode::from(1);
+            }
+            let home = std::env::var("HOME").unwrap_or_default();
+            let paths = pi_cli::runtime::resolve_paths(
+                &|key| std::env::var(key).ok(),
+                &home,
+                parsed.session_dir.as_deref(),
+            );
+            let cwd = std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("."));
+            // 启动屏的 `[Context]` 段：复用 P6-1 的发现规则，只显示路径。
+            let discovered =
+                pi_core::project_context::load_project_context_files(&cwd, &paths.agent_dir);
+            let mut state = pi_tui::TuiState::new(
+                pi_core::VERSION,
+                cwd.to_string_lossy().to_string(),
+                "0.0%/128k (auto)",
+            );
+            state.context_files = discovered
+                .files
+                .iter()
+                .map(|(path, _)| path.clone())
+                .collect();
+            // 状态区右侧的模型名：取 settings.json 的 `defaultModel`（run-tui 会写入 `mock-model`）。
+            // 状态区右侧的模型段：ref `components/footer.ts:170-171` 取**已解析模型的 id**，
+            // 缺省显示 `no-model`（不是取 settings 的 defaultModel）。TUI 路径尚未解析模型
+            // （P7-4 W3 才接入 agent loop），这里先用 settings 的 defaultModel 近似，缺失则 `no-model`。
+            state.model = load_settings(&paths)
+                .ok()
+                .and_then(|settings| settings.default_model.clone())
+                .unwrap_or_else(|| "no-model".to_string());
+            // W3-2：为 TUI 装配 agent 部件（与 print 路径同一批函数：settings 解析模型 →
+            // models.json 校验/resolve → provider → 系统提示 → LoopConfig）。
+            let agent_parts = match build_tui_agent_parts(&parsed, &paths, &cwd, &mut state) {
+                Ok(parts) => Some(parts),
+                Err(code) => return code,
+            };
+            let runtime = match tokio::runtime::Builder::new_current_thread()
+                .enable_all()
+                .build()
+            {
+                Ok(runtime) => runtime,
+                Err(error) => {
+                    eprintln!("pi-rs: 启动 TUI 失败：{error}");
+                    return ExitCode::from(1);
+                }
+            };
+            match runtime.block_on(async { pi_cli::tui::run(state, agent_parts) }) {
+                Ok(code) => ExitCode::from(u8::try_from(code).unwrap_or(1)),
+                Err(error) => {
+                    eprintln!("pi-rs: TUI 运行失败：{error}");
+                    ExitCode::from(1)
+                }
+            }
+        }
+    }
+}
+
+/// rpc 模式：stdin 收命令、stdout 发响应与事件。〔`spec/h-rpc.md`〕
+///
+/// **运行时语义**：`prompt` 会**阻塞**到该次运行结束（期间把事件逐行写到 stdout），
+/// 这与 TS 的异步派发不同——TS 的 `prompt` 响应先回、事件随后到；本实现把响应写在
+/// 运行**之后**。差异已在 notes 记录，未按 TS 形状对齐。
+fn run_rpc(parsed: &Args) -> ExitCode {
+    use std::io::BufRead;
+
+    let home = std::env::var("HOME").unwrap_or_default();
+    let paths = pi_cli::runtime::resolve_paths(
+        &|key| std::env::var(key).ok(),
+        &home,
+        parsed.session_dir.as_deref(),
+    );
+    let settings = match load_settings(&paths) {
+        Ok(settings) => settings,
+        Err(code) => return code,
+    };
+    let (provider_name, model_id) = match pi_cli::settings::resolve_model(
+        parsed.provider.as_deref(),
+        parsed.model.as_deref(),
+        &settings,
+    ) {
+        Ok(pair) => pair,
+        Err(error) => {
+            eprintln!("pi-rs: {error}");
+            return ExitCode::from(1);
+        }
+    };
+    let (provider_name, model_id) = (provider_name.as_str(), model_id.as_str());
+    let models_path = paths.agent_dir.join("models.json");
+    let config = match std::fs::read_to_string(&models_path)
+        .map_err(|error| error.to_string())
+        .and_then(|text| {
+            serde_json::from_str::<pi_ai::config::ModelsConfig>(&text)
+                .map_err(|error| error.to_string())
+        }) {
+        Ok(config) => config,
+        Err(error) => {
+            eprintln!("pi-rs: {} 不可用：{error}", models_path.display());
+            return ExitCode::from(1);
+        }
+    };
+    // ref `core/model-config.ts:305-312`：`Check` 失败就**整份**拒绝（不是"用到哪个才校验哪个"）。
+    if let Err(error) = config.validate() {
+        eprintln!("pi-rs: {} 不可用：{error}", models_path.display());
+        return ExitCode::from(1);
+    }
+    // P7-6am/M：先尝试加载内置模型目录，供 `resolve_with_catalog` 补齐 api/baseUrl。
+    let catalog = load_builtin_catalog(&paths.agent_dir);
+    let resolved = match config.resolve_with_catalog(provider_name, model_id, catalog.as_ref()) {
+        Ok(resolved) => resolved,
+        Err(error) => {
+            eprintln!("pi-rs: {error}");
+            return ExitCode::from(1);
+        }
+    };
+    let provider = match pi_cli::runtime::build_provider(&resolved, parsed.api_key.clone()) {
+        Ok(provider) => provider,
+        Err(error) => {
+            eprintln!("pi-rs: {error}");
+            return ExitCode::from(1);
+        }
+    };
+    let runtime = match tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+    {
+        Ok(runtime) => runtime,
+        Err(error) => {
+            eprintln!("pi-rs: 起不了运行时：{error}");
+            return ExitCode::from(1);
+        }
+    };
+    // 共享状态：后台运行线程与主线程（读 stdin）都从这里取东西。
+    let rpc_cwd = std::env::current_dir().unwrap_or_default();
+    // `--continue`/`--resume`：把最近的会话**读回来当上下文**并续写同一个文件。
+    //
+    // 以前 rpc 路径**完全没有**处理这两个开关（处理只在 print 路径，见本文件后面的
+    // `newest_session_file` 一段），于是 `--continue` 对 rpc 是无效的：种子会话不会被
+    // 当成当前会话，`get_tree` 看到的是新建的空会话（S28 暴露的）。
+    // **启动时**固定"当前会话文件"（见 `RpcShared::loaded_session_path` 的说明）：
+    // 必须在任何会话文件被创建之前取，否则 `newest_session_file` 会挑到本进程新建的那份。
+    let mut rpc_loaded_session: Option<std::path::PathBuf> = None;
+    let (rpc_writer, rpc_transcript, rpc_system_written) = if parsed.no_session {
+        (None, Vec::new(), false)
+    } else if parsed.continue_session || parsed.resume {
+        let Some(path) = pi_cli::session_writer::newest_session_file(&paths.session_dir) else {
+            eprintln!(
+                "pi-rs: 找不到可续写的会话文件（目录：{}）",
+                paths.session_dir.display()
+            );
+            return ExitCode::from(1);
+        };
+        rpc_loaded_session = Some(path.clone());
+        let file = match pi_core::session_io::SessionFile::read(&path) {
+            Ok(file) => file,
+            Err(error) => {
+                eprintln!("pi-rs: 读会话文件失败：{error}");
+                return ExitCode::from(1);
+            }
+        };
+        // **压缩后必须用投影重建上下文**（与 print 路径同一规则、也与 ref 一致）：
+        // 父链走法（`transcript()`）不会应用 `compaction`/`context_edit` 的投影规则，
+        // 于是 `--continue` 续写会带着压缩前的原始消息、还丢掉压缩摘要 ⇒ 请求体多一条
+        // （golden/S20c 的 C 层：golden 6 条、pi-rs 7 条）。`System` 仍按既有约定单独算。
+        let transcript = match pi_core::agent::projection::build_session_projection(
+            &file.entries,
+            pi_core::agent::projection::LeafSelector::Unspecified,
+        ) {
+            Ok(projection) => projection
+                .messages
+                .into_iter()
+                .filter(|message| !matches!(message, pi_ai::message::Message::System { .. }))
+                .collect(),
+            Err(error) => {
+                eprintln!("pi-rs: 读会话消息失败：{error}");
+                return ExitCode::from(1);
+            }
+        };
+        // 文件里已经有 system 条目吗？（`transcript()` 会把它过滤掉，所以要直接看条目。）
+        // 有→`system_written=true`，本轮就不再写第二条（golden 里续写只有一条 system）。
+        let has_system = file.has_system_message();
+        // ref `sdk.ts:196`：会话里没有 `thinking_level_change` 时**补一条**。
+        // rpc 路径此前完全不写它（print 路径有），导致 S28 的 `get_tree.leafId` 与 TS 差一条。
+        let had_thinking_level = file
+            .entries
+            .iter()
+            .any(|entry| entry.kind() == "thinking_level_change");
+        match pi_cli::session_writer::SessionWriter::open(&path) {
+            Ok(mut writer) => {
+                if !had_thinking_level {
+                    let level = if resolved.reasoning { "medium" } else { "off" };
+                    if let Err(error) = writer.append_thinking_level_change(level) {
+                        eprintln!("pi-rs: 写 thinking_level_change 失败：{error}");
+                        return ExitCode::from(1);
+                    }
+                }
+                (Some(writer), transcript, has_system)
+            }
+            Err(error) => {
+                eprintln!("pi-rs: 打开会话文件失败：{error}");
+                return ExitCode::from(1);
+            }
+        }
+    } else {
+        (None, Vec::new(), false)
+    };
+    // rpc 与 print 用同一份系统提示（此前 rpc 只传 `--system-prompt` 开关值，默认为空）。
+    let (rpc_sections, rpc_system_text, rpc_skills, rpc_templates) =
+        assemble_system_prompt(parsed, &rpc_cwd, &paths.agent_dir);
+    let rpc_compaction_settings = settings.compaction_settings();
+    let shared = std::sync::Arc::new(pi_cli::rpc_session::RpcShared {
+        provider,
+        tools: pi_cli::print_mode::default_tools(parsed),
+        cwd: rpc_cwd,
+        settings: rpc_compaction_settings,
+        context_window: resolved.context_window,
+        model: resolved.model_id.clone(),
+        skills: rpc_skills,
+        agent_dir: paths.agent_dir.clone(),
+        prompt_templates: rpc_templates,
+        sections: rpc_sections.clone(),
+        system_sections: rpc_sections.into_iter().collect(),
+        api: resolved.api.clone(),
+        reasoning: resolved.reasoning,
+        model_json: serde_json::json!({
+            "id": resolved.model_id.clone(),
+            "name": resolved.name.clone().unwrap_or_else(|| resolved.model_id.clone()),
+            "api": resolved.api.clone(),
+            "provider": resolved.provider_name.clone(),
+            "baseUrl": resolved.base_url.clone(),
+            "reasoning": resolved.reasoning,
+            "input": resolved.input_supported.clone(),
+            "cost": {
+                "input": rate_json(resolved.rates.input),
+                "output": rate_json(resolved.rates.output),
+                "cacheRead": rate_json(resolved.rates.cache_read),
+                "cacheWrite": rate_json(resolved.rates.cache_write),
+            },
+            "contextWindow": resolved.context_window,
+            "maxTokens": resolved.max_tokens,
+        }),
+        level: std::sync::Mutex::new(if resolved.reasoning { "medium" } else { "off" }.to_string()),
+        system_written: std::sync::Mutex::new(rpc_system_written),
+        // 会话 id/文件名在**启动时**就确定（TS 亦如此）；`--no-session` 时不预生成。
+        precomputed_session: if parsed.no_session {
+            None
+        } else {
+            Some(pi_cli::session_writer::precompute_session(
+                &paths.session_dir,
+            ))
+        },
+        // `--continue` 且原会话里没有 system 时，本轮写的那条 system 要 announce
+        // （print 路径同样的规则；新建会话的首轮不 announce）。
+        announce_system: std::sync::atomic::AtomicBool::new(
+            (parsed.continue_session || parsed.resume) && !rpc_system_written,
+        ),
+        system: Some(rpc_system_text),
+        max_tokens: resolved.max_tokens,
+        provider_name: provider_name.to_string(),
+        model_id: model_id.to_string(),
+        steering: std::sync::Arc::new(pi_core::agent::PendingQueue::new()),
+        follow_up: std::sync::Arc::new(pi_core::agent::PendingQueue::new()),
+        cancel: std::sync::Mutex::new(tokio_util::sync::CancellationToken::new()),
+        // 续写时先装入既有 transcript；`written` 相应置成它的长度（既有条目已在盘上）。
+        written: std::sync::Mutex::new(rpc_transcript.len()),
+        transcript: std::sync::Mutex::new(rpc_transcript),
+        session: std::sync::Mutex::new(rpc_writer),
+        busy: std::sync::atomic::AtomicBool::new(false),
+        out: std::sync::Mutex::new(Box::new(std::io::stdout())),
+        // 安全阀 2s：正常情况这段只持续到工具的首条进度上报（微秒级）；工具卡死时不让命令响应陪等。
+        section: pi_core::agent::section::SectionGate::new(std::time::Duration::from_secs(2)),
+        runtime: std::sync::Arc::new(runtime),
+        session_dir: if parsed.no_session {
+            None
+        } else {
+            Some(paths.session_dir.clone())
+        },
+        loaded_session_path: rpc_loaded_session,
+    });
+    let session = pi_cli::rpc_session::RpcSession::new(shared);
+
+    let stdin = std::io::stdin();
+    for line in stdin.lock().lines() {
+        let Ok(line) = line else { break };
+        if line.trim().is_empty() {
+            continue;
+        }
+        session.handle(&line);
+    }
+    ExitCode::SUCCESS
+}
+
+/// 费率 → JSON 数值。
+///
+/// **整数值要发成整数**：`serde_json` 会把 `f64` 的 `1.0` 渲染成 `1.0`，
+/// 而 TS 的 `models.json` 里是整数 `1`——JSON 文本上二者不同，比较器按文本比，
+/// S16 的 `get_state`/`set_model` 因此判为不同。
+fn rate_json(value: f64) -> serde_json::Value {
+    if value.fract() == 0.0 && value.abs() < 9_007_199_254_740_992.0 {
+        serde_json::json!(value as i64)
+    } else {
+        serde_json::json!(value)
+    }
+}
+
+/// 组装系统提示：sections + 按 `text.ts:15-21` 拼接后的正文。
+///
+/// **rpc 与 print 必须用同一份**——此前 rpc 只传了 `--system-prompt` 开关值（默认为空），
+/// 于是 rpc 场景的会话文件里**根本没有 system 条目**（S09a/S09b/S10/S11 恒少 1 条），
+/// 而且发给模型的请求也缺了系统提示。
+///
+/// `PI_PACKAGE_DIR` 与 TS 同义（`config.ts:389-393`）：差分时 runner 指向 TS 包目录，
+/// 这样 docs 段的三个路径才能与 golden 一致。
+/// `assemble_system_prompt` 的返回：段落、拼接后的正文、已加载技能、已加载 prompt template。
+/// （用别名避免 `clippy::type_complexity`。）
+type AssembledSystemPrompt = (
+    Vec<(String, String)>,
+    String,
+    Vec<pi_core::skills::Skill>,
+    Vec<pi_core::prompt_templates::PromptTemplate>,
+);
+
+fn assemble_system_prompt(
+    parsed: &Args,
+    cwd: &std::path::Path,
+    agent_dir: &std::path::Path,
+) -> AssembledSystemPrompt {
+    let package_dir = std::env::var("PI_PACKAGE_DIR").unwrap_or_default();
+    let selected_tools = if parsed.no_tools {
+        Vec::new()
+    } else {
+        pi_cli::print_mode::default_tools(parsed)
+            .iter()
+            .map(|tool| tool.name().to_string())
+            .collect::<Vec<String>>()
+    };
+    // 技能：`--no-skills` 时跳过发现（ref `resource-loader.ts:468-470`）；诊断逐条打 stderr
+    // （前缀照 `main.ts:98-104`），有 error 诊断则退出码 1（`main.ts:896-905`）。
+    let loaded_skills_result = if parsed.no_skills {
+        pi_core::skills::SkillsResult::default()
+    } else {
+        pi_core::skills::load_skills(cwd, agent_dir, &parsed.skill_paths)
+    };
+    for diagnostic in &loaded_skills_result.diagnostics {
+        eprintln!("Warning: {}", diagnostic.message);
+    }
+    let loaded_skills = loaded_skills_result.skills.clone();
+    // prompt template（ref `prompt-templates.ts:222-298`）：`-np` 时跳过发现；
+    // 项目目录 `<cwd>/.pi/prompts` 与 skills 同因不受信任而不加载。
+    let loaded_templates_result = pi_core::prompt_templates::load_prompt_templates(
+        cwd,
+        agent_dir,
+        &parsed.prompt_template_paths,
+        !parsed.no_prompt_templates,
+    );
+    for diagnostic in &loaded_templates_result.diagnostics {
+        eprintln!("Warning: {}", diagnostic.message);
+    }
+    let loaded_templates = loaded_templates_result.templates.clone();
+    // ref `skills.ts:356`：`disableModelInvocation` 的技能不进 system 提示
+    // （仍留在 `loaded_skills` 里供 `/skill:` 显式调用）。
+    let available_skills: Vec<pi_core::system_prompt::AvailableSkill> = loaded_skills_result
+        .skills
+        .iter()
+        .filter(|skill| !skill.disable_model_invocation)
+        .map(|skill| pi_core::system_prompt::AvailableSkill {
+            name: skill.name.clone(),
+            description: skill.description.clone(),
+            location: skill.file_path.clone(),
+        })
+        .collect();
+    let sections = pi_core::system_prompt::build_sections(&pi_core::system_prompt::SectionsInput {
+        cwd: cwd.to_string_lossy().to_string(),
+        package_dir,
+        selected_tools,
+        tool_prompts: pi_core::system_prompt::builtin_tool_prompts(),
+        prompt_guidelines: Vec::new(),
+        append_system_prompt: parsed.append_system_prompt.join("\n\n"),
+        // 项目指令文件（AGENTS.md 等）的发现规则：ref `core/resource-loader.ts:71-157`。
+        // 读失败告警由本模块统一输出到 stderr（与 ref 的 console.error 同通道；
+        // rpc 协议走 stdout，stderr 是独立诊断通道，见 rpc-client.ts:101-104）。
+        context_files: {
+            // `--no-context-files` / `-nc` ⇒ 不加载（ref `resource-loader.ts:515-521`）。
+            if parsed.no_context_files {
+                Vec::new()
+            } else {
+                let discovered =
+                    pi_core::project_context::load_project_context_files(cwd, agent_dir);
+                for warning in &discovered.warnings {
+                    eprintln!("{warning}");
+                }
+                discovered.files
+            }
+        },
+        skills: available_skills,
+        custom_prompt: parsed.system_prompt.clone(),
+    });
+    let text = pi_core::system_prompt::render_system_text(&sections);
+    (sections, text, loaded_skills, loaded_templates)
+}
+
+/// print 模式（text / json）。返回进程退出码。〔print-mode.ts:143-161〕
+fn run_print(parsed: &Args, json: bool) -> ExitCode {
+    let prompt = parsed.messages.join(" ");
+    let cwd = match std::env::current_dir() {
+        Ok(dir) => dir,
+        Err(error) => {
+            eprintln!("pi-rs: 取不到当前目录：{error}");
+            return ExitCode::from(1);
+        }
+    };
+    let home = std::env::var("HOME").unwrap_or_default();
+    let paths = pi_cli::runtime::resolve_paths(
+        &|key| std::env::var(key).ok(),
+        &home,
+        parsed.session_dir.as_deref(),
+    );
+
+    // 模型解析顺序：命令行 → settings.json 的 defaultProvider/defaultModel →
+    // （内置默认表与"第一个可用模型"未实现，报错而不是猜）。
+    let settings = match load_settings(&paths) {
+        Ok(settings) => settings,
+        Err(code) => return code,
+    };
+    let (provider_name, model_id) = match pi_cli::settings::resolve_model(
+        parsed.provider.as_deref(),
+        parsed.model.as_deref(),
+        &settings,
+    ) {
+        Ok(pair) => pair,
+        Err(error) => {
+            eprintln!("pi-rs: {error}");
+            return ExitCode::from(1);
+        }
+    };
+    let (provider_name, model_id) = (provider_name.as_str(), model_id.as_str());
+
+    let models_path = paths.agent_dir.join("models.json");
+    let config = match std::fs::read_to_string(&models_path) {
+        Ok(text) => match serde_json::from_str::<pi_ai::config::ModelsConfig>(&text) {
+            Ok(config) => {
+                // ref `core/model-config.ts:305-312`：整份校验（同 rpc 路径）。
+                if let Err(error) = config.validate() {
+                    eprintln!("pi-rs: {} 不可用：{error}", models_path.display());
+                    return ExitCode::from(1);
+                }
+                config
+            }
+            Err(error) => {
+                eprintln!("pi-rs: {} 解析失败：{error}", models_path.display());
+                return ExitCode::from(1);
+            }
+        },
+        Err(error) => {
+            eprintln!("pi-rs: 读不到 {}：{error}", models_path.display());
+            return ExitCode::from(1);
+        }
+    };
+    // P7-6am/M：先尝试加载内置模型目录，供 `resolve_with_catalog` 补齐 api/baseUrl。
+    let catalog = load_builtin_catalog(&paths.agent_dir);
+    let resolved = match config.resolve_with_catalog(provider_name, model_id, catalog.as_ref()) {
+        Ok(resolved) => resolved,
+        Err(error) => {
+            eprintln!("pi-rs: {error}");
+            return ExitCode::from(1);
+        }
+    };
+    let provider = match pi_cli::runtime::build_provider(&resolved, parsed.api_key.clone()) {
+        Ok(provider) => provider,
+        Err(error) => {
+            eprintln!("pi-rs: {error}");
+            return ExitCode::from(1);
+        }
+    };
+
+    // 系统提示：按 `system-prompt.ts` 的规则组装，再按 `text.ts:15-21` 拼接。
+    //
+    // **`PI_PACKAGE_DIR` 与 TS 同义**（`config.ts:389-393`）：差分时 runner 会把它指向
+    // TS 包目录，这样 docs 段里的三个路径才能与 golden 一致（golden 记的是绝对路径）。
+    // 生产环境应指向 pi-rs 自己的包目录——这一步**尚未实现**，见 notes 的已知缺口。
+    let (sections, system_text, loaded_skills, loaded_templates) =
+        assemble_system_prompt(parsed, &cwd, &paths.agent_dir);
+
+    let run_cwd = cwd.clone();
+    // json 模式必须**实时**输出（外部要能在运行中等到事件）；text 模式不需要。
+    let sink: Arc<dyn pi_core::agent::EventSink> = if json {
+        Arc::new(pi_cli::print_mode::StdoutJsonSink)
+    } else {
+        Arc::new(pi_cli::print_mode::NoopEventSink)
+    };
+    let mut written: usize = 0;
+    // `--continue`/`--resume` 时从已有会话重建的消息；非继续时为空。
+    let mut initial_messages: Vec<pi_ai::message::Message> = Vec::new();
+    // `--continue` 且会话里原先**没有 system** 时，本轮会补写一条 system 条目——
+    // 它是本轮的待处理消息，循环要 announce 它（golden/S17 的 B 层有两对消息事件）。
+    let mut announce_system = false;
+    // 推理模型才发这两项（golden/S16 实测；S01 等非推理场景不出现）：
+    // system 的角色用 `developer`（`openai-completions.ts:1225`），
+    // 思考等级下发成 `reasoning_effort`（`:925-928`）。
+    let instruction_role = if resolved.reasoning {
+        Some("developer".to_string())
+    } else {
+        None
+    };
+    let reasoning_effort = if resolved.reasoning {
+        Some(if resolved.reasoning { "medium" } else { "off" }.to_string())
+    } else {
+        None
+    };
+    let session_writer = if parsed.no_session {
+        None
+    } else if parsed.continue_session || parsed.resume {
+        // **续写**：找会话目录里**最新**的 `.jsonl`，从它重建上下文，并**续写同一文件**。
+        // golden/S14 实测：续写后会话里只有**一条** `session`、没有重复的 `model_change`，
+        // 且 `system` 只出现一次——所以 `open` 不写 header/system 条目。
+        let Some(path) = pi_cli::session_writer::newest_session_file(&paths.session_dir) else {
+            eprintln!(
+                "pi-rs: 找不到可续写的会话文件（目录：{}）",
+                paths.session_dir.display()
+            );
+            return ExitCode::from(1);
+        };
+        let had_thinking_level = match pi_core::session_io::SessionFile::read(&path) {
+            Ok(file) => {
+                // ref `sdk.ts:196`：会话里**没有** `thinking_level_change` 时才补一条。
+                let had = file
+                    .entries
+                    .iter()
+                    .any(|entry| entry.kind() == "thinking_level_change");
+                // 会话里**没有** system 消息时，工具声明需要补一条（`agent-loop.ts` 的 declareToolChanges）。
+                let had_system = file.entries.iter().any(|entry| {
+                    matches!(
+                        entry,
+                        pi_core::session::SessionEntry::Message {
+                            message: pi_ai::message::Message::System { .. },
+                            ..
+                        }
+                    )
+                });
+                // **压缩后必须用投影重建上下文**（ref 一律走 `buildSessionProjection()`）：
+                // 父链走法（`transcript()`）不会应用 `compaction`/`context_edit` 的投影规则，
+                // 压缩后的那一轮会带着压缩前的原始消息再发一次（golden/S19 第 3 条请求即此差异）。
+                // `System` 仍按既有约定单独计（`written = 1 + initial_messages.len()`）。
+                initial_messages = match pi_core::agent::projection::build_session_projection(
+                    &file.entries,
+                    pi_core::agent::projection::LeafSelector::Unspecified,
+                ) {
+                    Ok(projection) => projection
+                        .messages
+                        .into_iter()
+                        .filter(|message| {
+                            !matches!(message, pi_ai::message::Message::System { .. })
+                        })
+                        .collect(),
+                    // **不再静默丢消息**：条目读不回就明确失败（以前 `.ok()` 会让它无声消失）。
+                    Err(error) => {
+                        eprintln!("pi-rs: 读会话消息失败：{error}");
+                        return ExitCode::from(1);
+                    }
+                };
+                Some((had, had_system))
+            }
+            Err(error) => {
+                eprintln!("pi-rs: 读会话失败（{}）：{error}", path.display());
+                return ExitCode::from(1);
+            }
+        };
+        // 已加载的那几条消息**已经在文件里**（外加一条 system），所以 `written` 从它们起算。
+        written = 1 + initial_messages.len();
+        match pi_cli::session_writer::SessionWriter::open(&path) {
+            Ok(mut writer) => {
+                // **json 模式仍要打印 header 行**：golden/S14 的事件流里，第二阶段的开头
+                // 又是一条 `{"type":"session",…}`（第 15 行）。会话**文件**里不重复写，
+                // 但**事件流**里每次运行都要打印一次——我 `open` 分支漏了这句。
+                if json {
+                    println!("{}", writer.header_line());
+                }
+
+                // **提示词前的压缩检查**（ref `agent-session.ts:1693-1698`：发提示词前先用
+                // `skipAbortedCheck=false` 查一次，"接住被中止的响应"——被中止的回合不会走到回合后的
+                // 检查）。这里与回合后那次**共用同一份判定与执行**（`overflow_outcome` 的
+                // `skip_aborted_check` 参数 + `perform_auto_compaction`），不另写一套。
+                // 这里的 `writer` 就是刚打开的续写会话（不必再经 `session_writer`）。
+                if let Ok(file) = pi_core::session_io::SessionFile::read(writer.path()) {
+                    let assistant = file.entries.iter().rev().find_map(|entry| {
+                        if let pi_core::session::SessionEntry::Message {
+                            message: pi_ai::message::Message::Assistant(assistant),
+                            ..
+                        } = entry
+                        {
+                            Some((**assistant).clone())
+                        } else {
+                            None
+                        }
+                    });
+                    if let Some(assistant) = assistant {
+                        let config = pi_cli::auto_compaction::CompactionConfig {
+                            settings: settings.compaction_settings(),
+                            context_window: resolved.context_window,
+                            model: resolved.model_id.clone(),
+                            model_provider: provider_name.to_string(),
+                            model_max_tokens: resolved.max_tokens,
+                            model_reasoning: resolved.reasoning,
+                            thinking_level: Some(if resolved.reasoning {
+                                "medium".to_string()
+                            } else {
+                                "off".to_string()
+                            }),
+                        };
+                        if let Some(plan) = pi_cli::auto_compaction::auto_compaction_plan(
+                            &file.entries,
+                            &config,
+                            &assistant,
+                            false,
+                        ) {
+                            match tokio::runtime::Builder::new_current_thread()
+                                .enable_all()
+                                .build()
+                            {
+                                Ok(runtime) => {
+                                    // `compaction_start` 在摘要调用之前发（ref `:2769` 早于 `:2828`）。
+                                    println!(
+                                        "{}",
+                                        serde_json::json!({
+                                            "type": "compaction_start",
+                                            "reason": plan.reason,
+                                        })
+                                    );
+                                    match runtime.block_on(
+                                        pi_cli::auto_compaction::perform_auto_compaction(
+                                            &file.entries,
+                                            &config,
+                                            None,
+                                            Some(plan.reason),
+                                            Some(&pi_cli::print_mode::StdoutJsonSink),
+                                            provider.as_ref(),
+                                            &mut writer,
+                                        ),
+                                    ) {
+                                        Ok(Some(run)) => {
+                                            // **压缩后的上下文要交给本轮循环**（ref 压缩后用投影重建 `agent.state.messages`）：
+                                            // 否则提示词请求里仍是压缩前的原始消息、还丢掉压缩摘要（golden/S13D 的 C 层即此）。
+                                            initial_messages = run.messages.clone();
+                                            println!(
+                                                "{}",
+                                                serde_json::json!({
+                                                    "type": "compaction_end",
+                                                    "reason": plan.reason,
+                                                    "result": run.result_event,
+                                                    "aborted": false,
+                                                    "willRetry": plan.will_retry,
+                                                })
+                                            );
+                                        }
+                                        Ok(None) => {}
+                                        Err(error) => eprintln!("pi-rs: 提示词前压缩失败：{error}"),
+                                    }
+                                }
+                                Err(error) => {
+                                    eprintln!("pi-rs: 起不了运行时（提示词前压缩）：{error}")
+                                }
+                            }
+                        }
+                    }
+                }
+                if let Some((had_thinking, had_system)) = had_thinking_level {
+                    if !had_thinking {
+                        if let Err(error) = writer.append_thinking_level_change("off") {
+                            eprintln!("pi-rs: 写 thinking_level_change 失败：{error}");
+                        }
+                    }
+                    if !had_system {
+                        announce_system = true;
+                        let tools = pi_cli::print_mode::default_tools(parsed);
+                        let tools_added = pi_core::agent::tools_added_json(&tools);
+                        let tools_added_raw = pi_core::agent::tools_added_raw(&tools);
+                        if let Err(error) =
+                            writer.append_system_message(&sections, &tools_added, &tools_added_raw)
+                        {
+                            eprintln!("pi-rs: 写 system 消息失败：{error}");
+                        }
+                    }
+                }
+                Some(writer)
+            }
+            Err(error) => {
+                eprintln!("pi-rs: 打开会话失败（{}）：{error}", path.display());
+                return ExitCode::from(1);
+            }
+        }
+    } else {
+        // 初始思考等级：**推理模型 `medium`、其余 `off`**
+        // （`defaults.ts:3` 的 `DEFAULT_THINKING_LEVEL` + `agent-session.ts:2325` 的
+        // `clampThinkingLevel(model, level)`——非推理模型被夹成 `off`）。
+        // golden 实测：S01/S09a（非推理）`off`、S16（reasoning: true）`medium`。
+        let thinking_level = if resolved.reasoning { "medium" } else { "off" };
+        match pi_cli::session_writer::SessionWriter::create(
+            &paths.session_dir,
+            &run_cwd,
+            provider_name,
+            model_id,
+            thinking_level,
+        ) {
+            Ok(mut writer) => {
+                if json {
+                    println!("{}", writer.header_line());
+                }
+                // **`written` 是"真的写了几条"**：没有 `--system-prompt` 时 system 条目
+                // 仍然按组装好的 sections 写（golden 的 system 条目是
+                // `content: ""` + `sections` + `toolsAdded`）。
+                let tools = pi_cli::print_mode::default_tools(parsed);
+                let tools_added = pi_core::agent::tools_added_json(&tools);
+                let tools_added_raw = pi_core::agent::tools_added_raw(&tools);
+                match writer.append_system_message(&sections, &tools_added, &tools_added_raw) {
+                    Ok(()) => written += 1,
+                    Err(error) => eprintln!("pi-rs: 写 system 消息失败：{error}"),
+                }
+                Some(writer)
+            }
+            Err(error) => {
+                eprintln!("pi-rs: 建会话失败：{error}");
+                None
+            }
+        }
+    };
+
+    // P5-3c：自动压缩参数（没有会话文件时不接——没有可压缩的上下文）。
+    let compaction = session_writer
+        .as_ref()
+        .map(|_| pi_cli::auto_compaction::CompactionConfig {
+            settings: settings.compaction_settings(),
+            context_window: resolved.context_window,
+            model: resolved.model_id.clone(),
+            model_provider: provider_name.to_string(),
+            model_max_tokens: resolved.max_tokens,
+            model_reasoning: resolved.reasoning,
+            thinking_level: Some(if resolved.reasoning {
+                "medium".to_string()
+            } else {
+                "off".to_string()
+            }),
+        });
+    let run = pi_cli::print_mode::PrintRun {
+        provider,
+        model: resolved.model_id.clone(),
+        api: resolved.api.clone(),
+        provider_name: provider_name.to_string(),
+        system: Some(system_text),
+        system_sections: sections.iter().cloned().collect(),
+        writer: session_writer,
+        written,
+        initial_messages,
+        compaction,
+        announce_system,
+        instruction_role,
+        reasoning_effort,
+        prompt: {
+            // ref `agent-session.ts:1797-1821`：`/skill:name args` 展开；未命中 ⇒ 原样；
+            // 读失败 ⇒ 按 ref `:1812-1819` 报错（`emitError`）后原样放行。
+            let expanded = match pi_core::skills::expand_skill_command(&prompt, &loaded_skills) {
+                Ok(Some(text)) => text,
+                Ok(None) => prompt.clone(),
+                Err((path, message)) => {
+                    eprintln!("Error: {message} ({path})");
+                    prompt.clone()
+                }
+            };
+            // ref `agent-session.ts:1646-1651`：**先 `/skill:`、后模板**。
+            pi_core::prompt_templates::expand_prompt_template(&expanded, &loaded_templates)
+        },
+        max_completion_tokens: resolved.max_tokens,
+        cwd,
+        tools: pi_cli::print_mode::default_tools(parsed),
+        output: if json {
+            pi_cli::print_mode::PrintOutput::Json
+        } else {
+            pi_cli::print_mode::PrintOutput::Text
+        },
+        sink: sink.clone(),
+    };
+    let runtime = match tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+    {
+        Ok(runtime) => runtime,
+        Err(error) => {
+            eprintln!("pi-rs: 起不了运行时：{error}");
+            return ExitCode::from(1);
+        }
+    };
+    // 会话文件在**运行之前**建好：json 模式的**事件流首行**就是会话头
+    // （golden/S01 的 `events.jsonl` 第 1 行是 `{"type":"session",…}`），
+    // 所以必须先把 header 打出去，再让循环开始发事件。
+    let (stdout, stderr, code, _messages) = runtime.block_on(run.execute());
+    if !json {
+        // json 模式的正文已由 sink 逐事件写出（实时），此处不再重复输出。
+        print!("{stdout}");
+    }
+    for line in stderr {
+        eprintln!("{line}");
+    }
+    ExitCode::from(code)
+}
+
+/// 读 `settings.json`：文件缺失按"没有设置"处理，解析失败则报错退出。
+/// W3-2：给 TUI 装配 `AgentParts`（与 print 路径同一批函数，避免两套装配漂移）。
+///
+/// 失败时返回 `Err(退出码)`（调用方直接 `return`）。副作用：把状态行的模型段设为**已解析模型的 id**
+/// （ref `components/footer.ts:170-171` 取 `state.model?.id`，而不是 settings 的 `defaultModel`）。
+fn build_tui_agent_parts(
+    parsed: &Args,
+    paths: &pi_cli::runtime::Paths,
+    cwd: &std::path::Path,
+    state: &mut pi_tui::TuiState,
+) -> Result<std::sync::Arc<pi_cli::tui::AgentParts>, ExitCode> {
+    let settings = load_settings(paths)?;
+    let (provider_name, model_id) = match pi_cli::settings::resolve_model(
+        parsed.provider.as_deref(),
+        parsed.model.as_deref(),
+        &settings,
+    ) {
+        Ok(pair) => pair,
+        Err(error) => {
+            eprintln!("pi-rs: {error}");
+            return Err(ExitCode::from(1));
+        }
+    };
+    let models_path = paths.agent_dir.join("models.json");
+    let models_config = match std::fs::read_to_string(&models_path)
+        .map_err(|error| error.to_string())
+        .and_then(|text| {
+            serde_json::from_str::<pi_ai::config::ModelsConfig>(&text)
+                .map_err(|error| error.to_string())
+        }) {
+        Ok(config) => config,
+        Err(error) => {
+            eprintln!("pi-rs: {} 不可用：{error}", models_path.display());
+            return Err(ExitCode::from(1));
+        }
+    };
+    if let Err(error) = models_config.validate() {
+        eprintln!("pi-rs: {} 不可用：{error}", models_path.display());
+        return Err(ExitCode::from(1));
+    }
+    // P7-6am/M：rpc 路径同样使用内置目录补齐。
+    let catalog = load_builtin_catalog(&paths.agent_dir);
+    let resolved = match models_config.resolve_with_catalog(
+        provider_name.as_str(),
+        model_id.as_str(),
+        catalog.as_ref(),
+    ) {
+        Ok(resolved) => resolved,
+        Err(error) => {
+            eprintln!("pi-rs: {error}");
+            return Err(ExitCode::from(1));
+        }
+    };
+    let provider = match pi_cli::runtime::build_provider(&resolved, parsed.api_key.clone()) {
+        Ok(provider) => provider,
+        Err(error) => {
+            eprintln!("pi-rs: {error}");
+            return Err(ExitCode::from(1));
+        }
+    };
+    let (sections, system_text, _skills, _templates) =
+        assemble_system_prompt(parsed, cwd, &paths.agent_dir);
+    // 无 usage 时 footer 百分比用系统消息的 token 估算（见 `tui.rs` 的 `TuiEventSink`）。
+    //
+    // **必须按 TS 会话里 system 条目的形态构造**：`content` 为空串，正文放在 `sections`/`toolsAdded`
+    // （ref `compaction.ts:320-336` 的 `estimateTokens` 对 system 分支正是把 `sections` 与 `toolsAdded`
+    // 各自的长度计入；只算 `content` 会显著偏小 —— 实测 T05 曾因此得 0.5% 而 golden 是 1.1%）。
+    let system_message = {
+        let tools_for_sections = pi_cli::print_mode::default_tools(parsed);
+        let tools_added_for_sections = pi_core::agent::tools_added_json(&tools_for_sections);
+        let mut sections_map = serde_json::Map::new();
+        for (name, body) in &sections {
+            sections_map.insert(name.clone(), serde_json::Value::String(body.clone()));
+        }
+        let mut extra = serde_json::Map::new();
+        extra.insert(
+            "sections".to_string(),
+            serde_json::Value::Object(sections_map),
+        );
+        if !tools_added_for_sections.is_empty() {
+            extra.insert(
+                "toolsAdded".to_string(),
+                serde_json::Value::Array(tools_added_for_sections),
+            );
+        }
+        pi_ai::message::Message::System {
+            content: pi_ai::UserContent::Text(String::new()),
+            timestamp: 0,
+            extra,
+        }
+    };
+    state.model = resolved.model_id.clone();
+    // TUI 会话落盘（W4 会话层）：与 print 路径同一批调用（`SessionWriter::create` + `append_system_message`）。
+    // `--continue/-c` / `--resume`：**续写最近一个会话**（而不是新建），并把历史消息读出来
+    // （ref `sdk.ts` 的 continue 语义；此前 TUI 路径忽略这两个开关，导致续写会话是空屏、`/tree` 无历史）。
+    let resumed_path = if parsed.continue_session || parsed.resume {
+        pi_cli::session_writer::newest_session_file(&paths.session_dir)
+    } else {
+        None
+    };
+    let initial_messages: Vec<pi_ai::message::Message> = resumed_path
+        .as_ref()
+        .and_then(|path| pi_core::session_io::SessionFile::read(path).ok())
+        .map(|file| {
+            file.entries
+                .iter()
+                .filter_map(|entry| match entry {
+                    pi_core::session::SessionEntry::Message { message, .. } => {
+                        Some(message.clone())
+                    }
+                    other => {
+                        let _ = other;
+                        None
+                    }
+                })
+                .collect()
+        })
+        .unwrap_or_default();
+    let writer = if parsed.no_session {
+        None
+    } else if let Some(path) = resumed_path.as_ref() {
+        match pi_cli::session_writer::SessionWriter::open(path) {
+            Ok(writer) => Some(std::sync::Arc::new(std::sync::Mutex::new(writer))),
+            Err(error) => {
+                eprintln!("pi-rs: 续写会话失败：{error}");
+                None
+            }
+        }
+    } else {
+        let thinking_level = if resolved.reasoning { "medium" } else { "off" };
+        let tools = pi_cli::print_mode::default_tools(parsed);
+        let tools_added = pi_core::agent::tools_added_json(&tools);
+        let tools_added_raw = pi_core::agent::tools_added_raw(&tools);
+        match pi_cli::session_writer::SessionWriter::create(
+            &paths.session_dir,
+            cwd,
+            provider_name.as_str(),
+            resolved.model_id.as_str(),
+            thinking_level,
+        ) {
+            Ok(mut writer) => {
+                match writer.append_system_message(&sections, &tools_added, &tools_added_raw) {
+                    Ok(()) => Some(std::sync::Arc::new(std::sync::Mutex::new(writer))),
+                    Err(error) => {
+                        eprintln!("pi-rs: 写 system 消息失败：{error}");
+                        Some(std::sync::Arc::new(std::sync::Mutex::new(writer)))
+                    }
+                }
+            }
+            Err(error) => {
+                eprintln!("pi-rs: 建会话失败：{error}");
+                None
+            }
+        }
+    };
+    // P7-7f M：该 provider 下的可选模型（`models.json` 顺序）与当前模型状态。
+    // 可切换模型列表：**跨 provider**。ref 用 `settings.enabledModels`（形如
+    // `provider/modelId`；模型 id 自身可能含 `/` ⇒ 按**第一个** `/` 切分）。
+    // 没有该设置时回落到"当前 provider 下的全部模型"。
+    // `-c`/`/resume`：从会话里取**最后一个** `thinking_level_change` 的档位（ref 的
+    // `sessionManager` 读回 `thinkingLevel`）。
+    let initial_thinking_level: Option<String> = resumed_path
+        .as_ref()
+        .and_then(|path| pi_core::session_io::SessionFile::read(path).ok())
+        .and_then(|file| {
+            file.entries.iter().rev().find_map(|entry| match entry {
+                pi_core::session::SessionEntry::ThinkingLevelChange { thinking_level, .. } => {
+                    Some(thinking_level.clone())
+                }
+                _other => None,
+            })
+        });
+    let available_models: Vec<pi_cli::tui::ModelChoice> = {
+        let enabled: Vec<pi_cli::tui::ModelChoice> = settings
+            .enabled_models
+            .clone()
+            .unwrap_or_default()
+            .iter()
+            .filter_map(|entry| entry.split_once('/'))
+            .map(|(provider, model)| pi_cli::tui::ModelChoice {
+                provider: provider.to_string(),
+                id: model.to_string(),
+            })
+            .collect();
+        if !enabled.is_empty() {
+            enabled
+        } else {
+            let mut fallback: Vec<pi_cli::tui::ModelChoice> = models_config
+                .providers
+                .get(provider_name.as_str())
+                .and_then(|provider_config| provider_config.get("models"))
+                .and_then(|models| models.as_array())
+                .map(|models| {
+                    models
+                        .iter()
+                        .filter_map(|model| model.get("id").and_then(|id| id.as_str()))
+                        .map(|id| pi_cli::tui::ModelChoice {
+                            provider: provider_name.to_string(),
+                            id: id.to_string(),
+                        })
+                        .collect()
+                })
+                .unwrap_or_default();
+            if fallback.is_empty() {
+                fallback.push(pi_cli::tui::ModelChoice {
+                    provider: provider_name.to_string(),
+                    id: resolved.model_id.clone(),
+                });
+            }
+            fallback
+        }
+    };
+    Ok(std::sync::Arc::new(pi_cli::tui::AgentParts {
+        resumed_path,
+        initial_messages,
+        agent_dir: paths.agent_dir.clone(),
+        cwd: cwd.to_string_lossy().to_string(),
+        session_dir: paths.session_dir.clone(),
+        available_models,
+        initial_thinking_level,
+        supports_thinking: resolved.reasoning,
+        model_state: std::sync::Arc::new(std::sync::Mutex::new(pi_cli::tui::CurrentModelState {
+            model_id: resolved.model_id.clone(),
+            provider_name: provider_name.to_string(),
+            provider: std::sync::Arc::clone(&provider),
+        })),
+        provider,
+        tools: pi_cli::print_mode::default_tools(parsed),
+        config: pi_core::agent::LoopConfig {
+            model: resolved.model_id.clone(),
+            api: resolved.api.clone(),
+            provider: provider_name.to_string(),
+            system: Some(system_text),
+            system_sections: sections.iter().cloned().collect(),
+            max_completion_tokens: resolved.max_tokens,
+            ..pi_core::agent::LoopConfig::default()
+        },
+        context_window: resolved.context_window,
+        system_message,
+        writer,
+    }))
+}
+
+fn load_settings(paths: &pi_cli::runtime::Paths) -> Result<pi_cli::settings::Settings, ExitCode> {
+    let path = paths.agent_dir.join("settings.json");
+    match std::fs::read_to_string(&path) {
+        Ok(text) => match pi_cli::settings::parse(&text) {
+            Ok(settings) => Ok(settings),
+            Err(error) => {
+                eprintln!("pi-rs: {} 解析失败：{error}", path.display());
+                Err(ExitCode::from(1))
+            }
+        },
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+            Ok(pi_cli::settings::Settings::default())
+        }
+        Err(error) => {
+            eprintln!("pi-rs: 读不到 {}：{error}", path.display());
+            Err(ExitCode::from(1))
+        }
+    }
+}
+
+/// 未识别或未实现的参数一律拒绝；返回 `Some(退出码)` 表示已拒绝。
+fn reject_unsupported(parsed: &Args) -> Option<ExitCode> {
+    let mut rejected: Vec<String> = Vec::new();
+    for (name, value) in &parsed.unknown_flags {
+        rejected.push(match value {
+            Some(value) => format!("--{name}={value}"),
+            None => format!("--{name}"),
+        });
+    }
+    rejected.extend(parsed.unsupported.iter().cloned());
+    if rejected.is_empty() {
+        return None;
+    }
+    eprintln!(
+        "pi-rs: 不支持的参数：{}（本项目没有扩展/主题/技能机制，参数不会被静默忽略）",
+        rejected.join(", ")
+    );
+    Some(ExitCode::from(1))
+}
+
+fn print_help() {
+    println!(
+        "pi-rs {version}\n\
+         \n\
+         用法: pi-rs [选项] [消息...] [@文件...]\n\
+         \n\
+         选项:\n\
+         \x20 --mode <text|json|rpc>   应用模式\n\
+         \x20 --print, -p              非交互模式\n\
+         \x20 --provider <名>          provider（本版本必填）\n\
+         \x20 --model <名>             模型（本版本必填）\n\
+         \x20 --api-key <key>          API key\n\
+         \x20 --system-prompt <文本>   覆盖系统提示\n\
+         \x20 --append-system-prompt <文本>  追加系统提示（可重复）\n\
+         \x20 --no-session             不写会话文件\n\
+         \x20 --continue, -c           继续最近的会话\n\
+         \x20 --session <路径>         指定会话文件\n\
+         \x20 --no-tools, -nt          不带工具\n\
+         \x20 --tools <列表>           只带这些工具（逗号分隔）\n\
+         \x20 --exclude-tools <列表>   排除这些工具\n\
+         内置工具名:\n\
+         \x20 read                     读取文件\n\
+         \x20 bash                     执行 bash 命令\n\
+         \x20 powershell               执行 PowerShell 命令（仅 Windows）\n\
+         \x20 edit                     精确替换编辑\n\
+         \x20 write                    写文件（创建/覆盖）\n\
+         \x20 grep / find / ls         只读检索（默认不启用）\n\
+         \x20 --offline                离线\n\
+         \x20 --help, -h / --version, -v\n\
+         环境变量:\n\
+         \x20 PI_TUI_RENDERER=<r1|r2>  TUI 渲染器：r1=整屏重画（默认）、r2=行级 diff；\n\
+         \x20                           缺失或非法值时回退 r1（非法值另在 stderr 打一行 warning）\n",
+        version = pi_core::VERSION
+    );
+}

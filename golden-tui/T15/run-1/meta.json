@@ -1,0 +1,17 @@
+{
+  "id": "T15",
+  "cols": 100,
+  "rows": 30,
+  "helperExit": 0,
+  "exitCode": 0,
+  "stderr": "",
+  "mockStderr": "",
+  "requestLog": "<REPO>/tmp/t15ts/run-1/requests.jsonl",
+  "snapshotOffsets": [
+    {
+      "name": "hotkeys-panel",
+      "offset": 23337
+    }
+  ],
+  "sessionDir": "<REPO>/tmp/t15ts/run-1/session"
+}

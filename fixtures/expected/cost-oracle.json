@@ -1,0 +1,584 @@
+[
+  {
+    "label": "plain-0",
+    "cost": {
+      "input": 1,
+      "output": 2,
+      "cacheRead": 0.5,
+      "cacheWrite": 3
+    },
+    "usage": {
+      "input": 0,
+      "output": 0
+    },
+    "result": {
+      "input": 0,
+      "output": 0,
+      "cacheRead": 0,
+      "cacheWrite": 0,
+      "total": 0
+    },
+    "bits": {
+      "input": "0x0000000000000000",
+      "output": "0x0000000000000000",
+      "cacheRead": "0x0000000000000000",
+      "cacheWrite": "0x0000000000000000",
+      "total": "0x0000000000000000"
+    }
+  },
+  {
+    "label": "plain-1",
+    "cost": {
+      "input": 1,
+      "output": 2,
+      "cacheRead": 0.5,
+      "cacheWrite": 3
+    },
+    "usage": {
+      "input": 1,
+      "output": 1
+    },
+    "result": {
+      "input": 0.000001,
+      "output": 0.000002,
+      "cacheRead": 0,
+      "cacheWrite": 0,
+      "total": 0.000003
+    },
+    "bits": {
+      "input": "0x3eb0c6f7a0b5ed8d",
+      "output": "0x3ec0c6f7a0b5ed8d",
+      "cacheRead": "0x0000000000000000",
+      "cacheWrite": "0x0000000000000000",
+      "total": "0x3ec92a737110e454"
+    }
+  },
+  {
+    "label": "plain-5",
+    "cost": {
+      "input": 1,
+      "output": 2,
+      "cacheRead": 0.5,
+      "cacheWrite": 3
+    },
+    "usage": {
+      "input": 5,
+      "output": 5
+    },
+    "result": {
+      "input": 0.0000049999999999999996,
+      "output": 0.000009999999999999999,
+      "cacheRead": 0,
+      "cacheWrite": 0,
+      "total": 0.000014999999999999999
+    },
+    "bits": {
+      "input": "0x3ed4f8b588e368f0",
+      "output": "0x3ee4f8b588e368f0",
+      "cacheRead": "0x0000000000000000",
+      "cacheWrite": "0x0000000000000000",
+      "total": "0x3eef75104d551d68"
+    }
+  },
+  {
+    "label": "plain-7",
+    "cost": {
+      "input": 1,
+      "output": 2,
+      "cacheRead": 0.5,
+      "cacheWrite": 3
+    },
+    "usage": {
+      "input": 7,
+      "output": 7
+    },
+    "result": {
+      "input": 0.000007,
+      "output": 0.000014,
+      "cacheRead": 0,
+      "cacheWrite": 0,
+      "total": 0.000021
+    },
+    "bits": {
+      "input": "0x3edd5c31593e5fb7",
+      "output": "0x3eed5c31593e5fb7",
+      "cacheRead": "0x0000000000000000",
+      "cacheWrite": "0x0000000000000000",
+      "total": "0x3ef6052502eec7c9"
+    }
+  },
+  {
+    "label": "plain-8",
+    "cost": {
+      "input": 1,
+      "output": 2,
+      "cacheRead": 0.5,
+      "cacheWrite": 3
+    },
+    "usage": {
+      "input": 8,
+      "output": 8
+    },
+    "result": {
+      "input": 0.000008,
+      "output": 0.000016,
+      "cacheRead": 0,
+      "cacheWrite": 0,
+      "total": 0.000024
+    },
+    "bits": {
+      "input": "0x3ee0c6f7a0b5ed8d",
+      "output": "0x3ef0c6f7a0b5ed8d",
+      "cacheRead": "0x0000000000000000",
+      "cacheWrite": "0x0000000000000000",
+      "total": "0x3ef92a737110e454"
+    }
+  },
+  {
+    "label": "plain-10",
+    "cost": {
+      "input": 1,
+      "output": 2,
+      "cacheRead": 0.5,
+      "cacheWrite": 3
+    },
+    "usage": {
+      "input": 10,
+      "output": 10
+    },
+    "result": {
+      "input": 0.000009999999999999999,
+      "output": 0.000019999999999999998,
+      "cacheRead": 0,
+      "cacheWrite": 0,
+      "total": 0.000029999999999999997
+    },
+    "bits": {
+      "input": "0x3ee4f8b588e368f0",
+      "output": "0x3ef4f8b588e368f0",
+      "cacheRead": "0x0000000000000000",
+      "cacheWrite": "0x0000000000000000",
+      "total": "0x3eff75104d551d68"
+    }
+  },
+  {
+    "label": "plain-13",
+    "cost": {
+      "input": 1,
+      "output": 2,
+      "cacheRead": 0.5,
+      "cacheWrite": 3
+    },
+    "usage": {
+      "input": 13,
+      "output": 13
+    },
+    "result": {
+      "input": 0.000013,
+      "output": 0.000026,
+      "cacheRead": 0,
+      "cacheWrite": 0,
+      "total": 0.000039
+    },
+    "bits": {
+      "input": "0x3eeb43526527a205",
+      "output": "0x3efb43526527a205",
+      "cacheRead": "0x0000000000000000",
+      "cacheWrite": "0x0000000000000000",
+      "total": "0x3f04727dcbddb984"
+    }
+  },
+  {
+    "label": "plain-20",
+    "cost": {
+      "input": 1,
+      "output": 2,
+      "cacheRead": 0.5,
+      "cacheWrite": 3
+    },
+    "usage": {
+      "input": 20,
+      "output": 20
+    },
+    "result": {
+      "input": 0.000019999999999999998,
+      "output": 0.000039999999999999996,
+      "cacheRead": 0,
+      "cacheWrite": 0,
+      "total": 0.000059999999999999995
+    },
+    "bits": {
+      "input": "0x3ef4f8b588e368f0",
+      "output": "0x3f04f8b588e368f0",
+      "cacheRead": "0x0000000000000000",
+      "cacheWrite": "0x0000000000000000",
+      "total": "0x3f0f75104d551d68"
+    }
+  },
+  {
+    "label": "plain-33",
+    "cost": {
+      "input": 1,
+      "output": 2,
+      "cacheRead": 0.5,
+      "cacheWrite": 3
+    },
+    "usage": {
+      "input": 33,
+      "output": 33
+    },
+    "result": {
+      "input": 0.000032999999999999996,
+      "output": 0.00006599999999999999,
+      "cacheRead": 0,
+      "cacheWrite": 0,
+      "total": 0.000099
+    },
+    "bits": {
+      "input": "0x3f014d2f5dbb9cf9",
+      "output": "0x3f114d2f5dbb9cf9",
+      "cacheRead": "0x0000000000000000",
+      "cacheWrite": "0x0000000000000000",
+      "total": "0x3f19f3c70c996b76"
+    }
+  },
+  {
+    "label": "plain-100",
+    "cost": {
+      "input": 1,
+      "output": 2,
+      "cacheRead": 0.5,
+      "cacheWrite": 3
+    },
+    "usage": {
+      "input": 100,
+      "output": 100
+    },
+    "result": {
+      "input": 0.00009999999999999999,
+      "output": 0.00019999999999999998,
+      "cacheRead": 0,
+      "cacheWrite": 0,
+      "total": 0.0003
+    },
+    "bits": {
+      "input": "0x3f1a36e2eb1c432c",
+      "output": "0x3f2a36e2eb1c432c",
+      "cacheRead": "0x0000000000000000",
+      "cacheWrite": "0x0000000000000000",
+      "total": "0x3f33a92a30553261"
+    }
+  },
+  {
+    "label": "plain-1000",
+    "cost": {
+      "input": 1,
+      "output": 2,
+      "cacheRead": 0.5,
+      "cacheWrite": 3
+    },
+    "usage": {
+      "input": 1000,
+      "output": 1000
+    },
+    "result": {
+      "input": 0.001,
+      "output": 0.002,
+      "cacheRead": 0,
+      "cacheWrite": 0,
+      "total": 0.003
+    },
+    "bits": {
+      "input": "0x3f50624dd2f1a9fc",
+      "output": "0x3f60624dd2f1a9fc",
+      "cacheRead": "0x0000000000000000",
+      "cacheWrite": "0x0000000000000000",
+      "total": "0x3f689374bc6a7efa"
+    }
+  },
+  {
+    "label": "plain-123457",
+    "cost": {
+      "input": 1,
+      "output": 2,
+      "cacheRead": 0.5,
+      "cacheWrite": 3
+    },
+    "usage": {
+      "input": 123457,
+      "output": 123457
+    },
+    "result": {
+      "input": 0.123457,
+      "output": 0.246914,
+      "cacheRead": 0,
+      "cacheWrite": 0,
+      "total": 0.370371
+    },
+    "bits": {
+      "input": "0x3fbf9ae0c1765775",
+      "output": "0x3fcf9ae0c1765775",
+      "cacheRead": "0x0000000000000000",
+      "cacheWrite": "0x0000000000000000",
+      "total": "0x3fd7b4289118c198"
+    }
+  },
+  {
+    "label": "cache-mix",
+    "cost": {
+      "input": 1,
+      "output": 2,
+      "cacheRead": 0.5,
+      "cacheWrite": 3
+    },
+    "usage": {
+      "input": 11,
+      "output": 3,
+      "cacheRead": 7,
+      "cacheWrite": 5
+    },
+    "result": {
+      "input": 0.000011,
+      "output": 0.000006,
+      "cacheRead": 0.0000035,
+      "cacheWrite": 0.000015,
+      "total": 0.0000355
+    },
+    "bits": {
+      "input": "0x3ee711947cfa26a2",
+      "output": "0x3ed92a737110e454",
+      "cacheRead": "0x3ecd5c31593e5fb7",
+      "cacheWrite": "0x3eef75104d551d69",
+      "total": "0x3f029cbab649d389"
+    }
+  },
+  {
+    "label": "cache-write-1h",
+    "cost": {
+      "input": 1,
+      "output": 2,
+      "cacheRead": 0.5,
+      "cacheWrite": 3
+    },
+    "usage": {
+      "input": 4,
+      "output": 2,
+      "cacheRead": 1,
+      "cacheWrite": 6,
+      "cacheWrite1h": 4
+    },
+    "result": {
+      "input": 0.000004,
+      "output": 0.000004,
+      "cacheRead": 5e-7,
+      "cacheWrite": 0.000014,
+      "total": 0.000022499999999999998
+    },
+    "bits": {
+      "input": "0x3ed0c6f7a0b5ed8d",
+      "output": "0x3ed0c6f7a0b5ed8d",
+      "cacheRead": "0x3ea0c6f7a0b5ed8d",
+      "cacheWrite": "0x3eed5c31593e5fb7",
+      "total": "0x3ef797cc39ffd60e"
+    }
+  },
+  {
+    "label": "cache-write-all-1h",
+    "cost": {
+      "input": 1,
+      "output": 2,
+      "cacheRead": 0.5,
+      "cacheWrite": 3
+    },
+    "usage": {
+      "input": 0,
+      "output": 0,
+      "cacheRead": 0,
+      "cacheWrite": 9,
+      "cacheWrite1h": 9
+    },
+    "result": {
+      "input": 0,
+      "output": 0,
+      "cacheRead": 0,
+      "cacheWrite": 0.000018,
+      "total": 0.000018
+    },
+    "bits": {
+      "input": "0x0000000000000000",
+      "output": "0x0000000000000000",
+      "cacheRead": "0x0000000000000000",
+      "cacheWrite": "0x3ef2dfd694ccab3f",
+      "total": "0x3ef2dfd694ccab3f"
+    }
+  },
+  {
+    "label": "tier-hit",
+    "cost": {
+      "input": 1,
+      "output": 2,
+      "cacheRead": 0.5,
+      "cacheWrite": 3,
+      "tiers": [
+        {
+          "input": 1,
+          "output": 2,
+          "cacheRead": 0.5,
+          "cacheWrite": 3,
+          "inputTokensAbove": 100
+        }
+      ]
+    },
+    "usage": {
+      "input": 200,
+      "output": 10
+    },
+    "result": {
+      "input": 0.00019999999999999998,
+      "output": 0.000019999999999999998,
+      "cacheRead": 0,
+      "cacheWrite": 0,
+      "total": 0.00021999999999999998
+    },
+    "bits": {
+      "input": "0x3f2a36e2eb1c432c",
+      "output": "0x3ef4f8b588e368f0",
+      "cacheRead": "0x0000000000000000",
+      "cacheWrite": "0x0000000000000000",
+      "total": "0x3f2cd5f99c38b04a"
+    }
+  },
+  {
+    "label": "tier-miss",
+    "cost": {
+      "input": 1,
+      "output": 2,
+      "cacheRead": 0.5,
+      "cacheWrite": 3,
+      "tiers": [
+        {
+          "input": 1,
+          "output": 2,
+          "cacheRead": 0.5,
+          "cacheWrite": 3,
+          "inputTokensAbove": 1000
+        }
+      ]
+    },
+    "usage": {
+      "input": 200,
+      "output": 10
+    },
+    "result": {
+      "input": 0.00019999999999999998,
+      "output": 0.000019999999999999998,
+      "cacheRead": 0,
+      "cacheWrite": 0,
+      "total": 0.00021999999999999998
+    },
+    "bits": {
+      "input": "0x3f2a36e2eb1c432c",
+      "output": "0x3ef4f8b588e368f0",
+      "cacheRead": "0x0000000000000000",
+      "cacheWrite": "0x0000000000000000",
+      "total": "0x3f2cd5f99c38b04a"
+    }
+  },
+  {
+    "label": "tier-multi",
+    "cost": {
+      "input": 1,
+      "output": 2,
+      "cacheRead": 0.5,
+      "cacheWrite": 3,
+      "tiers": [
+        {
+          "input": 1,
+          "output": 2,
+          "cacheRead": 0.5,
+          "cacheWrite": 3,
+          "inputTokensAbove": 1000
+        },
+        {
+          "input": 1,
+          "output": 4,
+          "cacheRead": 0.5,
+          "cacheWrite": 3,
+          "inputTokensAbove": 100
+        }
+      ]
+    },
+    "usage": {
+      "input": 500,
+      "output": 10
+    },
+    "result": {
+      "input": 0.0005,
+      "output": 0.000039999999999999996,
+      "cacheRead": 0,
+      "cacheWrite": 0,
+      "total": 0.00054
+    },
+    "bits": {
+      "input": "0x3f40624dd2f1a9fc",
+      "output": "0x3f04f8b588e368f0",
+      "cacheRead": "0x0000000000000000",
+      "cacheWrite": "0x0000000000000000",
+      "total": "0x3f41b1d92b7fe08b"
+    }
+  },
+  {
+    "label": "plain-1234567",
+    "cost": {
+      "input": 1,
+      "output": 2,
+      "cacheRead": 0.5,
+      "cacheWrite": 3
+    },
+    "usage": {
+      "input": 1234567,
+      "output": 7654321
+    },
+    "result": {
+      "input": 1.234567,
+      "output": 15.308641999999999,
+      "cacheRead": 0,
+      "cacheWrite": 0,
+      "total": 16.543208999999997
+    },
+    "bits": {
+      "input": "0x3ff3c0c9539b8887",
+      "output": "0x402e9e0653005814",
+      "cacheRead": "0x0000000000000000",
+      "cacheWrite": "0x0000000000000000",
+      "total": "0x40308b0fbeb9e492"
+    }
+  },
+  {
+    "label": "frac-rate",
+    "cost": {
+      "input": 0.123,
+      "output": 7.77,
+      "cacheRead": 0.001,
+      "cacheWrite": 12.5
+    },
+    "usage": {
+      "input": 37,
+      "output": 19
+    },
+    "result": {
+      "input": 0.000004551,
+      "output": 0.00014763,
+      "cacheRead": 0,
+      "cacheWrite": 0,
+      "total": 0.00015218099999999999
+    },
+    "bits": {
+      "input": "0x3ed316995ac0a70b",
+      "output": "0x3f2359a40b37969a",
+      "cacheRead": "0x0000000000000000",
+      "cacheWrite": "0x0000000000000000",
+      "total": "0x3f23f258d60d9bd2"
+    }
+  }
+]

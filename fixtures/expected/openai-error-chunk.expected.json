@@ -1,0 +1,58 @@
+{
+  "fixture": "fixtures/sse/openai/error-chunk.sse",
+  "costBits": {
+    "input": "0x0000000000000000",
+    "output": "0x0000000000000000",
+    "cacheRead": "0x0000000000000000",
+    "cacheWrite": "0x0000000000000000",
+    "total": "0x0000000000000000"
+  },
+  "api": "openai-completions",
+  "requestCount": 1,
+  "events": [
+    {
+      "type": "start"
+    },
+    {
+      "type": "error",
+      "reason": "error",
+      "error": {
+        "role": "assistant",
+        "api": "openai-completions",
+        "provider": "mock",
+        "model": "mock-model",
+        "stopReason": "error",
+        "errorMessage": "mock upstream failure",
+        "content": [],
+        "usage": {
+          "input": 0,
+          "output": 0,
+          "cacheRead": 0,
+          "cacheWrite": 0,
+          "totalTokens": 0,
+          "cost": "<COST_BITS>"
+        }
+      }
+    },
+    {
+      "type": "__result",
+      "message": {
+        "role": "assistant",
+        "api": "openai-completions",
+        "provider": "mock",
+        "model": "mock-model",
+        "stopReason": "error",
+        "errorMessage": "mock upstream failure",
+        "content": [],
+        "usage": {
+          "input": 0,
+          "output": 0,
+          "cacheRead": 0,
+          "cacheWrite": 0,
+          "totalTokens": 0,
+          "cost": "<COST_BITS>"
+        }
+      }
+    }
+  ]
+}

@@ -1,0 +1,21 @@
+{
+  "id": "S33",
+  "description": "rpc：`new_session` 开一份新会话（不开 `parentSession`）→ prompt 一轮。用于验证 new_session 的响应形状（`{cancelled}`）、新会话文件是否建立、以及其后的事件流。本场景先录 TS 基线（pi-rs 侧尚未实现 `new_session`，会先得到 `Command not implemented`——这正是要修的目标）。验收：五层 same。",
+  "provider": "openai-completions",
+  "model": "mock-model",
+  "mode": "rpc",
+  "commands": [
+    {
+      "type": "new_session"
+    },
+    {
+      "type": "prompt",
+      "message": "新会话里问一句"
+    }
+  ],
+  "responses": [
+    {
+      "file": "fixtures/sse/openai/text-basic.sse"
+    }
+  ]
+}

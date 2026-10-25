@@ -1,0 +1,124 @@
+{
+  "fixture": "fixtures/sse/anthropic/tool-use-delta.sse",
+  "costBits": {
+    "input": "0x3ee92a737110e454",
+    "output": "0x3ef2dfd694ccab3f",
+    "cacheRead": "0x0000000000000000",
+    "cacheWrite": "0x0000000000000000",
+    "total": "0x3eff75104d551d69"
+  },
+  "api": "anthropic-messages",
+  "requestCount": 1,
+  "events": [
+    {
+      "type": "start"
+    },
+    {
+      "type": "text_start",
+      "contentIndex": 0
+    },
+    {
+      "type": "text_delta",
+      "contentIndex": 0,
+      "delta": "读文件"
+    },
+    {
+      "type": "text_end",
+      "contentIndex": 0,
+      "content": "读文件"
+    },
+    {
+      "type": "toolcall_start",
+      "contentIndex": 1
+    },
+    {
+      "type": "toolcall_delta",
+      "contentIndex": 1,
+      "delta": "{\"path\""
+    },
+    {
+      "type": "toolcall_delta",
+      "contentIndex": 1,
+      "delta": ":\"a.txt\"}"
+    },
+    {
+      "type": "toolcall_end",
+      "contentIndex": 1,
+      "toolCall": {
+        "type": "toolCall",
+        "id": "toolu_a",
+        "name": "read",
+        "arguments": {
+          "path": "a.txt"
+        }
+      }
+    },
+    {
+      "type": "done",
+      "reason": "toolUse",
+      "message": {
+        "role": "assistant",
+        "api": "anthropic-messages",
+        "provider": "mock",
+        "model": "mock-model",
+        "stopReason": "toolUse",
+        "rawStopReason": "tool_use",
+        "content": [
+          {
+            "type": "text",
+            "text": "读文件"
+          },
+          {
+            "type": "toolCall",
+            "id": "toolu_a",
+            "name": "read",
+            "arguments": {
+              "path": "a.txt"
+            }
+          }
+        ],
+        "usage": {
+          "input": 12,
+          "output": 9,
+          "cacheRead": 0,
+          "cacheWrite": 0,
+          "totalTokens": 21,
+          "cost": "<COST_BITS>"
+        }
+      }
+    },
+    {
+      "type": "__result",
+      "message": {
+        "role": "assistant",
+        "api": "anthropic-messages",
+        "provider": "mock",
+        "model": "mock-model",
+        "stopReason": "toolUse",
+        "rawStopReason": "tool_use",
+        "content": [
+          {
+            "type": "text",
+            "text": "读文件"
+          },
+          {
+            "type": "toolCall",
+            "id": "toolu_a",
+            "name": "read",
+            "arguments": {
+              "path": "a.txt"
+            }
+          }
+        ],
+        "usage": {
+          "input": 12,
+          "output": 9,
+          "cacheRead": 0,
+          "cacheWrite": 0,
+          "totalTokens": 21,
+          "cost": "<COST_BITS>"
+        }
+      }
+    }
+  ]
+}

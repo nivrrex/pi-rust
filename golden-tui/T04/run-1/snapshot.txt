@@ -1,0 +1,28 @@
+[Context]
+  AGENTS.md
+
+ Session Info
+
+ File: <TMP>/sess/<TIMESTAMP>_<UUID>.jsonl
+ ID: <UUID>
+
+ Messages
+ Total: 0
+ User: 0
+ Assistant: 0
+ Tools: 0 calls, 0 results
+
+ Tokens
+ Input: 0
+ Output: 0
+ Total: 0
+
+ Cache Warming
+ Mode: streaming
+ Status: Inactive (waiting for first request)
+
+────────────────────────────────────────────────────────────────────────────────────────────────────
+
+────────────────────────────────────────────────────────────────────────────────────────────────────
+<TMP>/work
+0.0%/128k (auto)                                                                          mock-model

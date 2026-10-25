@@ -1,0 +1,46 @@
+{
+  "id": "S09b",
+  "description": "abort：阻塞的 bash 工具执行期间取消（tool_execution_start 之后 abort）（abort 由脚本在事件之后发出——commands 是一次性预发的，放在那里会抢在请求之前）",
+  "provider": "openai-completions",
+  "model": "mock-model",
+  "mode": "rpc",
+  "commands": [
+    {
+      "type": "prompt",
+      "message": "run a blocking command"
+    }
+  ],
+  "responses": [
+    {
+      "file": "fixtures/sse/openai/tool-bash-wait.sse"
+    },
+    {
+      "file": "fixtures/sse/openai/text-basic.sse"
+    }
+  ],
+  "script": [
+    {
+      "action": "waitEvent",
+      "match": "\"type\":\"tool_execution_start\""
+    },
+    {
+      "action": "send",
+      "command": {
+        "type": "abort"
+      }
+    },
+    {
+      "action": "createFile",
+      "path": "flag.txt",
+      "content": ""
+    },
+    {
+      "action": "waitExit"
+    }
+  ],
+  "expectInjections": {
+    "gateHits": 0,
+    "disconnects": 0,
+    "retryAfterSent": 0
+  }
+}

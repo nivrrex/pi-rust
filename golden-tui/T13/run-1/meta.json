@@ -1,0 +1,25 @@
+{
+  "id": "T13",
+  "cols": 100,
+  "rows": 30,
+  "helperExit": 0,
+  "exitCode": 0,
+  "stderr": "",
+  "mockStderr": "",
+  "requestLog": "<REPO>/tmp/t13ts/run-1/requests.jsonl",
+  "snapshotOffsets": [
+    {
+      "name": "wide-typed",
+      "offset": 3704
+    },
+    {
+      "name": "wide-backspace",
+      "offset": 3858
+    },
+    {
+      "name": "wide-delete",
+      "offset": 4165
+    }
+  ],
+  "sessionDir": "<REPO>/tmp/t13ts/run-1/session"
+}

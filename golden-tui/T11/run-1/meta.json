@@ -1,0 +1,41 @@
+{
+  "id": "T11",
+  "cols": 100,
+  "rows": 30,
+  "helperExit": 0,
+  "exitCode": 0,
+  "stderr": "",
+  "mockStderr": "",
+  "requestLog": "<REPO>/tmp/t11ts/run-1/requests.jsonl",
+  "snapshotOffsets": [
+    {
+      "name": "typed",
+      "offset": 3698
+    },
+    {
+      "name": "home-insert",
+      "offset": 3996
+    },
+    {
+      "name": "end-backspace",
+      "offset": 4296
+    },
+    {
+      "name": "ctrl-w",
+      "offset": 4445
+    },
+    {
+      "name": "ctrl-u",
+      "offset": 4594
+    },
+    {
+      "name": "delete",
+      "offset": 5041
+    },
+    {
+      "name": "ctrl-k",
+      "offset": 5190
+    }
+  ],
+  "sessionDir": "<REPO>/tmp/t11ts/run-1/session"
+}

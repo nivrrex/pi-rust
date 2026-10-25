@@ -1,0 +1,14 @@
+[
+  "provider-level-inherited",
+  "model-level-override",
+  "builtin-baseurl-only",
+  "headers-and-authheader",
+  "compat",
+  "cost-absent",
+  "cost-zero",
+  "empty-models",
+  "models-absent",
+  "missing-api",
+  "missing-baseurl",
+  "oauth-radius"
+]
