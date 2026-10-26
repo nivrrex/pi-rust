@@ -1655,14 +1655,15 @@ pub fn render_markdown(input: &str) -> Vec<String> {
             }
             Event::Text(text) => {
                 if in_code_block {
-                    for part in text.split('\n') {
-                        if part.is_empty() {
-                            if !code_line.is_empty() {
-                                out.push(format!("   {}", code_line.trim_end()));
-                                code_line.clear();
-                            }
-                        } else {
-                            code_line.push_str(part);
+                    // **每一行都要单独输出**（ref `markdown.ts` 的代码块按行渲染）。
+                    // 旧实现只把非空片段累加进 `code_line`、遇到空片段才 flush，
+                    // 于是连续多行被粘成一行（真机"桌面文件清单变成一行"的根因）。
+                    let mut parts = text.split('\n').peekable();
+                    while let Some(part) = parts.next() {
+                        code_line.push_str(part);
+                        if parts.peek().is_some() {
+                            out.push(format!("   {}", code_line.trim_end()));
+                            code_line.clear();
                         }
                     }
                 } else {
