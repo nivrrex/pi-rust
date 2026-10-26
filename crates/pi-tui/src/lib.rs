@@ -1453,7 +1453,7 @@ fn render_all_cached_inner(
 pub fn render(state: &TuiState, cols: usize, rows: usize) -> Vec<String> {
     const CHROME_LINES: usize = 5; // 编辑器框（上/内容/下）+ 状态区（cwd/用量）
     let mut lines = render_all(state, cols, rows);
-    let capacity = rows.saturating_sub(CHROME_LINES + 3);
+    let capacity = rows.saturating_sub(CHROME_LINES + 4);
     let chat_len = lines.len().saturating_sub(CHROME_LINES);
     if chat_len > capacity {
         lines.drain(0..chat_len - capacity);
