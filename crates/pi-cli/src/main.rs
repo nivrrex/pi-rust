@@ -37,6 +37,30 @@ fn load_builtin_catalog(agent_dir: &std::path::Path) -> Option<pi_ai::config::Bu
     None
 }
 
+/// 构建时刻（UTC，`YYYY-MM-DDTHH:MM:SSZ`）——由 `build.rs` 注入的 epoch 换算。
+fn build_stamp() -> String {
+    let epoch: u64 = env!("PI_BUILD_EPOCH").parse().unwrap_or(0);
+    let days = epoch / 86_400;
+    let seconds = epoch % 86_400;
+    // 民用日期换算（Howard Hinnant 的 days-from-civil 逆算法），避免引入时间库。
+    let z = days as i64 + 719_468;
+    let era = z.div_euclid(146_097);
+    let doe = z - era * 146_097;
+    let yoe = (doe - doe / 1460 + doe / 36_524 - doe / 146_096) / 365;
+    let y = yoe + era * 400;
+    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
+    let mp = (5 * doy + 2) / 153;
+    let d = doy - (153 * mp + 2) / 5 + 1;
+    let m = if mp < 10 { mp + 3 } else { mp - 9 };
+    let y = if m <= 2 { y + 1 } else { y };
+    format!(
+        "{y:04}-{m:02}-{d:02}T{:02}:{:02}:{:02}Z",
+        seconds / 3600,
+        (seconds % 3600) / 60,
+        seconds % 60
+    )
+}
+
 fn main() -> ExitCode {
     let argv: Vec<String> = std::env::args().skip(1).collect();
     let parsed = args::parse(&argv);
@@ -61,6 +85,8 @@ fn main() -> ExitCode {
     }
     if parsed.version {
         println!("pi-rs {}", pi_core::VERSION);
+        // P8d/B2：构建信息（提交号 + 构建时刻）。冒烟脚本用它确认"跑的是不是最新二进制"。
+        println!("built {} commit {}", build_stamp(), env!("PI_BUILD_COMMIT"));
         return ExitCode::SUCCESS;
     }
     // `--tui-mode` 的取值校验（ref `cli/args.ts:213-219`；**运行期文案以 W1(d) 实测为准**：

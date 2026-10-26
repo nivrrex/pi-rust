@@ -456,6 +456,22 @@ pub fn apply(state: &mut TuiState, event: TuiEvent) -> TuiAction {
             }
             TuiAction::Redraw
         }
+        TuiEvent::CtrlO => {
+            state.tools_expanded = !state.tools_expanded;
+            // ref `interactive-mode.ts:4419`：`showStatus("Tool output: expanded|collapsed")`。
+            push_status(
+                state,
+                &format!(
+                    "Tool output: {}",
+                    if state.tools_expanded {
+                        "expanded"
+                    } else {
+                        "collapsed"
+                    }
+                ),
+            );
+            TuiAction::Redraw
+        }
         TuiEvent::RetryState(active) => {
             state.retrying = active;
             TuiAction::Redraw
@@ -576,8 +592,7 @@ pub fn apply(state: &mut TuiState, event: TuiEvent) -> TuiAction {
             state.working = on;
             TuiAction::Redraw
         }
-        TuiEvent::CtrlO
-        | TuiEvent::CtrlT
+        TuiEvent::CtrlT
         | TuiEvent::CtrlL
         | TuiEvent::CtrlP
         | TuiEvent::CtrlShiftO

@@ -2927,7 +2927,13 @@ impl pi_core::agent::EventSink for TuiEventSink {
                 // 结果正文：把所有 text 块按换行拼接（ref `render-utils.ts` 的
                 // `getTextOutput` 同口径），图片块在 TUI 里略过。
                 let mut parts: Vec<String> = Vec::new();
-                if let Some(blocks) = result.as_array() {
+                // 形状是 `{"content":[{type:"text",text:…}]}`（`run.rs::tool_result_json`
+                // 的形态；不是裸数组），`details` 同层。
+                let blocks = result
+                    .get("content")
+                    .and_then(|content| content.as_array())
+                    .or_else(|| result.as_array());
+                if let Some(blocks) = blocks {
                     for block in blocks {
                         if block.get("type").and_then(|kind| kind.as_str()) == Some("text") {
                             if let Some(text) = block.get("text").and_then(|text| text.as_str()) {
