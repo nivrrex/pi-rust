@@ -236,6 +236,9 @@ pub enum TuiEvent {
     Quit,
     /// agent loop：助手文本的**增量**（流式）片段；连续增量合并进同一条助手消息。
     AssistantDelta(String),
+    /// **内部**：删掉最后一条状态行（重试结束后，ref 的 `RetryStatusIndicator` 会被移除，
+    /// 状态行不会留在会话区）。
+    ClearStatus,
     /// **内部**：重试退避进行中（不进会话区、不影响渲染）。
     ///
     /// 用途：重试期间每轮 `AgentSettled` 都会发 `Working(false)`，但整轮**还没结束**——
@@ -415,6 +418,12 @@ pub fn apply(state: &mut TuiState, event: TuiEvent) -> TuiAction {
                 state.thinking_level = state.available_thinking_levels[next].clone();
                 let message = format!("Thinking level: {}", state.thinking_level);
                 push_status(state, &message);
+            }
+            TuiAction::Redraw
+        }
+        TuiEvent::ClearStatus => {
+            if matches!(state.transcript.last(), Some(TranscriptItem::Status(_))) {
+                state.transcript.pop();
             }
             TuiAction::Redraw
         }

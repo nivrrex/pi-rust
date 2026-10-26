@@ -879,6 +879,7 @@ pub fn run(mut state: TuiState, parts: Option<std::sync::Arc<AgentParts>>) -> st
                         continue;
                     }
                     TuiEvent::AssistantNotice(_)
+                    | TuiEvent::ClearStatus
                     | TuiEvent::RetryState(_)
                     | TuiEvent::AssistantDelta(_)
                     | TuiEvent::ThinkingDelta(_)
@@ -979,6 +980,7 @@ pub fn run(mut state: TuiState, parts: Option<std::sync::Arc<AgentParts>>) -> st
                                 | TuiEvent::Paste(_)
                                 | TuiEvent::Quit
                                 | TuiEvent::AssistantNotice(_)
+                                | TuiEvent::ClearStatus
                                 | TuiEvent::RetryState(_)
                                 | TuiEvent::AssistantDelta(_)
                                 | TuiEvent::ThinkingDelta(_)
@@ -2319,7 +2321,11 @@ pub fn run(mut state: TuiState, parts: Option<std::sync::Arc<AgentParts>>) -> st
                                         )
                                     });
                                 if !retryable || attempt >= RETRY_MAX {
-                                    if attempt > 0 {
+                                    // 只有"最后一次仍然可重试"才是真失败；重试成功后 `attempt>0`
+                                    // 但 `retryable=false`，不能报 `Retry failed`（真机表现为成功
+                                    // 之后仍显示重试失败）。
+                                    let gave_up = attempt > 0 && retryable;
+                                    if gave_up {
                                         // 最后一次仍失败：ref 的 `showError`
                                         // `Retry failed after N attempts: <err>`
                                         // （`interactive-mode.ts:3631`）。
@@ -2331,27 +2337,50 @@ pub fn run(mut state: TuiState, parts: Option<std::sync::Arc<AgentParts>>) -> st
                                             "Retry failed after {attempt} attempts: {detail}"
                                         )));
                                     }
+                                    if !gave_up {
+                                        // 成功/取消：状态行是瞬时的，移掉。
+                                        let _ = tx.send(TuiEvent::ClearStatus);
+                                    }
                                     break produced;
                                 }
                                 attempt += 1;
+                                // **指数退避**：TS 实测第 1/2/3 次分别是 2s / 4s / 8s
+                                // （`agent-session.ts:1503` 的 `_prepareRetry` 每次翻倍）。
+                                let delay_ms =
+                                    RETRY_DELAY_MS.saturating_mul(1_u64 << (attempt - 1));
                                 // ref `status-indicator.ts:54-63` 的倒计时文案。
                                 let _ = tx.send(TuiEvent::Status(format!(
                                     "Retrying ({attempt}/{RETRY_MAX}) in {}s... (escape to cancel)",
-                                    RETRY_DELAY_MS / 1000
+                                    delay_ms / 1000
                                 )));
-                                // 分片睡眠：Escape 取消（ref 重试期同样响应 interrupt）。
+                                // 分片睡眠：Escape 取消（ref 重试期同样响应 interrupt），
+                                // 同时**每秒刷新**倒计时文案（ref `status-indicator.ts:54-63`：
+                                // `Retrying (n/3) in Xs... (escape to cancel)`，X 逐秒递减）。
                                 let mut waited = 0_u64;
-                                while waited < RETRY_DELAY_MS {
+                                let mut shown_seconds = delay_ms / 1000;
+                                while waited < delay_ms {
                                     if cancel.is_cancelled() {
                                         break;
                                     }
                                     std::thread::sleep(std::time::Duration::from_millis(50));
                                     waited += 50;
+                                    let left = delay_ms.saturating_sub(waited);
+                                    // ref 的倒计时**到 1 就执行**（不出现 `in 0s`）。
+                                    let seconds = left.div_ceil(1000).max(1);
+                                    if seconds != shown_seconds {
+                                        shown_seconds = seconds;
+                                        let _ = tx.send(TuiEvent::Status(format!(
+                                            "Retrying ({attempt}/{RETRY_MAX}) in {seconds}s... (escape to cancel)"
+                                        )));
+                                    }
                                 }
                                 if cancel.is_cancelled() {
+                                    // 取消重试：状态行同样是瞬时的。
+                                    let _ = tx.send(TuiEvent::ClearStatus);
                                     break produced;
                                 }
                             };
+
                             // `run_loop` 返回的是**整段上下文**（含我们传进去的初始消息）⇒ 落盘时只取
                             // 超出初始长度的尾部，否则第二轮会把第一轮的消息再写一遍（T08 实测 pi-rs 10 条
                             // 对 TS 8 条，多出的正是重复的 user/assistant 对）。

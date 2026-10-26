@@ -37,7 +37,13 @@ def setup_mock():
     shutil.rmtree(BASE, ignore_errors=True)
     for name in ("cfg", "sess", "home", "work"):
         os.makedirs(os.path.join(BASE, name), exist_ok=True)
-    scenario = os.path.join(BASE, "scenario.json")
+    # mock 的 `root` = **场景文件的祖父目录**（`main.rs:463-467`）⇒ 场景要放在
+    # 仓库内的临时子目录，`fixtures/...` 才能解析到真实夹具（放 /tmp 会读成空文件、
+    # 表现为"服务端 0 字节 + 客户端 Stream ended without finish_reason"，假故障）。
+    scenario_dir = os.path.join(REPO, "tmp-difftest-" + os.path.basename(BASE))
+    shutil.rmtree(scenario_dir, ignore_errors=True)
+    os.makedirs(scenario_dir, exist_ok=True)
+    scenario = os.path.join(scenario_dir, "scenario.json")
     # 闸门：每段响应发 1 个 chunk 后停住，直到显式放行 ⇒ 回合永远不会自然结束。
     json.dump(
         {

@@ -305,7 +305,39 @@ async fn handle(
                 let _ = writeln!(file, "{entry}");
             }
         }
-        if let Some(path) = &guard.log_path {
+    }
+
+    let (step, root, response_index) = {
+        let mut guard = state.lock().await;
+        guard.served += 1;
+        guard.in_flight += 1;
+        let index = guard
+            .next
+            .min(guard.scenario.responses.len().saturating_sub(1));
+        guard.next += 1;
+        // 取证：每条请求**实际用到**的 spec 下标（`served` 是第几次请求）。
+        // 默认关闭：S01 等钉子对 `requests.jsonl` 的**行格式**敏感（一请求一行）。
+        if std::env::var_os("MOCK_VERBOSE").is_some() {
+            if let Some(path) = &guard.log_path {
+                use std::io::Write;
+                if let Ok(mut file) = std::fs::OpenOptions::new()
+                    .create(true)
+                    .append(true)
+                    .open(path)
+                {
+                    let entry = serde_json::json!({
+                        "path": request.path,
+                        "body": request.body,
+                        "responseIndex": index,
+                        "served": guard.served,
+                        "disconnectAfterChunks": guard.scenario.responses[index]
+                            .disconnect_after_chunks,
+                    });
+                    let _ = writeln!(file, "{entry}");
+                }
+            }
+        } else if let Some(path) = &guard.log_path {
+            // 默认格式（一请求一行）——钉子测试按行读取，不能改。
             use std::io::Write;
             if let Ok(mut file) = std::fs::OpenOptions::new()
                 .create(true)
@@ -316,19 +348,14 @@ async fn handle(
                 let _ = writeln!(file, "{entry}");
             }
         }
-    }
-
-    let (step, root) = {
-        let mut guard = state.lock().await;
-        guard.served += 1;
-        guard.in_flight += 1;
-        let index = guard
-            .next
-            .min(guard.scenario.responses.len().saturating_sub(1));
-        guard.next += 1;
-        (guard.scenario.responses[index].clone(), guard.root.clone())
+        (
+            guard.scenario.responses[index].clone(),
+            guard.root.clone(),
+            index,
+        )
     };
 
+    let _ = response_index;
     let bytes = std::fs::read(root.join(&step.file)).unwrap_or_default();
     // 场景回放按整块写出；跨块切分只在 oracle（B2）里需要。
     let chunks: Vec<Vec<u8>> = match step.chunk_by_event {
@@ -361,9 +388,11 @@ async fn handle(
     let head = "HTTP/1.1 200 OK\r\ncontent-type: text/event-stream\r\ncache-control: no-cache\r\nconnection: close\r\n\r\n";
     let _ = stream.write_all(head.as_bytes()).await;
 
+    let mut written = 0_usize;
     for (index, chunk) in chunks.iter().enumerate() {
         let _ = stream.write_all(chunk).await;
         let _ = stream.flush().await;
+        written += chunk.len();
         if Some(index + 1) == step.gate_after_chunks {
             state.lock().await.gate_hits += 1;
             loop {
@@ -387,6 +416,24 @@ async fn handle(
         let mut guard = state.lock().await;
         guard.consumed += 1;
         guard.in_flight -= 1;
+        // 取证：本次响应**实际写出**的字节数（判断是"服务端没写"还是"客户端没读"）。
+        if std::env::var_os("MOCK_VERBOSE").is_some() {
+            if let Some(path) = &guard.log_path {
+                use std::io::Write;
+                if let Ok(mut file) = std::fs::OpenOptions::new()
+                    .create(true)
+                    .append(true)
+                    .open(path)
+                {
+                    let entry = serde_json::json!({
+                        "responseIndex": response_index,
+                        "writtenBytes": written,
+                        "completed": true,
+                    });
+                    let _ = writeln!(file, "{entry}");
+                }
+            }
+        }
         // 放行过一次后重新武装，下一个闸门需要再次 release。
         guard.released = false;
     }

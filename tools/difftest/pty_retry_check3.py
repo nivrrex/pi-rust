@@ -49,7 +49,13 @@ def setup(response_specs):
     shutil.rmtree(BASE, ignore_errors=True)
     for name in ("cfg", "sess", "home", "work"):
         os.makedirs(os.path.join(BASE, name), exist_ok=True)
-    scenario = os.path.join(BASE, "scenario.json")
+    # mock 的 `root` = **场景文件的祖父目录**（`main.rs:463-467`）⇒ 场景要放在
+    # 仓库内的临时子目录，`fixtures/...` 才能解析到真实夹具（放 /tmp 会读成空文件、
+    # 表现为"服务端 0 字节 + 客户端 Stream ended without finish_reason"，假故障）。
+    scenario_dir = os.path.join(REPO, "tmp-difftest-" + os.path.basename(BASE))
+    shutil.rmtree(scenario_dir, ignore_errors=True)
+    os.makedirs(scenario_dir, exist_ok=True)
+    scenario = os.path.join(scenario_dir, "scenario.json")
     json.dump(
         {
             "id": "RT",
@@ -126,7 +132,7 @@ def run(path, response_specs, action):
             if "Retrying (" in buf.decode("utf-8", "replace"):
                 break
         os.write(fd, b"\x1b")
-    drain(14.0)
+    drain(20.0)
     os.kill(pid, 9)
     try:
         os.close(fd)
@@ -139,14 +145,27 @@ def run(path, response_specs, action):
     stop_mock()
     text = re.sub(rb"\x1b\[[0-9;?]*[ -/]*[@-~]", b"", bytes(buf)).decode("utf-8", "replace")
     log_path = os.path.join(BASE, "requests.jsonl")
-    requests = sum(1 for _ in open(log_path)) if os.path.exists(log_path) else 0
+    # 日志里每条请求一行 + 每段响应完成再加一行 ⇒ 只数带 `served` 的请求行。
+    requests = 0
+    if os.path.exists(log_path):
+        for line in open(log_path):
+            try:
+                if "served" in json.loads(line):
+                    requests += 1
+            except json.JSONDecodeError:
+                continue
+    if os.environ.get("RETRY_DUMP"):
+        open(os.environ["RETRY_DUMP"], "w").write(text)
     # 诊断用：把 `Retry failed after N attempts: <原文>` 一并带回
     err = [line.strip() for line in text.splitlines() if "Retry failed" in line]
+    # 只看**最后一帧**（累积文本里含历史帧，断言会假阳性）：取最后 12 行非空行。
+    tail_lines = [line.strip() for line in text.splitlines() if line.strip()][-12:]
+    tail_text = "\n".join(tail_lines)
     return {"path": path, "requests": requests,
-            "retrying": "Retrying (" in text,
-            "failed": "Retry failed after" in text,
-            "aborted": "Operation aborted" in text,
-            "answer": "Mock assistant reply" in text or "Hello" in text,
+            "retrying": "Retrying (" in tail_text,
+            "failed": "Retry failed after" in tail_text,
+            "aborted": "Operation aborted" in tail_text,
+            "answer": "Mock assistant reply" in tail_text or "Hello" in tail_text,
             "retry_error": err[-1][:120] if err else None,
             "tail": [line.strip() for line in text.splitlines() if line.strip()][-3:]}
 
@@ -157,7 +176,7 @@ def main():
                     {"file": FIXTURE}], "cancel",
                    {"requests": 1, "failed": False}),
         "success": ([{"file": FIXTURE, "chunkByEvent": True, "disconnectAfterChunks": 2},
-                     {"file": FIXTURE}], "none",
+                     {"file": FIXTURE}, {"file": FIXTURE}, {"file": FIXTURE}], "none",
                     {"requests": 2, "answer": True, "failed": False}),
         "exhausted": ([{"file": FIXTURE, "chunkByEvent": True, "disconnectAfterChunks": 2}] * 4, "none",
                       {"requests": 4, "failed": True}),
