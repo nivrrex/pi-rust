@@ -1177,7 +1177,10 @@ fn render_all_cached_inner(
                 output,
                 is_error,
             } => format!(
-                "t\u{1}{name}\u{1}{summary}\u{1}{is_error}\u{1}{}",
+                // `tools_expanded` 必须进 key：否则 ctrl+o 切换后仍命中旧缓存，
+                // 屏幕上看不出任何变化（真机"ctrl+o 没啥变化"）。
+                "t\u{1}{name}\u{1}{summary}\u{1}{is_error}\u{1}{}\u{1}{}",
+                state.tools_expanded,
                 output.as_deref().unwrap_or("")
             ),
         };

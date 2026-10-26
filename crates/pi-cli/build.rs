@@ -8,7 +8,9 @@ use std::process::Command;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 fn main() {
-    println!("cargo:rerun-if-changed=build.rs");
+    // **不要**声明 rerun-if-changed：构建信息必须随**每次**构建刷新
+    // （只声明 build.rs 的话，改代码后 cargo 不重跑构建脚本，`--version` 会一直
+    // 显示旧提交号——真机上刚好会让"我跑的是不是最新二进制"这个问题再次失真）。
     let commit = Command::new("git")
         .args(["rev-parse", "--short", "HEAD"])
         .output()
