@@ -1,0 +1,58 @@
+{
+  "id": "T72-ls-tool",
+  "provider": "openai-completions",
+  "model": "mock-model",
+  "mode": "print",
+  "prompt": "list files",
+  "files": {
+    "AGENTS.md": "# 项目规则\n",
+    "aardvark.txt": "a\n",
+    "Bravo.txt": "b\n",
+    "dir-nested/inner.txt": "i\n",
+    "zeta/deep/leaf.txt": "l\n"
+  },
+  "globalFiles": {},
+  "cliArgs": [
+    "--tools",
+    "ls",
+    "-p",
+    "list files"
+  ],
+  "responses": [
+    {
+      "file": "fixtures/sse/openai/tool-ls.sse",
+      "chunkByEvent": true
+    },
+    {
+      "file": "fixtures/sse/openai/text-basic.sse"
+    }
+  ],
+  "description": "ls 工具端到端（V1）：mock 回一个 ls toolCall，第二轮请求体里的 toolResult 就是 ls 输出",
+  "tui": {
+    "cols": 100,
+    "rows": 30,
+    "snapshots": [
+      "ls"
+    ],
+    "steps": [
+      {
+        "action": "waitStable",
+        "quietMs": 800,
+        "timeoutMs": 15000
+      },
+      {
+        "action": "snapshot",
+        "name": "ls"
+      },
+      {
+        "action": "type",
+        "text": "\u0003"
+      },
+      {
+        "action": "waitStable",
+        "quietMs": 300,
+        "timeoutMs": 5000
+      }
+    ]
+  }
+}
