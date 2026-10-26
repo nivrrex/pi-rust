@@ -46,6 +46,9 @@ pub const SPINNER_INTERVAL: std::time::Duration = std::time::Duration::from_mill
 pub struct TuiState {
     /// 重试退避进行中（见 `TuiEvent::RetryState`）。
     pub retrying: bool,
+    /// 工具输出是否全部展开（ref `interactive-mode.ts:475` 默认 `false`；
+    /// `ctrl+o` 切换所有工具块，`:4397-4419`）。
+    pub tools_expanded: bool,
     /// 版本号（用于 `pi v<version>`）。
     pub version: String,
     /// 当前工作目录（状态行左侧）。
@@ -122,6 +125,11 @@ pub enum TranscriptItem {
         name: String,
         /// 已格式化的参数摘要（如 `input.txt`）。
         summary: String,
+        /// 结果正文（`None` = 还在跑）。ref 里由 `renderResult` 决定展示，
+        /// 折叠/展开见 `tool-execution.ts:40,166-170` 与 `renderers/bash.ts:18,86-97`。
+        output: Option<String>,
+        /// 工具是否报错（ref `ToolRenderContext.isError`）。
+        is_error: bool,
     },
 }
 
@@ -140,6 +148,7 @@ impl TuiState {
     ) -> Self {
         Self {
             retrying: false,
+            tools_expanded: false,
             thinking_level: "off".to_string(),
             available_thinking_levels: vec!["off".to_string()],
             spinner_frame: 0,
@@ -236,6 +245,13 @@ pub enum TuiEvent {
     Quit,
     /// agent loop：助手文本的**增量**（流式）片段；连续增量合并进同一条助手消息。
     AssistantDelta(String),
+    /// 工具结果正文（`ToolExecutionEnd`）：回填到**最后一条** `ToolCall`。
+    ToolResult {
+        /// 结果文本（多个 text 块用换行拼接）。
+        output: String,
+        /// 是否错误态。
+        is_error: bool,
+    },
     /// **内部**：删掉最后一条状态行（重试结束后，ref 的 `RetryStatusIndicator` 会被移除，
     /// 状态行不会留在会话区）。
     ClearStatus,
@@ -427,6 +443,19 @@ pub fn apply(state: &mut TuiState, event: TuiEvent) -> TuiAction {
             }
             TuiAction::Redraw
         }
+        TuiEvent::ToolResult { output, is_error } => {
+            // 回填到**最后一条** ToolCall（ref 里 ToolExecutionComponent 与调用一一对应）。
+            if let Some(TranscriptItem::ToolCall {
+                output: slot,
+                is_error: flag,
+                ..
+            }) = state.transcript.last_mut()
+            {
+                *slot = Some(output);
+                *flag = is_error;
+            }
+            TuiAction::Redraw
+        }
         TuiEvent::RetryState(active) => {
             state.retrying = active;
             TuiAction::Redraw
@@ -464,9 +493,12 @@ pub fn apply(state: &mut TuiState, event: TuiEvent) -> TuiAction {
             TuiAction::Redraw
         }
         TuiEvent::ToolCall { name, summary } => {
-            state
-                .transcript
-                .push(TranscriptItem::ToolCall { name, summary });
+            state.transcript.push(TranscriptItem::ToolCall {
+                name,
+                summary,
+                output: None,
+                is_error: false,
+            });
             TuiAction::Redraw
         }
         TuiEvent::Usage {
@@ -1124,7 +1156,15 @@ fn render_all_cached_inner(
             }
             TranscriptItem::Status(text) => format!("s\u{1}{text}"),
             TranscriptItem::Thinking(text) => format!("k\u{1}{text}"),
-            TranscriptItem::ToolCall { name, summary } => format!("t\u{1}{name}\u{1}{summary}"),
+            TranscriptItem::ToolCall {
+                name,
+                summary,
+                output,
+                is_error,
+            } => format!(
+                "t\u{1}{name}\u{1}{summary}\u{1}{is_error}\u{1}{}",
+                output.as_deref().unwrap_or("")
+            ),
         };
         if let Some(cache) = cache.as_deref_mut() {
             if let Some((key, rendered)) = cache.entries.get(item_index) {
@@ -1187,7 +1227,12 @@ fn render_all_cached_inner(
                 }
                 lines.push(String::new());
             }
-            TranscriptItem::ToolCall { name, summary } => {
+            TranscriptItem::ToolCall {
+                name,
+                summary,
+                output,
+                is_error,
+            } => {
                 let text = if summary.is_empty() {
                     format!(" {name}")
                 } else {
@@ -1197,6 +1242,39 @@ fn render_all_cached_inner(
                 lines.push(String::new());
                 lines.push(clamp_to_width(&text, cols));
                 // golden/T06 实测：工具调用块之后也有一个空行（行 12 调用、13 空、14 助手文本）。
+                // 结果正文：ref 折叠态只显示一小段（bash 取**尾部 5 行**、其余工具取
+                // **头部 10 行**），多出的部分给 `... (N more lines, ctrl+o to expand)`；
+                // `ctrl+o` 全局展开（`tool-execution.ts:40,166-170`、`renderers/bash.ts:18,86-97`）。
+                if let Some(body) = output.as_deref() {
+                    let _ = is_error;
+                    let body = body.trim_end_matches('\n');
+                    if !body.is_empty() {
+                        lines.push(String::new());
+                        let all: Vec<&str> = body.split('\n').collect();
+                        let shell = name == "bash" || name == "powershell";
+                        let preview = if shell { 5 } else { 10 };
+                        let (start, hidden) = if state.tools_expanded || all.len() <= preview {
+                            (0_usize, 0_usize)
+                        } else if shell {
+                            (all.len() - preview, all.len() - preview)
+                        } else {
+                            (0, all.len() - preview)
+                        };
+                        if hidden > 0 && shell {
+                            let hint = format!("... ({hidden} earlier lines, ctrl+o to expand)");
+                            lines.push(clamp_to_width(&hint, cols));
+                        }
+                        for line in &all[start..] {
+                            for wrapped in wrap_to_width(line, cols.saturating_sub(2).max(1)) {
+                                lines.push(clamp_to_width(&format!(" {wrapped}"), cols));
+                            }
+                        }
+                        if hidden > 0 && !shell {
+                            let hint = format!("... ({hidden} more lines, ctrl+o to expand)");
+                            lines.push(clamp_to_width(&hint, cols));
+                        }
+                    }
+                }
                 lines.push(String::new());
             }
         }
@@ -1682,6 +1760,8 @@ mod markdown_tests {
         state.transcript.push(TranscriptItem::ToolCall {
             name: "read".to_string(),
             summary: "input.txt".to_string(),
+            output: None,
+            is_error: false,
         });
         let lines = super::render(&state, 100, 30);
         let text = lines.join("\n");

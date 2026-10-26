@@ -171,6 +171,8 @@ fn transcript_from_messages(messages: &[pi_ai::message::Message]) -> Vec<pi_tui:
                         } => {
                             push_text(&mut text, &mut out_items);
                             out_items.push(pi_tui::TranscriptItem::ToolCall {
+                                output: None,
+                                is_error: false,
                                 name: name.clone(),
                                 summary: {
                                     let value = serde_json::Value::Object(arguments.clone());
@@ -880,6 +882,7 @@ pub fn run(mut state: TuiState, parts: Option<std::sync::Arc<AgentParts>>) -> st
                     }
                     TuiEvent::AssistantNotice(_)
                     | TuiEvent::ClearStatus
+                    | TuiEvent::ToolResult { .. }
                     | TuiEvent::RetryState(_)
                     | TuiEvent::AssistantDelta(_)
                     | TuiEvent::ThinkingDelta(_)
@@ -981,6 +984,7 @@ pub fn run(mut state: TuiState, parts: Option<std::sync::Arc<AgentParts>>) -> st
                                 | TuiEvent::Quit
                                 | TuiEvent::AssistantNotice(_)
                                 | TuiEvent::ClearStatus
+                                | TuiEvent::ToolResult { .. }
                                 | TuiEvent::RetryState(_)
                                 | TuiEvent::AssistantDelta(_)
                                 | TuiEvent::ThinkingDelta(_)
@@ -2917,6 +2921,26 @@ impl pi_core::agent::EventSink for TuiEventSink {
                 name: tool_name,
                 summary: tool_summary(&args),
             }),
+            AgentEvent::ToolExecutionEnd {
+                result, is_error, ..
+            } => {
+                // 结果正文：把所有 text 块按换行拼接（ref `render-utils.ts` 的
+                // `getTextOutput` 同口径），图片块在 TUI 里略过。
+                let mut parts: Vec<String> = Vec::new();
+                if let Some(blocks) = result.as_array() {
+                    for block in blocks {
+                        if block.get("type").and_then(|kind| kind.as_str()) == Some("text") {
+                            if let Some(text) = block.get("text").and_then(|text| text.as_str()) {
+                                parts.push(text.to_string());
+                            }
+                        }
+                    }
+                }
+                Some(TuiEvent::ToolResult {
+                    output: parts.join("\n"),
+                    is_error,
+                })
+            }
             AgentEvent::AgentStart => Some(TuiEvent::Working(true)),
             AgentEvent::AgentSettled => Some(TuiEvent::Working(false)),
             AgentEvent::AgentEnd { .. }
@@ -2931,7 +2955,6 @@ impl pi_core::agent::EventSink for TuiEventSink {
             | AgentEvent::QueueUpdate
             | AgentEvent::MessageStart { .. }
             | AgentEvent::ToolExecutionUpdate { .. }
-            | AgentEvent::ToolExecutionEnd { .. }
             | AgentEvent::AutoRetryStart { .. }
             | AgentEvent::AutoRetryEnd { .. } => None,
         };
