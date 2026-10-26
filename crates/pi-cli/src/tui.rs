@@ -777,6 +777,10 @@ pub fn run(mut state: TuiState, parts: Option<std::sync::Arc<AgentParts>>) -> st
             );
         }
     }
+    // **当前回合的取消令牌**：Escape 用它中止正在跑的回合（ref 的 `session.abort()`）。
+    // 槽位在提交线程启动回合时填入，回合结束后清空。
+    let turn_cancel: std::sync::Arc<std::sync::Mutex<Option<tokio_util::sync::CancellationToken>>> =
+        std::sync::Arc::new(std::sync::Mutex::new(None));
     'main: loop {
         if sig_flag.load(Ordering::SeqCst) {
             break;
@@ -875,6 +879,7 @@ pub fn run(mut state: TuiState, parts: Option<std::sync::Arc<AgentParts>>) -> st
                         continue;
                     }
                     TuiEvent::AssistantNotice(_)
+                    | TuiEvent::RetryState(_)
                     | TuiEvent::AssistantDelta(_)
                     | TuiEvent::ThinkingDelta(_)
                     | TuiEvent::ToolCall { .. }
@@ -974,6 +979,7 @@ pub fn run(mut state: TuiState, parts: Option<std::sync::Arc<AgentParts>>) -> st
                                 | TuiEvent::Paste(_)
                                 | TuiEvent::Quit
                                 | TuiEvent::AssistantNotice(_)
+                                | TuiEvent::RetryState(_)
                                 | TuiEvent::AssistantDelta(_)
                                 | TuiEvent::ThinkingDelta(_)
                                 | TuiEvent::ToolCall { .. }
@@ -2165,12 +2171,28 @@ pub fn run(mut state: TuiState, parts: Option<std::sync::Arc<AgentParts>>) -> st
             }
             // P7-7f/perf：一个回合结束（`Working(false)`）⇒ 若还有排队输入，立刻提交下一个。
             if matches!(event, TuiEvent::Working(false)) {
-                busy = false;
+                // 重试退避期间 `AgentSettled` 也会来：整轮没结束，保持"忙"。
+                if !state.retrying {
+                    busy = false;
+                }
                 if let Some(next) = queued_inputs.pop_front() {
                     state.input = next;
                     let _ = apply(&mut state, TuiEvent::Enter);
                 }
                 dirty = true;
+            }
+            // Escape 中止正在执行的回合（ref `interactive-mode.ts:3607-3613`
+            // `escape` → `session.abort()`；重试倒计时期间同样生效）。
+            if matches!(event, TuiEvent::Escape) && busy && selector.is_none() {
+                let token = turn_cancel.lock().ok().and_then(|slot| {
+                    slot.as_ref()
+                        .map(tokio_util::sync::CancellationToken::clone)
+                });
+                if let Some(token) = token {
+                    token.cancel();
+                    dirty = true;
+                    continue;
+                }
             }
             match apply(&mut state, event) {
                 TuiAction::Exit => break 'main,
@@ -2193,6 +2215,7 @@ pub fn run(mut state: TuiState, parts: Option<std::sync::Arc<AgentParts>>) -> st
                         let tx = tx.clone();
                         let history = std::sync::Arc::clone(&history);
                         let level_snapshot = state.thinking_level.clone();
+                        let turn_cancel_slot = std::sync::Arc::clone(&turn_cancel);
                         std::thread::spawn(move || {
                             let sink = std::sync::Arc::new(TuiEventSink::new(
                                 tx.clone(),
@@ -2245,6 +2268,9 @@ pub fn run(mut state: TuiState, parts: Option<std::sync::Arc<AgentParts>>) -> st
                             messages.push(user);
                             // 取消令牌随线程结束丢弃：TUI 退出时不阻塞在已无人接收的事件上。
                             let cancel = tokio_util::sync::CancellationToken::new();
+                            if let Ok(mut slot) = turn_cancel_slot.lock() {
+                                *slot = Some(cancel.clone());
+                            }
                             // **只宣告本轮新消息**（ref `agent-loop.ts:209-216` 只宣告 pending）；
                             // 默认 `announce_from = 0` 会在每轮把**整段历史**重新宣告一遍，
                             // TUI 侧对每条 assistant 的 `message_end` 都会渲染一次错误提示 ⇒
@@ -2313,9 +2339,18 @@ pub fn run(mut state: TuiState, parts: Option<std::sync::Arc<AgentParts>>) -> st
                                     "Retrying ({attempt}/{RETRY_MAX}) in {}s... (escape to cancel)",
                                     RETRY_DELAY_MS / 1000
                                 )));
-                                std::thread::sleep(std::time::Duration::from_millis(
-                                    RETRY_DELAY_MS,
-                                ));
+                                // 分片睡眠：Escape 取消（ref 重试期同样响应 interrupt）。
+                                let mut waited = 0_u64;
+                                while waited < RETRY_DELAY_MS {
+                                    if cancel.is_cancelled() {
+                                        break;
+                                    }
+                                    std::thread::sleep(std::time::Duration::from_millis(50));
+                                    waited += 50;
+                                }
+                                if cancel.is_cancelled() {
+                                    break produced;
+                                }
                             };
                             // `run_loop` 返回的是**整段上下文**（含我们传进去的初始消息）⇒ 落盘时只取
                             // 超出初始长度的尾部，否则第二轮会把第一轮的消息再写一遍（T08 实测 pi-rs 10 条

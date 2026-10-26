@@ -44,6 +44,8 @@ pub const SPINNER_INTERVAL: std::time::Duration = std::time::Duration::from_mill
 /// TUI 的可变状态（纯数据）。
 #[derive(Debug, Clone, PartialEq)]
 pub struct TuiState {
+    /// 重试退避进行中（见 `TuiEvent::RetryState`）。
+    pub retrying: bool,
     /// 版本号（用于 `pi v<version>`）。
     pub version: String,
     /// 当前工作目录（状态行左侧）。
@@ -137,6 +139,7 @@ impl TuiState {
         status: impl Into<String>,
     ) -> Self {
         Self {
+            retrying: false,
             thinking_level: "off".to_string(),
             available_thinking_levels: vec!["off".to_string()],
             spinner_frame: 0,
@@ -233,6 +236,11 @@ pub enum TuiEvent {
     Quit,
     /// agent loop：助手文本的**增量**（流式）片段；连续增量合并进同一条助手消息。
     AssistantDelta(String),
+    /// **内部**：重试退避进行中（不进会话区、不影响渲染）。
+    ///
+    /// 用途：重试期间每轮 `AgentSettled` 都会发 `Working(false)`，但整轮**还没结束**——
+    /// 主循环据此继续保持"忙"，否则 Escape 取消与排队输入会被误判为回合已结束。
+    RetryState(bool),
     /// 助手消息尾部的状态提示（`Error: …` / 截断 / 中止）。
     ///
     /// ref `assistant-message.ts:182-199`：提示是消息容器里 `Spacer(1)` 之后的**独立** `Text`
@@ -408,6 +416,10 @@ pub fn apply(state: &mut TuiState, event: TuiEvent) -> TuiAction {
                 let message = format!("Thinking level: {}", state.thinking_level);
                 push_status(state, &message);
             }
+            TuiAction::Redraw
+        }
+        TuiEvent::RetryState(active) => {
+            state.retrying = active;
             TuiAction::Redraw
         }
         TuiEvent::AssistantNotice(text) => {
