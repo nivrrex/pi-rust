@@ -140,11 +140,14 @@ def run(path, response_specs, action):
     text = re.sub(rb"\x1b\[[0-9;?]*[ -/]*[@-~]", b"", bytes(buf)).decode("utf-8", "replace")
     log_path = os.path.join(BASE, "requests.jsonl")
     requests = sum(1 for _ in open(log_path)) if os.path.exists(log_path) else 0
+    # 诊断用：把 `Retry failed after N attempts: <原文>` 一并带回
+    err = [line.strip() for line in text.splitlines() if "Retry failed" in line]
     return {"path": path, "requests": requests,
             "retrying": "Retrying (" in text,
             "failed": "Retry failed after" in text,
             "aborted": "Operation aborted" in text,
             "answer": "Mock assistant reply" in text or "Hello" in text,
+            "retry_error": err[-1][:120] if err else None,
             "tail": [line.strip() for line in text.splitlines() if line.strip()][-3:]}
 
 
