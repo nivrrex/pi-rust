@@ -2868,8 +2868,11 @@ impl pi_core::agent::EventSink for TuiEventSink {
                         }
                     }
                     if let Some(delta) = notice_delta {
-                        // 先把提示送进会话区，再用 Usage 更新 footer（两个事件都发）。
-                        if self.tx.send(TuiEvent::AssistantDelta(delta)).is_err() {
+                        // 提示是**独立**块（ref `assistant-message.ts:182-199`：`Spacer(1)` 之后
+                        // 的 `Text`）。早先走 `AssistantDelta` 会把它拼在正文同一行
+                        // （"Hello Error: …"），与 ref 的"空行 + 提示"不一致。
+                        let text = delta.trim_start_matches('\n').to_string();
+                        if self.tx.send(TuiEvent::AssistantNotice(text)).is_err() {
                             return;
                         }
                     }
@@ -3459,8 +3462,13 @@ mod p76an_tests {
         });
         let mut seen = String::new();
         while let Ok(event) = rx.try_recv() {
-            if let TuiEvent::AssistantDelta(delta) = event {
-                seen.push_str(&delta);
+            match event {
+                // 提示是**独立块**（`AssistantNotice`），正文仍走 `AssistantDelta`。
+                TuiEvent::AssistantDelta(delta) | TuiEvent::AssistantNotice(delta) => {
+                    seen.push_str(&delta);
+                    seen.push('\n');
+                }
+                _other => {}
             }
         }
         assert!(
@@ -3487,8 +3495,12 @@ mod p76an_tests {
         });
         let mut seen = String::new();
         while let Ok(event) = rx.try_recv() {
-            if let TuiEvent::AssistantDelta(delta) = event {
-                seen.push_str(&delta);
+            match event {
+                TuiEvent::AssistantDelta(delta) | TuiEvent::AssistantNotice(delta) => {
+                    seen.push_str(&delta);
+                    seen.push('\n');
+                }
+                _other => {}
             }
         }
         assert!(
