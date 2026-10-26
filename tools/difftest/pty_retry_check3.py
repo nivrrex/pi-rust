@@ -150,7 +150,9 @@ def run(path, response_specs, action):
     if os.path.exists(log_path):
         for line in open(log_path):
             try:
-                if "served" in json.loads(line):
+                entry = json.loads(line)
+                # 默认日志一请求一行（含 `body`）；`MOCK_VERBOSE=1` 时另有 `served`。
+                if "body" in entry or "served" in entry:
                     requests += 1
             except json.JSONDecodeError:
                 continue
