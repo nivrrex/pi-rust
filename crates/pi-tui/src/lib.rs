@@ -1260,8 +1260,14 @@ fn render_all_cached_inner(
                 // 结果正文：ref 折叠态只显示一小段（bash 取**尾部 5 行**、其余工具取
                 // **头部 10 行**），多出的部分给 `... (N more lines, ctrl+o to expand)`；
                 // `ctrl+o` 全局展开（`tool-execution.ts:40,166-170`、`renderers/bash.ts:18,86-97`）。
-                if let Some(body) = output.as_deref() {
-                    let _ = is_error;
+                // **各工具的折叠策略不同**（ref 各自的 renderResult）：
+                // - `read`：折叠态**不显示正文**（`renderers/read.ts:120-122`
+                //   `if (!options.expanded && !isError) return "";`），展开或用错时才显示；
+                // - `bash`/`powershell`：尾部 5 行（`renderers/bash.ts:18,86-97`）；
+                // - `ls`：头部 20 行（`renderers/ls.ts:37`）；其余按 fallback 前 10 行
+                //   （`tool-execution.ts:40,166-170`）。
+                let hide_collapsed = name == "read" && !is_error && !state.tools_expanded;
+                if let Some(body) = output.as_deref().filter(|_| !hide_collapsed) {
                     let body = body.trim_end_matches('\n');
                     if !body.is_empty() {
                         lines.push(String::new());
