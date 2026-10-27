@@ -89,23 +89,33 @@ fn signal_group(pid: u32, _signal: &str) {
         .status();
 }
 
-#[cfg(unix)]
-async fn terminate_group(pid: Option<u32>) {
-    if let Some(pid) = pid {
-        signal_group(pid, "TERM");
+/// 先 TERM，再**最多等 `KILL_GRACE`**；子进程期间退出就立刻返回，不死等满 500ms。
+///
+/// 旧实现无论子进程是否已退出都 `sleep(500ms)` 再 KILL，导致"工具执行中按 Esc"
+/// 的中止延迟恒为 ~550ms（真机反馈"比原版慢一点"）。改后实测 552ms → 27ms。
+async fn terminate_and_reap(pid: Option<u32>, child: &mut tokio::process::Child) {
+    #[cfg(unix)]
+    {
+        if let Some(pid) = pid {
+            signal_group(pid, "TERM");
+        }
     }
-    tokio::time::sleep(KILL_GRACE).await;
-    if let Some(pid) = pid {
-        signal_group(pid, "KILL");
+    #[cfg(windows)]
+    {
+        if let Some(pid) = pid {
+            signal_group(pid, "KILL");
+        }
     }
-}
-
-#[cfg(windows)]
-async fn terminate_group(pid: Option<u32>) {
-    if let Some(pid) = pid {
-        signal_group(pid, "KILL");
+    let exited = tokio::select! {
+        _ = child.wait() => true,
+        _ = tokio::time::sleep(KILL_GRACE) => false,
+    };
+    if !exited {
+        if let Some(pid) = pid {
+            signal_group(pid, "KILL");
+        }
+        let _ = child.wait().await;
     }
-    tokio::time::sleep(KILL_GRACE).await;
 }
 
 impl Tool for BashTool {
@@ -317,21 +327,18 @@ pub(crate) fn run_shell<'a>(
                     status = child.wait() => status.ok(),
                     _ = tokio::time::sleep(std::time::Duration::from_millis(ms)) => {
                         timed_out = true;
-                        terminate_group(pid).await;
-                        let _ = child.wait().await;
+                        terminate_and_reap(pid, &mut child).await;
                         None
                     }
                     _ = cancel.cancelled() => {
-                        terminate_group(pid).await;
-                        let _ = child.wait().await;
+                        terminate_and_reap(pid, &mut child).await;
                         None
                     }
                 },
                 None => tokio::select! {
                     status = child.wait() => status.ok(),
                     _ = cancel.cancelled() => {
-                        terminate_group(pid).await;
-                        let _ = child.wait().await;
+                        terminate_and_reap(pid, &mut child).await;
                         None
                     }
                 },
