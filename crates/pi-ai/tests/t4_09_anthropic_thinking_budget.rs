@@ -104,3 +104,33 @@ fn unknown_level_emits_no_field_instead_of_guessing() {
     assert!(config.is_none(), "未知等级不应编造 thinking 配置");
     let _unused = ThinkingConfig::Disabled;
 }
+
+/// X2：**每个档位到请求体字段**的映射（`thinking.type` / `budget_tokens` / `display`）。
+///
+/// 与 golden 的单点样本（`medium`）互补：这里把 5 档全过一遍，
+/// 保证 `thinking_config_for_level(...).to_json()` 的输出与 ref 的
+/// `{type:"enabled", budget_tokens, display:"summarized"}` 一致。
+#[test]
+fn every_level_maps_to_the_documented_budget_in_the_request_body() {
+    // 模型上限取足够大，避免被"答案留白"规则夹住（那条规则有单独用例）。
+    let ceiling = 200_000;
+    for (level, expected) in [
+        ("minimal", 1024u64),
+        ("low", 2048),
+        ("medium", 8192),
+        ("high", 16384),
+        // ref `simple-options.ts:64-66`：xhigh/max 折成 high。
+        ("xhigh", 16384),
+        ("max", 16384),
+    ] {
+        let config = thinking_config_for_level(Some(level), None, ceiling)
+            .unwrap_or_else(|| panic!("{level} 应有 thinking 配置"));
+        let body = config.to_json().expect("enabled 档位应产出 thinking 字段");
+        assert_eq!(body["type"], "enabled", "{level}");
+        assert_eq!(body["budget_tokens"], expected, "{level}");
+        assert_eq!(body["display"], "summarized", "{level}");
+    }
+    // `off` 走另一个分支：显式 `{type:"disabled"}`（不是缺省）。
+    let off = thinking_config_for_level(Some("off"), None, ceiling).expect("off 也要有配置");
+    assert_eq!(off.to_json().expect("off 有 json")["type"], "disabled");
+}
