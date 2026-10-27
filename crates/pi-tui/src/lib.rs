@@ -19,6 +19,7 @@
 
 // P7-6k/W2：主屏差分渲染的纯函数移植（本批不接线，见模块文档）。
 pub mod diff;
+pub mod style;
 // P7-6q/W3：键盘输入层纯函数（本批不接线）。
 pub mod input;
 // P7-6w/W2：终端协商状态机（纯函数，本批不接线）。
@@ -1084,6 +1085,104 @@ pub fn wrap_to_width(text: &str, width: usize) -> Vec<String> {
     out
 }
 
+/// 给"框架"行补样式（P8d/C4）：启动提示、footer、边框、运行中的状态行。
+///
+/// 这些行不是在 transcript 循环里生成的，所以单独按内容识别。键取自 ref
+/// `theme/dark.json` 与 C3 取证的组件行号（`footer.ts:227-231` 用 `dim`、
+/// `bordered-loader.ts:15` 边框 `border`、`status-indicator.ts:60-61` spinner `warning`/文案 `muted`）。
+fn apply_chrome_styles(lines: &[String], styles: &mut [Option<style::LineStyle>]) {
+    use style::{LineStyle, BORDER_MUTED, DIM, MD_HEADING, MUTED, WARNING};
+    for (index, line) in lines.iter().enumerate() {
+        // 先算，再写：避免 `get_mut` 的借用与读取上一行冲突。
+        if styles.get(index).is_some_and(Option::is_some) {
+            continue;
+        }
+        let trimmed = line.trim();
+        if trimmed.is_empty() {
+            // 空行沿用上一行的样式（ref 里 `dim` 段落是整段 Text，空行也带样式）。
+            let previous = if index > 0 { styles[index - 1] } else { None };
+            styles[index] = previous;
+            continue;
+        }
+        let slot = &mut styles[index];
+        // 整宽边框（编辑器框/面板框）：`border`。
+        if trimmed.chars().all(|ch| ch == '─') {
+            *slot = Some(LineStyle::fg(BORDER_MUTED));
+            continue;
+        }
+        // 启动键位提示与 `Press ctrl+o …`：`dim`（ref `:985-994` 走 muted/dim 口径）。
+        if trimmed.starts_with("escape interrupt")
+            || trimmed.starts_with("Press ctrl+o")
+            || trimmed.starts_with("Pi can explain")
+        {
+            *slot = Some(LineStyle::fg(DIM));
+            continue;
+        }
+        // 运行中/等待状态行：`── ⠋ Working ──`（spinner 高亮、文案 muted）。
+        if line.contains("Working") || line.contains("Retrying") {
+            *slot = Some(LineStyle::fg(WARNING));
+            continue;
+        }
+        // footer：`路径` 与 `↑n ↓n x%/Nk (auto)`，ref 用 `dim`。
+        if trimmed.starts_with("pi v") {
+            *slot = Some(LineStyle::fg(style::ACCENT).bold());
+            continue;
+        }
+        if trimmed.contains("%/") && trimmed.contains('k') || trimmed.starts_with('/') {
+            *slot = Some(LineStyle::fg(DIM));
+            continue;
+        }
+        // `[Context]` 段标题用 accent。
+        if trimmed.starts_with("[Context]") || trimmed.starts_with("[branch]") {
+            *slot = Some(LineStyle::fg(MD_HEADING));
+            continue;
+        }
+        // 兜底：普通文本行用 muted（与 ref `toolOutput`/正文的基础色接近）。
+        let _ = MUTED;
+    }
+}
+
+/// 一个 transcript 条目内某一行该用的样式（P8d/C4）。
+///
+/// 颜色键取自 ref `theme/dark.json`（C3 取证）：用户消息 `userMessageBg/userMessageText`、
+/// thinking `thinkingText` + 斜体、工具块 `toolPendingBg/toolSuccessBg/toolErrorBg` 底 +
+/// `toolTitle` 粗体 + `toolOutput`、markdown 代码块 `mdCodeBlock`、状态行 `dim`。
+fn item_style(item: &TranscriptItem, line: &str, is_first: bool) -> Option<style::LineStyle> {
+    use style::{
+        LineStyle, ACCENT, DIM, MD_CODE_BLOCK, MUTED, TEXT, TOOL_ERROR_BG, TOOL_SUCCESS_BG,
+        USER_MESSAGE_BG,
+    };
+    match item {
+        // 用户消息：TS 是整块底色 + 默认前景（`user-message.ts:40,48`）。
+        TranscriptItem::User(_) => Some(LineStyle::with_bg_only(USER_MESSAGE_BG)),
+        TranscriptItem::Thinking(_) => Some(LineStyle::fg(MUTED).italic()),
+        // 助手正文：TS 实测是**终端默认色**（fg=null），不要强加 text 色。
+        TranscriptItem::Assistant(_) => None,
+        TranscriptItem::Status(_) => Some(LineStyle::fg(MUTED)),
+        TranscriptItem::BranchSummary { .. } => Some(LineStyle::fg(ACCENT)),
+        TranscriptItem::ToolCall { is_error, .. } => {
+            let background = if *is_error {
+                TOOL_ERROR_BG
+            } else {
+                TOOL_SUCCESS_BG
+            };
+            // 头部（`bash …`/`ls …`/`read …`）= `toolTitle` + 粗体，底色同块。
+            if is_first || line.starts_with(" ```") {
+                return Some(LineStyle::fg(TEXT).with_bg(background).bold());
+            }
+            // `... (N more lines, ctrl+o to expand)` 提示用 muted。
+            if line.starts_with("... (") {
+                return Some(LineStyle::fg(DIM).with_bg(background));
+            }
+            // 代码块内容行在工具输出里也要绿（`mdCodeBlock`）。
+            if line.starts_with("   ") && line.trim_start().starts_with("```") {
+                return Some(LineStyle::fg(MD_CODE_BLOCK).with_bg(background));
+            }
+            Some(LineStyle::fg(MUTED).with_bg(background))
+        }
+    }
+}
+
 /// 渲染成 `rows` 行、每行 `cols` 列（纯函数，便于单测与快照比对）。
 ///
 /// 布局（自上而下）：头部（版本/提示/欢迎）→ 空行 → `[Context]` 段 → 边框与编辑器 →
@@ -1105,7 +1204,21 @@ fn render_all_cached_inner(
     state: &TuiState,
     cols: usize,
     rows: usize,
+    cache: Option<&mut RenderCache>,
+) -> Vec<String> {
+    render_all_cached_styled_inner(state, cols, rows, cache, &mut Vec::new())
+}
+
+/// 同时产出**整行样式**的内部实现（P8d/C4）。
+///
+/// `styles` 与返回的 `lines` **等长**：每一项要么是 `None`（终端默认），要么是一条
+/// [`style::LineStyle`]。样式只影响写终端的 SGR，**不影响** `lines` 的内容与宽度。
+fn render_all_cached_styled_inner(
+    state: &TuiState,
+    cols: usize,
+    rows: usize,
     mut cache: Option<&mut RenderCache>,
+    styles: &mut Vec<Option<style::LineStyle>>,
 ) -> Vec<String> {
     let mut lines: Vec<String> = Vec::with_capacity(rows);
     lines.push(String::new());
@@ -1301,6 +1414,12 @@ fn render_all_cached_inner(
                 }
                 lines.push(String::new());
             }
+        }
+        // 该条目产出的行：`before` 之前是段落空行，`before + 1..` 是内容。
+        styles.resize(lines.len(), None);
+        for offset in before + 1..lines.len() {
+            let style = item_style(item, &lines[offset], offset == before + 1);
+            styles[offset] = style;
         }
         if let Some(cache) = cache.as_deref_mut() {
             let rendered: Vec<String> = lines[before + 1..].to_vec();
@@ -2849,6 +2968,22 @@ pub fn render_all_marker(state: &TuiState, cols: usize, rows: usize) -> Vec<Stri
 }
 
 /// 同 [`render_all_marker`]，但复用 [`RenderCache`]（输出必须与未缓存版本逐字节一致）。
+/// `render_all_marker_cached` 的**带样式**版本（P8d/C4）：文本与老接口逐字相同，
+/// 只是额外返回每行样式，供写终端时加 SGR。
+pub fn render_all_marker_cached_styled(
+    state: &TuiState,
+    cols: usize,
+    rows: usize,
+    cache: &mut RenderCache,
+) -> (Vec<String>, Vec<Option<style::LineStyle>>) {
+    let mut styles: Vec<Option<style::LineStyle>> = Vec::new();
+    let mut lines = render_all_cached_styled_inner(state, cols, rows, Some(cache), &mut styles);
+    styles.resize(lines.len(), None);
+    apply_chrome_styles(&lines, &mut styles);
+    marker_apply(state, cols, &mut lines);
+    (lines, styles)
+}
+
 pub fn render_all_marker_cached(
     state: &TuiState,
     cols: usize,
@@ -2866,13 +3001,19 @@ fn render_all_marker_impl(
     cache: Option<&mut RenderCache>,
 ) -> Vec<String> {
     let mut lines = render_all_cached_inner(state, cols, rows, cache);
+    marker_apply(state, cols, &mut lines);
+    lines
+}
+
+/// 往编辑器那一行插入软件光标标记（ref `editor.ts:575-600`）。与缓存/样式无关。
+fn marker_apply(state: &TuiState, cols: usize, lines: &mut [String]) {
     let border = "─".repeat(cols);
     // 下边框 = 从末尾往前第一个整宽边框；它之上是输入行（多行输入时取最后一行）。
     let Some(bottom) = lines.iter().rposition(|line| line == &border) else {
-        return lines;
+        return;
     };
     if bottom == 0 {
-        return lines;
+        return;
     }
     let target = bottom - 1;
     // 光标列：`state.cursor` 是**字符**下标；本行为输入的最后一段时，列即该段的字符偏移。
@@ -2919,7 +3060,6 @@ fn render_all_marker_impl(
         out
     };
     lines[target] = with_marker;
-    lines
 }
 
 #[cfg(test)]

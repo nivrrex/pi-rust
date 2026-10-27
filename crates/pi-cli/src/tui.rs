@@ -2710,7 +2710,8 @@ fn draw(
             // P7-6n：主屏差分渲染（`TuiMainScreen.doRender` 移植）。`render_all` 给**全量**行，
             // 可见窗口由 `diff_render` 的 `height` 决定（不预裁剪）。
             // **不再外包同步序列**：`diff_render` 自己已经写出 `?2026h/…/?2026l`（`tui-main-screen.ts:283/317/494/567`）。
-            let lines = pi_tui::render_all_marker_cached(state, cols, rows, render_cache);
+            let (lines, styles) =
+                pi_tui::render_all_marker_cached_styled(state, cols, rows, render_cache);
             // W1：诊断转储（feature 关闭时这段不参与编译）。
             #[cfg(feature = "diag-frame-dump")]
             {
@@ -2718,7 +2719,9 @@ fn draw(
                 let seq = SEQ.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
                 diag_dump::dump_frame(seq, cols, rows, &lines, diff_state, 0);
             }
-            match pi_tui::diff::diff_render_with_cursor(diff_state, &lines, cols, rows) {
+            match pi_tui::diff::diff_render_with_cursor_styled(
+                diff_state, &lines, &styles, cols, rows,
+            ) {
                 Ok((render_bytes, cursor_bytes)) => {
                     // 顺序同 ref：渲染字节 → 光标字节（`positionHardwareCursor` 在同步区之后写出）。
                     buffer.push_str(&render_bytes);

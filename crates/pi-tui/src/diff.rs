@@ -252,6 +252,23 @@ pub fn diff_render(
 ///
 /// # Errors
 /// 同 [`diff_render`]。
+/// 带**整行样式**的差分渲染（P8d/C4）：文本与增量逻辑完全复用，
+/// 只在"写这一行"时在行首加 SGR、行尾复位。宽度仍按纯文本计算。
+pub fn diff_render_with_cursor_styled(
+    state: &mut DiffState,
+    lines: &[String],
+    styles: &[Option<crate::style::LineStyle>],
+    width: usize,
+    height: usize,
+) -> Result<(String, String), DiffRenderError> {
+    let mut owned: Vec<String> = lines.to_vec();
+    let cursor_pos = extract_cursor_position(&mut owned, height);
+    let out = diff_render_body_styled(state, &owned, styles, width, height)?;
+    dump_debug_frame(state, &owned, width, height);
+    let cursor_bytes = position_hardware_cursor(state, cursor_pos, owned.len());
+    Ok((out, cursor_bytes))
+}
+
 pub fn diff_render_with_cursor(
     state: &mut DiffState,
     lines: &[String],
@@ -304,6 +321,16 @@ fn dump_debug_frame(state: &DiffState, lines: &[String], width: usize, height: u
 fn diff_render_body(
     state: &mut DiffState,
     lines: &[String],
+    width: usize,
+    height: usize,
+) -> Result<String, DiffRenderError> {
+    diff_render_body_styled(state, lines, &[], width, height)
+}
+
+fn diff_render_body_styled(
+    state: &mut DiffState,
+    lines: &[String],
+    styles: &[Option<crate::style::LineStyle>],
     width: usize,
     height: usize,
 ) -> Result<String, DiffRenderError> {
@@ -534,7 +561,23 @@ fn diff_render_body(
             });
         }
         out.push_str("\x1b[2K");
-        out.push_str(line);
+        // 整行样式：行首 SGR、行尾复位（复位序列的宽度为 0，不影响 `visible_width`）。
+        match styles.get(i).and_then(|slot| slot.as_ref()) {
+            Some(style) => {
+                out.push_str(&style.prefix());
+                out.push_str(line);
+                // 带背景色的块补空格到整宽（ref `Box(outputPad, 1, bg)` 整块着色）。
+                // 只影响写终端的字节，**不进** `lines`，所以文本级 golden 与单测不变。
+                if style.bg.is_some() {
+                    let used = visible_width(line);
+                    if used < width {
+                        out.push_str(&" ".repeat(width - used));
+                    }
+                }
+                out.push_str(style.reset());
+            }
+            None => out.push_str(line),
+        }
     }
 
     let mut final_cursor_row = render_end;
