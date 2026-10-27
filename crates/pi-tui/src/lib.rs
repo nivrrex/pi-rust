@@ -1105,6 +1105,8 @@ fn apply_chrome_styles(lines: &[String], styles: &mut [Option<style::LineStyle>]
             // 空行样式：先看上一行；上一行没有就看**下一个非空行**——
             // 用户消息块的上下 padding 行在 ref 里属于同一个 `Box(…, bg)`。
             let previous = if index > 0 { styles[index - 1] } else { None };
+            // 只有**背景色块**才向空行延伸；前景/属性样式（dim/muted/边框色）
+            // 在 TS 里并不覆盖空行（实测 T05 r25/r27 是纯默认色）。
             let mut inherited = previous.filter(|style| style.bg.is_some());
             if inherited.is_none() {
                 // 往后找第一个非空行；它有底色就沿用（用户消息块上下 padding 行）。
@@ -1119,12 +1121,14 @@ fn apply_chrome_styles(lines: &[String], styles: &mut [Option<style::LineStyle>]
                         .filter(|style| style.bg.is_some());
                 }
             }
-            styles[index] = inherited.or(previous);
+            styles[index] = inherited;
             continue;
         }
         let slot = &mut styles[index];
         // 整宽边框（编辑器框/面板框）：`border`。
-        if trimmed.chars().all(|ch| ch == '─') {
+        // 注意：空串上 `all()` 恒为 true（vacuously）——必须先排除空行，
+        // 否则**每个空行**都会被当成边框染色（T05 上就是 200+ 格的假差异）。
+        if !trimmed.is_empty() && trimmed.chars().all(|ch| ch == '─') {
             *slot = Some(LineStyle::fg(BORDER_MUTED));
             continue;
         }
