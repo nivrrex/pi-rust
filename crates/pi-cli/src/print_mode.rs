@@ -384,9 +384,10 @@ impl PrintRun {
                                             }
                                         }
                                     }
-                                    compaction_sink.emit(AgentEvent::CompactionStart {
-                                        reason: plan.reason.to_string(),
-                                    });
+                                    // **不预先发 `CompactionStart`**：`perform_auto_compaction`
+                                    // 返回 `Ok(None)`（"nothing to compact"）时 TS **一个事件都不发**
+                                    // （X3 实测：`openai-responses` 的 `incomplete` 回合里我们多出
+                                    // 一对 compaction_start/end）。改为真正要压缩时才发。
                                     match crate::auto_compaction::perform_auto_compaction(
                                         &entries,
                                         &config,
@@ -399,6 +400,9 @@ impl PrintRun {
                                     .await
                                     {
                                         Ok(Some(run)) => {
+                                            compaction_sink.emit(AgentEvent::CompactionStart {
+                                                reason: plan.reason.to_string(),
+                                            });
                                             if plan.will_retry {
                                                 // 换用重建后的上下文，稍后重跑该回合。
                                                 retry_overflow = true;
@@ -429,6 +433,9 @@ impl PrintRun {
                                             });
                                         }
                                         Err(error) => {
+                                            compaction_sink.emit(AgentEvent::CompactionStart {
+                                                reason: plan.reason.to_string(),
+                                            });
                                             compaction_sink.emit(AgentEvent::CompactionEnd {
                                                 reason: plan.reason.to_string(),
                                                 result: None,
