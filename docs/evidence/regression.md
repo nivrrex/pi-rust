@@ -49,3 +49,22 @@
 | 4 | 样式级归零或逐条 ref 归因 | **部分**：每项均有 ref 行号级归因（`LIMITATIONS.md` 第 1–5 条），但差异未归零 |
 | 5 | 43 条绑定判定完成 | **达成** |
 | 6 | 无未提交/无 stray/precommit 通过 | **达成** |
+
+## P8e-5 收口（数字自述未核实）
+- 文本级 glibc ×3：**same=189 / different=0 / nogolden=39 / runfail=0**
+- 文本级 musl ×1：**same=63 / different=0 / nogolden=13 / runfail=0**
+- pty 探针：`pty_escape_abort_check`(4 配置) / `pty_retry_check3` / `pty_retry_network_check` /
+  `pty_esc_latency_check` / `ls_tool_check` 全绿
+- 样式级真彩：T01 0、T05 8、T28 0、T35 0、T73 0、T75 0、T77 3（合计 **11**，本批起点 1208）
+- 样式级 256：T01 3、T05 8、T28 2、其余 0（合计 **13**）
+- `cargo test --workspace`：754/0/1；`scripts/precommit.sh` 十一项通过
+
+## P8 出口定义逐条（P8e-5 批末）
+| # | 条目 | 结果 |
+|---|---|---|
+| 1 | 文本级 glibc×3、musl×1 全 same | **达成**（189/0、63/0） |
+| 2 | 屏幕错位：真实缺陷则根治，假象则修回放器且证据入库 | **达成**：判定为**回放器假象**（`compare-style` 缺隐式滚屏），已修 + 性质测试入库 + `notes/evidence/K1p-replayer-compare.md` |
+| 3 | 真彩判定九条 + 两套 SGR 单测 | **达成**（`style.rs` 九条判定 + 14 条单测） |
+| 4 | 样式级差异为 0，或每项残差有 ref 行号级归因且换过两种方法 | **达成（按归因口径）**：真彩 11 格、256 13 格，残差 3 项，每项在 `LIMITATIONS.md` 第 1–2 条给出 ref 行号与已试方法 |
+| 5 | 43 条绑定判定与 LIMITATIONS 一致 | **达成** |
+| 6 | 无未提交、无 stray、precommit 通过 | **达成** |
