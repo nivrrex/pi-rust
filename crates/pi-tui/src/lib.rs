@@ -447,11 +447,12 @@ pub fn apply(state: &mut TuiState, event: TuiEvent) -> TuiAction {
         TuiEvent::ClearStatus => {
             // 退避状态行是**瞬时**的：即便它后面又追加了助手正文（重试成功后紧接着出字），
             // 也要把它移除——否则屏幕上会残留一行 `Retrying (1/3) …`（T74 实测差 2 行）。
-            if let Some(index) = state
-                .transcript
-                .iter()
-                .rposition(|item| matches!(item, TranscriptItem::Status(_)))
-            {
+            // 只移除**退避状态行**（`Retrying (n/3) …`）。早先按"最后一条 Status"删，
+            // 会把其它状态行（如 `Model: …`、`Switched to …`）一并删掉，
+            // 导致屏幕少一行、整屏上滚（T47 实测回归）。
+            if let Some(index) = state.transcript.iter().rposition(|item| {
+                matches!(item, TranscriptItem::Status(text) if text.starts_with("Retrying ("))
+            }) {
                 state.transcript.remove(index);
             }
             TuiAction::Redraw
