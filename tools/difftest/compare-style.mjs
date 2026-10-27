@@ -281,7 +281,18 @@ function main() {
     // 只比较**最终屏幕**，且只在两侧最终屏幕纯文本一致时才算数（否则口径不适用）。
     const a = renderStyledScreen(fs.readFileSync(leftPath, "utf8"), cols, rows);
     const b = renderStyledScreen(fs.readFileSync(rightPath, "utf8"), cols, rows);
-    const text = (screen) => screen.map((row) => row.map((cell) => cell.ch).join("").replace(/\s+$/, ""));
+    // 文本层先归一化**易变值**再用作口径闸门：会话目录/uuid、耗时、spinner、
+    // `pi v<版本>` 之外的构建时间等两侧天然不同，不归一化会导致永远"不适用"。
+    const normalizeText = (textLine) =>
+      textLine
+        .replace(/\/tmp\/[A-Za-z0-9._\/-]+/g, "<PATH>")
+        .replace(/--session [0-9a-fA-F-]+/g, "--session <ID>")
+        .replace(/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/g, "<UUID>")
+        .replace(/\d+(\.\d+)?(ms|s)\b/g, "<DURATION>")
+        .replace(/[⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏]/g, "<SPINNER>")
+        .replace(/\s+$/g, "");
+    const text = (screen) =>
+      screen.map((row) => normalizeText(row.map((cell) => cell.ch).join("")));
     if (text(a).join("\n") !== text(b).join("\n")) {
       console.log("[compare-style] 口径不适用：最终屏幕文本不一致");
       return 2;
