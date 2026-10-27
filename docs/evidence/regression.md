@@ -70,3 +70,11 @@
 | 4 | 样式级差异为 0，或每项残差有 ref 行号级归因且换过两种方法 | **达成（按归因口径）**：真彩 11 格、256 13 格，残差 3 项，每项在 `LIMITATIONS.md` 第 1–2 条给出 ref 行号与已试方法 |
 | 5 | 43 条绑定判定与 LIMITATIONS 一致 | **达成** |
 | 6 | 无未提交、无 stray、precommit 通过 | **达成** |
+
+## P8e-5 批末复测（K4c 收尾后，数字自述未核实）
+- 文本级 glibc ×3：**same=189 / different=0 / nogolden=39 / runfail=0**
+- 文本级 musl ×1：**same=63 / different=0 / nogolden=13 / runfail=0**
+- pty 探针：`pty_escape_abort_check`(4 配置) / `pty_retry_network_check` / `pty_esc_latency_check` 全绿
+- `cargo test --workspace`：755/0/1；`scripts/precommit.sh` 十一项通过
+- 样式级真彩：T01/T05/T28/T35/T73/T75 **全 same**，T77 **3**（合计 3）
+- 样式级 256：T05/T35/T73/T75/T77 **全 same**，T01 3、T28 2（合计 5）
