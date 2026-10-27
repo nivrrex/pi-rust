@@ -2755,6 +2755,35 @@ fn draw(
             // 可见窗口由 `diff_render` 的 `height` 决定（不预裁剪）。
             // **不再外包同步序列**：`diff_render` 自己已经写出 `?2026h/…/?2026l`（`tui-main-screen.ts:283/317/494/567`）。
             let frame = pi_tui::render_all_marker_cached_styled(state, cols, rows, render_cache);
+            // S1：样式/坐标诊断转储（`PI_TUI_STYLE_DUMP=<path>`，仅排查用）。
+            if let Some(path) = std::env::var_os("PI_TUI_STYLE_DUMP") {
+                use std::io::Write as _;
+                if let Ok(mut file) = std::fs::OpenOptions::new()
+                    .create(true)
+                    .append(true)
+                    .open(&path)
+                {
+                    let _ = writeln!(
+                        file,
+                        "=== frame viewport_top={} lines={} cursor_row={} ===",
+                        diff_state.previous_viewport_top,
+                        frame.lines.len(),
+                        diff_state.cursor_row
+                    );
+                    for (index, line) in frame.lines.iter().enumerate() {
+                        let style = frame.styles.get(index).copied().flatten();
+                        let span_count = frame.spans.get(index).map_or(0, Vec::len);
+                        let _ = writeln!(
+                            file,
+                            "{index}\tfg={:?}\tbg={:?}\tdim={}\tspans={span_count}\t{:?}",
+                            style.and_then(|s| s.fg),
+                            style.and_then(|s| s.bg),
+                            style.is_some_and(|s| s.dim),
+                            line.replace('\u{1b}', "\\e")
+                        );
+                    }
+                }
+            }
             let lines = frame.lines;
             let styles = frame.styles;
             let spans = frame.spans;
