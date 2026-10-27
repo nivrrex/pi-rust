@@ -223,8 +223,12 @@ fn full_render_styled(
         }
         match styles.get(i).and_then(|slot| slot.as_ref()) {
             Some(style) => {
-                // 与增量路径同口径：前导空格不染色。
-                let lead = line.len() - line.trim_start().len();
+                // 与增量路径同口径：前导空格不染色；背景色块整行覆盖。
+                let lead = if style.bg.is_some() {
+                    0
+                } else {
+                    line.len() - line.trim_start().len()
+                };
                 if lead > 0 {
                     out.push_str(&line[..lead]);
                 }
@@ -661,8 +665,13 @@ fn diff_render_body_styled(
         if line_spans.is_empty() {
             match styles.get(i).and_then(|slot| slot.as_ref()) {
                 Some(style) => {
-                    // ref 的 `Text(..., paddingX=1)` 里**前导空格不染色**（实测 r3c0 无样式）。
-                    let lead = line.len() - line.trim_start().len();
+                    // ref 的 `Text(..., paddingX=1)` 里**前导空格不染色**；但**背景色块**
+                    // 必须整行覆盖（用户消息的 padding 行就是纯空格行）。
+                    let lead = if style.bg.is_some() {
+                        0
+                    } else {
+                        line.len() - line.trim_start().len()
+                    };
                     if lead > 0 {
                         out.push_str(&line[..lead]);
                     }

@@ -3032,8 +3032,31 @@ fn header_spans(lines: &[String]) -> Vec<Vec<style::Span>> {
     use style::{LineStyle, ACCENT, DIM, MUTED};
     const KEY_TOKENS: [&str; 5] = ["escape", "ctrl+c/ctrl+d", "/", "!", "ctrl+o"];
     let mut out: Vec<Vec<style::Span>> = Vec::new();
+    let mut in_context_section = false;
     for line in lines {
         let trimmed = line.trim_start();
+        // `[Context]`/`[branch]` 段：**连前导空格一起染色**（TS 实测 `  AGENTS.md`
+        // 的 col0/col1 是 dim），与 `Press ctrl+o …` 那类提示行相反。
+        if trimmed.starts_with("[Context]") || trimmed.starts_with("[branch]") {
+            in_context_section = true;
+            out.push(vec![style::Span::new(
+                0,
+                line.len(),
+                LineStyle::fg(style::MD_HEADING),
+            )]);
+            continue;
+        }
+        if in_context_section && line.starts_with("  ") && !trimmed.is_empty() {
+            out.push(vec![style::Span::new(
+                0,
+                line.len(),
+                LineStyle::fg(style::DIM),
+            )]);
+            continue;
+        }
+        if trimmed.is_empty() {
+            in_context_section = false;
+        }
         if trimmed.starts_with("pi v") {
             let lead = line.len() - trimmed.len();
             let short = "pi".len();
