@@ -740,13 +740,18 @@ fn diff_render_body_styled(
                     } else {
                         (line.as_str(), "")
                     };
-                    let lead = if style.bg.is_some() {
-                        0
-                    } else {
-                        visible.len() - visible.trim_start().len()
-                    };
+                    // 前导空格：无背景时**不染色**；有背景时**只染背景**（ref 的 padding
+                    // 只有底色，文字才有前景色 —— T01 最后 1 格就是这么来的）。
+                    let lead = visible.len() - visible.trim_start().len();
                     if lead > 0 {
-                        out.push_str(&visible[..lead]);
+                        if style.bg.is_some() {
+                            let pad = padding_style(*style);
+                            out.push_str(&pad.prefix());
+                            out.push_str(&visible[..lead]);
+                            out.push_str(pad.reset());
+                        } else {
+                            out.push_str(&visible[..lead]);
+                        }
                     }
                     out.push_str(&style.prefix());
                     out.push_str(&visible[lead..]);

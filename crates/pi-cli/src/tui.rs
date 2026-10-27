@@ -2740,7 +2740,28 @@ pub fn run(mut state: TuiState, parts: Option<std::sync::Arc<AgentParts>>) -> st
         let _ = out.flush();
     }
     guard.restore();
+    // 退出后打印**恢复会话**提示（ref 退出路径同款文案，见 T01 golden 尾部）：
+    // `\x1b[2mTo resume this session:\x1b[22m pi --session-dir <dir> --session <id>`。
+    // 之前完全没有这行，样式级对拍里那 23 格就是它。
+    if let Some(parts) = parts.as_ref() {
+        if let Some(id) = session_id_for_resume(parts) {
+            let mut out = std::io::stdout();
+            let _ = writeln!(
+                out,
+                "\u{1b}[2mTo resume this session:\u{1b}[22m pi --session-dir {} --session {id}",
+                parts.session_dir.display()
+            );
+            let _ = out.flush();
+        }
+    }
     Ok(0)
+}
+
+/// 取本次会话的 id（用于退出提示）。读最后一条 `session` 头里的 `id`。
+fn session_id_for_resume(parts: &AgentParts) -> Option<String> {
+    let writer = parts.writer.as_ref()?;
+    let guard = writer.lock().ok()?;
+    guard.header_id()
 }
 
 /// 把当前状态画到终端（光标回左上角逐行覆盖，避免整屏闪烁）。

@@ -1196,7 +1196,9 @@ fn item_style(item: &TranscriptItem, line: &str, is_first: bool) -> Option<style
     };
     match item {
         // 用户消息：TS 是整块底色 + 默认前景（`user-message.ts:40,48`）。
-        TranscriptItem::User(_) => Some(LineStyle::with_bg_only(USER_MESSAGE_BG)),
+        // 用户消息：整块底色 + `userMessageText`（= theme `text`，实测 256 色 188），
+        // 不是"仅底色+默认前景"（T01 实测 TS 的文字 cell 有前景色）。
+        TranscriptItem::User(_) => Some(LineStyle::fg(TEXT).with_bg(USER_MESSAGE_BG)),
         TranscriptItem::Thinking(_) => Some(LineStyle::fg(MUTED).italic()),
         // 助手正文：TS 实测是**终端默认色**（fg=null），不要强加 text 色。
         TranscriptItem::Assistant(_) => None,
