@@ -129,6 +129,88 @@ export function renderStyledScreen(text, cols, rows) {
   return screen;
 }
 
+/** 按 `\x1b[?2026h` 切帧，返回每帧结束处的偏移列表。 */
+export function frameEnds(raw) {
+  const ends = [];
+  let index = raw.indexOf("\u001b[?2026h");
+  while (index >= 0) {
+    const next = raw.indexOf("\u001b[?2026h", index + 1);
+    ends.push(next < 0 ? raw.length : next);
+    index = next;
+  }
+  return ends;
+}
+
+/** 帧内**纯文本**屏幕的内容哈希（用于配对同一时刻的两侧帧）。 */
+export function textHash(screen) {
+  // 归一化：空白不参与；盲文 spinner 帧统一成 `#`；反显/行内时序不影响配对。
+  let hash = 2166136261;
+  for (const row of screen) {
+    for (const cell of row) {
+      const ch = cell.ch;
+      if (ch.trim() === "") continue;
+      const code = ch.codePointAt(0) ?? 0;
+      const normalized = code >= 0x2800 && code <= 0x28ff ? "#" : ch;
+      for (const unit of normalized.codePointAt(0) === undefined ? [] : [...normalized]) {
+        hash ^= unit.codePointAt(0) ?? 0;
+        hash = Math.imul(hash, 16777619);
+      }
+    }
+  }
+  return hash >>> 0;
+}
+
+/**
+ * **按内容配对帧**再比样式（取代"整段流回放到底"）。
+ *
+ * 两侧的帧数/节奏可能不同（瞬时帧只在一边出现），逐帧序号没有意义；这里用"纯文本屏幕哈希"
+ * 把内容相同的帧配起来，只对配上的帧做逐单元格样式比较，并分别报告两侧未配对的帧数。
+ */
+export function comparePairedFrames(left, right, cols, rows) {
+  const build = (raw) => {
+    const ends = frameEnds(raw);
+    return ends.map((end, index) => {
+      const screen = renderStyledScreen(raw.slice(0, end), cols, rows);
+      return { index, screen, hash: textHash(screen) };
+    });
+  };
+  const leftFrames = build(left);
+  const rightFrames = build(right);
+  const usedRight = new Set();
+  const counts = { bg: 0, fg: 0, bold: 0, dim: 0, italic: 0 };
+  const frames = [];
+  for (const leftFrame of leftFrames) {
+    const match = rightFrames.findIndex(
+      (rightFrame, index) => !usedRight.has(index) && rightFrame.hash === leftFrame.hash,
+    );
+    if (match < 0) continue;
+    usedRight.add(match);
+    const rightFrame = rightFrames[match];
+    let cells = 0;
+    for (let row = 0; row < rows; row += 1) {
+      for (let col = 0; col < cols; col += 1) {
+        const a = leftFrame.screen[row][col];
+        const b = rightFrame.screen[row][col];
+        if (a.bg !== b.bg) counts.bg += 1;
+        if (a.fg !== b.fg) counts.fg += 1;
+        if (a.bold !== b.bold) counts.bold += 1;
+        if (a.dim !== b.dim) counts.dim += 1;
+        if (a.italic !== b.italic) counts.italic += 1;
+      }
+    }
+    frames.push({ left: leftFrame.index, right: rightFrame.index, cells });
+  }
+  return {
+    leftFrames: leftFrames.length,
+    rightFrames: rightFrames.length,
+    paired: frames.length,
+    unpairedLeft: leftFrames.length - frames.length,
+    unpairedRight: rightFrames.length - frames.length,
+    counts,
+  };
+}
+
+
 /** 比较两个样式屏幕；返回首个差异与分类计数。 */
 export function compareStyled(left, right, cols, rows, { styleOnly = false } = {}) {
   const a = renderStyledScreen(left, cols, rows);
@@ -167,6 +249,24 @@ function main() {
       "用法: node compare-style.mjs --left a.raw --right b.raw [--cols 100] [--rows 30] [--style-only] [--json]",
     );
     return 2;
+  }
+  if (argv.includes("--pair-frames")) {
+    const paired = comparePairedFrames(
+      fs.readFileSync(leftPath, "utf8"),
+      fs.readFileSync(rightPath, "utf8"),
+      cols,
+      rows,
+    );
+    if (argv.includes("--json")) {
+      console.log(JSON.stringify(paired, null, 2));
+    } else {
+      console.log(
+        `[compare-style] paired=${paired.paired}/${paired.leftFrames}（右侧 ${paired.rightFrames}）` +
+          ` unpairedLeft=${paired.unpairedLeft} unpairedRight=${paired.unpairedRight}` +
+          ` bg=${paired.counts.bg} fg=${paired.counts.fg} bold=${paired.counts.bold} dim=${paired.counts.dim}`,
+      );
+    }
+    return paired.counts.bg + paired.counts.fg + paired.counts.bold + paired.counts.dim === 0 ? 0 : 1;
   }
   const result = compareStyled(
     fs.readFileSync(leftPath, "utf8"),
