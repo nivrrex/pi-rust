@@ -144,6 +144,52 @@ fn visible_width(text: &str) -> usize {
 }
 
 /// `computeLineDiff`（`tui-main-screen.ts:258-262`）：目标行与当前屏幕行之差（正=下移，负=上移）。
+/// 把行尾的**控制序列**（`SGR` 复位、`OSC 8` 关闭）与可见文本分开。
+///
+/// 依据 ref `utils.ts:1050-1058` `applyBackgroundToLine`：先按可见宽度补空格，
+/// 再整体套 `bgFn`。我们的渲染行尾自带 `\x1b[0m` / `\x1b]8;;\x07`，
+/// 若直接 `prefix + line + padding`，补位空格会落在行内复位之后 ⇒ 底色丢失
+/// （S2R 实测：TS 行内无复位，补位空格紧跟 `48;2;…`）。
+fn split_trailing_controls(line: &str) -> (&str, &str) {
+    let bytes = line.as_bytes();
+    let mut end = bytes.len();
+    loop {
+        if end == 0 {
+            break;
+        }
+        // 结尾是 OSC（ESC ] … BEL）？
+        if bytes[end - 1] == 0x07 {
+            if let Some(start) = line[..end].rfind('\u{1b}') {
+                let candidate = &line[start..end];
+                if candidate.starts_with("\u{1b}]") {
+                    end = start;
+                    continue;
+                }
+            }
+        }
+        // 结尾是 CSI 序列（ESC [ … 终止字节）？
+        if bytes[end - 1].is_ascii_alphabetic() {
+            if let Some(start) = line[..end].rfind("\u{1b}[") {
+                let candidate = &line[start..end];
+                if candidate.starts_with("\u{1b}[")
+                    && candidate.len() > 2
+                    && candidate[2..candidate.len() - 1]
+                        .chars()
+                        .all(|ch| ch.is_ascii_digit() || ch == ';' || ch == '?')
+                {
+                    // 只剥离 **复位/样式**（以 `m` 结尾）；光标移动等不动。
+                    if candidate.ends_with('m') {
+                        end = start;
+                        continue;
+                    }
+                }
+            }
+        }
+        break;
+    }
+    (&line[..end], &line[end..])
+}
+
 /// 按 span 写一行：逐段 SGR + 文本，段间复位；最后按需补背景空格到整宽。
 fn write_spans(out: &mut String, line: &str, spans: &[crate::style::Span], width: usize) {
     let mut cursor = 0_usize;
@@ -223,24 +269,31 @@ fn full_render_styled(
         }
         match styles.get(i).and_then(|slot| slot.as_ref()) {
             Some(style) => {
-                // 与增量路径同口径：前导空格不染色；背景色块整行覆盖。
+                // 与增量路径同口径：前导空格不染色；背景色块整行覆盖、
+                // 且**补位空格要写在行内复位之前**（ref `utils.ts:1050-1058`）。
+                let (visible, trailing): (&str, &str) = if style.bg.is_some() {
+                    split_trailing_controls(line)
+                } else {
+                    (line.as_str(), "")
+                };
                 let lead = if style.bg.is_some() {
                     0
                 } else {
-                    line.len() - line.trim_start().len()
+                    visible.len() - visible.trim_start().len()
                 };
                 if lead > 0 {
-                    out.push_str(&line[..lead]);
+                    out.push_str(&visible[..lead]);
                 }
                 out.push_str(&style.prefix());
-                out.push_str(&line[lead..]);
+                out.push_str(&visible[lead..]);
                 if style.bg.is_some() {
-                    let used = visible_width(line);
+                    let used = visible_width(visible);
                     if used < width {
                         out.push_str(&" ".repeat(width - used));
                     }
                 }
                 out.push_str(style.reset());
+                out.push_str(trailing);
             }
             None => out.push_str(line),
         }
@@ -666,25 +719,31 @@ fn diff_render_body_styled(
                 Some(style) => {
                     // ref 的 `Text(..., paddingX=1)` 里**前导空格不染色**；但**背景色块**
                     // 必须整行覆盖（用户消息的 padding 行就是纯空格行）。
+                    // 另外按 `utils.ts:1050-1058`：补位空格必须在**行内复位之前**写，
+                    // 否则底色会被行内 `\x1b[0m` 抵消（S2R 实测的根因）。
+                    let (visible, trailing): (&str, &str) = if style.bg.is_some() {
+                        split_trailing_controls(line)
+                    } else {
+                        (line.as_str(), "")
+                    };
                     let lead = if style.bg.is_some() {
                         0
                     } else {
-                        line.len() - line.trim_start().len()
+                        visible.len() - visible.trim_start().len()
                     };
                     if lead > 0 {
-                        out.push_str(&line[..lead]);
+                        out.push_str(&visible[..lead]);
                     }
                     out.push_str(&style.prefix());
-                    out.push_str(&line[lead..]);
-                    // 带背景色的块补空格到整宽（ref `Box(outputPad, 1, bg)` 整块着色）。
-                    // 只影响写终端的字节，**不进** `lines`，文本级 golden 与单测不变。
+                    out.push_str(&visible[lead..]);
                     if style.bg.is_some() {
-                        let used = visible_width(line);
+                        let used = visible_width(visible);
                         if used < width {
                             out.push_str(&" ".repeat(width - used));
                         }
                     }
                     out.push_str(style.reset());
+                    out.push_str(trailing);
                 }
                 None => out.push_str(line),
             }
