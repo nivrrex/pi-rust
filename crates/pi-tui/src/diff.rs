@@ -51,6 +51,9 @@ pub struct DiffState {
     pub hardware_cursor_row: usize,
     /// ↔ `maxLinesRendered`（`:132`）：工作区历史最大行数（缩小时用于 `clearOnShrink`）。
     pub max_lines_rendered: usize,
+    /// 上一帧的**行样式**（P8d/C4）：样式变了也要重画该行，否则那一行会停在
+    /// 旧样式上（实测 `[Context]` 之类的行在滚动后仍是默认色）。
+    pub previous_styles: Vec<Option<crate::style::LineStyle>>,
     /// ↔ `previousViewportTop`（`:133`）。
     pub previous_viewport_top: usize,
     /// ↔ `TuiBase.clearOnShrink`（`tui.ts:482`，默认 `false`）。
@@ -365,6 +368,7 @@ fn diff_render_body_styled(
         state.max_lines_rendered = new_lines.len();
         state.previous_viewport_top = new_lines.len().max(height).saturating_sub(height);
         state.previous_lines = new_lines;
+        state.previous_styles = styles.to_vec();
         state.previous_width = width;
         state.previous_height = height;
         return Ok(out);
@@ -381,6 +385,7 @@ fn diff_render_body_styled(
         state.max_lines_rendered = new_lines.len();
         state.previous_viewport_top = new_lines.len().max(height).saturating_sub(height);
         state.previous_lines = new_lines;
+        state.previous_styles = styles.to_vec();
         state.previous_width = width;
         state.previous_height = height;
         return Ok(out);
@@ -394,6 +399,7 @@ fn diff_render_body_styled(
         state.max_lines_rendered = new_lines.len();
         state.previous_viewport_top = new_lines.len().max(height).saturating_sub(height);
         state.previous_lines = new_lines;
+        state.previous_styles = styles.to_vec();
         state.previous_width = width;
         state.previous_height = height;
         return Ok(out);
@@ -406,7 +412,9 @@ fn diff_render_body_styled(
     for i in 0..max_lines {
         let old_line = state.previous_lines.get(i).map_or("", String::as_str);
         let new_line = new_lines.get(i).map_or("", String::as_str);
-        if old_line != new_line {
+        let old_style = state.previous_styles.get(i).copied().flatten();
+        let new_style = styles.get(i).copied().flatten();
+        if old_line != new_line || old_style != new_style {
             if first_changed.is_none() {
                 first_changed = Some(i);
             }
@@ -444,6 +452,7 @@ fn diff_render_body_styled(
                 state.max_lines_rendered = new_lines.len();
                 state.previous_viewport_top = new_lines.len().max(height).saturating_sub(height);
                 state.previous_lines = new_lines;
+                state.previous_styles = styles.to_vec();
                 state.previous_width = width;
                 state.previous_height = height;
                 return Ok(out);
@@ -466,6 +475,7 @@ fn diff_render_body_styled(
                 state.max_lines_rendered = new_lines.len();
                 state.previous_viewport_top = new_lines.len().max(height).saturating_sub(height);
                 state.previous_lines = new_lines;
+                state.previous_styles = styles.to_vec();
                 state.previous_width = width;
                 state.previous_height = height;
                 return Ok(out);
@@ -489,6 +499,7 @@ fn diff_render_body_styled(
             state.hardware_cursor_row = target_row;
         }
         state.previous_lines = new_lines;
+        state.previous_styles = styles.to_vec();
         state.previous_width = width;
         state.previous_height = height;
         state.previous_viewport_top = prev_viewport_top;
@@ -504,6 +515,7 @@ fn diff_render_body_styled(
         state.max_lines_rendered = new_lines.len();
         state.previous_viewport_top = new_lines.len().max(height).saturating_sub(height);
         state.previous_lines = new_lines;
+        state.previous_styles = styles.to_vec();
         state.previous_width = width;
         state.previous_height = height;
         return Ok(out);
@@ -601,6 +613,7 @@ fn diff_render_body_styled(
     state.previous_viewport_top =
         prev_viewport_top.max((final_cursor_row + 1).saturating_sub(height));
     state.previous_lines = new_lines;
+    state.previous_styles = styles.to_vec();
     state.previous_width = width;
     state.previous_height = height;
     Ok(out)
