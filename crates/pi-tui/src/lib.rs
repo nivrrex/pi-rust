@@ -1102,26 +1102,16 @@ fn apply_chrome_styles(lines: &[String], styles: &mut [Option<style::LineStyle>]
         }
         let trimmed = line.trim();
         if trimmed.is_empty() {
-            // 空行样式：先看上一行；上一行没有就看**下一个非空行**——
-            // 用户消息块的上下 padding 行在 ref 里属于同一个 `Box(…, bg)`。
-            let previous = if index > 0 { styles[index - 1] } else { None };
-            // 只有**背景色块**才向空行延伸；前景/属性样式（dim/muted/边框色）
-            // 在 TS 里并不覆盖空行（实测 T05 r25/r27 是纯默认色）。
-            let mut inherited = previous.filter(|style| style.bg.is_some());
-            if inherited.is_none() {
-                // 往后找第一个非空行；它有底色就沿用（用户消息块上下 padding 行）。
-                if let Some(offset) = lines[index + 1..]
-                    .iter()
-                    .position(|next| !next.trim().is_empty())
-                {
-                    inherited = styles
-                        .get(index + 1 + offset)
-                        .copied()
-                        .flatten()
-                        .filter(|style| style.bg.is_some());
-                }
-            }
-            styles[index] = inherited;
+            // 只有**背景色块**才向空行延伸，且**只看紧邻的非空行**（不级联）：
+            // 级联会把用户消息块的 padding 从 1 行扩成多行（S1 实测 TS 只有 3 行）。
+            let prev = index
+                .checked_sub(1)
+                .filter(|prev| !lines[*prev].trim().is_empty())
+                .and_then(|prev| styles.get(prev).copied().flatten());
+            let next = (index + 1 < lines.len() && !lines[index + 1].trim().is_empty())
+                .then(|| styles.get(index + 1).copied().flatten())
+                .flatten();
+            styles[index] = prev.or(next).filter(|style| style.bg.is_some());
             continue;
         }
         let slot = &mut styles[index];

@@ -582,12 +582,11 @@ fn diff_render_body_styled(
             state.cursor_row = target_row;
             state.hardware_cursor_row = target_row;
         }
+        commit_written_styles(state, styles, first_changed, first_changed);
         state.previous_lines = new_lines;
-        state.previous_styles = styles.to_vec();
-        state.previous_spans = spans.to_vec();
+        state.previous_viewport_top = prev_viewport_top;
         state.previous_width = width;
         state.previous_height = height;
-        state.previous_viewport_top = prev_viewport_top;
         return Ok(out);
     }
 
@@ -714,11 +713,31 @@ fn diff_render_body_styled(
     state.max_lines_rendered = state.max_lines_rendered.max(new_lines.len());
     state.previous_viewport_top =
         prev_viewport_top.max((final_cursor_row + 1).saturating_sub(height));
+    // **只提交实际写出的行**的样式：未写出的行保持"屏幕上的旧样式"，
+    // 这样"算出来变了但这一帧没写"的行下一帧还能被检测到并补画
+    // （S1 实测：用户消息块的底色就是因为这个而永远没写上屏）。
+    commit_written_styles(state, styles, first_changed, render_end);
     state.previous_lines = new_lines;
-    state.previous_styles = styles.to_vec();
     state.previous_width = width;
     state.previous_height = height;
     Ok(out)
+}
+
+/// 把 `[from, to]` 这段行的样式记为"已写出"，其余行保留旧值。
+fn commit_written_styles(
+    state: &mut DiffState,
+    styles: &[Option<crate::style::LineStyle>],
+    from: usize,
+    to: usize,
+) {
+    state.previous_styles.resize(styles.len(), None);
+    if styles.is_empty() || from >= styles.len() {
+        return;
+    }
+    let last = to.min(styles.len() - 1);
+    for index in from..=last {
+        state.previous_styles[index] = styles.get(index).copied().flatten();
+    }
 }
 
 impl std::fmt::Display for DiffRenderError {
