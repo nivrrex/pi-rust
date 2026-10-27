@@ -31,6 +31,90 @@ impl Span {
     }
 }
 
+/// ANSI 256 色立方体的 6 级取值（ref `theme.ts` 的 `CUBE_VALUES`）。
+const CUBE_VALUES: [u8; 6] = [0, 95, 135, 175, 215, 255];
+/// 灰阶 24 级（ref 的 `GRAY_VALUES`）。
+const GRAY_VALUES: [u8; 24] = [
+    8, 18, 28, 38, 48, 58, 68, 78, 88, 98, 108, 118, 128, 138, 148, 158, 168, 178, 188, 198, 208,
+    218, 228, 238,
+];
+
+fn closest_cube_index(value: u8) -> usize {
+    let mut best = 0_usize;
+    let mut best_distance = u32::MAX;
+    for (index, candidate) in CUBE_VALUES.iter().enumerate() {
+        let distance = (i32::from(value) - i32::from(*candidate)).unsigned_abs();
+        if distance < best_distance {
+            best_distance = distance;
+            best = index;
+        }
+    }
+    best
+}
+
+fn closest_gray_index(value: u8) -> usize {
+    let mut best = 0_usize;
+    let mut best_distance = u32::MAX;
+    for (index, candidate) in GRAY_VALUES.iter().enumerate() {
+        let distance = (i32::from(value) - i32::from(*candidate)).unsigned_abs();
+        if distance < best_distance {
+            best_distance = distance;
+            best = index;
+        }
+    }
+    best
+}
+
+/// RGB → 256 色索引（ref `theme.ts:165-198` 的 `rgbTo256`）：
+/// 先在 6×6×6 立方体里找最近点，再与灰阶比较；**只有接近中性（spread < 10）**
+/// 且灰阶更近时才用灰阶，避免把带色调的颜色退化成灰。
+#[must_use]
+pub fn rgb_to_256(r: u8, g: u8, b: u8) -> u8 {
+    let r_index = closest_cube_index(r);
+    let g_index = closest_cube_index(g);
+    let b_index = closest_cube_index(b);
+    let cube = (
+        CUBE_VALUES[r_index],
+        CUBE_VALUES[g_index],
+        CUBE_VALUES[b_index],
+    );
+    let cube_distance = color_distance((r, g, b), cube);
+
+    let gray = u8::try_from(
+        (0.299 * f64::from(r) + 0.587 * f64::from(g) + 0.114 * f64::from(b)).round() as i32,
+    )
+    .unwrap_or(0);
+    let gray_index = closest_gray_index(gray);
+    let gray_value = GRAY_VALUES[gray_index];
+    let gray_distance = color_distance((r, g, b), (gray_value, gray_value, gray_value));
+
+    let max_channel = r.max(g).max(b);
+    let min_channel = r.min(g).min(b);
+    let spread = max_channel - min_channel;
+    if spread < 10 && gray_distance < cube_distance {
+        return 232 + u8::try_from(gray_index).unwrap_or(0);
+    }
+    u8::try_from(16 + 36 * r_index + 6 * g_index + b_index).unwrap_or(0)
+}
+
+fn color_distance(left: (u8, u8, u8), right: (u8, u8, u8)) -> u32 {
+    let dr = i32::from(left.0) - i32::from(right.0);
+    let dg = i32::from(left.1) - i32::from(right.1);
+    let db = i32::from(left.2) - i32::from(right.2);
+    let weighted =
+        f64::from(dr * dr) * 0.299 + f64::from(dg * dg) * 0.587 + f64::from(db * db) * 0.114;
+    weighted.round() as u32
+}
+
+/// 终端是否支持真彩（ref `terminal-image.ts:72-75`：`COLORTERM` 是 `truecolor`/`24bit`）。
+#[must_use]
+pub fn truecolor_supported() -> bool {
+    let hint = std::env::var("COLORTERM")
+        .map(|value| value.to_lowercase())
+        .unwrap_or_default();
+    hint == "truecolor" || hint == "24bit"
+}
+
 /// 一行可用的样式组合（未设置的字段表示"终端默认"）。
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct LineStyle {
@@ -127,11 +211,21 @@ impl LineStyle {
         if self.italic {
             parts.push("3".to_string());
         }
+        // ref `theme.ts:202-232`：真彩用 `38;2;r;g;b`，否则用 `38;5;N`（最近的 256 色）。
+        let truecolor = truecolor_supported();
         if let Some((r, g, b)) = self.fg {
-            parts.push(format!("38;2;{r};{g};{b}"));
+            parts.push(if truecolor {
+                format!("38;2;{r};{g};{b}")
+            } else {
+                format!("38;5;{}", rgb_to_256(r, g, b))
+            });
         }
         if let Some((r, g, b)) = self.bg {
-            parts.push(format!("48;2;{r};{g};{b}"));
+            parts.push(if truecolor {
+                format!("48;2;{r};{g};{b}")
+            } else {
+                format!("48;5;{}", rgb_to_256(r, g, b))
+            });
         }
         format!("\x1b[{}m", parts.join(";"))
     }

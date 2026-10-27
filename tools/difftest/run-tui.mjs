@@ -143,7 +143,10 @@ async function main() {
   const child = spawn("python3", [HELPER, "--cols", String(cols), "--rows", String(rows),
     "--out", rawPath, "--exit-code-file", codePath, "--script", scriptPath, "--marks", marksPath, "--", ...cmd.split(" ")], {
     cwd: path.join(tmp, "work"),
-    env: { ...process.env, HOME: path.join(tmp, "home"),
+    // **颜色模式必须确定**：`COLORTERM` 决定真彩/256 色（ref `terminal-image.ts:72-75`），
+    // 宿主机若有 `COLORTERM=truecolor`，两侧录制会落在不同色彩模式上（历史 golden 里
+    // 真彩/256 各 29 个，正是这么来的）。这里统一清掉，保证两侧都走 256 色。
+    env: { ...process.env, COLORTERM: "", HOME: path.join(tmp, "home"),
       PI_CODING_AGENT_DIR: path.join(tmp, "cfg"), PI_CODING_AGENT_SESSION_DIR: path.join(tmp, "sess"),
       // 与 `run.mjs:342/586` 同源：docs 段的三个路径由 `PI_PACKAGE_DIR` 决定（它来自 `TS_PI_ENTRY`）。
       // 不传会让 pi-rs 的 docs 段退化（`/README.md` 等，差 213 字符），从而在会话层/请求层出现假差异。
