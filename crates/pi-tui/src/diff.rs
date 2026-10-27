@@ -291,13 +291,18 @@ fn full_render_styled(
                 } else {
                     (line.as_str(), "")
                 };
-                let lead = if style.bg.is_some() {
-                    0
-                } else {
-                    visible.len() - visible.trim_start().len()
-                };
+                let lead = visible.len() - visible.trim_start().len();
+                // 前导空格**永远只带底色**：有前景色时也不给它们上色
+                // （T75 真彩逐格实测：bash 输出行首那个空格 TS 是 fg=null + 底色）。
                 if lead > 0 {
-                    out.push_str(&visible[..lead]);
+                    if style.bg.is_some() {
+                        let pad = padding_style(*style);
+                        out.push_str(&pad.prefix());
+                        out.push_str(&visible[..lead]);
+                        out.push_str(pad.reset());
+                    } else {
+                        out.push_str(&visible[..lead]);
+                    }
                 }
                 out.push_str(&style.prefix());
                 out.push_str(&visible[lead..]);

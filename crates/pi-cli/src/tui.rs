@@ -2745,7 +2745,7 @@ pub fn run(mut state: TuiState, parts: Option<std::sync::Arc<AgentParts>>) -> st
     // `\x1b[2mTo resume this session:\x1b[22m pi --session-dir <dir> --session <id>`。
     // 之前完全没有这行，样式级对拍里那 23 格就是它。
     if let Some(parts) = parts.as_ref() {
-        if let Some(id) = session_id_for_resume(parts) {
+        if let Some(id) = session_id_for_resume(parts).filter(|_| session_is_flushed(parts)) {
             let mut out = std::io::stdout();
             let _ = writeln!(
                 out,
@@ -2756,6 +2756,17 @@ pub fn run(mut state: TuiState, parts: Option<std::sync::Arc<AgentParts>>) -> st
         }
     }
     Ok(0)
+}
+
+/// 会话是否已落盘（ref `formatResumeCommand` 要求 `existsSync(sessionFile)`；
+/// 纯 UI 场景没有任何条目 ⇒ 没有文件 ⇒ 不打印退出提示）。
+fn session_is_flushed(parts: &AgentParts) -> bool {
+    parts
+        .writer
+        .as_ref()
+        .and_then(|writer| writer.lock().ok())
+        .map(|guard| guard.is_flushed())
+        .unwrap_or(false)
 }
 
 /// 取本次会话的 id（用于退出提示）。读最后一条 `session` 头里的 `id`。

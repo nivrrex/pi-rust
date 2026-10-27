@@ -239,6 +239,16 @@ impl SessionWriter {
         })
     }
 
+    /// 会话是否**已经真正落盘**（ref `session-manager.ts:1136` 的 `isPersisted()`
+    /// + `formatResumeCommand` 里的 `existsSync(sessionFile)`）。
+    ///
+    /// ref 是惰性创建文件：没有任何会话条目时目录里**没有文件**，此时退出**不打印**
+    /// `To resume this session:`（T28/T35/T77 三个纯 UI 场景的 golden 尾部实测没有该行）。
+    #[must_use]
+    pub fn is_flushed(&self) -> bool {
+        self.flushed
+    }
+
     /// header 里的会话 id（`get_state` 要报 `sessionId`，golden/S16 实测是 uuid）。
     pub fn header_id(&self) -> Option<String> {
         let value: serde_json::Value = serde_json::from_str(&self.header_line).ok()?;
