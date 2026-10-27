@@ -3151,7 +3151,7 @@ fn header_spans(lines: &[String]) -> Vec<Vec<style::Span>> {
             spans.push(style::Span::new(
                 lead,
                 lead + short,
-                LineStyle::fg(ACCENT).bold().dim(),
+                LineStyle::fg(ACCENT).bold(),
             ));
             spans.push(style::Span::new(
                 lead + short,
