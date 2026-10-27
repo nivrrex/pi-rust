@@ -2204,19 +2204,15 @@ pub fn run(mut state: TuiState, parts: Option<std::sync::Arc<AgentParts>>) -> st
                 }
             }
             // `app.model.select`（ref `keybindings.ts:116`，默认 `ctrl+l`）：
-            // TS 实测 = 先打 `Model catalogs refreshed.`，再打开模型选择器
-            // （`T79` 对拍）。这里把按键**改写成"/model + Enter"**，交给同一套命令分发，
-            // 不再另写一份选择器装配。
+            // 打开模型选择器并把按键**改写成"/model + Enter"**，交给同一套命令分发。
+            // `Model catalogs refreshed.` 是**面板内部**的一行（`/model` 构造选择器时
+            // 已放进 `refresh_status`），不能再往 transcript push（会整体下移 2 行）。
             let mut event = event;
             if matches!(event, TuiEvent::CtrlL)
                 && selector.is_none()
                 && !busy
                 && state.input.is_empty()
             {
-                let _ = apply(
-                    &mut state,
-                    TuiEvent::Status("Model catalogs refreshed.".to_string()),
-                );
                 state.input = "/model".to_string();
                 state.cursor = "/model".chars().count();
                 event = TuiEvent::Enter;
