@@ -109,10 +109,55 @@ fn color_distance(left: (u8, u8, u8), right: (u8, u8, u8)) -> u32 {
 /// 终端是否支持真彩（ref `terminal-image.ts:72-75`：`COLORTERM` 是 `truecolor`/`24bit`）。
 #[must_use]
 pub fn truecolor_supported() -> bool {
-    let hint = std::env::var("COLORTERM")
-        .map(|value| value.to_lowercase())
-        .unwrap_or_default();
-    hint == "truecolor" || hint == "24bit"
+    truecolor_from(|name| std::env::var(name).ok())
+}
+
+/// 纯函数版本（便于单测，不碰进程环境）。
+#[must_use]
+pub fn truecolor_from(lookup: impl Fn(&str) -> Option<String>) -> bool {
+    // 逐条照 `tui/src/terminal-image.ts:78-133` 的 `detectCapabilitiesFromEnvironment`：
+    // 先看"能确定支持真彩"的终端标识，再看 COLORTERM 提示，最后保守退回 256 色。
+    let env = |name: &str| {
+        lookup(name)
+            .map(|value| value.to_lowercase())
+            .unwrap_or_default()
+    };
+    let term_program = env("TERM_PROGRAM");
+    let terminal_emulator = env("TERMINAL_EMULATOR");
+    let term = env("TERM");
+    let color_term = env("COLORTERM");
+    let hint = color_term == "truecolor" || color_term == "24bit";
+
+    // tmux / screen：只有 COLORTERM 提示（它们不一定透传真彩）。
+    if !env("TMUX").is_empty() || term.starts_with("tmux") || term.starts_with("screen") {
+        return hint;
+    }
+    // 已知支持真彩的终端。
+    if !env("KITTY_WINDOW_ID").is_empty() || term_program == "kitty" {
+        return true;
+    }
+    if term_program == "ghostty"
+        || term.contains("ghostty")
+        || !env("GHOSTTY_RESOURCES_DIR").is_empty()
+    {
+        return true;
+    }
+    if !env("WEZTERM_PANE").is_empty() || term_program == "wezterm" {
+        return true;
+    }
+    if !env("WT_SESSION").is_empty() {
+        return true;
+    }
+    if matches!(term_program.as_str(), "alacritty" | "vscode" | "zed") {
+        return true;
+    }
+    if terminal_emulator == "jetbrains-jediterm" {
+        return true;
+    }
+    if cfg!(windows) {
+        return true;
+    }
+    hint
 }
 
 /// 一行可用的样式组合（未设置的字段表示"终端默认"）。
@@ -210,6 +255,12 @@ impl LineStyle {
     /// 生成 SGR 前缀；无效果时返回空串。
     #[must_use]
     pub fn prefix(&self) -> String {
+        self.prefix_with(truecolor_supported())
+    }
+
+    /// 指定色彩模式的 SGR 前缀（纯函数，单测用）。
+    #[must_use]
+    pub fn prefix_with(&self, truecolor: bool) -> String {
         if self.is_plain() {
             return String::new();
         }
@@ -224,7 +275,6 @@ impl LineStyle {
             parts.push("3".to_string());
         }
         // ref `theme.ts:202-232`：真彩用 `38;2;r;g;b`，否则用 `38;5;N`（最近的 256 色）。
-        let truecolor = truecolor_supported();
         if let Some((r, g, b)) = self.fg {
             parts.push(if truecolor {
                 format!("38;2;{r};{g};{b}")
@@ -305,13 +355,89 @@ mod tests {
     #[test]
     fn foreground_uses_true_color_sgr() {
         let style = LineStyle::fg(BORDER).bold();
-        assert_eq!(style.prefix(), "\x1b[1;38;2;95;135;255m");
+        assert_eq!(style.prefix_with(true), "\x1b[1;38;2;95;135;255m");
         assert_eq!(style.reset(), "\x1b[0m");
     }
 
     #[test]
     fn background_and_attributes_combine() {
         let style = LineStyle::bg(USER_MESSAGE_BG).dim().italic();
-        assert_eq!(style.prefix(), "\x1b[2;3;48;2;52;53;65m");
+        assert_eq!(style.prefix_with(true), "\x1b[2;3;48;2;52;53;65m");
+        // 256 色模式：同色按 ref 的 `rgbTo256` 近似（#343541 → 59）。
+        assert_eq!(style.prefix_with(false), "\x1b[2;3;48;5;59m");
+    }
+}
+
+#[cfg(test)]
+mod color_mode_tests {
+    use super::*;
+
+    /// 逐条验证色彩模式判定（期望取自 ref `tui/src/terminal-image.ts:78-133`）：
+    /// 已知终端标识 → 真彩；仅 tmux/screen → 看 COLORTERM；未知 → 看 COLORTERM。
+    #[test]
+    fn truecolor_detection_follows_ref_rules() {
+        // 每个用例在独立的 env 作用域里跑，避免相互污染。
+        type Case = (&'static str, &'static [(&'static str, &'static str)], bool);
+        let cases: &[Case] = &[
+            (
+                "alacritty_term_program",
+                &[("TERM_PROGRAM", "alacritty")],
+                true,
+            ),
+            ("vscode", &[("TERM_PROGRAM", "vscode")], true),
+            ("zed", &[("TERM_PROGRAM", "zed")], true),
+            ("kitty_window_id", &[("KITTY_WINDOW_ID", "1")], true),
+            ("ghostty_dir", &[("GHOSTTY_RESOURCES_DIR", "/x")], true),
+            ("wezterm_pane", &[("WEZTERM_PANE", "0")], true),
+            ("wt_session", &[("WT_SESSION", "abc")], true),
+            (
+                "jetbrains",
+                &[("TERMINAL_EMULATOR", "jetbrains-jediterm")],
+                true,
+            ),
+            ("colorterm_truecolor", &[("COLORTERM", "truecolor")], true),
+            ("colorterm_24bit", &[("COLORTERM", "24bit")], true),
+            ("unknown_plain", &[("TERM", "xterm-256color")], false),
+            ("tmux_without_hint", &[("TERM", "tmux-256color")], false),
+            (
+                "tmux_with_hint",
+                &[("TERM", "tmux-256color"), ("COLORTERM", "truecolor")],
+                true,
+            ),
+            ("screen_without_hint", &[("TERM", "screen-256color")], false),
+        ];
+        for (name, vars, expected) in cases {
+            // 清掉所有相关变量，再按用例设置。
+            for key in [
+                "COLORTERM",
+                "TERM",
+                "TERM_PROGRAM",
+                "TERMINAL_EMULATOR",
+                "TMUX",
+                "KITTY_WINDOW_ID",
+                "GHOSTTY_RESOURCES_DIR",
+                "WEZTERM_PANE",
+                "WT_SESSION",
+            ] {
+                std::env::remove_var(key);
+            }
+            for (key, value) in *vars {
+                std::env::set_var(key, value);
+            }
+            assert_eq!(truecolor_supported(), *expected, "用例 {name}");
+        }
+        for key in [
+            "COLORTERM",
+            "TERM",
+            "TERM_PROGRAM",
+            "TERMINAL_EMULATOR",
+            "TMUX",
+            "KITTY_WINDOW_ID",
+            "GHOSTTY_RESOURCES_DIR",
+            "WEZTERM_PANE",
+            "WT_SESSION",
+        ] {
+            std::env::remove_var(key);
+        }
     }
 }
