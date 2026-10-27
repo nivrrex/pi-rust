@@ -387,6 +387,15 @@ impl ProviderError {
 
     /// 订阅/额度上限类文案：命中即**不可**重试。
     /// `NON_RETRYABLE_PROVIDER_LIMIT_ERROR_PATTERN`，逐字来自 `retry.ts:7-24`。
+    /// 传输层里**重试无用**的一类：TLS/证书/配置问题。放在限额模式之后、可重试之前判。
+    const NON_RETRYABLE_TLS_PATTERNS: &[&'static str] = &[
+        r#"certificate"#,
+        r#"invalid peer"#,
+        r#"tls"#,
+        r#"unknown issuer"#,
+        r#"self.signed"#,
+    ];
+
     const NON_RETRYABLE_LIMIT_PATTERNS: &[&'static str] = &[
         r#"GoUsageLimitError"#,
         r#"FreeUsageLimitError"#,
@@ -424,6 +433,19 @@ impl ProviderError {
         r#"other side closed"#,
         r#"fetch failed"#,
         r#"getaddrinfo"#,
+        // 网络层真实文案（reqwest/rustls/OS）：DNS、重置、中断、管道断开。
+        // 真机 `ifdown eth0` 一类故障落在这些字符串上（R1 分类表）。
+        r#"failed to lookup address"#,
+        r#"dns error"#,
+        r#"connection reset"#,
+        r#"reset by peer"#,
+        r#"broken pipe"#,
+        r#"unexpected eof"#,
+        r#"connection closed before message completed"#,
+        r#"connection aborted"#,
+        r#"network is unreachable"#,
+        r#"no route to host"#,
+        r#"host unreachable"#,
         r#"ENOTFOUND"#,
         r#"EAI_AGAIN"#,
         r#"upstream.?connect"#,
@@ -464,6 +486,10 @@ impl ProviderError {
         };
         let text = error_message.to_lowercase();
         if Self::matches_any(&text, Self::NON_RETRYABLE_LIMIT_PATTERNS) {
+            return false;
+        }
+        // 证书/TLS 配置错误：重试不会变好（ref 语义同"不可重试"）。
+        if Self::matches_any(&text, Self::NON_RETRYABLE_TLS_PATTERNS) {
             return false;
         }
         Self::matches_any(&text, Self::RETRYABLE_PATTERNS)
@@ -584,6 +610,40 @@ mod tests {
             "`.` 也匹配下划线"
         );
         assert!(!ProviderError::stream_error("no matching words here").is_retryable());
+    }
+
+    /// 传输层文案分类（P8d/R1）：真实 reqwest/OS 原文要能判对。
+    #[test]
+    fn transport_errors_are_classified() {
+        // 可重试：DNS / 超时 / 重置 / 中断 / 路由不可达
+        for text in [
+            "error sending request: dns error: failed to lookup address information: Name or service not known",
+            "error sending request: connection refused",
+            "operation timed out",
+            "connection timed out",
+            "connection reset by peer",
+            "Connection closed before message completed",
+            "broken pipe",
+            "Network is unreachable",
+            "Stream ended without finish_reason",
+        ] {
+            assert!(
+                ProviderError::transport(text).is_retryable(),
+                "应当可重试：{text}"
+            );
+        }
+        // 不可重试：证书 / TLS / 限额
+        for text in [
+            "invalid peer certificate: UnknownIssuer",
+            "certificate verify failed",
+            "tls handshake failed",
+            "insufficient credits",
+        ] {
+            assert!(
+                !ProviderError::transport(text).is_retryable(),
+                "不应重试：{text}"
+            );
+        }
     }
 
     #[test]
