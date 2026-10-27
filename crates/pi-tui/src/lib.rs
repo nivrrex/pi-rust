@@ -2975,13 +2975,119 @@ pub fn render_all_marker_cached_styled(
     cols: usize,
     rows: usize,
     cache: &mut RenderCache,
-) -> (Vec<String>, Vec<Option<style::LineStyle>>) {
+) -> StyledFrame {
     let mut styles: Vec<Option<style::LineStyle>> = Vec::new();
     let mut lines = render_all_cached_styled_inner(state, cols, rows, Some(cache), &mut styles);
     styles.resize(lines.len(), None);
     apply_chrome_styles(&lines, &mut styles);
     marker_apply(state, cols, &mut lines);
-    (lines, styles)
+    let spans = header_spans(&lines);
+    StyledFrame {
+        lines,
+        styles,
+        spans,
+    }
+}
+
+/// 一帧的渲染产物：**文本**（golden/单测的唯一真源）+ 整行样式 + 行内分段样式。
+///
+/// `spans[i]` 非空时优先于 `styles[i]`（行内多色的行必须走 spans）。
+pub struct StyledFrame {
+    /// 各行的纯文本（与 `render_all_marker_cached` 逐字相同）。
+    pub lines: Vec<String>,
+    /// 整行样式（可选）。
+    pub styles: Vec<Option<style::LineStyle>>,
+    /// 行内分段样式（可选；空表示用整行样式）。
+    pub spans: Vec<Vec<style::Span>>,
+}
+
+/// 启动区那几行的**行内分段**（ref 里一行内混 `dim`/`muted`/`accent`）。
+///
+/// 规格取自 TS 实际屏幕（`compare-style` 的 run 分析）：
+/// - `pi v0.87.1`：`pi` 是 accent + 粗体（外层再套 dim），其余 dim；
+/// - 键位提示行：**键名 dim、说明 muted**（`escape` / `ctrl+c/ctrl+d` / `/` / `!` / `ctrl+o`）。
+fn header_spans(lines: &[String]) -> Vec<Vec<style::Span>> {
+    use style::{LineStyle, ACCENT, DIM, MUTED};
+    const KEY_TOKENS: [&str; 5] = ["escape", "ctrl+c/ctrl+d", "/", "!", "ctrl+o"];
+    let mut out: Vec<Vec<style::Span>> = Vec::new();
+    for line in lines {
+        let trimmed = line.trim_start();
+        if trimmed.starts_with("pi v") {
+            let lead = line.len() - trimmed.len();
+            let short = "pi".len();
+            let mut spans = Vec::new();
+            if lead > 0 {
+                // 前导空格也是 dim（TS 实测 col0 就是 dim）。
+                // TS 实测：该空格只有 dim **属性**、没有前景色（外层 `theme.dim`）。
+                spans.push(style::Span::new(0, lead, LineStyle::default().dim()));
+            }
+            spans.push(style::Span::new(
+                lead,
+                lead + short,
+                LineStyle::fg(ACCENT).bold().dim(),
+            ));
+            spans.push(style::Span::new(
+                lead + short,
+                line.len(),
+                LineStyle::fg(DIM),
+            ));
+            out.push(spans);
+            continue;
+        }
+        if trimmed.starts_with("escape interrupt") {
+            // 键名 dim、其余 muted：按 KEY_TOKENS 出现位置切段。
+            let mut spans = Vec::new();
+            let mut keyed = vec![false; line.len() + 1];
+            for token in KEY_TOKENS {
+                let mut from = 0;
+                while let Some(found) = line[from..].find(token) {
+                    let start = from + found;
+                    let end = start + token.len();
+                    // 只标记"独立出现"的键名（前后不是字母数字/斜杠）。
+                    let before_ok = start == 0
+                        || !line[..start]
+                            .chars()
+                            .next_back()
+                            .is_some_and(|ch| ch.is_alphanumeric() || ch == '/');
+                    let after_ok = end == line.len()
+                        || !line[end..]
+                            .chars()
+                            .next()
+                            .is_some_and(|ch| ch.is_alphanumeric());
+                    if before_ok && after_ok {
+                        for slot in keyed.iter_mut().take(end).skip(start) {
+                            *slot = true;
+                        }
+                    }
+                    from = end;
+                    if from >= line.len() {
+                        break;
+                    }
+                }
+            }
+            // 前导空格保持默认（TS 实测该格无样式）。
+            let lead = line.len() - line.trim_start().len();
+            let mut index = lead;
+            while index < line.len() {
+                let is_key = keyed[index];
+                let mut end = index;
+                while end < line.len() && keyed[end] == is_key {
+                    end += 1;
+                }
+                let style = if is_key {
+                    LineStyle::fg(DIM)
+                } else {
+                    LineStyle::fg(MUTED)
+                };
+                spans.push(style::Span::new(index, end, style));
+                index = end;
+            }
+            out.push(spans);
+            continue;
+        }
+        out.push(Vec::new());
+    }
+    out
 }
 
 pub fn render_all_marker_cached(

@@ -54,6 +54,8 @@ pub struct DiffState {
     /// 上一帧的**行样式**（P8d/C4）：样式变了也要重画该行，否则那一行会停在
     /// 旧样式上（实测 `[Context]` 之类的行在滚动后仍是默认色）。
     pub previous_styles: Vec<Option<crate::style::LineStyle>>,
+    /// 上一帧的**行内分段样式**（`spans` 非空时优先于整行样式）。
+    pub previous_spans: Vec<Vec<crate::style::Span>>,
     /// ↔ `previousViewportTop`（`:133`）。
     pub previous_viewport_top: usize,
     /// ↔ `TuiBase.clearOnShrink`（`tui.ts:482`，默认 `false`）。
@@ -142,6 +144,44 @@ fn visible_width(text: &str) -> usize {
 }
 
 /// `computeLineDiff`（`tui-main-screen.ts:258-262`）：目标行与当前屏幕行之差（正=下移，负=上移）。
+/// 按 span 写一行：逐段 SGR + 文本，段间复位；最后按需补背景空格到整宽。
+fn write_spans(out: &mut String, line: &str, spans: &[crate::style::Span], width: usize) {
+    let mut cursor = 0_usize;
+    let mut last_background = None;
+    for span in spans {
+        if span.end <= cursor {
+            continue;
+        }
+        if span.start > cursor {
+            out.push_str(&line[cursor..span.start]);
+        }
+        let start = span.start.max(cursor);
+        if start >= line.len() {
+            break;
+        }
+        let end = span.end.min(line.len());
+        out.push_str(&span.style.prefix());
+        out.push_str(&line[start..end]);
+        out.push_str(span.style.reset());
+        if span.style.bg.is_some() {
+            last_background = Some(span.style);
+        }
+        cursor = end;
+    }
+    if cursor < line.len() {
+        out.push_str(&line[cursor..]);
+    }
+    // 末尾补空格：背景色或 `dim` 属性在 TS 里覆盖到整行（Text 的 padding/属性）。
+    if let Some(style) = last_background {
+        let used = visible_width(line);
+        if used < width {
+            out.push_str(&style.prefix());
+            out.push_str(&" ".repeat(width - used));
+            out.push_str(style.reset());
+        }
+    }
+}
+
 fn compute_line_diff(
     target_row: i64,
     hardware_cursor_row: i64,
@@ -159,7 +199,15 @@ fn push_move(out: &mut String, delta: i64) {
     }
 }
 
-fn full_render(out: &mut String, lines: &[String], clear: bool) {
+/// 整屏重绘（带样式）。`width` 为 0 时按"不补背景"处理。
+fn full_render_styled(
+    out: &mut String,
+    lines: &[String],
+    styles: &[Option<crate::style::LineStyle>],
+    spans: &[Vec<crate::style::Span>],
+    width: usize,
+    clear: bool,
+) {
     out.push_str(SYNC_START);
     if clear {
         out.push_str(CLEAR_ALL);
@@ -168,7 +216,25 @@ fn full_render(out: &mut String, lines: &[String], clear: bool) {
         if i > 0 {
             out.push_str("\r\n");
         }
-        out.push_str(line);
+        let line_spans = spans.get(i).map(Vec::as_slice).unwrap_or(&[]);
+        if !line_spans.is_empty() {
+            write_spans(out, line, line_spans, width.max(visible_width(line)));
+            continue;
+        }
+        match styles.get(i).and_then(|slot| slot.as_ref()) {
+            Some(style) => {
+                out.push_str(&style.prefix());
+                out.push_str(line);
+                if style.bg.is_some() {
+                    let used = visible_width(line);
+                    if used < width {
+                        out.push_str(&" ".repeat(width - used));
+                    }
+                }
+                out.push_str(style.reset());
+            }
+            None => out.push_str(line),
+        }
     }
     out.push_str(SYNC_END);
 }
@@ -261,12 +327,13 @@ pub fn diff_render_with_cursor_styled(
     state: &mut DiffState,
     lines: &[String],
     styles: &[Option<crate::style::LineStyle>],
+    spans: &[Vec<crate::style::Span>],
     width: usize,
     height: usize,
 ) -> Result<(String, String), DiffRenderError> {
     let mut owned: Vec<String> = lines.to_vec();
     let cursor_pos = extract_cursor_position(&mut owned, height);
-    let out = diff_render_body_styled(state, &owned, styles, width, height)?;
+    let out = diff_render_body_styled(state, &owned, styles, spans, width, height)?;
     dump_debug_frame(state, &owned, width, height);
     let cursor_bytes = position_hardware_cursor(state, cursor_pos, owned.len());
     Ok((out, cursor_bytes))
@@ -327,13 +394,14 @@ fn diff_render_body(
     width: usize,
     height: usize,
 ) -> Result<String, DiffRenderError> {
-    diff_render_body_styled(state, lines, &[], width, height)
+    diff_render_body_styled(state, lines, &[], &[], width, height)
 }
 
 fn diff_render_body_styled(
     state: &mut DiffState,
     lines: &[String],
     styles: &[Option<crate::style::LineStyle>],
+    spans: &[Vec<crate::style::Span>],
     width: usize,
     height: usize,
 ) -> Result<String, DiffRenderError> {
@@ -361,7 +429,7 @@ fn diff_render_body_styled(
 
     // 首次渲染：不清屏，直接整屏输出（`:345-350`）。
     if state.previous_lines.is_empty() && !width_changed && !height_changed {
-        full_render(&mut out, &new_lines, false);
+        full_render_styled(&mut out, &new_lines, styles, spans, width, false);
         state.full_redraw_count += 1;
         state.cursor_row = new_lines.len().saturating_sub(1);
         state.hardware_cursor_row = state.cursor_row;
@@ -369,6 +437,7 @@ fn diff_render_body_styled(
         state.previous_viewport_top = new_lines.len().max(height).saturating_sub(height);
         state.previous_lines = new_lines;
         state.previous_styles = styles.to_vec();
+        state.previous_spans = spans.to_vec();
         state.previous_width = width;
         state.previous_height = height;
         return Ok(out);
@@ -378,7 +447,7 @@ fn diff_render_body_styled(
     // 高度变化（非 Termux）同样整屏重绘（`:366-371`；Termux 判断在纯函数中不参与，见文档）。
     // clearOnShrink：内容比历史最大行数短且无覆盖层时整屏重绘（`:375-379`）。
     if width_changed || height_changed {
-        full_render(&mut out, &new_lines, true);
+        full_render_styled(&mut out, &new_lines, styles, spans, width, true);
         state.full_redraw_count += 1;
         state.cursor_row = new_lines.len().saturating_sub(1);
         state.hardware_cursor_row = state.cursor_row;
@@ -386,13 +455,14 @@ fn diff_render_body_styled(
         state.previous_viewport_top = new_lines.len().max(height).saturating_sub(height);
         state.previous_lines = new_lines;
         state.previous_styles = styles.to_vec();
+        state.previous_spans = spans.to_vec();
         state.previous_width = width;
         state.previous_height = height;
         return Ok(out);
     }
 
     if state.clear_on_shrink && new_lines.len() < state.max_lines_rendered {
-        full_render(&mut out, &new_lines, true);
+        full_render_styled(&mut out, &new_lines, styles, spans, width, true);
         state.full_redraw_count += 1;
         state.cursor_row = new_lines.len().saturating_sub(1);
         state.hardware_cursor_row = state.cursor_row;
@@ -400,6 +470,7 @@ fn diff_render_body_styled(
         state.previous_viewport_top = new_lines.len().max(height).saturating_sub(height);
         state.previous_lines = new_lines;
         state.previous_styles = styles.to_vec();
+        state.previous_spans = spans.to_vec();
         state.previous_width = width;
         state.previous_height = height;
         return Ok(out);
@@ -414,7 +485,9 @@ fn diff_render_body_styled(
         let new_line = new_lines.get(i).map_or("", String::as_str);
         let old_style = state.previous_styles.get(i).copied().flatten();
         let new_style = styles.get(i).copied().flatten();
-        if old_line != new_line || old_style != new_style {
+        let old_spans = state.previous_spans.get(i);
+        let new_spans = spans.get(i);
+        if old_line != new_line || old_style != new_style || old_spans != new_spans {
             if first_changed.is_none() {
                 first_changed = Some(i);
             }
@@ -445,7 +518,7 @@ fn diff_render_body_styled(
             let target_row = new_lines.len().saturating_sub(1);
             if target_row < prev_viewport_top {
                 out.clear();
-                full_render(&mut out, &new_lines, true);
+                full_render_styled(&mut out, &new_lines, styles, spans, width, true);
                 state.full_redraw_count += 1;
                 state.cursor_row = new_lines.len().saturating_sub(1);
                 state.hardware_cursor_row = state.cursor_row;
@@ -453,6 +526,7 @@ fn diff_render_body_styled(
                 state.previous_viewport_top = new_lines.len().max(height).saturating_sub(height);
                 state.previous_lines = new_lines;
                 state.previous_styles = styles.to_vec();
+                state.previous_spans = spans.to_vec();
                 state.previous_width = width;
                 state.previous_height = height;
                 return Ok(out);
@@ -468,7 +542,7 @@ fn diff_render_body_styled(
             let extra_lines = state.previous_lines.len() - new_lines.len();
             if extra_lines > height {
                 out.clear();
-                full_render(&mut out, &new_lines, true);
+                full_render_styled(&mut out, &new_lines, styles, spans, width, true);
                 state.full_redraw_count += 1;
                 state.cursor_row = new_lines.len().saturating_sub(1);
                 state.hardware_cursor_row = state.cursor_row;
@@ -476,6 +550,7 @@ fn diff_render_body_styled(
                 state.previous_viewport_top = new_lines.len().max(height).saturating_sub(height);
                 state.previous_lines = new_lines;
                 state.previous_styles = styles.to_vec();
+                state.previous_spans = spans.to_vec();
                 state.previous_width = width;
                 state.previous_height = height;
                 return Ok(out);
@@ -500,6 +575,7 @@ fn diff_render_body_styled(
         }
         state.previous_lines = new_lines;
         state.previous_styles = styles.to_vec();
+        state.previous_spans = spans.to_vec();
         state.previous_width = width;
         state.previous_height = height;
         state.previous_viewport_top = prev_viewport_top;
@@ -508,7 +584,7 @@ fn diff_render_body_styled(
 
     // 首个变化行在**上一帧视口之上**：差分无法触达，整屏重绘（`:457-463`）。
     if first_changed < prev_viewport_top {
-        full_render(&mut out, &new_lines, true);
+        full_render_styled(&mut out, &new_lines, styles, spans, width, true);
         state.full_redraw_count += 1;
         state.cursor_row = new_lines.len().saturating_sub(1);
         state.hardware_cursor_row = state.cursor_row;
@@ -516,6 +592,7 @@ fn diff_render_body_styled(
         state.previous_viewport_top = new_lines.len().max(height).saturating_sub(height);
         state.previous_lines = new_lines;
         state.previous_styles = styles.to_vec();
+        state.previous_spans = spans.to_vec();
         state.previous_width = width;
         state.previous_height = height;
         return Ok(out);
@@ -574,21 +651,32 @@ fn diff_render_body_styled(
         }
         out.push_str("\x1b[2K");
         // 整行样式：行首 SGR、行尾复位（复位序列的宽度为 0，不影响 `visible_width`）。
-        match styles.get(i).and_then(|slot| slot.as_ref()) {
-            Some(style) => {
-                out.push_str(&style.prefix());
-                out.push_str(line);
-                // 带背景色的块补空格到整宽（ref `Box(outputPad, 1, bg)` 整块着色）。
-                // 只影响写终端的字节，**不进** `lines`，所以文本级 golden 与单测不变。
-                if style.bg.is_some() {
-                    let used = visible_width(line);
-                    if used < width {
-                        out.push_str(&" ".repeat(width - used));
+        // 行内分段优先；没有分段时退回整行样式。
+        let line_spans = spans.get(i).map(Vec::as_slice).unwrap_or(&[]);
+        if line_spans.is_empty() {
+            match styles.get(i).and_then(|slot| slot.as_ref()) {
+                Some(style) => {
+                    // ref 的 `Text(..., paddingX=1)` 里**前导空格不染色**（实测 r3c0 无样式）。
+                    let lead = line.len() - line.trim_start().len();
+                    if lead > 0 {
+                        out.push_str(&line[..lead]);
                     }
+                    out.push_str(&style.prefix());
+                    out.push_str(&line[lead..]);
+                    // 带背景色的块补空格到整宽（ref `Box(outputPad, 1, bg)` 整块着色）。
+                    // 只影响写终端的字节，**不进** `lines`，文本级 golden 与单测不变。
+                    if style.bg.is_some() {
+                        let used = visible_width(line);
+                        if used < width {
+                            out.push_str(&" ".repeat(width - used));
+                        }
+                    }
+                    out.push_str(style.reset());
                 }
-                out.push_str(style.reset());
+                None => out.push_str(line),
             }
-            None => out.push_str(line),
+        } else {
+            write_spans(&mut out, line, line_spans, width);
         }
     }
 

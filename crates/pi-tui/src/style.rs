@@ -9,6 +9,28 @@
 //! - 宽度计算仍以**纯文本**为准（`diff.rs` 的 `visible_width(line)` 不变），
 //!   所以加样式不会影响折行与视口。
 
+/// 行内一段（字节区间 `[start, end)`）的样式（P8d/C4，span 级）。
+///
+/// 为什么需要：TS 的一行里会混多种颜色（启动提示 = 键名 `dim` + 说明 `muted` +
+/// 版本号 `accent` 粗体），整行粒度补不出来。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Span {
+    /// 起始字节偏移（相对该行文本）。
+    pub start: usize,
+    /// 结束字节偏移（不含）。
+    pub end: usize,
+    /// 该段的样式。
+    pub style: LineStyle,
+}
+
+impl Span {
+    /// 构造一段。
+    #[must_use]
+    pub const fn new(start: usize, end: usize, style: LineStyle) -> Self {
+        Self { start, end, style }
+    }
+}
+
 /// 一行可用的样式组合（未设置的字段表示"终端默认"）。
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct LineStyle {
