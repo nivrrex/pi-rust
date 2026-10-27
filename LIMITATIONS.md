@@ -7,7 +7,15 @@
 
 样式级基准：真彩 `golden-tui-truecolor/`、256 `golden-tui/`，判定工具
 `tools/difftest/compare-style.mjs`（逐单元格 字符/前景/背景/粗体/斜体/暗淡/反显）。
-**P8e-5 批末实测**（7 个场景，两侧文本均 same）：真彩合计 11 格、256 合计 13 格。
+**P8 收口实测**（7 个场景，两侧文本均 same）：真彩合计 **3 格**、256 合计 **5 格**，
+且与 TS 的 run-2/run-3 **逐格相同**（详见下面第 1 条与证据文件）。
+
+**样式对拍与回放器测试依赖 `tmux`**：K1' 的第三方基准用 `tmux new-session/capture-pane`
+把 raw 字节喂给真实终端状态机（`tools/difftest` 侧不引入新依赖，但**需要系统里有 tmux**）。
+没有 tmux 时只能跑两套自研回放器（`compare-tui` / `compare-style`），
+无法验证"真实终端终态一致"这一条；相关证据：
+`notes/evidence/K1p-replayer-compare.md`、`notes/evidence/K5-style-tables.md`、
+`notes/evidence/K4c-markdown-styles.md`、`notes/evidence/K4c-t06-truecolor.md`。
 
 1. **版本行 ` pi v0.87.1` 的 3 / 2 格** —— 属**上游自身不确定性**，有逐次录制对照：
    - `golden-tui/T01`（256）与 `golden-tui-truecolor/T77`：我们的输出与 TS 的 **run-2 / run-3 完全相同**，
@@ -16,6 +24,7 @@
      但同模式的 T77 录到的 `pi` **有** `1;`；真彩下两者都有。取"始终加粗"（与真彩、T77 一致），
      保留这 2 格。
    结论：该行的 `dim/bold` 取决于 TS 哪一帧重画了这一列，不是稳定语义，也不影响其余任何单元格。
+   证据：`notes/evidence/K5-style-tables.md`（逐次录制对照表 + `compare-style` 原始输出）。
 
 2. **P8e-5 批内已消除的差异（保留记录，便于回归）**：
    - 回放器假象（`compare-style` 缺隐式滚屏）—— 见 `notes/evidence/K1p-replayer-compare.md`；
