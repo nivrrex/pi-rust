@@ -60,6 +60,8 @@ pub struct DiffState {
     pub previous_viewport_top: usize,
     /// ↔ `TuiBase.clearOnShrink`（`tui.ts:482`，默认 `false`）。
     pub clear_on_shrink: bool,
+    /// 下一次渲染**强制整屏重绘并清屏**（挂起恢复后屏幕可能已被别的内容覆盖）。
+    pub force_clear: bool,
     /// ↔ ref 的 `hasOverlayEntries`（`tui-main-screen.ts:369-373`）：有浮层时**不**走
     /// clearOnShrink 的整屏重绘。由调用方每帧写入。
     pub has_overlay: bool,
@@ -507,6 +509,24 @@ fn diff_render_body_styled(
         .collect();
 
     // 首次渲染：不清屏，直接整屏输出（`:345-350`）。
+    // 挂起恢复等场景：屏幕可能已被别的内容覆盖，必须清屏后整屏重绘，
+    // 不能走"首帧假定屏幕干净"的分支（`tui-main-screen.ts:337-341`）。
+    if state.force_clear {
+        state.force_clear = false;
+        full_render_styled(&mut out, &new_lines, styles, spans, width, true);
+        state.full_redraw_count += 1;
+        state.cursor_row = new_lines.len().saturating_sub(1);
+        state.hardware_cursor_row = state.cursor_row;
+        state.max_lines_rendered = new_lines.len();
+        state.previous_viewport_top = new_lines.len().max(height).saturating_sub(height);
+        state.previous_lines = new_lines;
+        state.previous_styles = styles.to_vec();
+        state.previous_spans = spans.to_vec();
+        state.previous_width = width;
+        state.previous_height = height;
+        return Ok(out);
+    }
+
     if state.previous_lines.is_empty() && !width_changed && !height_changed {
         full_render_styled(&mut out, &new_lines, styles, spans, width, false);
         state.full_redraw_count += 1;

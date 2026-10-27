@@ -2238,7 +2238,8 @@ pub fn run(mut state: TuiState, parts: Option<std::sync::Arc<AgentParts>>) -> st
                     .status();
                 guard = TerminalGuard::new()?;
                 // 回前台时终端可能被重绘过：整屏重画。
-                diff_state = pi_tui::diff::DiffState::new();
+                // 恢复后屏幕可能被 shell 提示符等内容覆盖：保留记账，但**强制清屏重绘**。
+                diff_state.force_clear = true;
                 dirty = true;
                 continue;
             }
