@@ -839,6 +839,13 @@ pub fn run(mut state: TuiState, parts: Option<std::sync::Arc<AgentParts>>) -> st
             batch.push(extra);
         }
         for event in batch {
+            // `Working(true)` 必须**立刻可见**：TS 在回合开始时就点亮指示器，
+            // 而我们的批量合并只在 16ms 间隔到点才画，快回合会整段跳过该帧
+            // （T05 录制里连 `Working` 行都没有）。这里把上一帧时间清掉，
+            // 让循环顶部立刻满足 `render_ready`、先画一帧再继续处理本批事件。
+            if matches!(event, TuiEvent::Working(true)) {
+                last_draw = None;
+            }
             // `/thinking` 选择器里的 `ctrl+s` = "设为默认"（ref 选择器提示行
             // `Enter to select · Ctrl+S to set as default`；`interactive-mode.ts:5012-5030`
             // 的 `onSelectAsDefault` → `selectThinkingLevel(level, true)` → 状态行
