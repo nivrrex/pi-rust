@@ -1286,7 +1286,7 @@ fn render_all_cached_inner(
         cache,
         &mut Vec::new(),
         &mut Vec::new(),
-        &mut Vec::new(),
+        &mut SpanSink::default(),
     )
 }
 
@@ -1301,7 +1301,7 @@ fn render_all_cached_styled_inner(
     mut cache: Option<&mut RenderCache>,
     styles: &mut Vec<Option<style::LineStyle>>,
     markdown_styles: &mut Vec<(usize, Option<style::LineStyle>)>,
-    tool_header_spans: &mut Vec<(usize, Vec<style::Span>)>,
+    out_spans: &mut SpanSink,
 ) -> Vec<String> {
     let mut lines: Vec<String> = Vec::with_capacity(rows);
     lines.push(String::new());
@@ -1399,6 +1399,29 @@ fn render_all_cached_styled_inner(
                             .flatten()
                             .or_else(|| item_style(item, &lines[offset], offset == first_content));
                     }
+                    // 命中缓存时 span 不走缓存，按同一条目重算一遍（行数一致才用，
+                    // 折行行不在 md_lines 里 1:1 对应，直接跳过）。
+                    if let TranscriptItem::Assistant(text) = item {
+                        let (md_lines, _, md_spans) = render_markdown_styled(text);
+                        // 缓存里可能多一条尾部空行，因此按**行文本相等**逐条对齐，
+                        // 不要求两侧长度完全一致。
+                        for (md_index, line_spans) in md_spans {
+                            let Some(md_line) = md_lines.get(md_index) else {
+                                continue;
+                            };
+                            let Some(cached_line) = rendered.get(md_index) else {
+                                continue;
+                            };
+                            if md_line != cached_line {
+                                continue;
+                            }
+                            if line_spans.iter().all(|span| span.end <= cached_line.len()) {
+                                out_spans
+                                    .markdown
+                                    .push((first_content + md_index, line_spans));
+                            }
+                        }
+                    }
                     continue;
                 }
             }
@@ -1447,13 +1470,26 @@ fn render_all_cached_styled_inner(
                 lines.push(String::new());
             }
             TranscriptItem::Assistant(text) => {
-                let (md_lines, md_styles) = render_markdown_styled(text);
+                let (md_lines, md_styles, md_spans) = render_markdown_styled(text);
+                let spans_by_line: std::collections::HashMap<usize, Vec<style::Span>> =
+                    md_spans.into_iter().collect();
                 for (index, line) in md_lines.iter().enumerate() {
                     let md_style = md_styles.get(index).copied().flatten();
                     // 长段落必须**折行**而不是截断；折行段沿用所属 markdown 行的样式。
-                    for wrapped in wrap_to_width(line, cols) {
+                    let segments = wrap_to_width(line, cols);
+                    // 只有**未被折行**的行才能直接用 span 的字节偏移（T05 的两行都属于这种）。
+                    let un_wrapped = segments.len() == 1;
+                    for wrapped in segments {
                         if md_style.is_some() {
                             markdown_styles.push((lines.len(), md_style));
+                        }
+                        if un_wrapped {
+                            if let Some(line_spans) = spans_by_line.get(&index) {
+                                let fits = line_spans.iter().all(|span| span.end <= wrapped.len());
+                                if fits {
+                                    out_spans.markdown.push((lines.len(), line_spans.clone()));
+                                }
+                            }
                         }
                         lines.push(wrapped);
                     }
@@ -1480,7 +1516,7 @@ fn render_all_cached_styled_inner(
                 // 一个空格 + `summary` 用 **accent 色**（不加粗）。整行单色会差这两段。
                 if !summary.is_empty() {
                     let name_end = 1 + name.len();
-                    tool_header_spans.push((
+                    out_spans.tool_header.push((
                         lines.len() - 1,
                         vec![
                             // 行首那一个空格只带底色、不带前景/粗体（TS 逐格实测）。
@@ -1886,12 +1922,30 @@ pub fn render_markdown(input: &str) -> Vec<String> {
     render_markdown_styled(input).0
 }
 
+/// 帧级 span 收集器：工具头分段与 markdown 行内分段分开记，最后叠加到帧 `spans`。
+#[derive(Debug, Default)]
+struct SpanSink {
+    /// 工具头（` <name>` + summary）的分段。
+    tool_header: LineSpans,
+    /// markdown 行内分段（列表符号、行内代码）。
+    markdown: LineSpans,
+}
+
+/// 一行内多色段的集合（行索引 → span 列表），markdown/工具头供帧叠加用。
+type LineSpans = Vec<(usize, Vec<style::Span>)>;
+
+/// markdown 渲染结果：文本行、逐行整行样式、逐行行内 span。
+type MarkdownRender = (Vec<String>, Vec<Option<style::LineStyle>>, LineSpans);
+
 /// 渲染 markdown 并给出**每行样式**（ref `theme/markdown.ts` 的 `md*` 键）。
 #[must_use]
-pub fn render_markdown_styled(input: &str) -> (Vec<String>, Vec<Option<style::LineStyle>>) {
+pub fn render_markdown_styled(input: &str) -> MarkdownRender {
     use pulldown_cmark::{Event, HeadingLevel, Options, Parser, Tag, TagEnd};
     let mut out: Vec<String> = Vec::new();
     let mut styles: Vec<Option<style::LineStyle>> = Vec::new();
+    // 行内多色段（列表符号 `- `、行内代码），按**行索引**记录。
+    let mut spans: Vec<(usize, Vec<style::Span>)> = Vec::new();
+    let mut code_ranges: Vec<(usize, usize)> = Vec::new();
     let mut current: Option<style::LineStyle> = None;
     let mut inline = String::new();
     let mut in_list_item = false;
@@ -1902,6 +1956,8 @@ pub fn render_markdown_styled(input: &str) -> (Vec<String>, Vec<Option<style::Li
                         in_list_item: bool,
                         out: &mut Vec<String>,
                         styles: &mut Vec<Option<style::LineStyle>>,
+                        spans: &mut Vec<(usize, Vec<style::Span>)>,
+                        code_ranges: &mut Vec<(usize, usize)>,
                         current: Option<style::LineStyle>,
                         pending_blank: &mut bool| {
         let text = inline.trim_end().to_string();
@@ -1914,11 +1970,36 @@ pub fn render_markdown_styled(input: &str) -> (Vec<String>, Vec<Option<style::Li
             styles.push(None);
         }
         *pending_blank = false;
+        // ref `theme.ts:1181` 列表符号用 `mdListBullet`、`:1174` 行内代码用 `mdCode`（皆 accent）；
+        // 这两段只能**按列染色**，整行染色会把正文一起染掉，所以走 span。
+        let prefix_len = if in_list_item { 3 } else { 1 };
+        let mut line_spans: Vec<style::Span> = Vec::new();
+        if in_list_item && !text.is_empty() {
+            // ` - <text>`：`-` 与它后面那个空格都染 accent（TS 逐格实测 c1/c2）。
+            line_spans.push(style::Span::new(
+                1,
+                prefix_len,
+                style::LineStyle::fg(style::MD_LIST_BULLET),
+            ));
+        }
+        for (start, end) in code_ranges.drain(..) {
+            let end = end.min(text.len());
+            if start < end {
+                line_spans.push(style::Span::new(
+                    prefix_len + start,
+                    prefix_len + end,
+                    style::LineStyle::fg(style::MD_CODE),
+                ));
+            }
+        }
         out.push(if in_list_item {
             format!(" - {text}")
         } else {
             format!(" {text}")
         });
+        if !line_spans.is_empty() {
+            spans.push((out.len() - 1, line_spans));
+        }
         styles.push(current);
     };
     let _ = HeadingLevel::H1;
@@ -1938,6 +2019,8 @@ pub fn render_markdown_styled(input: &str) -> (Vec<String>, Vec<Option<style::Li
                     false,
                     &mut out,
                     &mut styles,
+                    &mut spans,
+                    &mut code_ranges,
                     current,
                     &mut pending_blank,
                 );
@@ -1961,6 +2044,8 @@ pub fn render_markdown_styled(input: &str) -> (Vec<String>, Vec<Option<style::Li
                     in_list_item,
                     &mut out,
                     &mut styles,
+                    &mut spans,
+                    &mut code_ranges,
                     current,
                     &mut pending_blank,
                 );
@@ -2020,7 +2105,11 @@ pub fn render_markdown_styled(input: &str) -> (Vec<String>, Vec<Option<style::Li
                     inline.push_str(&text);
                 }
             }
-            Event::Code(text) => inline.push_str(&text),
+            Event::Code(text) => {
+                let start = inline.len();
+                inline.push_str(&text);
+                code_ranges.push((start, inline.len()));
+            }
             Event::SoftBreak | Event::HardBreak => {
                 if in_code_block {
                     if !code_line.is_empty() {
@@ -2042,6 +2131,8 @@ pub fn render_markdown_styled(input: &str) -> (Vec<String>, Vec<Option<style::Li
                     in_list_item,
                     &mut out,
                     &mut styles,
+                    &mut spans,
+                    &mut code_ranges,
                     current,
                     &mut pending_blank,
                 );
@@ -2057,6 +2148,8 @@ pub fn render_markdown_styled(input: &str) -> (Vec<String>, Vec<Option<style::Li
         in_list_item,
         &mut out,
         &mut styles,
+        &mut spans,
+        &mut code_ranges,
         current,
         &mut pending_blank,
     );
@@ -2065,7 +2158,7 @@ pub fn render_markdown_styled(input: &str) -> (Vec<String>, Vec<Option<style::Li
         styles.pop();
     }
     styles.resize(out.len(), None);
-    (out, styles)
+    (out, styles, spans)
 }
 
 #[cfg(test)]
@@ -2073,12 +2166,48 @@ mod markdown_tests {
     use super::{render_markdown, render_markdown_styled, TranscriptItem, TuiState};
     use crate::style;
 
+    /// ref `theme.ts:1174,1181`：列表符号 `- ` 用 `mdListBullet`、行内代码用 `mdCode`，
+    /// 两者都只能按列染色 ⇒ 必须产出 span（整行染色会把正文一起染掉）。
+    #[test]
+    fn markdown_inline_spans_cover_bullet_and_code() {
+        let (lines, _, spans) = render_markdown_styled("- 甲\n\n行内 `code` 结束\n");
+        let bullet_line = lines
+            .iter()
+            .position(|line| line.contains("甲"))
+            .expect("列表行");
+        let bullet_spans = spans
+            .iter()
+            .find(|(index, _)| *index == bullet_line)
+            .map(|(_, spans)| spans.clone())
+            .expect("列表行必须有 span");
+        assert_eq!(bullet_spans[0].start, 1);
+        assert_eq!(bullet_spans[0].end, 3, "`- ` 两列都要染色");
+        assert_eq!(bullet_spans[0].style.fg, Some(style::MD_LIST_BULLET));
+
+        let code_line = lines
+            .iter()
+            .position(|line| line.contains("结束"))
+            .expect("正文行");
+        let code_spans = spans
+            .iter()
+            .find(|(index, _)| *index == code_line)
+            .map(|(_, spans)| spans.clone())
+            .expect("行内代码行必须有 span");
+        let text = &lines[code_line];
+        let colored: String = code_spans
+            .iter()
+            .map(|span| text[span.start..span.end].to_string())
+            .collect();
+        assert_eq!(colored, "code", "只有行内代码那段染色");
+        assert_eq!(code_spans[0].style.fg, Some(style::MD_CODE));
+    }
+
     /// ref `dark.json:53-60` + `theme.ts:1172-1181`：标题 `mdHeading` + 粗体、
     /// 围栏 `mdCodeBlockBorder`、代码内容 `mdCodeBlock`，逐行断言（不改文本）。
     #[test]
     fn markdown_lines_carry_theme_styles() {
         let input = "# 标题\n\n正文\n\n```\nfn main() {}\n```\n";
-        let (lines, styles) = render_markdown_styled(input);
+        let (lines, styles, _spans) = render_markdown_styled(input);
         assert_eq!(lines.len(), styles.len(), "行与样式必须等长");
         let find = |needle: &str| {
             lines
@@ -3251,7 +3380,7 @@ pub fn render_all_marker_cached_styled(
 ) -> StyledFrame {
     let mut styles: Vec<Option<style::LineStyle>> = Vec::new();
     let mut markdown_styles: Vec<(usize, Option<style::LineStyle>)> = Vec::new();
-    let mut tool_header_spans: Vec<(usize, Vec<style::Span>)> = Vec::new();
+    let mut out_spans = SpanSink::default();
     let mut lines = render_all_cached_styled_inner(
         state,
         cols,
@@ -3259,7 +3388,7 @@ pub fn render_all_marker_cached_styled(
         Some(cache),
         &mut styles,
         &mut markdown_styles,
-        &mut tool_header_spans,
+        &mut out_spans,
     );
     styles.resize(lines.len(), None);
     apply_chrome_styles(&lines, &mut styles, &state.thinking_level);
@@ -3272,7 +3401,11 @@ pub fn render_all_marker_cached_styled(
     marker_apply(state, cols, &mut lines);
     let mut spans = header_spans(&lines);
     // 工具头部的多色分段按**条目行区间**记录后叠加（不用全屏文本匹配）。
-    for (index, line_spans) in &tool_header_spans {
+    for (index, line_spans) in out_spans
+        .tool_header
+        .iter()
+        .chain(out_spans.markdown.iter())
+    {
         // 工具块的**背景色**来自该行的整行样式；span 只换了前景，背景要继承下来，
         // 否则分段那几列会丢底色（T73 实测：不继承会多出 bg 差异 100 格）。
         let line_bg = styles
