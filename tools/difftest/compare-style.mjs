@@ -268,6 +268,40 @@ function main() {
     }
     return paired.counts.bg + paired.counts.fg + paired.counts.bold + paired.counts.dim === 0 ? 0 : 1;
   }
+  if (argv.includes("--final-screen")) {
+    // 只比较**最终屏幕**，且只在两侧最终屏幕纯文本一致时才算数（否则口径不适用）。
+    const a = renderStyledScreen(fs.readFileSync(leftPath, "utf8"), cols, rows);
+    const b = renderStyledScreen(fs.readFileSync(rightPath, "utf8"), cols, rows);
+    const text = (screen) => screen.map((row) => row.map((cell) => cell.ch).join("").replace(/\s+$/, ""));
+    if (text(a).join("\n") !== text(b).join("\n")) {
+      console.log("[compare-style] 口径不适用：最终屏幕文本不一致");
+      return 2;
+    }
+    const counts = { bg: 0, fg: 0, bold: 0, dim: 0, italic: 0 };
+    let total = 0;
+    for (let row = 0; row < rows; row += 1) {
+      for (let col = 0; col < cols; col += 1) {
+        const x = a[row][col];
+        const y = b[row][col];
+        let hit = false;
+        for (const key of ["bg", "fg", "bold", "dim", "italic"]) {
+          if (x[key] !== y[key]) {
+            counts[key] += 1;
+            hit = true;
+          }
+        }
+        if (hit) total += 1;
+      }
+    }
+    if (argv.includes("--json")) {
+      console.log(JSON.stringify({ total, counts }, null, 2));
+    } else {
+      console.log(
+        `[compare-style] total=${total} bg=${counts.bg} fg=${counts.fg} bold=${counts.bold} dim=${counts.dim}`,
+      );
+    }
+    return total === 0 ? 0 : 1;
+  }
   const result = compareStyled(
     fs.readFileSync(leftPath, "utf8"),
     fs.readFileSync(rightPath, "utf8"),
