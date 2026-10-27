@@ -363,6 +363,10 @@ fn thinking_border_unknown(_level: &str) -> (u8, u8, u8) {
 
 /// `mdLink` `#81a2be`
 pub const MD_LINK: (u8, u8, u8) = (0x81, 0xa2, 0xbe);
+/// ref `dark.json:60` `mdListBullet: accent`（`#8abeb7`）。
+pub const MD_LIST_BULLET: (u8, u8, u8) = (0x8a, 0xbe, 0xb7);
+/// ref `dark.json:54` `mdCode: accent`。
+pub const MD_CODE: (u8, u8, u8) = (0x8a, 0xbe, 0xb7);
 
 #[cfg(test)]
 mod tests {

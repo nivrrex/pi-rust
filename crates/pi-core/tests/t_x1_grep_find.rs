@@ -107,6 +107,22 @@ async fn grep_ignore_case_and_glob() {
     assert_eq!(text_of(&result), "notes.md:1: Needle upper");
 }
 
+/// fd 打印的是 `<搜索根>/<相对路径>`（绝对根时形如 `/tmp/x/./src/a.txt`）。
+/// 断言时先剥掉 fixture 根与多余的 `./`，只比较**相对 fixture 的路径集合**，
+/// 避免把 fd 的路径拼接细节写进用例。
+fn relative_to(root: &std::path::Path, lines: &[String]) -> Vec<String> {
+    let root = root.display().to_string();
+    let mut out: Vec<String> = lines
+        .iter()
+        .map(|line| {
+            let stripped = line.strip_prefix(&format!("{root}/")).unwrap_or(line);
+            stripped.strip_prefix("./").unwrap_or(stripped).to_string()
+        })
+        .collect();
+    out.sort();
+    out
+}
+
 #[tokio::test]
 async fn find_returns_relative_paths() {
     if !require_fd() {
@@ -118,9 +134,11 @@ async fn find_returns_relative_paths() {
     let result = pi_core::tools::find::FindTool
         .execute(json!({"pattern": "*.txt"}), &context, &cancel)
         .await;
-    let mut lines: Vec<String> = text_of(&result).lines().map(str::to_string).collect();
-    lines.sort();
-    assert_eq!(lines, vec!["src/alpha.txt", "src/beta.txt"]);
+    let lines: Vec<String> = text_of(&result).lines().map(str::to_string).collect();
+    assert_eq!(
+        relative_to(&dir, &lines),
+        vec!["src/alpha.txt", "src/beta.txt"]
+    );
 }
 
 #[tokio::test]
@@ -252,10 +270,9 @@ async fn find_glob_star_star_matches_nested() {
     let result = pi_core::tools::find::FindTool
         .execute(json!({"pattern": "**/*.txt"}), &context, &cancel)
         .await;
-    let mut lines: Vec<String> = text_of(&result).lines().map(str::to_string).collect();
-    lines.sort();
+    let lines: Vec<String> = text_of(&result).lines().map(str::to_string).collect();
     assert_eq!(
-        lines,
+        relative_to(&dir, &lines),
         vec!["src/alpha.txt", "src/beta.txt", "src/deep/gamma.txt"]
     );
 }
@@ -275,9 +292,11 @@ async fn find_searches_subdirectory() {
             &cancel,
         )
         .await;
-    let mut lines: Vec<String> = text_of(&result).lines().map(str::to_string).collect();
-    lines.sort();
-    assert_eq!(lines, vec!["alpha.txt", "beta.txt"]);
+    let lines: Vec<String> = text_of(&result).lines().map(str::to_string).collect();
+    assert_eq!(
+        relative_to(&dir.join("src"), &lines),
+        vec!["alpha.txt", "beta.txt"]
+    );
 }
 
 #[tokio::test]

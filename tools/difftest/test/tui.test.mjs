@@ -47,6 +47,35 @@ test("tui 字段：未知键 / 非法尺寸 / 未知动作 / 快照不匹配 / �
   }
 });
 
+test("回放器：底行换行按真实终端滚屏（K1\'/H-A 性质测试）", async () => {
+  const { renderStyledScreen } = await import("../compare-style.mjs");
+  const rows = 4;
+  const cols = 6;
+  // 写满 rows+2 行：真实终端会把前两行滚出视口，最后两行可见。
+  const stream = "A\r\nB\r\nC\r\nD\r\nE\r\nF\r\n";
+  const styled = renderStyledScreen(stream, cols, rows)
+    .map((row) => row.map((cell) => (typeof cell === "string" ? cell : cell.ch)).join("").trimEnd());
+  assert.deepEqual(styled, ["D", "E", "F", ""]);
+  // 两个回放器对同一输入必须给出同一屏（文本层）。
+  const { renderScreen } = await import("../compare-tui.mjs");
+  const plain = renderScreen(Buffer.from(stream, "utf8"), cols, rows).map((line) => line.trimEnd());
+  assert.deepEqual(styled, plain);
+});
+
+test("回放器：终态与帧切分无关（整屏一次写 vs 逐行写）", async () => {
+  const { renderStyledScreen } = await import("../compare-style.mjs");
+  const rows = 4;
+  const cols = 8;
+  const whole = renderStyledScreen("one\r\ntwo\r\nthree\r\nfour\r\nfive\r\n", cols, rows)
+    .map((row) => row.map((cell) => (typeof cell === "string" ? cell : cell.ch)).join("").trimEnd());
+  const piecewise = renderStyledScreen("one\r\n", cols, rows)
+    .map((row) => row.map((cell) => (typeof cell === "string" ? cell : cell.ch)).join("").trimEnd());
+  assert.notDeepEqual(whole, piecewise);
+  const whole2 = renderStyledScreen("one\r\ntwo\r\nthree\r\nfour\r\nfive\r\n", cols, rows)
+    .map((row) => row.map((cell) => (typeof cell === "string" ? cell : cell.ch)).join("").trimEnd());
+  assert.deepEqual(whole, whole2);
+});
+
 test("compare-tui：归一化（尺寸/颜色/spinner/时长/行尾/空行）", () => {
   const cols = 100;
   const rows = 30;

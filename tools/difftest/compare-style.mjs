@@ -107,7 +107,16 @@ export function renderStyledScreen(text, cols, rows) {
       continue;
     }
     if (ch === "\n") {
-      r = Math.min(rows - 1, r + 1);
+      // 真实终端在**底行**再换行时会滚屏（内容上移、底行清空），与
+      // `compare-tui.mjs:78-81` 的 `renderScreen` 一致；此前这里用
+      // `min(rows-1, r+1)` 原地覆盖底行，导致"超出视口的追加写入"把
+      // 最后几行压在同一行 ⇒ 样式表出现成批假差异（K1'/H-A）。
+      if (r >= rows - 1) {
+        for (let y = 1; y < rows; y += 1) screen[y - 1] = screen[y].slice();
+        screen[rows - 1] = Array.from({ length: cols }, () => ({ ch: " ", ...style }));
+      } else {
+        r += 1;
+      }
       i += 1;
       continue;
     }

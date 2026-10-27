@@ -99,8 +99,18 @@ fn search(arguments: &Value, cwd: &Path) -> ToolResult {
     }
     args.push("--max-results".to_string());
     args.push(limit.to_string());
+    // ref `find.ts:203-211`：`fd --glob` 默认只匹配**basename**；模式里带 `/`
+    // 时必须加 `--full-path`，且不以 `/`/`**/` 开头时要补 `**/` 前缀，
+    // 否则 fd 会把 `src/**/*.txt` 当作字面 basename 而不匹配任何文件。
+    let mut effective_pattern = pattern.to_string();
+    if pattern.contains('/') {
+        args.push("--full-path".to_string());
+        if !pattern.starts_with('/') && !pattern.starts_with("**/") && pattern != "**" {
+            effective_pattern = format!("**/{pattern}");
+        }
+    }
     args.push("--".to_string());
-    args.push(pattern.to_string());
+    args.push(effective_pattern);
     args.push(target.display().to_string());
 
     let Some(binary) = fd_binary() else {

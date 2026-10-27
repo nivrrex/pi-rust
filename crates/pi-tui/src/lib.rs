@@ -995,7 +995,7 @@ pub fn clamp_to_width(text: &str, width: usize) -> String {
 #[derive(Debug, Default, Clone)]
 pub struct RenderCache {
     width: usize,
-    entries: Vec<(String, Vec<String>)>,
+    entries: Vec<(String, Vec<String>, Vec<Option<style::LineStyle>>)>,
 }
 
 impl RenderCache {
@@ -1279,7 +1279,7 @@ fn render_all_cached_inner(
     rows: usize,
     cache: Option<&mut RenderCache>,
 ) -> Vec<String> {
-    render_all_cached_styled_inner(state, cols, rows, cache, &mut Vec::new())
+    render_all_cached_styled_inner(state, cols, rows, cache, &mut Vec::new(), &mut Vec::new())
 }
 
 /// 同时产出**整行样式**的内部实现（P8d/C4）。
@@ -1292,6 +1292,7 @@ fn render_all_cached_styled_inner(
     rows: usize,
     mut cache: Option<&mut RenderCache>,
     styles: &mut Vec<Option<style::LineStyle>>,
+    markdown_styles: &mut Vec<(usize, Option<style::LineStyle>)>,
 ) -> Vec<String> {
     let mut lines: Vec<String> = Vec::with_capacity(rows);
     lines.push(String::new());
@@ -1374,16 +1375,20 @@ fn render_all_cached_styled_inner(
             ),
         };
         if let Some(cache) = cache.as_deref_mut() {
-            if let Some((key, rendered)) = cache.entries.get(item_index) {
+            if let Some((key, rendered, cached_md_styles)) = cache.entries.get(item_index) {
                 if key == &cache_key {
-                    // 命中缓存也要补样式：样式不参与缓存（每帧重算），
-                    // 否则第二帧起条目就退回无色（用户消息底色消失就是这么来的）。
+                    // 命中缓存也要补样式：样式不参与缓存（每帧重算）。
                     lines.push(String::new());
                     let first_content = lines.len();
                     lines.extend(rendered.iter().cloned());
                     styles.resize(lines.len(), None);
                     for offset in first_content..lines.len() {
-                        styles[offset] = item_style(item, &lines[offset], offset == first_content);
+                        // markdown 行样式（标题/代码块）随缓存一起复用。
+                        styles[offset] = cached_md_styles
+                            .get(offset - first_content)
+                            .copied()
+                            .flatten()
+                            .or_else(|| item_style(item, &lines[offset], offset == first_content));
                     }
                     continue;
                 }
@@ -1433,9 +1438,14 @@ fn render_all_cached_styled_inner(
                 lines.push(String::new());
             }
             TranscriptItem::Assistant(text) => {
-                for line in render_markdown(text) {
-                    // 长段落必须**折行**而不是截断（否则长回复只显示首行，见 P7-6ao/E）。
-                    for wrapped in wrap_to_width(&line, cols) {
+                let (md_lines, md_styles) = render_markdown_styled(text);
+                for (index, line) in md_lines.iter().enumerate() {
+                    let md_style = md_styles.get(index).copied().flatten();
+                    // 长段落必须**折行**而不是截断；折行段沿用所属 markdown 行的样式。
+                    for wrapped in wrap_to_width(line, cols) {
+                        if md_style.is_some() {
+                            markdown_styles.push((lines.len(), md_style));
+                        }
                         lines.push(wrapped);
                     }
                 }
@@ -1525,7 +1535,13 @@ fn render_all_cached_styled_inner(
         }
         if let Some(cache) = cache.as_deref_mut() {
             let rendered: Vec<String> = lines[before + 1..].to_vec();
-            let slot = (cache_key, rendered);
+            let mut cached_md_styles: Vec<Option<style::LineStyle>> = vec![None; rendered.len()];
+            for (index, md_style) in markdown_styles.iter() {
+                if let Some(slot) = cached_md_styles.get_mut(index - (before + 1)) {
+                    *slot = *md_style;
+                }
+            }
+            let slot = (cache_key, rendered, cached_md_styles);
             if cache.entries.len() > item_index {
                 cache.entries[item_index] = slot;
             } else {
@@ -1826,10 +1842,28 @@ mod tests {
 ///
 /// 解析用 `pulldown-cmark`（P7 允许清单内，理由见 `notes/decisions.md`）；与 TS 的差异范围
 /// 已在 `notes/reports/P7-4-spec.md` 列出（表格/删除线等扩展未启用；本函数只处理 T05 用到的子集）。
-#[must_use]
+/// markdown 渲染用的"行 + 样式"成对写入，**保证两者永远等长**。
+fn push_md_line(
+    out: &mut Vec<String>,
+    styles: &mut Vec<Option<style::LineStyle>>,
+    text: String,
+    style: Option<style::LineStyle>,
+) {
+    out.push(text);
+    styles.push(style);
+}
+
 pub fn render_markdown(input: &str) -> Vec<String> {
+    render_markdown_styled(input).0
+}
+
+/// 渲染 markdown 并给出**每行样式**（ref `theme/markdown.ts` 的 `md*` 键）。
+#[must_use]
+pub fn render_markdown_styled(input: &str) -> (Vec<String>, Vec<Option<style::LineStyle>>) {
     use pulldown_cmark::{Event, HeadingLevel, Options, Parser, Tag, TagEnd};
     let mut out: Vec<String> = Vec::new();
+    let mut styles: Vec<Option<style::LineStyle>> = Vec::new();
+    let mut current: Option<style::LineStyle> = None;
     let mut inline = String::new();
     let mut in_list_item = false;
     let mut in_code_block = false;
@@ -1838,6 +1872,8 @@ pub fn render_markdown(input: &str) -> Vec<String> {
     let flush_inline = |inline: &mut String,
                         in_list_item: bool,
                         out: &mut Vec<String>,
+                        styles: &mut Vec<Option<style::LineStyle>>,
+                        current: Option<style::LineStyle>,
                         pending_blank: &mut bool| {
         let text = inline.trim_end().to_string();
         inline.clear();
@@ -1846,6 +1882,7 @@ pub fn render_markdown(input: &str) -> Vec<String> {
         }
         if *pending_blank && !out.is_empty() {
             out.push(String::new());
+            styles.push(None);
         }
         *pending_blank = false;
         out.push(if in_list_item {
@@ -1853,23 +1890,34 @@ pub fn render_markdown(input: &str) -> Vec<String> {
         } else {
             format!(" {text}")
         });
+        styles.push(current);
     };
     let _ = HeadingLevel::H1;
     for event in Parser::new_ext(input, Options::empty()) {
         match event {
             Event::Start(Tag::Heading { .. }) => {
                 if pending_blank && !out.is_empty() {
-                    out.push(String::new());
+                    push_md_line(&mut out, &mut styles, String::new(), None);
+                    styles.push(None);
                 }
                 pending_blank = false;
+                current = Some(style::LineStyle::fg(style::MD_HEADING).bold());
             }
             Event::End(TagEnd::Heading(_)) => {
-                flush_inline(&mut inline, false, &mut out, &mut pending_blank);
+                flush_inline(
+                    &mut inline,
+                    false,
+                    &mut out,
+                    &mut styles,
+                    current,
+                    &mut pending_blank,
+                );
+                current = None;
                 pending_blank = true;
             }
             Event::Start(Tag::List(_)) => {
                 if pending_blank && !out.is_empty() {
-                    out.push(String::new());
+                    push_md_line(&mut out, &mut styles, String::new(), None);
                 }
                 pending_blank = false;
             }
@@ -1879,23 +1927,45 @@ pub fn render_markdown(input: &str) -> Vec<String> {
                 pending_blank = false;
             }
             Event::End(TagEnd::Item) => {
-                flush_inline(&mut inline, in_list_item, &mut out, &mut pending_blank);
+                flush_inline(
+                    &mut inline,
+                    in_list_item,
+                    &mut out,
+                    &mut styles,
+                    current,
+                    &mut pending_blank,
+                );
                 in_list_item = false;
             }
             Event::Start(Tag::CodeBlock(_)) => {
                 in_code_block = true;
                 if pending_blank && !out.is_empty() {
-                    out.push(String::new());
+                    push_md_line(&mut out, &mut styles, String::new(), None);
                 }
                 pending_blank = false;
-                out.push(" ```".to_string());
+                push_md_line(
+                    &mut out,
+                    &mut styles,
+                    " ```".to_string(),
+                    Some(style::LineStyle::fg(style::MD_CODE_BLOCK_BORDER)),
+                );
             }
             Event::End(TagEnd::CodeBlock) => {
                 if !code_line.is_empty() {
-                    out.push(format!("   {}", code_line.trim_end()));
+                    push_md_line(
+                        &mut out,
+                        &mut styles,
+                        format!("   {}", code_line.trim_end()),
+                        Some(style::LineStyle::fg(style::MD_CODE_BLOCK)),
+                    );
                     code_line.clear();
                 }
-                out.push(" ```".to_string());
+                push_md_line(
+                    &mut out,
+                    &mut styles,
+                    " ```".to_string(),
+                    Some(style::LineStyle::fg(style::MD_CODE_BLOCK_BORDER)),
+                );
                 in_code_block = false;
                 pending_blank = true;
             }
@@ -1908,7 +1978,12 @@ pub fn render_markdown(input: &str) -> Vec<String> {
                     while let Some(part) = parts.next() {
                         code_line.push_str(part);
                         if parts.peek().is_some() {
-                            out.push(format!("   {}", code_line.trim_end()));
+                            push_md_line(
+                                &mut out,
+                                &mut styles,
+                                format!("   {}", code_line.trim_end()),
+                                Some(style::LineStyle::fg(style::MD_CODE_BLOCK)),
+                            );
                             code_line.clear();
                         }
                     }
@@ -1920,7 +1995,12 @@ pub fn render_markdown(input: &str) -> Vec<String> {
             Event::SoftBreak | Event::HardBreak => {
                 if in_code_block {
                     if !code_line.is_empty() {
-                        out.push(format!("   {}", code_line.trim_end()));
+                        push_md_line(
+                            &mut out,
+                            &mut styles,
+                            format!("   {}", code_line.trim_end()),
+                            Some(style::LineStyle::fg(style::MD_CODE_BLOCK)),
+                        );
                         code_line.clear();
                     }
                 } else {
@@ -1928,7 +2008,14 @@ pub fn render_markdown(input: &str) -> Vec<String> {
                 }
             }
             Event::End(TagEnd::Paragraph) => {
-                flush_inline(&mut inline, in_list_item, &mut out, &mut pending_blank);
+                flush_inline(
+                    &mut inline,
+                    in_list_item,
+                    &mut out,
+                    &mut styles,
+                    current,
+                    &mut pending_blank,
+                );
                 pending_blank = true;
             }
             other => {
@@ -1936,16 +2023,53 @@ pub fn render_markdown(input: &str) -> Vec<String> {
             }
         }
     }
-    flush_inline(&mut inline, in_list_item, &mut out, &mut pending_blank);
+    flush_inline(
+        &mut inline,
+        in_list_item,
+        &mut out,
+        &mut styles,
+        current,
+        &mut pending_blank,
+    );
     while out.last().map(|line| line.is_empty()).unwrap_or(false) {
         out.pop();
+        styles.pop();
     }
-    out
+    styles.resize(out.len(), None);
+    (out, styles)
 }
 
 #[cfg(test)]
 mod markdown_tests {
-    use super::{render_markdown, TranscriptItem, TuiState};
+    use super::{render_markdown, render_markdown_styled, TranscriptItem, TuiState};
+    use crate::style;
+
+    /// ref `dark.json:53-60` + `theme.ts:1172-1181`：标题 `mdHeading` + 粗体、
+    /// 围栏 `mdCodeBlockBorder`、代码内容 `mdCodeBlock`，逐行断言（不改文本）。
+    #[test]
+    fn markdown_lines_carry_theme_styles() {
+        let input = "# 标题\n\n正文\n\n```\nfn main() {}\n```\n";
+        let (lines, styles) = render_markdown_styled(input);
+        assert_eq!(lines.len(), styles.len(), "行与样式必须等长");
+        let find = |needle: &str| {
+            lines
+                .iter()
+                .position(|line| line.contains(needle))
+                .unwrap_or_else(|| panic!("找不到行 {needle}: {lines:?}"))
+        };
+        let heading = styles[find("标题")].expect("标题行必须带样式");
+        assert_eq!(heading.fg, Some(style::MD_HEADING));
+        assert!(heading.bold, "标题必须加粗");
+        assert_eq!(
+            styles[find("```")].map(|style| style.fg),
+            Some(Some(style::MD_CODE_BLOCK_BORDER))
+        );
+        assert_eq!(
+            styles[find("fn main")].map(|style| style.fg),
+            Some(Some(style::MD_CODE_BLOCK))
+        );
+        assert!(styles[find("正文")].is_none(), "普通正文不上整行样式");
+    }
 
     #[test]
     fn streaming_deltas_merge_into_one_assistant_message() {
@@ -3097,9 +3221,23 @@ pub fn render_all_marker_cached_styled(
     cache: &mut RenderCache,
 ) -> StyledFrame {
     let mut styles: Vec<Option<style::LineStyle>> = Vec::new();
-    let mut lines = render_all_cached_styled_inner(state, cols, rows, Some(cache), &mut styles);
+    let mut markdown_styles: Vec<(usize, Option<style::LineStyle>)> = Vec::new();
+    let mut lines = render_all_cached_styled_inner(
+        state,
+        cols,
+        rows,
+        Some(cache),
+        &mut styles,
+        &mut markdown_styles,
+    );
     styles.resize(lines.len(), None);
     apply_chrome_styles(&lines, &mut styles, &state.thinking_level);
+    // 助手 markdown 的样式（标题/代码块）最后覆盖：不受空行继承等 chrome 规则影响。
+    for (index, md_style) in &markdown_styles {
+        if let (Some(style), Some(slot)) = (md_style, styles.get_mut(*index)) {
+            *slot = Some(*style);
+        }
+    }
     marker_apply(state, cols, &mut lines);
     let spans = header_spans(&lines);
     StyledFrame {
