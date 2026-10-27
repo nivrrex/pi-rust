@@ -270,9 +270,12 @@ impl Provider for ResponsesClient {
                 ));
             }
 
+            // 第二个参数是 **API 类型**（`AssistantMessage.api`），不是 provider 名。
+            // ref 的 assistant 消息里 `api: "openai-responses"`；曾经这里传了 provider 名，
+            // 打印/事件里就变成 `api: "mock"`（X3 对拍抓到的差异）。
             let mut decoder = ResponsesDecoder::new(
                 self.provider.clone(),
-                self.provider.clone(),
+                "openai-responses".to_string(),
                 request.model.clone(),
                 self.rates,
             );

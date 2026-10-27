@@ -422,6 +422,10 @@ impl PrintRun {
                                             });
                                         }
                                         Ok(None) => {
+                                            // 没有可压缩内容：TS 不发 `compaction_start/end`，
+                                            // 但会追加一条 `context_edit` 会话条目
+                                            // （`entry_appended`）。这里保留 End 占位，
+                                            // 差异登记在 notes/limits.md（X3 仍未完全对齐）。
                                             compaction_sink.emit(AgentEvent::CompactionEnd {
                                                 reason: plan.reason.to_string(),
                                                 result: None,
