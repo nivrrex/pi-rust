@@ -121,7 +121,7 @@ async function main() {
   });
   const providerName = scenario.provider ?? "openai-completions";
   await fs.promises.writeFile(path.join(tmp, "cfg", "models.json"),
-    JSON.stringify({ providers: { [providerName]: { baseUrl: `http://127.0.0.1:${mockPort}/v1`, api: providerName, apiKey: "test-key", models: [{ id: scenario.model ?? "mock-model" }, ...(scenario.extraModels ?? []).map((id) => ({ id }))] } } }, null, 2));
+    JSON.stringify({ providers: { [providerName]: { baseUrl: `http://127.0.0.1:${mockPort}/v1`, api: providerName, apiKey: "test-key", models: (() => { const extra = (scenario.extraModels ?? []).map((m) => (typeof m === "string" ? { id: m } : m)); const base = scenario.model ?? "mock-model"; return [Object.assign({ id: base }, ...extra.filter((m) => m.id === base)), ...extra.filter((m) => m.id !== base)]; })() } } }, null, 2));
   await fs.promises.writeFile(path.join(tmp, "cfg", "settings.json"),
     JSON.stringify({ defaultProvider: providerName, defaultModel: scenario.model ?? "mock-model" }, null, 2));
 

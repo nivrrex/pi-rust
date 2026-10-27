@@ -46,7 +46,9 @@ struct Scenario {
     mode: String,
     /// P7-7f：TUI 场景可声明额外模型（runner 写进 `models.json`，mock 自己不消费）。
     #[serde(default)]
-    extra_models: Vec<String>,
+    // 场景可以给模型加能力（如 `{ "id": …, "reasoning": true }`）；mock 自己不用，
+    // 只要求能解析（runner 会把它并进 `models.json`）。
+    extra_models: Vec<serde_json::Value>,
     #[serde(default)]
     prompt: String,
     #[serde(default)]

@@ -658,11 +658,12 @@ pub fn run(mut state: TuiState, parts: Option<std::sync::Arc<AgentParts>>) -> st
     // 推理模型是 `EXTENDED_THINKING_LEVELS`（`off/minimal/low/medium/high/xhigh/max`）。
     if let Some(parts_ref) = parts.as_ref() {
         if parts_ref.supports_thinking {
-            state.available_thinking_levels =
-                ["off", "minimal", "low", "medium", "high", "xhigh", "max"]
-                    .iter()
-                    .map(|level| (*level).to_string())
-                    .collect();
+            // ref `ai/src/models.ts:924-931`：`xhigh`/`max` **只有在模型声明了
+            // `thinkingLevelMap` 对应项时才出现**；没有映射表的推理模型只有这五档。
+            state.available_thinking_levels = ["off", "minimal", "low", "medium", "high"]
+                .iter()
+                .map(|level| (*level).to_string())
+                .collect();
             state.thinking_level = parts_ref
                 .initial_thinking_level
                 .clone()
