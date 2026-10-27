@@ -1579,7 +1579,23 @@ fn render_all_cached_styled_inner(
     }
     // 状态区是**两行**（golden 实测）：第一行 cwd；第二行左边 `status`、右边模型名。
     lines.push(clamp_to_width(&state.cwd, cols));
-    let status_right = clamp_to_width(&state.model, cols);
+    // ref `footer.ts:184-190`：推理模型在右侧模型名后追加思考档位
+    // （`off` 显示成 `• thinking off`，其余直接 `• <level>`）。
+    let status_right_text = if state.available_thinking_levels.len() > 1 {
+        let level = if state.thinking_level.is_empty() {
+            "off".to_string()
+        } else {
+            state.thinking_level.clone()
+        };
+        if level == "off" {
+            format!("{} • thinking off", state.model)
+        } else {
+            format!("{} • {level}", state.model)
+        }
+    } else {
+        state.model.clone()
+    };
+    let status_right = clamp_to_width(&status_right_text, cols);
     let status_left = clamp_to_width(&state.status, cols);
     let pad = cols.saturating_sub(
         UnicodeWidthStr::width(status_left.as_str())
