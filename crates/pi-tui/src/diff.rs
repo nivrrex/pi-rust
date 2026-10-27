@@ -730,6 +730,21 @@ fn commit_written_styles(
     from: usize,
     to: usize,
 ) {
+    if let Some(path) = std::env::var_os("PI_TUI_STYLE_DUMP") {
+        use std::io::Write as _;
+        if let Ok(mut file) = std::fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(&path)
+        {
+            let _ = writeln!(
+                file,
+                "WRITE from={from} to={to} viewport_top={} lines={}",
+                state.previous_viewport_top,
+                styles.len()
+            );
+        }
+    }
     state.previous_styles.resize(styles.len(), None);
     if styles.is_empty() || from >= styles.len() {
         return;
