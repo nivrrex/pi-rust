@@ -91,6 +91,8 @@ def run_case(name: str, base_url: str) -> dict:
     except ChildProcessError:
         pass
     plain = re.sub(r"\x1b\[[0-9;?]*[ -/]*[@-~]", "", buf.decode("utf-8", "replace"))
+    if os.environ.get("RETRY_DUMP"):
+        open(os.environ["RETRY_DUMP"], "w").write(plain)
     return {
         "case": name,
         "retrying_seen": "Retrying (1/3)" in plain,
@@ -98,6 +100,8 @@ def run_case(name: str, base_url: str) -> dict:
         "elapsed_s": round(elapsed, 1),
         "backoff_ok": elapsed >= 14.0,
         "error_line": next((line.strip()[:90] for line in plain.splitlines() if "Error:" in line), None),
+        "error_blocks": plain.count("Error: transport error"),
+        "retry_lines": [line.strip()[:48] for line in plain.splitlines() if "Retrying (" in line][-3:],
     }
 
 

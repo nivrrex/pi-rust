@@ -2223,11 +2223,13 @@ pub fn run(mut state: TuiState, parts: Option<std::sync::Arc<AgentParts>>) -> st
                         let level_snapshot = state.thinking_level.clone();
                         let turn_cancel_slot = std::sync::Arc::clone(&turn_cancel);
                         std::thread::spawn(move || {
-                            let sink = std::sync::Arc::new(TuiEventSink::new(
+                            let concrete_sink = std::sync::Arc::new(TuiEventSink::new(
                                 tx.clone(),
                                 parts.context_window,
                                 parts.system_message.clone(),
                             ));
+                            let sink: std::sync::Arc<dyn pi_core::agent::EventSink> =
+                                concrete_sink.clone();
                             // P7-7f M：每轮都用**当前生效**的模型（Ctrl+P / `/model` 切换后立即生效）。
                             let (provider_now, config_now) = parts
                                 .model_state
@@ -2301,6 +2303,7 @@ pub fn run(mut state: TuiState, parts: Option<std::sync::Arc<AgentParts>>) -> st
                                 } else {
                                     Some(attempt)
                                 });
+                                concrete_sink.set_retry_attempt(attempt);
                                 let result = runtime.block_on(pi_core::agent::run::run_loop(
                                     &agent_loop,
                                     messages.clone(),
@@ -2330,6 +2333,10 @@ pub fn run(mut state: TuiState, parts: Option<std::sync::Arc<AgentParts>>) -> st
                                     // 之后仍显示重试失败）。
                                     let gave_up = attempt > 0 && retryable;
                                     if gave_up {
+                                        // 退避状态行是**瞬时**的（ref `RetryStatusIndicator`）：
+                                        // 先移除，再打最终失败文案，否则屏幕上会留着
+                                        // `Retrying (3/3) in 1s...` 一行（真机看到的就是这个）。
+                                        let _ = tx.send(TuiEvent::ClearStatus);
                                         // 最后一次仍失败：ref 的 `showError`
                                         // `Retry failed after N attempts: <err>`
                                         // （`interactive-mode.ts:3631`）。
@@ -2762,9 +2769,18 @@ pub struct TuiEventSink {
     context_window: u64,
     /// 会话里 system 条目的原始形态（footer 百分比估算用；见 `AgentParts.system_message`）。
     system_message: pi_ai::message::Message,
+    /// 当前是第几次重试（0 = 首次尝试）。>0 时**不宣告中间失败**——
+    /// ref 只在最终放弃时才把错误留在会话区，否则每次重试都会多一个 `Error:` 块。
+    retry_attempt: std::sync::Arc<std::sync::atomic::AtomicU32>,
 }
 
 impl TuiEventSink {
+    /// 标记当前是第几次重试（0 = 首次）。
+    pub fn set_retry_attempt(&self, attempt: u32) {
+        self.retry_attempt
+            .store(attempt, std::sync::atomic::Ordering::Relaxed);
+    }
+
     /// 用事件循环的发送端构造。
     #[must_use]
     pub fn new(
@@ -2776,6 +2792,7 @@ impl TuiEventSink {
             tx,
             context_window,
             system_message,
+            retry_attempt: std::sync::Arc::new(std::sync::atomic::AtomicU32::new(0)),
         }
     }
 }
@@ -2876,6 +2893,11 @@ impl pi_core::agent::EventSink for TuiEventSink {
                             );
                         }
                     }
+                    let is_retry_round = self
+                        .retry_attempt
+                        .load(std::sync::atomic::Ordering::Relaxed)
+                        > 0;
+                    let notice_delta = if is_retry_round { None } else { notice_delta };
                     if let Some(delta) = notice_delta {
                         // 提示是**独立**块（ref `assistant-message.ts:182-199`：`Spacer(1)` 之后
                         // 的 `Text`）。早先走 `AssistantDelta` 会把它拼在正文同一行
