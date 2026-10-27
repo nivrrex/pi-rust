@@ -57,6 +57,8 @@
   `pty_esc_latency_check` / `ls_tool_check` 全绿
 - 样式级真彩：T01 0、T05 8、T28 0、T35 0、T73 0、T75 0、T77 3（合计 **11**，本批起点 1208）
 - 样式级 256：T01 3、T05 8、T28 2、其余 0（合计 **13**）
+- `--final-screen` 口径实测不可用（退出收尾写不同 ⇒ 最后一屏不是同一时刻），
+  判定以整流 `--style-only` 为准，详见 `notes/evidence/K5-style-tables.md`
 - `cargo test --workspace`：754/0/1；`scripts/precommit.sh` 十一项通过
 
 ## P8 出口定义逐条（P8e-5 批末）
