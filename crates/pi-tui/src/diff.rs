@@ -60,6 +60,9 @@ pub struct DiffState {
     pub previous_viewport_top: usize,
     /// ↔ `TuiBase.clearOnShrink`（`tui.ts:482`，默认 `false`）。
     pub clear_on_shrink: bool,
+    /// ↔ ref 的 `hasOverlayEntries`（`tui-main-screen.ts:369-373`）：有浮层时**不**走
+    /// clearOnShrink 的整屏重绘。由调用方每帧写入。
+    pub has_overlay: bool,
     /// ↔ `TuiBase.fullRedrawCount`（`:481`）：整屏重绘次数（诊断用）。
     pub full_redraw_count: usize,
     /// ↔ `TuiBase.showHardwareCursor`（`tui.ts:485`，默认 `false`）：决定定位后写 `\e[?25h` 还是 `\e[?25l`。
@@ -537,7 +540,11 @@ fn diff_render_body_styled(
         return Ok(out);
     }
 
-    if state.clear_on_shrink && new_lines.len() < state.max_lines_rendered {
+    // ref `tui-main-screen.ts:369-373`：`getClearOnShrink() && newLines.length < maxLinesRendered
+    // && !hasOverlayEntries`。浮层（我们的 panel）存在时**不**走整屏重绘——否则会多清一次屏，
+    // 把 `previous_viewport_top` 归 0 而后续帧的落点随之整体偏移。
+    let has_overlay = state.has_overlay;
+    if state.clear_on_shrink && new_lines.len() < state.max_lines_rendered && !has_overlay {
         full_render_styled(&mut out, &new_lines, styles, spans, width, true);
         state.full_redraw_count += 1;
         state.cursor_row = new_lines.len().saturating_sub(1);

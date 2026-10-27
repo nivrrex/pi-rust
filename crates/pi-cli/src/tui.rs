@@ -2820,6 +2820,8 @@ fn draw(
                 let seq = SEQ.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
                 diag_dump::dump_frame(seq, cols, rows, &lines, diff_state, 0);
             }
+            // 每帧把"是否有浮层"告知差分层（ref `hasOverlayEntries`）。
+            diff_state.has_overlay = state.panel.is_some();
             match pi_tui::diff::diff_render_with_cursor_styled(
                 diff_state, &lines, &styles, &spans, cols, rows,
             ) {
