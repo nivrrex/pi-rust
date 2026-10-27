@@ -1279,7 +1279,15 @@ fn render_all_cached_inner(
     rows: usize,
     cache: Option<&mut RenderCache>,
 ) -> Vec<String> {
-    render_all_cached_styled_inner(state, cols, rows, cache, &mut Vec::new(), &mut Vec::new())
+    render_all_cached_styled_inner(
+        state,
+        cols,
+        rows,
+        cache,
+        &mut Vec::new(),
+        &mut Vec::new(),
+        &mut Vec::new(),
+    )
 }
 
 /// 同时产出**整行样式**的内部实现（P8d/C4）。
@@ -1293,6 +1301,7 @@ fn render_all_cached_styled_inner(
     mut cache: Option<&mut RenderCache>,
     styles: &mut Vec<Option<style::LineStyle>>,
     markdown_styles: &mut Vec<(usize, Option<style::LineStyle>)>,
+    tool_header_spans: &mut Vec<(usize, Vec<style::Span>)>,
 ) -> Vec<String> {
     let mut lines: Vec<String> = Vec::with_capacity(rows);
     lines.push(String::new());
@@ -1467,6 +1476,26 @@ fn render_all_cached_styled_inner(
                 // r3 专属：工具条目前补 ref 的 `Box` 顶 padding（`tool-execution.ts:105`）。
                 lines.push(String::new());
                 lines.push(clamp_to_width(&text, cols));
+                // ref 实测（T73 真彩逐格）：头部是 ` <name>` **加粗 text 色** +
+                // 一个空格 + `summary` 用 **accent 色**（不加粗）。整行单色会差这两段。
+                if !summary.is_empty() {
+                    let name_end = 1 + name.len();
+                    tool_header_spans.push((
+                        lines.len() - 1,
+                        vec![
+                            // 行首那一个空格只带底色、不带前景/粗体（TS 逐格实测）。
+                            style::Span::new(0, 1, style::LineStyle::default()),
+                            style::Span::new(1, name_end, style::LineStyle::fg(style::TEXT).bold()),
+                            // 名字与参数之间那一个空格同样只带底色。
+                            style::Span::new(name_end, name_end + 1, style::LineStyle::default()),
+                            style::Span::new(
+                                name_end + 1,
+                                text.len(),
+                                style::LineStyle::fg(style::MD_LIST_BULLET),
+                            ),
+                        ],
+                    ));
+                }
                 // golden/T06 实测：工具调用块之后也有一个空行（行 12 调用、13 空、14 助手文本）。
                 // 结果正文：ref 折叠态只显示一小段（bash 取**尾部 5 行**、其余工具取
                 // **头部 10 行**），多出的部分给 `... (N more lines, ctrl+o to expand)`；
@@ -3222,6 +3251,7 @@ pub fn render_all_marker_cached_styled(
 ) -> StyledFrame {
     let mut styles: Vec<Option<style::LineStyle>> = Vec::new();
     let mut markdown_styles: Vec<(usize, Option<style::LineStyle>)> = Vec::new();
+    let mut tool_header_spans: Vec<(usize, Vec<style::Span>)> = Vec::new();
     let mut lines = render_all_cached_styled_inner(
         state,
         cols,
@@ -3229,6 +3259,7 @@ pub fn render_all_marker_cached_styled(
         Some(cache),
         &mut styles,
         &mut markdown_styles,
+        &mut tool_header_spans,
     );
     styles.resize(lines.len(), None);
     apply_chrome_styles(&lines, &mut styles, &state.thinking_level);
@@ -3239,7 +3270,27 @@ pub fn render_all_marker_cached_styled(
         }
     }
     marker_apply(state, cols, &mut lines);
-    let spans = header_spans(&lines);
+    let mut spans = header_spans(&lines);
+    // 工具头部的多色分段按**条目行区间**记录后叠加（不用全屏文本匹配）。
+    for (index, line_spans) in &tool_header_spans {
+        // 工具块的**背景色**来自该行的整行样式；span 只换了前景，背景要继承下来，
+        // 否则分段那几列会丢底色（T73 实测：不继承会多出 bg 差异 100 格）。
+        let line_bg = styles
+            .get(*index)
+            .and_then(|slot| slot.as_ref())
+            .and_then(|style| style.bg);
+        let mut merged = line_spans.clone();
+        if let Some(bg) = line_bg {
+            for span in &mut merged {
+                if span.style.bg.is_none() {
+                    span.style.bg = Some(bg);
+                }
+            }
+        }
+        if let Some(slot) = spans.get_mut(*index) {
+            *slot = merged;
+        }
+    }
     StyledFrame {
         lines,
         styles,
@@ -3296,22 +3347,12 @@ fn header_spans(lines: &[String]) -> Vec<Vec<style::Span>> {
         if trimmed.starts_with("pi v") {
             let lead = line.len() - trimmed.len();
             let short = "pi".len();
-            let mut spans = Vec::new();
-            if lead > 0 {
-                // 前导空格也是 dim（TS 实测 col0 就是 dim）。
-                // TS 实测：该空格只有 dim **属性**、没有前景色（外层 `theme.dim`）。
-                spans.push(style::Span::new(0, lead, LineStyle::default().dim()));
-            }
-            spans.push(style::Span::new(
-                lead,
-                lead + short,
-                LineStyle::fg(ACCENT).bold(),
-            ));
-            spans.push(style::Span::new(
-                lead + short,
-                line.len(),
-                LineStyle::fg(DIM),
-            ));
+            // 前导空格**不带任何属性**（T01 真彩逐格实测 col0 dim/bold 均为 false）；
+            // 只有列 1 起的 `pi` 是 accent+bold。给它加 `dim()` 会多出 1 格差异。
+            let spans = vec![
+                style::Span::new(lead, lead + short, LineStyle::fg(ACCENT).bold()),
+                style::Span::new(lead + short, line.len(), LineStyle::fg(DIM)),
+            ];
             out.push(spans);
             continue;
         }
