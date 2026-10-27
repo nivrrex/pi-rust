@@ -347,7 +347,8 @@ impl PrintRun {
                                     // **`_omitRecoveryAttempt`**（ref `agent-session.ts:1015-1031`，调用点 `:2695`）：
                                     // Case 1（`will_retry`）先对**失败的助手消息**写一条 `appendContextEdit(targetId, null)`
                                     // 并 emit `entry_appended`——投影因此省略它，压缩才有切点（golden/S13e 的重试上下文即压缩摘要）。
-                                    if plan.will_retry {
+                                    // ref `agent-session.ts:2655-2700`：回应以 context overflow或**可恢复的 length** 收尾时先写 `context_edit(replacement:null)` 并 emit `entry_appended`，与 `will_retry` 无关。
+                                    {
                                         let target = entries.iter().rev().find_map(|entry| {
                                             if let pi_core::session::SessionEntry::Message {
                                                 id,
@@ -355,9 +356,12 @@ impl PrintRun {
                                                 ..
                                             } = entry
                                             {
-                                                (assistant.stop_reason
-                                                    == pi_ai::types::StopReason::Error)
-                                                    .then(|| id.clone())
+                                                matches!(
+                                                    assistant.stop_reason,
+                                                    pi_ai::types::StopReason::Error
+                                                        | pi_ai::types::StopReason::Length
+                                                )
+                                                .then(|| id.clone())
                                             } else {
                                                 None
                                             }
@@ -422,19 +426,9 @@ impl PrintRun {
                                             });
                                         }
                                         Ok(None) => {
-                                            // 没有可压缩内容：TS 不发 `compaction_start/end`，
-                                            // 但会追加一条 `context_edit` 会话条目
-                                            // （`entry_appended`）。这里保留 End 占位，
-                                            // 差异登记在 notes/limits.md（X3 仍未完全对齐）。
-                                            compaction_sink.emit(AgentEvent::CompactionEnd {
-                                                reason: plan.reason.to_string(),
-                                                result: None,
-                                                aborted: false,
-                                                will_retry: false,
-                                                error_message: Some(
-                                                    "nothing to compact".to_string(),
-                                                ),
-                                            });
+                                            // 没有可压缩内容：ref 的 `_runAutoCompaction`
+                                            // **不产生任何 compaction 事件**（X03 实测 TS 只有
+                                            // 那条 `entry_appended(context_edit)`）。保持静默。
                                         }
                                         Err(error) => {
                                             compaction_sink.emit(AgentEvent::CompactionStart {
