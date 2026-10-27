@@ -84,7 +84,7 @@ def write_scenario(state: str) -> str:
     json.dump({"defaultProvider": "mock", "defaultModel": "mock-model"},
               open(os.path.join(cfg, "settings.json"), "w"))
     json.dump({"mock": {"type": "api_key", "key": "k"}}, open(os.path.join(cfg, "auth.json"), "w"))
-    return port
+    return mock, port
 
 
 def measure(state: str) -> dict:
@@ -111,7 +111,7 @@ def measure(state: str) -> dict:
 
 
 def one_sample(state: str) -> dict:
-    write_scenario(state)
+    mock, _port = write_scenario(state)
     env = dict(os.environ, HOME=os.path.join(BASE, "home"),
                PI_CODING_AGENT_DIR=os.path.join(BASE, "cfg"),
                PI_CODING_AGENT_SESSION_DIR=os.path.join(BASE, "sess"))
@@ -146,6 +146,7 @@ def one_sample(state: str) -> dict:
                 up = True
                 break
         if not up:
+            mock.kill()
             return {"ok": False, "why": "回合未启动"}
         injected = time.time()
         os.write(fd, b"\x1b")
@@ -172,6 +173,11 @@ def one_sample(state: str) -> dict:
     try:
         os.waitpid(pid, 0)
     except ChildProcessError:
+        pass
+    mock.kill()
+    try:
+        mock.wait(timeout=5)
+    except Exception:
         pass
     return {
         "ok": aborted_at is not None and ended_at is not None,
