@@ -1200,7 +1200,9 @@ fn item_style(item: &TranscriptItem, line: &str, is_first: bool) -> Option<style
         TranscriptItem::Thinking(_) => Some(LineStyle::fg(MUTED).italic()),
         // 助手正文：TS 实测是**终端默认色**（fg=null），不要强加 text 色。
         TranscriptItem::Assistant(_) => None,
-        TranscriptItem::Status(_) => Some(LineStyle::fg(MUTED)),
+        // 状态行（`Thinking level: …`）在 TS 里是 **dim**（#666666 → 256 色 241），
+        // 不是 muted（#808080 → 244）。`compare-style` 实测 TS 侧为 i241。
+        TranscriptItem::Status(_) => Some(LineStyle::fg(DIM)),
         TranscriptItem::BranchSummary { .. } => Some(LineStyle::fg(ACCENT)),
         TranscriptItem::ToolCall { is_error, .. } => {
             let background = if *is_error {
