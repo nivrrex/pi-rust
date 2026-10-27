@@ -7,6 +7,17 @@
 // 用法：
 //   node tools/difftest/compare-style.mjs --left ts.raw --right rs.raw [--cols 100] [--rows 30] [--json]
 import fs from "fs";
+import { lastSnapshotOffset, snapOffsetToFrameEnd, trimRawToOffset } from "./compare-tui.mjs";
+
+import path from "path";
+
+function path_dir(file) {
+  return path.dirname(file);
+}
+
+function path_join(...parts) {
+  return path.join(...parts);
+}
 
 const DEFAULT = { fg: null, bg: null, bold: false, italic: false, dim: false, inverse: false };
 
@@ -168,9 +179,21 @@ function main() {
     );
     return 2;
   }
+  // `--snapshot`：把两侧 raw 都截到**最后一个快照标记**（与 compare-tui 同口径）。
+  // 含瞬时状态（Working/Retrying）的场景，流末态可能处在不同阶段，直接比整段流会把
+  // "阶段不同"误判成配色差异（T05 实测 460 格里绝大部分属于此）。
+  const useSnapshot = argv.includes("--snapshot");
+  const readSide = (rawPath) => {
+    const raw = fs.readFileSync(rawPath);
+    if (!useSnapshot) return raw.toString("utf8");
+    const metaPath = path_join(path_dir(rawPath), "meta.json");
+    const offset = lastSnapshotOffset(metaPath);
+    const snapped = snapOffsetToFrameEnd(raw, offset);
+    return Buffer.from(trimRawToOffset(raw, snapped)).toString("utf8");
+  };
   const result = compareStyled(
-    fs.readFileSync(leftPath, "utf8"),
-    fs.readFileSync(rightPath, "utf8"),
+    readSide(leftPath),
+    readSide(rightPath),
     cols,
     rows,
     { styleOnly: argv.includes("--style-only") },
