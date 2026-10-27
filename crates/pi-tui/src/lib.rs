@@ -1468,14 +1468,22 @@ fn render_all_cached_styled_inner(
                 }
                 // ref `renderers/bash.ts:126-128`：shell 结果之后另起一行
                 // `Took <duration>`（muted）。TS 的空行 + 该行都要有（Test T75 差 1 行）。
-                if let (Some(duration), "bash" | "powershell") = (took, name.as_str()) {
+                // ref 的 bash 渲染器在结果块末尾只有这一行 `Took …`（前面带一个换行），
+                // 后面**没有**额外的空行——下一段落的空行由助手条目自己补。
+                let rendered_took =
+                    if let (Some(duration), "bash" | "powershell") = (took, name.as_str()) {
+                        lines.push(String::new());
+                        lines.push(clamp_to_width(
+                            &format!(" Took {}", format_duration(*duration)),
+                            cols,
+                        ));
+                        true
+                    } else {
+                        false
+                    };
+                if !rendered_took {
                     lines.push(String::new());
-                    lines.push(clamp_to_width(
-                        &format!(" Took {}", format_duration(*duration)),
-                        cols,
-                    ));
                 }
-                lines.push(String::new());
             }
         }
         // 该条目产出的行：`before` 之前是段落空行，`before + 1..` 是内容。
