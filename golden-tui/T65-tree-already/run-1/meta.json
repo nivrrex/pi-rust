@@ -6,12 +6,12 @@
   "exitCode": 0,
   "stderr": "",
   "mockStderr": "",
-  "requestLog": "/tmp/n65/requests.jsonl",
+  "requestLog": "/tmp/rr/T65-tree-already/run-1/requests.jsonl",
   "snapshotOffsets": [
     {
       "name": "after-enter-leaf",
-      "offset": 11245
+      "offset": 10239
     }
   ],
-  "sessionDir": "/tmp/n65/session"
+  "sessionDir": "/tmp/rr/T65-tree-already/run-1/session"
 }

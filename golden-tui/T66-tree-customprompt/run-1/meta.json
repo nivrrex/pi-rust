@@ -6,16 +6,16 @@
   "exitCode": -9,
   "stderr": "",
   "mockStderr": "",
-  "requestLog": "/tmp/n66b/requests.jsonl",
+  "requestLog": "/tmp/rr/T66-tree-customprompt/run-1/requests.jsonl",
   "snapshotOffsets": [
     {
       "name": "after-summarize",
-      "offset": 15361
+      "offset": 15589
     },
     {
       "name": "custom-prompt",
-      "offset": 15361
+      "offset": 15589
     }
   ],
-  "sessionDir": "/tmp/n66b/session"
+  "sessionDir": "/tmp/rr/T66-tree-customprompt/run-1/session"
 }

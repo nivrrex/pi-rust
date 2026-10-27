@@ -6,12 +6,12 @@
   "exitCode": 0,
   "stderr": "",
   "mockStderr": "",
-  "requestLog": "/tmp/t69ts1/requests.jsonl",
+  "requestLog": "/tmp/rr/T69-continue-real/run-1/requests.jsonl",
   "snapshotOffsets": [
     {
       "name": "after-continue",
-      "offset": 4887
+      "offset": 4599
     }
   ],
-  "sessionDir": "/tmp/t69ts1/session"
+  "sessionDir": "/tmp/rr/T69-continue-real/run-1/session"
 }

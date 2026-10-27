@@ -6,20 +6,20 @@
   "exitCode": -9,
   "stderr": "",
   "mockStderr": "",
-  "requestLog": "/tmp/n68r1/requests.jsonl",
+  "requestLog": "/tmp/rr/T68-completion-backspace/run-1/requests.jsonl",
   "snapshotOffsets": [
     {
       "name": "after-tree",
-      "offset": 4175
+      "offset": 3915
     },
     {
       "name": "after-backspace",
-      "offset": 4907
+      "offset": 4615
     },
     {
       "name": "after-tab",
-      "offset": 5667
+      "offset": 5346
     }
   ],
-  "sessionDir": "/tmp/n68r1/session"
+  "sessionDir": "/tmp/rr/T68-completion-backspace/run-1/session"
 }

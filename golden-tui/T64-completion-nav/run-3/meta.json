@@ -6,20 +6,20 @@
   "exitCode": -9,
   "stderr": "",
   "mockStderr": "",
-  "requestLog": "/tmp/n64-3/requests.jsonl",
+  "requestLog": "/tmp/rr/T64-completion-nav/run-3/requests.jsonl",
   "snapshotOffsets": [
     {
       "name": "after-slash-s",
-      "offset": 4872
+      "offset": 4562
     },
     {
       "name": "after-down",
-      "offset": 5752
+      "offset": 5394
     },
     {
       "name": "after-tab",
-      "offset": 7273
+      "offset": 6846
     }
   ],
-  "sessionDir": "/tmp/n64-3/session"
+  "sessionDir": "/tmp/rr/T64-completion-nav/run-3/session"
 }

@@ -6,11 +6,12 @@
   "exitCode": 0,
   "stderr": "",
   "mockStderr": "",
-  "requestLog": "<REPO>/tmp/w0e2/T04/run-1/requests.jsonl",
+  "requestLog": "/tmp/rr/T04/run-1/requests.jsonl",
   "snapshotOffsets": [
     {
       "name": "before-exit",
-      "offset": 7278
+      "offset": 6928
     }
-  ]
+  ],
+  "sessionDir": "/tmp/rr/T04/run-1/session"
 }

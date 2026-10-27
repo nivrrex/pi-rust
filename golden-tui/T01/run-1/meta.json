@@ -6,11 +6,12 @@
   "exitCode": 0,
   "stderr": "",
   "mockStderr": "",
-  "requestLog": "<REPO>/tmp/w0e2/T01/run-1/requests.jsonl",
+  "requestLog": "/tmp/rr/T01/run-1/requests.jsonl",
   "snapshotOffsets": [
     {
       "name": "after-prompt",
-      "offset": 7096
+      "offset": 6346
     }
-  ]
+  ],
+  "sessionDir": "/tmp/rr/T01/run-1/session"
 }

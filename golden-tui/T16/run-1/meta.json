@@ -6,20 +6,20 @@
   "exitCode": 0,
   "stderr": "",
   "mockStderr": "",
-  "requestLog": "<REPO>/tmp/t16ts/run-1/requests.jsonl",
+  "requestLog": "/tmp/rr/T16/run-1/requests.jsonl",
   "snapshotOffsets": [
     {
       "name": "model-open",
-      "offset": 6397
+      "offset": 6021
     },
     {
       "name": "model-down",
-      "offset": 6407
+      "offset": 6031
     },
     {
       "name": "model-cancelled",
-      "offset": 7552
+      "offset": 7142
     }
   ],
-  "sessionDir": "<REPO>/tmp/t16ts/run-1/session"
+  "sessionDir": "/tmp/rr/T16/run-1/session"
 }

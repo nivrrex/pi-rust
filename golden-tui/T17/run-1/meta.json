@@ -6,16 +6,16 @@
   "exitCode": 0,
   "stderr": "",
   "mockStderr": "",
-  "requestLog": "<REPO>/tmp/T17ts/run-1/requests.jsonl",
+  "requestLog": "/tmp/rr/T17/run-1/requests.jsonl",
   "snapshotOffsets": [
     {
       "name": "settings-open",
-      "offset": 6313
+      "offset": 5893
     },
     {
       "name": "settings-cancelled",
-      "offset": 7494
+      "offset": 7040
     }
   ],
-  "sessionDir": "<REPO>/tmp/T17ts/run-1/session"
+  "sessionDir": "/tmp/rr/T17/run-1/session"
 }

@@ -6,36 +6,36 @@
   "exitCode": 0,
   "stderr": "",
   "mockStderr": "",
-  "requestLog": "<REPO>/tmp/t11ts/run-1/requests.jsonl",
+  "requestLog": "/tmp/rr/T11/run-1/requests.jsonl",
   "snapshotOffsets": [
     {
       "name": "typed",
-      "offset": 3698
+      "offset": 3470
     },
     {
       "name": "home-insert",
-      "offset": 3996
+      "offset": 3768
     },
     {
       "name": "end-backspace",
-      "offset": 4296
+      "offset": 4068
     },
     {
       "name": "ctrl-w",
-      "offset": 4445
+      "offset": 4217
     },
     {
       "name": "ctrl-u",
-      "offset": 4594
+      "offset": 4366
     },
     {
       "name": "delete",
-      "offset": 5041
+      "offset": 4813
     },
     {
       "name": "ctrl-k",
-      "offset": 5190
+      "offset": 4962
     }
   ],
-  "sessionDir": "<REPO>/tmp/t11ts/run-1/session"
+  "sessionDir": "/tmp/rr/T11/run-1/session"
 }

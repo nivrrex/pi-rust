@@ -6,16 +6,16 @@
   "exitCode": 0,
   "stderr": "",
   "mockStderr": "",
-  "requestLog": "<REPO>/tmp/t14ts/run-1/requests.jsonl",
+  "requestLog": "/tmp/rr/T14/run-1/requests.jsonl",
   "snapshotOffsets": [
     {
       "name": "slash-open",
-      "offset": 4811
+      "offset": 4511
     },
     {
       "name": "after-esc",
-      "offset": 5119
+      "offset": 4795
     }
   ],
-  "sessionDir": "<REPO>/tmp/t14ts/run-1/session"
+  "sessionDir": "/tmp/rr/T14/run-1/session"
 }

@@ -6,20 +6,20 @@
   "exitCode": 0,
   "stderr": "",
   "mockStderr": "",
-  "requestLog": "<REPO>/tmp/t10ts/run-1/requests.jsonl",
+  "requestLog": "/tmp/rr/T10/run-1/requests.jsonl",
   "snapshotOffsets": [
     {
       "name": "up-1",
-      "offset": 12439
+      "offset": 11200
     },
     {
       "name": "up-2",
-      "offset": 12588
+      "offset": 11349
     },
     {
       "name": "down-1",
-      "offset": 12738
+      "offset": 11499
     }
   ],
-  "sessionDir": "<REPO>/tmp/t10ts/run-1/session"
+  "sessionDir": "/tmp/rr/T10/run-1/session"
 }

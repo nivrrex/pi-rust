@@ -6,12 +6,12 @@
   "exitCode": 0,
   "stderr": "",
   "mockStderr": "",
-  "requestLog": "<REPO>/tmp/t15ts/run-1/requests.jsonl",
+  "requestLog": "/tmp/rr/T15/run-1/requests.jsonl",
   "snapshotOffsets": [
     {
       "name": "hotkeys-panel",
-      "offset": 23337
+      "offset": 22709
     }
   ],
-  "sessionDir": "<REPO>/tmp/t15ts/run-1/session"
+  "sessionDir": "/tmp/rr/T15/run-1/session"
 }

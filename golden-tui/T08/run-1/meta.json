@@ -6,12 +6,12 @@
   "exitCode": 0,
   "stderr": "",
   "mockStderr": "",
-  "requestLog": "<REPO>/tmp/t08ts/run-1/requests.jsonl",
+  "requestLog": "/tmp/rr/T08/run-1/requests.jsonl",
   "snapshotOffsets": [
     {
       "name": "after-second",
-      "offset": 9802
+      "offset": 8685
     }
   ],
-  "sessionDir": "<REPO>/tmp/t08ts/run-1/session"
+  "sessionDir": "/tmp/rr/T08/run-1/session"
 }

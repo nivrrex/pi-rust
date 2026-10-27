@@ -1,0 +1,17 @@
+{
+  "id": "T34-warnings-submenu",
+  "cols": 100,
+  "rows": 30,
+  "helperExit": 0,
+  "exitCode": 0,
+  "stderr": "",
+  "mockStderr": "",
+  "requestLog": "/tmp/rr/T34-warnings-submenu/run-3/requests.jsonl",
+  "snapshotOffsets": [
+    {
+      "name": "warnings-submenu",
+      "offset": 32027
+    }
+  ],
+  "sessionDir": "/tmp/rr/T34-warnings-submenu/run-3/session"
+}
