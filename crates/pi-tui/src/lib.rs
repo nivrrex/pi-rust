@@ -1099,9 +1099,24 @@ fn apply_chrome_styles(lines: &[String], styles: &mut [Option<style::LineStyle>]
         }
         let trimmed = line.trim();
         if trimmed.is_empty() {
-            // 空行沿用上一行的样式（ref 里 `dim` 段落是整段 Text，空行也带样式）。
+            // 空行样式：先看上一行；上一行没有就看**下一个非空行**——
+            // 用户消息块的上下 padding 行在 ref 里属于同一个 `Box(…, bg)`。
             let previous = if index > 0 { styles[index - 1] } else { None };
-            styles[index] = previous;
+            let mut inherited = previous.filter(|style| style.bg.is_some());
+            if inherited.is_none() {
+                // 往后找第一个非空行；它有底色就沿用（用户消息块上下 padding 行）。
+                if let Some(offset) = lines[index + 1..]
+                    .iter()
+                    .position(|next| !next.trim().is_empty())
+                {
+                    inherited = styles
+                        .get(index + 1 + offset)
+                        .copied()
+                        .flatten()
+                        .filter(|style| style.bg.is_some());
+                }
+            }
+            styles[index] = inherited.or(previous);
             continue;
         }
         let slot = &mut styles[index];
@@ -1300,8 +1315,15 @@ fn render_all_cached_styled_inner(
         if let Some(cache) = cache.as_deref_mut() {
             if let Some((key, rendered)) = cache.entries.get(item_index) {
                 if key == &cache_key {
+                    // 命中缓存也要补样式：样式不参与缓存（每帧重算），
+                    // 否则第二帧起条目就退回无色（用户消息底色消失就是这么来的）。
                     lines.push(String::new());
+                    let first_content = lines.len();
                     lines.extend(rendered.iter().cloned());
+                    styles.resize(lines.len(), None);
+                    for offset in first_content..lines.len() {
+                        styles[offset] = item_style(item, &lines[offset], offset == first_content);
+                    }
                     continue;
                 }
             }
