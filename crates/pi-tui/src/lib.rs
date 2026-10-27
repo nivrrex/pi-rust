@@ -1147,7 +1147,12 @@ fn apply_chrome_styles(lines: &[String], styles: &mut [Option<style::LineStyle>]
             continue;
         }
         // 运行中/等待状态行：`── ⠋ Working ──`（spinner 高亮、文案 muted）。
-        if line.contains("Working") || line.contains("Retrying") {
+        // ref 的 `Working` 行整行是 `borderMuted`（`T05` 字节：`38;5;239m`），不是 warning 黄。
+        if line.contains("Working") {
+            *slot = Some(LineStyle::fg(BORDER_MUTED));
+            continue;
+        }
+        if line.contains("Retrying") {
             *slot = Some(LineStyle::fg(WARNING));
             continue;
         }
@@ -3235,6 +3240,9 @@ fn render_all_marker_impl(
 
 /// 往编辑器那一行插入软件光标标记（ref `editor.ts:575-600`）。与缓存/样式无关。
 fn marker_apply(state: &TuiState, cols: usize, lines: &mut [String]) {
+    // `Working` 指示器是**嵌入编辑器内容行**的：ref 那一行字节里没有反显光标
+    // （`T05` 实测 TS 为 `38;5;239m ── [39m …`），我们若在这行插光标，
+    // 首字符会被染成"黄底反显方块"（真机反馈的"Working 行前小黄方块"）。
     let border = "─".repeat(cols);
     // 下边框 = 从末尾往前第一个整宽边框；它之上是输入行（多行输入时取最后一行）。
     let Some(bottom) = lines.iter().rposition(|line| line == &border) else {
@@ -3244,6 +3252,9 @@ fn marker_apply(state: &TuiState, cols: usize, lines: &mut [String]) {
         return;
     }
     let target = bottom - 1;
+    if lines[target].contains("Working") {
+        return;
+    }
     // 光标列：`state.cursor` 是**字符**下标；本行为输入的最后一段时，列即该段的字符偏移。
     let last_segment_start = state.input.rfind('\n').map_or(0, |i| i + 1);
     let col = state.cursor.saturating_sub(last_segment_start);
