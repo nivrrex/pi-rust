@@ -55,6 +55,15 @@
         "timeoutMs": 20000
       },
       {
+        "action": "delay",
+        "ms": 1500
+      },
+      {
+        "action": "waitStable",
+        "quietMs": 1200,
+        "timeoutMs": 15000
+      },
+      {
         "action": "snapshot",
         "name": "collapsed"
       },
@@ -74,6 +83,15 @@
       {
         "action": "waitStable",
         "quietMs": 800,
+        "timeoutMs": 15000
+      },
+      {
+        "action": "delay",
+        "ms": 1500
+      },
+      {
+        "action": "waitStable",
+        "quietMs": 1200,
         "timeoutMs": 15000
       },
       {
