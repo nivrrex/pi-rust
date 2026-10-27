@@ -87,6 +87,8 @@ pub fn default_tools(parsed: &crate::args::Args) -> Vec<Arc<dyn pi_core::tools::
         Arc::new(pi_core::tools::powershell::PowerShellTool),
         // 只读工具（上游默认也不启用，需要 `--tools` 选中）
         Arc::new(pi_core::tools::ls::LsTool),
+        Arc::new(pi_core::tools::grep::GrepTool),
+        Arc::new(pi_core::tools::find::FindTool),
     ];
     if !parsed.tools.is_empty() {
         return all

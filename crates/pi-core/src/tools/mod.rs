@@ -9,6 +9,8 @@ pub mod definitions;
 pub mod diff;
 pub mod edit;
 pub mod edit_text;
+pub mod find;
+pub mod grep;
 pub mod ls;
 pub mod powershell;
 pub mod read;

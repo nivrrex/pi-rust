@@ -111,6 +111,17 @@
 - 真正的“工具抛错 → 工具结果”转换**不在这里**：在 agent 侧的 `executeToolCall`（注释写明 converting expected tool throws to error output），它把异常转成 `createErrorToolResult(...)` 且 `isError: true`；准备期失败走 `immediateError`。〔packages/agent/src/harness/execution/tools.ts:125-152〕
 - ref 的 `core/tools/` 里除四个内置（`bash`/`edit`/`read`/`write`）外**确实还有** `find`、`grep`、`ls`、`powershell`：`index.ts` 分别从 `./find.ts`、`./grep.ts`、`./ls.ts`、`./powershell.ts` 导出各自的 Details 类型。〔packages/coding-agent/src/core/tools/index.ts:25-55〕
 - 本项目的范围：四个默认内置工具（bash/edit/read/write）之外，`ls` 已实现（与 `powershell` 一样放在可选集里，需 `--tools ls`）；`find`/`grep` 仍未做，所以下面这四条事实针对四个默认工具在本卡里属**“不适用”**（ref 有实现，但不在本项目的规格范围内），而不是“未抽”。〔packages/coding-agent/src/core/tools/index.ts:25-28〕
+### grep / find 工具（只读，委托外部 rg / fd）
+
+- 两者都是只读的 `grep` / `find` 检索工具，默认激活集不含它们，需显式选中（上游同样不在默认集内）。〔packages/coding-agent/src/core/tools/grep.ts:29-39〕
+- grep 参数：`pattern`（必填）、`path`、`glob`、`ignoreCase`、`literal`、`context`、`limit`（默认 100）。〔packages/coding-agent/src/core/tools/grep.ts:29-39〕
+- grep 通过 `rg` 执行，固定使用 `--json`、`--line-number`、`--color=never`、`--hidden`，并在模式与路径前加 `--`。〔packages/coding-agent/src/core/tools/grep.ts:162-166〕
+- grep 输出行是 `相对路径:行号: 该行文本`；无匹配时返回 `No matches found`；达到上限时追加 `matches limit reached` 提示（并建议用两倍 limit 重试）。〔packages/coding-agent/src/core/tools/grep.ts:255-300〕
+- find 参数：`pattern`（glob，必填）、`path`、`limit`（默认 1000）。〔packages/coding-agent/src/core/tools/find.ts:26-33〕
+- find 通过 `fd` 执行，始终带 `--glob`、`--color=never`、`--hidden` 与 `--max-results`；不在 git 仓库内时补 `--no-require-git`，否则 fd 会忽略 .gitignore。〔packages/coding-agent/src/core/tools/find.ts:182-200〕
+- find 输出逐行相对路径；无结果时返回 `No files found matching pattern`；达到上限时追加 `results limit reached` 提示。〔packages/coding-agent/src/core/tools/find.ts:261-290〕
+- 与上游的唯一差异：`rg` / `fd` 缺失时不尝试自动下载，直接返回带安装指引的错误；`fd` 探测顺序为 `PI_FD_BIN`、`fd`、`fdfind`。〔packages/coding-agent/src/core/tools/find.ts:172-177〕
+
 ### `powershell` 工具（仅 Windows，P8b 实现）
 
 - 它是 bash 工具**同一套执行体的另一份配置**：`ShellToolConfig` 的 name/label 都是 `powershell`、`shellName` 是 `PowerShell`、UI 提示符 `PS>`、snippet 是 `Execute PowerShell commands`、临时文件前缀 `pi-powershell`。〔packages/coding-agent/src/core/tools/powershell.ts:47-53〕
