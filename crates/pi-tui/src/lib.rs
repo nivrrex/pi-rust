@@ -1110,7 +1110,7 @@ pub fn wrap_to_width(text: &str, width: usize) -> Vec<String> {
 /// `theme/dark.json` 与 C3 取证的组件行号（`footer.ts:227-231` 用 `dim`、
 /// `bordered-loader.ts:15` 边框 `border`、`status-indicator.ts:60-61` spinner `warning`/文案 `muted`）。
 fn apply_chrome_styles(lines: &[String], styles: &mut [Option<style::LineStyle>]) {
-    use style::{LineStyle, BORDER_MUTED, DIM, MD_HEADING, MUTED, WARNING};
+    use style::{LineStyle, ACCENT, BORDER_MUTED, DIM, MD_HEADING, MUTED, WARNING};
     for (index, line) in lines.iter().enumerate() {
         // 先算，再写：避免 `get_mut` 的借用与读取上一行冲突。
         if styles.get(index).is_some_and(Option::is_some) {
@@ -1131,6 +1131,16 @@ fn apply_chrome_styles(lines: &[String], styles: &mut [Option<style::LineStyle>]
             continue;
         }
         let slot = &mut styles[index];
+        // 选择器列表（ref `theme.ts:1209-1217` 的 `getSelectListTheme`）：
+        // 选中行前缀与文字 `accent`，`No matching models` 之类提示 `muted`。
+        if trimmed.starts_with("→ ") {
+            *slot = Some(LineStyle::fg(ACCENT));
+            continue;
+        }
+        if trimmed.starts_with("No matching") {
+            *slot = Some(LineStyle::fg(MUTED));
+            continue;
+        }
         // 整宽边框（编辑器框/面板框）：`border`。
         // 注意：空串上 `all()` 恒为 true（vacuously）——必须先排除空行，
         // 否则**每个空行**都会被当成边框染色（T05 上就是 200+ 格的假差异）。
