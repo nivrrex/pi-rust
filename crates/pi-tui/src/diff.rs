@@ -223,8 +223,13 @@ fn full_render_styled(
         }
         match styles.get(i).and_then(|slot| slot.as_ref()) {
             Some(style) => {
+                // 与增量路径同口径：前导空格不染色。
+                let lead = line.len() - line.trim_start().len();
+                if lead > 0 {
+                    out.push_str(&line[..lead]);
+                }
                 out.push_str(&style.prefix());
-                out.push_str(line);
+                out.push_str(&line[lead..]);
                 if style.bg.is_some() {
                     let used = visible_width(line);
                     if used < width {
