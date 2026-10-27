@@ -1204,14 +1204,19 @@ fn item_style(item: &TranscriptItem, line: &str, is_first: bool) -> Option<style
         // 不是 muted（#808080 → 244）。`compare-style` 实测 TS 侧为 i241。
         TranscriptItem::Status(_) => Some(LineStyle::fg(DIM)),
         TranscriptItem::BranchSummary { .. } => Some(LineStyle::fg(ACCENT)),
-        TranscriptItem::ToolCall { is_error, .. } => {
+        TranscriptItem::ToolCall { name, is_error, .. } => {
             let background = if *is_error {
                 TOOL_ERROR_BG
             } else {
                 TOOL_SUCCESS_BG
             };
-            // 头部（`bash …`/`ls …`/`read …`）= `toolTitle` + 粗体，底色同块。
-            if is_first || line.starts_with(" ```") {
+            // **padding 行**（块内空行）只有底色，没有前景/粗体（TS 实测 fg=null）。
+            if line.trim().is_empty() {
+                return Some(LineStyle::bg(background));
+            }
+            // 头部（`read input.txt` 这类以工具名开头的行）= `toolTitle` + 粗体。
+            // 不能按"第一条内容行"判断：块首是 padding 行，会把样式错位一格（T06 实测）。
+            if is_first || line.trim_start().starts_with(name.as_str()) {
                 return Some(LineStyle::fg(TEXT).with_bg(background).bold());
             }
             // `... (N more lines, ctrl+o to expand)` 提示用 muted。
