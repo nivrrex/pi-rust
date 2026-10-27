@@ -144,6 +144,14 @@ fn visible_width(text: &str) -> usize {
 }
 
 /// `computeLineDiff`（`tui-main-screen.ts:258-262`）：目标行与当前屏幕行之差（正=下移，负=上移）。
+/// 补位空格的样式：**只保留背景色**，不要前景/粗体/斜体。
+///
+/// ref `utils.ts:1050-1058` 的 padding 是纯空格，只被 `bgFn` 染色；把整行样式
+/// （含前景与粗体）铺到补位空格上会多出成片的 bold/fg 差异（T06 实测 96 格）。
+fn padding_style(style: crate::style::LineStyle) -> crate::style::LineStyle {
+    crate::style::LineStyle::with_bg_only_tuple(style.bg)
+}
+
 /// 把行尾的**控制序列**（`SGR` 复位、`OSC 8` 关闭）与可见文本分开。
 ///
 /// 依据 ref `utils.ts:1050-1058` `applyBackgroundToLine`：先按可见宽度补空格，
@@ -221,9 +229,11 @@ fn write_spans(out: &mut String, line: &str, spans: &[crate::style::Span], width
     if let Some(style) = last_background {
         let used = visible_width(line);
         if used < width {
-            out.push_str(&style.prefix());
+            let pad = padding_style(style);
+            out.push_str("\u{1b}[0m");
+            out.push_str(&pad.prefix());
             out.push_str(&" ".repeat(width - used));
-            out.push_str(style.reset());
+            out.push_str(pad.reset());
         }
     }
 }
@@ -289,7 +299,11 @@ fn full_render_styled(
                 if style.bg.is_some() {
                     let used = visible_width(visible);
                     if used < width {
+                        let pad = padding_style(*style);
+                        out.push_str("\u{1b}[0m");
+                        out.push_str(&pad.prefix());
                         out.push_str(&" ".repeat(width - used));
+                        out.push_str(pad.reset());
                     }
                 }
                 out.push_str(style.reset());
@@ -739,7 +753,11 @@ fn diff_render_body_styled(
                     if style.bg.is_some() {
                         let used = visible_width(visible);
                         if used < width {
+                            let pad = padding_style(*style);
+                            out.push_str("\u{1b}[0m");
+                            out.push_str(&pad.prefix());
                             out.push_str(&" ".repeat(width - used));
+                            out.push_str(pad.reset());
                         }
                     }
                     out.push_str(style.reset());

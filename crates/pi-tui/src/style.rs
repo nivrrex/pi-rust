@@ -162,6 +162,18 @@ impl LineStyle {
         self
     }
 
+    /// 用 `Option` 形式设置背景（供补位空格复用）。
+    #[must_use]
+    pub const fn with_bg_only_tuple(bg: Option<(u8, u8, u8)>) -> Self {
+        Self {
+            fg: None,
+            bg,
+            bold: false,
+            dim: false,
+            italic: false,
+        }
+    }
+
     /// 只加背景色（前景保持终端默认）。
     #[must_use]
     pub const fn with_bg_only(rgb: (u8, u8, u8)) -> Self {
