@@ -25,3 +25,10 @@
 
 样式级"逐格 same"在含瞬时状态的场景里受**帧集合不一致**限制，需按内容对齐帧配对才能继续压缩；
 这是工具能力限制，已记入 `LIMITATIONS.md`。
+
+## P8e-3 收口（数字自述未核实）
+- 文本级 glibc ×3：**same=189 / different=0 / nogolden=39 / runfail=0**
+- 文本级 musl ×1：**same=63 / different=0 / nogolden=13 / runfail=0**
+- pty 探针：`pty_retry_network_check`、`pty_esc_latency_check`、`ls_tool_check`、`pty_escape_abort_check` 全绿
+- 样式级（真彩 golden，`--style-only`）：T01 **1**、T28 24、T35 24、T05 433、T77 225、T73 387、T75 2457
+- 样式级（256 golden，仅参考）：T01 886、T28 622、T35 597、T05 993、T77 641、T73 1774、T75 2508
