@@ -202,6 +202,8 @@ pub enum TuiEvent {
     CtrlR,
     /// `ctrl+x`（`app.message.copy`：复制最后一条助手消息）。
     CtrlX,
+    /// `ctrl+z`：挂起到后台（ref `keybindings.ts:96-99` 的 `app.suspend`）。
+    CtrlZ,
     /// `ctrl+←`（`/tree` 的折叠/上移；`/resume` 的翻页）。
     CtrlLeft,
     /// `ctrl+→`（`/tree` 的展开/下移；`/resume` 的翻页）。
@@ -601,6 +603,7 @@ pub fn apply(state: &mut TuiState, event: TuiEvent) -> TuiAction {
         | TuiEvent::CtrlN
         | TuiEvent::CtrlR
         | TuiEvent::CtrlX
+        | TuiEvent::CtrlZ
         | TuiEvent::CtrlLeft
         | TuiEvent::CtrlRight => {
             // 主界面里这些键无绑定（`ctrl+o` 的"显示更多"未实现）⇒ 不改变内容。

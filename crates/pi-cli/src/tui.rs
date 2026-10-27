@@ -883,6 +883,7 @@ pub fn run(mut state: TuiState, parts: Option<std::sync::Arc<AgentParts>>) -> st
                     }
                     TuiEvent::AssistantNotice(_)
                     | TuiEvent::ClearStatus
+                    | TuiEvent::CtrlZ
                     | TuiEvent::ToolResult { .. }
                     | TuiEvent::RetryState(_)
                     | TuiEvent::AssistantDelta(_)
@@ -985,6 +986,7 @@ pub fn run(mut state: TuiState, parts: Option<std::sync::Arc<AgentParts>>) -> st
                                 | TuiEvent::Quit
                                 | TuiEvent::AssistantNotice(_)
                                 | TuiEvent::ClearStatus
+                                | TuiEvent::CtrlZ
                                 | TuiEvent::ToolResult { .. }
                                 | TuiEvent::RetryState(_)
                                 | TuiEvent::AssistantDelta(_)
@@ -2220,6 +2222,21 @@ pub fn run(mut state: TuiState, parts: Option<std::sync::Arc<AgentParts>>) -> st
                 event = TuiEvent::Enter;
                 dirty = true;
             }
+            // `app.suspend`（ref `keybindings.ts:96-99`，非 Windows 默认 `ctrl+z`）：
+            // 恢复终端 → 给自己发 SIGTSTP → 回到前台后重新进 raw 并按整屏重画。
+            if matches!(event, TuiEvent::CtrlZ) && selector.is_none() && !busy {
+                guard.restore();
+                let pid = std::process::id().to_string();
+                // 不引 libc：用系统 `kill` 给自己发 SIGTSTP；`SIGCONT` 后继续执行下一行。
+                let _ = std::process::Command::new("kill")
+                    .args(["-TSTP", &pid])
+                    .status();
+                guard = TerminalGuard::new()?;
+                // 回前台时终端可能被重绘过：整屏重画。
+                diff_state = pi_tui::diff::DiffState::new();
+                dirty = true;
+                continue;
+            }
             match apply(&mut state, event) {
                 TuiAction::Exit => break 'main,
                 TuiAction::Submit(text) => {
@@ -3332,6 +3349,7 @@ pub fn map_key_sequence(seq: &str) -> Option<TuiEvent> {
         "shift+tab" => TuiEvent::BackTab,
         "ctrl+d" => TuiEvent::CtrlD,
         // ref `tree-selector.ts:1080-1085`：`ctrl+o` 是 `/tree` 的过滤循环；主界面是"显示更多"。
+        "ctrl+z" => TuiEvent::CtrlZ,
         "ctrl+o" => TuiEvent::CtrlO,
         // ref `core/keybindings.ts:210-231`：`/tree` 的直选过滤键（主界面无绑定）。
         "ctrl+t" => TuiEvent::CtrlT,
