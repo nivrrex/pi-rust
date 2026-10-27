@@ -173,6 +173,8 @@ fn transcript_from_messages(messages: &[pi_ai::message::Message]) -> Vec<pi_tui:
                             out_items.push(pi_tui::TranscriptItem::ToolCall {
                                 output: None,
                                 is_error: false,
+                                started_at: None,
+                                took: None,
                                 name: name.clone(),
                                 summary: {
                                     let value = serde_json::Value::Object(arguments.clone());

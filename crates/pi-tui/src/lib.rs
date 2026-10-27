@@ -131,6 +131,10 @@ pub enum TranscriptItem {
         output: Option<String>,
         /// 工具是否报错（ref `ToolRenderContext.isError`）。
         is_error: bool,
+        /// 开始执行时刻（用于 bash/powershell 的 `Took <duration>` 行，ref `renderers/bash.ts:126-128`）。
+        started_at: Option<std::time::Instant>,
+        /// 结束时刻；`Some` 时渲染 `Took <duration>`。
+        took: Option<std::time::Duration>,
     },
 }
 
@@ -441,8 +445,14 @@ pub fn apply(state: &mut TuiState, event: TuiEvent) -> TuiAction {
             TuiAction::Redraw
         }
         TuiEvent::ClearStatus => {
-            if matches!(state.transcript.last(), Some(TranscriptItem::Status(_))) {
-                state.transcript.pop();
+            // 退避状态行是**瞬时**的：即便它后面又追加了助手正文（重试成功后紧接着出字），
+            // 也要把它移除——否则屏幕上会残留一行 `Retrying (1/3) …`（T74 实测差 2 行）。
+            if let Some(index) = state
+                .transcript
+                .iter()
+                .rposition(|item| matches!(item, TranscriptItem::Status(_)))
+            {
+                state.transcript.remove(index);
             }
             TuiAction::Redraw
         }
@@ -451,11 +461,14 @@ pub fn apply(state: &mut TuiState, event: TuiEvent) -> TuiAction {
             if let Some(TranscriptItem::ToolCall {
                 output: slot,
                 is_error: flag,
+                started_at,
+                took,
                 ..
             }) = state.transcript.last_mut()
             {
                 *slot = Some(output);
                 *flag = is_error;
+                *took = started_at.map(|start| start.elapsed());
             }
             TuiAction::Redraw
         }
@@ -517,6 +530,8 @@ pub fn apply(state: &mut TuiState, event: TuiEvent) -> TuiAction {
                 summary,
                 output: None,
                 is_error: false,
+                started_at: Some(std::time::Instant::now()),
+                took: None,
             });
             TuiAction::Redraw
         }
@@ -1154,6 +1169,21 @@ fn apply_chrome_styles(lines: &[String], styles: &mut [Option<style::LineStyle>]
     }
 }
 
+/// 时长格式化（ref `renderers/bash.ts:29-38` 的 `formatDuration`）。
+fn format_duration(duration: std::time::Duration) -> String {
+    let seconds = duration.as_secs_f64();
+    if seconds < 60.0 {
+        return format!("{seconds:.1}s");
+    }
+    let total = duration.as_secs();
+    let minutes = total / 60;
+    let remainder = total % 60;
+    if minutes < 60 {
+        return format!("{minutes}m {remainder}s");
+    }
+    format!("{}h {}m {remainder}s", minutes / 60, minutes % 60)
+}
+
 /// 一个 transcript 条目内某一行该用的样式（P8d/C4）。
 ///
 /// 颜色键取自 ref `theme/dark.json`（C3 取证）：用户消息 `userMessageBg/userMessageText`、
@@ -1301,12 +1331,15 @@ fn render_all_cached_styled_inner(
                 summary,
                 output,
                 is_error,
+                took,
+                ..
             } => format!(
                 // `tools_expanded` 必须进 key：否则 ctrl+o 切换后仍命中旧缓存，
                 // 屏幕上看不出任何变化（真机"ctrl+o 没啥变化"）。
-                "t\u{1}{name}\u{1}{summary}\u{1}{is_error}\u{1}{}\u{1}{}",
+                "t\u{1}{name}\u{1}{summary}\u{1}{is_error}\u{1}{}\u{1}{}\u{1}{:?}",
                 state.tools_expanded,
-                output.as_deref().unwrap_or("")
+                output.as_deref().unwrap_or(""),
+                took
             ),
         };
         if let Some(cache) = cache.as_deref_mut() {
@@ -1382,6 +1415,8 @@ fn render_all_cached_styled_inner(
                 summary,
                 output,
                 is_error,
+                took,
+                ..
             } => {
                 let text = if summary.is_empty() {
                     format!(" {name}")
@@ -1430,6 +1465,15 @@ fn render_all_cached_styled_inner(
                             lines.push(clamp_to_width(&hint, cols));
                         }
                     }
+                }
+                // ref `renderers/bash.ts:126-128`：shell 结果之后另起一行
+                // `Took <duration>`（muted）。TS 的空行 + 该行都要有（Test T75 差 1 行）。
+                if let (Some(duration), "bash" | "powershell") = (took, name.as_str()) {
+                    lines.push(String::new());
+                    lines.push(clamp_to_width(
+                        &format!(" Took {}", format_duration(*duration)),
+                        cols,
+                    ));
                 }
                 lines.push(String::new());
             }
@@ -1941,6 +1985,8 @@ mod markdown_tests {
             summary: "input.txt".to_string(),
             output: None,
             is_error: false,
+            started_at: None,
+            took: None,
         });
         let lines = super::render(&state, 100, 30);
         let text = lines.join("\n");
