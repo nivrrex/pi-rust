@@ -3482,6 +3482,8 @@ fn header_spans(lines: &[String]) -> Vec<Vec<style::Span>> {
             let short = "pi".len();
             // 前导空格**不带任何属性**（T01 真彩逐格实测 col0 dim/bold 均为 false）；
             // 只有列 1 起的 `pi` 是 accent+bold。给它加 `dim()` 会多出 1 格差异。
+            // 粗体**始终加**（真彩 TS 发 `\x1b[1m`；256 下 TS 自己在不同场景不一致：
+            // T28 录到无 bold、T77 录到有 bold，属上游帧序列差异，取多数且与真彩一致的做法）。
             let spans = vec![
                 style::Span::new(lead, lead + short, LineStyle::fg(ACCENT).bold()),
                 style::Span::new(lead + short, line.len(), LineStyle::fg(DIM)),
