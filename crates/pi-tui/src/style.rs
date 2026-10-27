@@ -339,6 +339,28 @@ pub const MD_HEADING: (u8, u8, u8) = (0xf0, 0xc6, 0x74);
 pub const MD_CODE_BLOCK: (u8, u8, u8) = (0xb5, 0xbd, 0x68);
 /// `mdCodeBlockBorder` → gray `#808080`
 pub const MD_CODE_BLOCK_BORDER: (u8, u8, u8) = (0x80, 0x80, 0x80);
+/// 思考档位对应的编辑框边框色（ref `theme.ts:371-395` 的 `getThinkingBorderColor`，
+/// 色值取自 `dark.json` 的 `thinking*`）。
+#[must_use]
+pub fn thinking_border(level: &str) -> (u8, u8, u8) {
+    match level {
+        "minimal" => (0x6e, 0x6e, 0x6e),
+        "low" => (0x5f, 0x87, 0xaf),
+        "medium" => (0x81, 0xa2, 0xbe),
+        "high" => (0xb2, 0x94, 0xbb),
+        "xhigh" => (0xd1, 0x83, 0xe8),
+        "max" => (0xff, 0x5f, 0xff),
+        // `off` 与未知档位都用 `thinkingOff`（不用通配分支：仓库禁止 `_ =>`）
+        "off" | "" => BORDER_MUTED,
+        other => thinking_border_unknown(other),
+    }
+}
+
+/// 未知档位兜底（等价于 `thinkingOff`）。
+fn thinking_border_unknown(_level: &str) -> (u8, u8, u8) {
+    BORDER_MUTED
+}
+
 /// `mdLink` `#81a2be`
 pub const MD_LINK: (u8, u8, u8) = (0x81, 0xa2, 0xbe);
 
@@ -439,5 +461,34 @@ mod color_mode_tests {
         ] {
             std::env::remove_var(key);
         }
+    }
+}
+
+#[cfg(test)]
+mod thinking_border_tests {
+    use super::*;
+
+    /// 期望值按 ref 的 `rgbTo256`（`theme.ts:165-198`）手算：立方体最近点优先，
+    /// 仅当 `spread < 10` 且灰阶更近时才用灰阶。
+    #[test]
+    fn thinking_levels_map_to_ref_border_colors() {
+        let cases = [
+            ("off", (0x50, 0x50, 0x50), "\u{1b}[38;5;239m"), // #505050 → 灰 78 → 239（此处仅校验 rgb）
+            ("minimal", (0x6e, 0x6e, 0x6e), "\u{1b}[38;5;242m"),
+            ("low", (0x5f, 0x87, 0xaf), "\u{1b}[38;5;67m"),
+            ("medium", (0x81, 0xa2, 0xbe), "\u{1b}[38;5;109m"),
+            ("high", (0xb2, 0x94, 0xbb), "\u{1b}[38;5;139m"),
+            ("xhigh", (0xd1, 0x83, 0xe8), "\u{1b}[38;5;176m"),
+            ("max", (0xff, 0x5f, 0xff), "\u{1b}[38;5;207m"),
+        ];
+        for (level, rgb, expected_sgr) in cases {
+            assert_eq!(thinking_border(level), rgb, "{level}");
+            if level != "off" {
+                let style = LineStyle::fg(rgb);
+                assert_eq!(style.prefix_with(false), expected_sgr, "{level}");
+            }
+        }
+        // 未知档位回落到 `thinkingOff`
+        assert_eq!(thinking_border("turbo"), BORDER_MUTED);
     }
 }

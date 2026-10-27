@@ -1109,7 +1109,11 @@ pub fn wrap_to_width(text: &str, width: usize) -> Vec<String> {
 /// 这些行不是在 transcript 循环里生成的，所以单独按内容识别。键取自 ref
 /// `theme/dark.json` 与 C3 取证的组件行号（`footer.ts:227-231` 用 `dim`、
 /// `bordered-loader.ts:15` 边框 `border`、`status-indicator.ts:60-61` spinner `warning`/文案 `muted`）。
-fn apply_chrome_styles(lines: &[String], styles: &mut [Option<style::LineStyle>]) {
+fn apply_chrome_styles(
+    lines: &[String],
+    styles: &mut [Option<style::LineStyle>],
+    thinking_level: &str,
+) {
     use style::{LineStyle, ACCENT, BORDER_MUTED, DIM, MD_HEADING, MUTED, WARNING};
     for (index, line) in lines.iter().enumerate() {
         // 先算，再写：避免 `get_mut` 的借用与读取上一行冲突。
@@ -1145,7 +1149,9 @@ fn apply_chrome_styles(lines: &[String], styles: &mut [Option<style::LineStyle>]
         // 注意：空串上 `all()` 恒为 true（vacuously）——必须先排除空行，
         // 否则**每个空行**都会被当成边框染色（T05 上就是 200+ 格的假差异）。
         if !trimmed.is_empty() && trimmed.chars().all(|ch| ch == '─') {
-            *slot = Some(LineStyle::fg(BORDER_MUTED));
+            // ref `interactive-mode.ts:4356-4363`：编辑框边框色 = 当前思考档位的颜色
+            // （`theme.ts:371-395` 的 `getThinkingBorderColor`）。
+            *slot = Some(LineStyle::fg(crate::style::thinking_border(thinking_level)));
             continue;
         }
         // 启动键位提示与 `Press ctrl+o …`：`dim`（ref `:985-994` 走 muted/dim 口径）。
@@ -3093,7 +3099,7 @@ pub fn render_all_marker_cached_styled(
     let mut styles: Vec<Option<style::LineStyle>> = Vec::new();
     let mut lines = render_all_cached_styled_inner(state, cols, rows, Some(cache), &mut styles);
     styles.resize(lines.len(), None);
-    apply_chrome_styles(&lines, &mut styles);
+    apply_chrome_styles(&lines, &mut styles, &state.thinking_level);
     marker_apply(state, cols, &mut lines);
     let spans = header_spans(&lines);
     StyledFrame {
