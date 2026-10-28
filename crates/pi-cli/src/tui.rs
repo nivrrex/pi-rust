@@ -2087,6 +2087,7 @@ pub fn run(mut state: TuiState, parts: Option<std::sync::Arc<AgentParts>>) -> st
                     pi_tui::TranscriptItem::Assistant(text) => Some(text.clone()),
                     pi_tui::TranscriptItem::User(_)
                     | pi_tui::TranscriptItem::Thinking(_)
+                    | pi_tui::TranscriptItem::Notice(_)
                     | pi_tui::TranscriptItem::Status(_)
                     | pi_tui::TranscriptItem::BranchSummary { .. }
                     | pi_tui::TranscriptItem::ToolCall { .. } => None,

@@ -120,6 +120,9 @@ pub enum TranscriptItem {
     Status(String),
     /// 思考块（ref `assistant-message.ts:118-150`；默认显示，按 markdown 渲染）。
     Thinking(String),
+    /// 助手消息尾部的状态提示（`Error: …` / 截断提示 / 中止文案）。
+    /// ref `assistant-message.ts:185-198` 用 `theme.fg("error", …)` 渲染。
+    Notice(String),
     /// 工具调用块（golden/T06 实测：只显示调用行，如 ` read input.txt`；结果正文默认不显示）。
     ToolCall {
         /// 工具名（如 `read`）。
@@ -421,6 +424,7 @@ pub fn apply(state: &mut TuiState, event: TuiEvent) -> TuiAction {
                 | Some(TranscriptItem::Assistant(_))
                 | Some(TranscriptItem::BranchSummary { .. })
                 | Some(TranscriptItem::Status(_))
+                | Some(TranscriptItem::Notice(_))
                 | Some(TranscriptItem::ToolCall { .. })
                 | None => state.transcript.push(TranscriptItem::Thinking(delta)),
             }
@@ -494,22 +498,9 @@ pub fn apply(state: &mut TuiState, event: TuiEvent) -> TuiAction {
             TuiAction::Redraw
         }
         TuiEvent::AssistantNotice(text) => {
-            match state.transcript.last_mut() {
-                // 正文为空：直接写进这条（渲染出来就是"空行 + 提示"）。
-                Some(TranscriptItem::Assistant(existing)) if existing.is_empty() => {
-                    existing.push_str(&text);
-                }
-                // 已有正文：另起一条（渲染时自带走一条前导空行 = ref 的 `Spacer(1)`）。
-                Some(TranscriptItem::Assistant(_))
-                | None
-                | Some(TranscriptItem::User(_))
-                | Some(TranscriptItem::Thinking(_))
-                | Some(TranscriptItem::Status(_))
-                | Some(TranscriptItem::BranchSummary { .. })
-                | Some(TranscriptItem::ToolCall { .. }) => {
-                    state.transcript.push(TranscriptItem::Assistant(text));
-                }
-            }
+            // ref `assistant-message.ts:185-198`：错误/截断/中止提示是**独立组件**，
+            // 用 `theme.fg("error", …)` 染色；此前混进助手正文里，颜色是普通文本色。
+            state.transcript.push(TranscriptItem::Notice(text));
             TuiAction::Redraw
         }
         TuiEvent::AssistantDelta(delta) => {
@@ -520,6 +511,7 @@ pub fn apply(state: &mut TuiState, event: TuiEvent) -> TuiAction {
                 | Some(TranscriptItem::BranchSummary { .. })
                 | Some(TranscriptItem::Status(_))
                 | Some(TranscriptItem::Thinking(_))
+                | Some(TranscriptItem::Notice(_))
                 | Some(TranscriptItem::ToolCall { .. })
                 | None => state.transcript.push(TranscriptItem::Assistant(delta)),
             }
@@ -1222,6 +1214,8 @@ fn item_style(item: &TranscriptItem, line: &str, is_first: bool) -> Option<style
         // 不是"仅底色+默认前景"（T01 实测 TS 的文字 cell 有前景色）。
         TranscriptItem::User(_) => Some(LineStyle::fg(TEXT).with_bg(USER_MESSAGE_BG)),
         TranscriptItem::Thinking(_) => Some(LineStyle::fg(MUTED).italic()),
+        // ref `assistant-message.ts:185-198`：错误/截断/中止提示用 `error` 色。
+        TranscriptItem::Notice(_) => Some(LineStyle::fg(style::ERROR)),
         // 助手正文：TS 实测是**终端默认色**（fg=null），不要强加 text 色。
         TranscriptItem::Assistant(_) => None,
         // 状态行（`Thinking level: …`）在 TS 里是 **dim**（#666666 → 256 色 241），
@@ -1370,6 +1364,7 @@ fn render_all_cached_styled_inner(
             }
             TranscriptItem::Status(text) => format!("s\u{1}{text}"),
             TranscriptItem::Thinking(text) => format!("k\u{1}{text}"),
+            TranscriptItem::Notice(text) => format!("n\u{1}{text}"),
             TranscriptItem::ToolCall {
                 name,
                 summary,
@@ -1462,6 +1457,14 @@ fn render_all_cached_styled_inner(
                 // ref `showStatus`（`interactive-mode.ts:3709-3712`）加的是 `Spacer(1)` + `Text(msg,1,0)`：
                 // 会话区里表现为"状态行 + 一个空行"（T32 golden 实测），因此这里输出两行。
                 lines.push(clamp_to_width(&format!(" {text}"), cols));
+                lines.push(String::new());
+            }
+            TranscriptItem::Notice(text) => {
+                for line in text.lines() {
+                    for wrapped in wrap_to_width(&format!(" {line}"), cols) {
+                        lines.push(wrapped);
+                    }
+                }
                 lines.push(String::new());
             }
             TranscriptItem::Thinking(text) => {
