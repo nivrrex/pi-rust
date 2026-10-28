@@ -2269,6 +2269,18 @@ pub fn run(mut state: TuiState, parts: Option<std::sync::Arc<AgentParts>>) -> st
             // `app.suspend`（ref `keybindings.ts:96-99`，非 Windows 默认 `ctrl+z`）：
             // 恢复终端 → 给自己发 SIGTSTP → 回到前台后重新进 raw 并按整屏重画。
             if matches!(event, TuiEvent::CtrlZ) && selector.is_none() && !busy {
+                // ref `interactive-mode.ts:4274-4300` `handleCtrlZ()`：
+                // 1) 先把光标移到**内容末尾下方**并换行（否则 shell 提示符会接在
+                //    最后一行 UI 内容之后，真机表现为 `[1]+ 已停止  ────…` 粘在一起）；
+                // 2) 再恢复终端模式（raw/括号粘贴/kitty/光标显示）；
+                // 3) 才给自己发 SIGTSTP。
+                {
+                    use std::io::Write as _;
+                    let stop = pi_tui::diff::before_terminal_stop(&diff_state);
+                    let mut stdout = std::io::stdout();
+                    let _ = stdout.write_all(stop.as_bytes());
+                    let _ = stdout.flush();
+                }
                 guard.restore();
                 let pid = std::process::id().to_string();
                 // 不引 libc：用系统 `kill` 给自己发 SIGTSTP；`SIGCONT` 后继续执行下一行。
