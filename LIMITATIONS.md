@@ -38,6 +38,24 @@
    该场景只有 256 基准。
 5. **Windows 真机未验证**（仅交叉编译通过）；真机 IME 崩溃未复现；退出残留 500ms 有界。
 
+## 与上游的已知差距（P8e-6 登记）
+
+### 未实现的 CLI 子命令与选项（`--help` 里不再列，按 ref 应存在）
+ref `cli/args.ts:272-300` 的 `printHelp` 还列了这些，我们没有实现，**静默缺失**过一段时间，现登记：
+- 子命令：`install` / `remove` / `uninstall` / `update` / `list` / `config` / `auth`
+- 选项：`--resume, -r`、`--session-id`、`--fork`、`--no-thinking`、`--verbose` 等（完整清单见该函数）
+
+### `thinkingLevelMap` 未解析（影响思考档位集合）
+ref `ai/src/models.ts:926-933` 的 `getSupportedThinkingLevels` 对**声明了** `thinkingLevelMap` 的模型
+按映射表增删 `xhigh`/`max`（`null` 表示不支持）。我们目前**只按 `reasoning` 给固定五档**
+（`off/minimal/low/medium/high`），所以：
+- 无 `thinkingLevelMap` 的推理模型：**与 ref 一致**（你也实测 `openrouter/free • high` 两侧相同）；
+- 声明了 `xhigh`/`max` 的模型：我们会**少给**最高两档；声明某档为 `null` 的模型：我们会**多给**该档。
+
+### Windows 二进制未真机验证
+`bcryptprimitives.dll` 是本机 wine 8.0（Debian 包）**没有实现**的 DLL（`find /usr/lib -name 'bcryptprimitives*'` 无命中），
+且本机缺 `wine32`；这属于环境限制，不是产物问题（PE32+ 合法、16 项导入）。替代验证见真机清单。
+
 ## 键位与交互
 
 上游 `packages/coding-agent/src/core/keybindings.ts` 定义了 43 条 `app.*` 绑定。当前实现覆盖 16 条：
