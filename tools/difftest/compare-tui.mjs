@@ -107,6 +107,14 @@ export function normalizeScreen(lines) {
     // 每次录制的工作目录不同（mkdtemp）⇒ 掩成 <TMP>，否则快照永远不同。
     // 每轮录制的工作目录与 session id 都不同 ⇒ 掩成占位符（它们不是行为差异）。
     [/\/tmp\/tui-[A-Za-z0-9_-]+/g, "<TMP>"],
+    // 会话列表里的**相对年龄**（`9mo`/`3d`/`2h`）会随录制时间失效：
+    // 同一份 golden 过一个月就从 `9mo` 变成 `10mo`（T38/T57 实际踩到）。
+    // 与"时间戳归零"同一口径，掩成 `<AGE>`。
+    [/\b\d+(?:mo|[dhw])\b/g, "<AGE>"],
+    // 年龄列是**定宽右对齐**的：`9mo`→`10mo` 会让前面的空格少一格，
+    // 只掩文本不掩间距仍会差一格，所以把间距一起收敛。
+    [/(\s)<AGE>/g, "$1<AGE>"],
+    [/ {2,}<AGE>/g, " <AGE>"],
     [/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/gi, "<UUID>"],
     // session 文件名里的 ISO 时间戳（如 2026-10-16T09-51-43-492Z）每次不同 ⇒ 占位化（方案 §3）。
     [/\d{4}-\d{2}-\d{2}T[\d:.\-]+Z?/g, "<TIMESTAMP>"],
@@ -121,6 +129,9 @@ export function normalizeScreen(lines) {
     if (/^[0-9a-f]{8,}$/i.test(line.trim())) return "<ID-FRAGMENT>";
     let out = line.replace(/\s+$/g, "");
     for (const [pattern, replacement] of placeholderRules) out = out.replace(pattern, replacement);
+    // 含 `<AGE>` 的行（会话列表行）是**列对齐**排版：年龄文本变长会让前面的
+    // 填充空格少一格。这类行把连续空格收敛成一个，只比较"有哪些字段"。
+    if (out.includes("<AGE>")) out = out.replace(/ {2,}/g, " ");
     return out;
   });
   const collapsed = [];
@@ -222,9 +233,18 @@ function main() {
   }
   // P7-4/W0e：默认按各自 meta.json 的最后一个 snapshot 偏移截断（--no-trim 关闭）。
   const noTrim = argv.includes("--no-trim");
+  // 两侧必须**同口径**截断：只要有一侧没有 snapshotOffsets（旧 golden、或该场景
+  // 没记录 marks），就两侧都按完整流比较；否则会出现"一侧截断、一侧不截断"的
+  // 假差异（T57 就是这样：golden 有 meta、本次运行没产出 meta）。
+  const offsets = [leftPath, rightPath].map((rawPath) =>
+    noTrim
+      ? null
+      : lastSnapshotOffset(path.join(path.dirname(path.resolve(rawPath)), "meta.json")),
+  );
+  const trimTogether = !noTrim && offsets.every((offset) => offset !== null);
   const load = (rawPath) => {
     const raw = fs.readFileSync(rawPath);
-    if (noTrim) return raw;
+    if (!trimTogether) return raw;
     const offset = lastSnapshotOffset(path.join(path.dirname(path.resolve(rawPath)), "meta.json"));
     if (offset === null) return raw; // 没有 marks（旧 golden / 未记录）⇒ 维持旧行为，不截断
     const snapped = snapOffsetToFrameEnd(raw, offset);

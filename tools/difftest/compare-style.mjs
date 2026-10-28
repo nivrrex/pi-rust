@@ -289,6 +289,7 @@ function main() {
         .replace(/--session [0-9a-fA-F-]+/g, "--session <ID>")
         .replace(/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/g, "<UUID>")
         .replace(/\d+(\.\d+)?(ms|s)\b/g, "<DURATION>")
+        .replace(/\b\d+(?:mo|[dhw])\b/g, "<AGE>")
         .replace(/[⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏]/g, "<SPINNER>")
         .replace(/\s+$/g, "");
     const text = (screen) =>
