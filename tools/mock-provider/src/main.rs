@@ -330,8 +330,21 @@ async fn handle(
                     .append(true)
                     .open(path)
                 {
+                    // F1-d：抓 header（`authorization` 等）——默认格式不含它，
+                    // 只有 MOCK_VERBOSE 下的取证行需要。
+                    let headers: serde_json::Map<String, serde_json::Value> = request
+                        .headers
+                        .iter()
+                        .map(|(name, value)| {
+                            (
+                                name.to_ascii_lowercase(),
+                                serde_json::Value::String(value.clone()),
+                            )
+                        })
+                        .collect();
                     let entry = serde_json::json!({
                         "path": request.path,
+                        "headers": headers,
                         "body": request.body,
                         "responseIndex": index,
                         "served": guard.served,
