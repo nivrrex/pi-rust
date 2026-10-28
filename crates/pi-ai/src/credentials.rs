@@ -93,6 +93,17 @@ pub fn resolve_credential(
             .map(str::to_string)
     }
 
+    // F1-e：配置值先按 ref 的形态解析（字面值 / `$VAR` / `${VAR}` / `!command`）。
+    // `Empty`（如 `$VAR` 未定义）与 `CommandFailed` 都视为**没有凭据**，
+    // 由调用方决定"不发请求 + 报错"，而不是把 `$VAR` 原文当 Bearer 发出去。
+    let resolve = |raw: String| -> Option<String> {
+        match resolve_config_value(&raw, &|name| std::env::var(name).ok(), &run_config_command) {
+            ConfigValue::Value(value) => Some(value),
+            ConfigValue::Empty | ConfigValue::CommandFailed(_) => None,
+        }
+    };
+    let take = |value: &Option<String>| -> Option<String> { take(value).and_then(resolve) };
+
     if let Some(value) = take(&sources.stored) {
         return Some(ResolvedCredential {
             source: AuthSource::StoredCredential,
@@ -206,6 +217,24 @@ pub fn resolve_config_value(
     } else {
         ConfigValue::Value(output)
     }
+}
+
+/// `!command` 的执行器：Unix 走 `sh -c`，Windows 走 `cmd /C`
+/// （ref `resolve-config-value.ts:153-176` 用"配置的 shell"，未配置时即系统默认 shell）。
+fn run_config_command(command: &str) -> Result<String, String> {
+    #[cfg(windows)]
+    let mut child = std::process::Command::new("cmd");
+    #[cfg(windows)]
+    child.arg("/C").arg(command);
+    #[cfg(not(windows))]
+    let mut child = std::process::Command::new("sh");
+    #[cfg(not(windows))]
+    child.arg("-c").arg(command);
+    let output = child.output().map_err(|error| error.to_string())?;
+    if !output.status.success() {
+        return Err(format!("命令退出码 {}", output.status.code().unwrap_or(-1)));
+    }
+    String::from_utf8(output.stdout).map_err(|error| error.to_string())
 }
 
 #[cfg(test)]
