@@ -96,6 +96,10 @@ pub struct TuiState {
     pub status: String,
     /// 状态区第二行右侧显示的模型名（golden 里是 `mock-model`，右侧对齐）。
     pub model: String,
+    /// 当前模型所属的 provider（ref `footer.ts:193-200`：多个 provider 可用时右侧加 `(provider)` 前缀）。
+    pub model_provider: String,
+    /// 可用的 provider 数量（ref `footerData.getAvailableProviderCount()`；>1 才显示前缀）。
+    pub available_provider_count: usize,
     /// 是否已请求退出。
     pub exited: bool,
     /// 会话区（W3-2）：用户消息、助手回复、工具调用块，按发生顺序。
@@ -186,6 +190,8 @@ impl TuiState {
             panel_selection: 0,
             status: status.into(),
             model: String::new(),
+            model_provider: String::new(),
+            available_provider_count: 0,
             exited: false,
             transcript: Vec::new(),
             working: false,
@@ -1034,6 +1040,24 @@ impl RenderCache {
     }
 }
 
+/// `formatTokens`（ref `components/footer.ts:24-30`）：<1000 原样，<10000 一位小数 `k`，
+/// <1e6 取整 `k`，<1e7 一位小数 `M`，否则取整 `M`。
+pub fn format_tokens(count: u64) -> String {
+    if count < 1_000 {
+        return count.to_string();
+    }
+    if count < 10_000 {
+        return format!("{:.1}k", count as f64 / 1_000.0);
+    }
+    if count < 1_000_000 {
+        return format!("{}k", (count as f64 / 1_000.0).round() as u64);
+    }
+    if count < 10_000_000 {
+        return format!("{:.1}M", count as f64 / 1_000_000.0);
+    }
+    format!("{}M", (count as f64 / 1_000_000.0).round() as u64)
+}
+
 /// 按 auto-compact 开关重写状态行的 ` (auto)` 后缀（ref `footer.ts:151`）。
 ///
 /// 状态行形态固定为 `<pct>%/<window>[ (auto)]`（见 [`TuiEvent::Usage`]），
@@ -1843,8 +1867,20 @@ fn render_all_cached_styled_inner(
     } else {
         state.model.clone()
     };
-    let status_right = clamp_to_width(&status_right_text, cols);
     let status_left = clamp_to_width(&state.status, cols);
+    // ref `footer.ts:193-200`：可用 provider 多于 1 个时，右侧模型名前加 `(provider)`；
+    // 加上后放不下（左侧 + 至少 2 空格 + 右侧 > 宽度）就退回不带前缀的写法。
+    let mut status_right_text = status_right_text;
+    if state.available_provider_count > 1 && !state.model_provider.is_empty() {
+        let with_provider = format!("({}) {status_right_text}", state.model_provider);
+        let need = UnicodeWidthStr::width(status_left.as_str())
+            + 2
+            + UnicodeWidthStr::width(with_provider.as_str());
+        if need <= cols {
+            status_right_text = with_provider;
+        }
+    }
+    let status_right = clamp_to_width(&status_right_text, cols);
     let pad = cols.saturating_sub(
         UnicodeWidthStr::width(status_left.as_str())
             + UnicodeWidthStr::width(status_right.as_str()),
@@ -1885,6 +1921,55 @@ mod tests {
 
     fn state() -> TuiState {
         TuiState::new("0.87.1", "/tmp/x/work", "0.0%/128k (auto)")
+    }
+
+    #[test]
+    fn format_tokens_matches_the_reference_rounding() {
+        assert_eq!(format_tokens(999), "999");
+        assert_eq!(format_tokens(1_000), "1.0k");
+        assert_eq!(format_tokens(9_999), "10.0k");
+        assert_eq!(format_tokens(128_000), "128k");
+        assert_eq!(format_tokens(200_000), "200k");
+        assert_eq!(format_tokens(999_999), "1000k");
+        assert_eq!(format_tokens(1_050_000), "1.1M");
+        assert_eq!(format_tokens(9_999_999), "10.0M");
+        assert_eq!(format_tokens(12_000_000), "12M");
+    }
+
+    /// ref `footer.ts:184-200`：右侧 = `<id> • <level>`；可用 provider >1 时加 `(provider)`，
+    /// 加了放不下就退回不带前缀。
+    #[test]
+    fn footer_provider_prefix_follows_reference_rules() {
+        let mut s = state();
+        s.model = "mock-model".to_string();
+        s.model_provider = "mock".to_string();
+        s.available_thinking_levels = vec!["off".to_string(), "high".to_string()];
+        s.thinking_level = "high".to_string();
+
+        s.available_provider_count = 1;
+        let screen = render(&s, 100, 30);
+        let line = screen
+            .iter()
+            .find(|line| line.contains("mock-model"))
+            .expect("有状态行");
+        assert!(line.ends_with("mock-model • high"), "{line:?}");
+
+        s.available_provider_count = 2;
+        let screen = render(&s, 100, 30);
+        let line = screen
+            .iter()
+            .find(|line| line.contains("mock-model"))
+            .expect("有状态行");
+        assert!(line.ends_with("(mock) mock-model • high"), "{line:?}");
+
+        // 左侧太宽（放不下至少 2 空格 + `(mock) …`）时退回不带前缀的写法。
+        s.status = "↑123456 ↓654321 99.9%/200k (auto)".to_string();
+        let screen = render(&s, 40, 30);
+        let line = screen
+            .iter()
+            .find(|line| line.contains("mock-model"))
+            .expect("有状态行");
+        assert!(!line.contains("(mock)"), "{line:?}");
     }
 
     #[test]

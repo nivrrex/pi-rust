@@ -38,14 +38,22 @@
    该场景只有 256 基准。
 5. **Windows 真机未验证**（仅交叉编译通过）；真机 IME 崩溃未复现；退出残留 500ms 有界。
 
-## Windows 待验证项
-见 `真机清单-Windows.md`（交给 Windows 侧 agent 执行的 16 项，覆盖配置目录解析、
-8 个键位、输入法/粘贴、含工具一轮的工具正文与 `Took`、退出空行、`--help` 与模型回落）。
-本轮相关修复均已包含在 `commit 5a31915` 的产物里：
-- `HOME` 为空导致读不到 `auth.json`（改 `home_from`）；
-- 退出提示 CRLF → 只发 LF；
-- 控制字节收不到（Windows 改走 crossterm 事件）；
-- 工具结果按 `tool_call_id` 绑定（此前绑"最后一条"，真实流式下出现空块）。
+## Windows 真机测试（2026-10-29 已完成，见 `notes/windows-real-test-2026-10-29.md`）
+
+`commit 5a31915` 的产物在 Win10 LTSC 19044 上实测有 5 个 P1（按键翻倍、终端应答被当输入、
+`Ctrl+P` 因一条无效 `enabledModels` 永久卡死、`Shift+Tab` 映射缺分支、经典 conhost 未开 VT 位）。
+均已修复并在真机复测通过；产物需重新构建（`built … commit 5449bf3-dirty`）：
+
+- 按键只接 `KeyEventKind::Press`（crossterm 0.28 对 key-up 也发 `Release`）；
+- Windows 不再发 DA1/kitty 查询（没有协商层消费应答），另加 `RespFilter` 抹掉 CSI/OSC/SS3 应答；
+- `Ctrl+P` 跳过解析失败的模型（此前一条无效项会让循环永久停在同一错误上）；
+- 补 `KeyCode::BackTab` 分支；`TerminalGuard` 启动时置 `ENABLE_VIRTUAL_TERMINAL_PROCESSING`；
+- footer 补 `(provider)` 前缀（可用 provider >1 时，放不下则退回）与初始 `0.0%/<window>`（此前写死 128k）。
+
+已知剩余（非阻塞）：
+- GBK 控制台把 `↑`/`↓` 按双宽渲染，footer 尾部会折 2 个字符到下一行（Windows Terminal 预计正常，未实测）；
+- Windows 上 `cargo test --workspace` 仍有 12 个平台相关 target 失败（mock-provider 为 Linux ELF、
+  `/tmp` 路径、`COLORTERM` 环境等），与代码缺陷无关，清单见上述 notes。
 
 ## 键位实现缺口（P8e-7 登记）
 

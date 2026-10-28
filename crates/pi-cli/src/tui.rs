@@ -34,6 +34,16 @@ impl TerminalGuard {
     /// P7-6n：`r3` 走**主屏**（不进入备用屏幕，`tui-main-screen.ts` 的主屏模型），
     /// 因此按渲染器区分启动序列；R1/R2 的行为与之前逐字节一致。
     pub fn new() -> std::io::Result<Self> {
+        // 经典 conhost（`cmd.exe` 窗口）默认**不开** VT 输出处理，而 crossterm 的
+        // `enable_raw_mode()` 只改输入句柄（crossterm-0.28.1/src/terminal/sys/windows.rs:31-41）。
+        // 真机实测（2026-10-29，`CreateProcess(CREATE_NEW_CONSOLE)` + pywinpty 对照）：
+        // `GetConsoleMode(CONOUT$)=0x3` ⇒ 屏幕上是字面量 `[38;2;…m`，TUI 完全不可读。
+        // `supports_ansi()` 会顺带给输出句柄置 `ENABLE_VIRTUAL_TERMINAL_PROCESSING`
+        // （失败忽略：Windows Terminal / ConPTY 不需要，也不应因失败而不启动）。
+        #[cfg(windows)]
+        {
+            let _ = crossterm::ansi_support::supports_ansi();
+        }
         terminal::enable_raw_mode()?;
         let mut out = std::io::stdout();
         let _ = out.write_all(startup_bytes());
@@ -554,6 +564,49 @@ pub struct ModelChoice {
     pub id: String,
 }
 
+/// `Ctrl+P` 的下一个候选（ref `interactive-mode.ts:4378-4394` 的循环语义）。
+///
+/// 真机实测：`enabledModels` 里只要有一条解析不出来（如 models.json 里没有该 id），
+/// 旧实现会把**同一条错误重复到永远**——当前模型不变 ⇒ 下一次又算到同一个 `index+1`，
+/// 其余模型统统切不到。这里改成逐个往后试，只返回**第一个能解析**的模型。
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum NextModel<P> {
+    /// 找到可用的下一个模型（带回已构建好的 provider，避免重复构建）。
+    Chosen(ModelChoice, P),
+    /// 可切换列表不足 2 项（ref 显示 `Only one model available`）。
+    OnlyOne,
+    /// 列表里的其它项全部解析失败（带回最后一条错误文案）。
+    NoneSwitchable(String),
+}
+
+/// 从 `current` 往后逐个尝试，跳过解析失败的项。
+///
+/// `try_build` 负责把候选模型变成 provider（真实实现是 [`rebuild_provider`]，
+/// 单测里传闭包以便构造失败场景）。
+fn next_switchable_model<P>(
+    choices: &[ModelChoice],
+    current_id: &str,
+    current_provider: &str,
+    mut try_build: impl FnMut(&ModelChoice) -> Result<P, String>,
+) -> NextModel<P> {
+    if choices.len() <= 1 {
+        return NextModel::OnlyOne;
+    }
+    let start = choices
+        .iter()
+        .position(|choice| choice.id == current_id && choice.provider == current_provider)
+        .unwrap_or(0);
+    let mut last_error: Option<String> = None;
+    for offset in 1..choices.len() {
+        let choice = &choices[(start + offset) % choices.len()];
+        match try_build(choice) {
+            Ok(provider) => return NextModel::Chosen(choice.clone(), provider),
+            Err(error) => last_error = Some(error),
+        }
+    }
+    NextModel::NoneSwitchable(last_error.unwrap_or_else(|| "没有可切换的模型".to_string()))
+}
+
 /// 起一轮 agent run 所需的部件（W3-2：由 `main.rs` 用与 print 模式相同的装配构造后传入）。
 pub struct AgentParts {
     /// 已构造好的 provider（print 路径同一个函数产物）。
@@ -593,7 +646,19 @@ pub struct AgentParts {
 /// 启动字节（切默认后只剩主屏路径）：`2004h` → kitty push/查询/DA1 → `2031h` → DSR 996 → 隐藏光标。
 #[must_use]
 pub fn startup_bytes() -> &'static [u8] {
-    b"\x1b[?2004h\x1b[>7u\x1b[?u\x1b[c\x1b[?2031h\x1b[?996n\x1b[?25l"
+    // Windows 走 crossterm 事件路径，**没有** Unix 那套协商层（`input.rs` + `term_negotiate`
+    // + `osc11`）来消费查询应答；而 conhost 会把 DA1 应答（`\x1b[?1;0c`）写回输入缓冲，
+    // 于是这些字符被当成按键插进编辑器（真机实测：启动后编辑框里已有 `[?1;0c`，`Ctrl+D`
+    // 与 `Ctrl+L` 因 `input` 非空而失效）。不发查询就不会有应答；kitty 的 CSI-u 编码同样
+    // 没有解析方，因此在 Windows 上也不发 kitty 查询/推送。
+    #[cfg(windows)]
+    {
+        b"\x1b[?2004h\x1b[?2031h\x1b[?996n\x1b[?25l"
+    }
+    #[cfg(not(windows))]
+    {
+        b"\x1b[?2004h\x1b[>7u\x1b[?u\x1b[c\x1b[?2031h\x1b[?996n\x1b[?25l"
+    }
 }
 
 /// r3 的退出字节：`2004l` → `\x1b[<u`（kitty pop）→（若开过）`\x1b[>4;0m` → `\x1b[?25h`。
@@ -695,6 +760,28 @@ pub fn run(mut state: TuiState, parts: Option<std::sync::Arc<AgentParts>>) -> st
     // （否则续写的会话在 TUI 里是空屏、`/tree` 也看不到历史）。
     // 思考档位集合（ref `ai/src/models.ts:924-933`）：非推理模型只有 `off`，
     // 推理模型是 `EXTENDED_THINKING_LEVELS`（`off/minimal/low/medium/high/xhigh/max`）。
+    // 状态区右侧与初始状态行：ref `footer.ts:170-171` 取**已解析模型**的 id、`:193-200` 在可用
+    // provider 多于 1 个时加 `(provider)` 前缀、`:151-158` 的初始上下文百分比按该模型的
+    // `contextWindow` 算。此前右侧取 settings 的 `defaultModel`、状态行写死 `0.0%/128k`
+    // （真机实测 200k 模型启动时显示 `0.0%/128k (auto)`，与 ref 差 72k）。
+    if let Some(parts_ref) = parts.as_ref() {
+        if let Ok(current) = parts_ref.model_state.lock() {
+            state.model = current.model_id.clone();
+            state.model_provider = current.provider_name.clone();
+        }
+        let mut providers: Vec<&str> = parts_ref
+            .available_models
+            .iter()
+            .map(|choice| choice.provider.as_str())
+            .collect();
+        providers.sort_unstable();
+        providers.dedup();
+        state.available_provider_count = providers.len();
+        state.status = format!(
+            "0.0%/{} (auto)",
+            pi_tui::format_tokens(parts_ref.context_window)
+        );
+    }
     if let Some(parts_ref) = parts.as_ref() {
         if parts_ref.supports_thinking {
             // ref `ai/src/models.ts:924-931`：`xhigh`/`max` **只有在模型声明了
@@ -792,11 +879,7 @@ pub fn run(mut state: TuiState, parts: Option<std::sync::Arc<AgentParts>>) -> st
     let agent_dir = agent_dir.as_deref();
     if let Some(totals) = resumed_usage {
         if let Some(parts_ref) = parts.as_ref() {
-            let window = if parts_ref.context_window >= 1000 {
-                format!("{}k", parts_ref.context_window / 1000)
-            } else {
-                parts_ref.context_window.to_string()
-            };
+            let window = pi_tui::format_tokens(parts_ref.context_window);
             // ref `agent-session.ts:3858-3902` 的 `estimateContextTokens`：**有 assistant 的 usage 时**
             // 直接用 `calculateContextTokens(usage)`（≈ input，不含 output）当基数；
             // 只有在没有可用 usage 时才退化为逐条估算。
@@ -1983,6 +2066,7 @@ pub fn run(mut state: TuiState, parts: Option<std::sync::Arc<AgentParts>>) -> st
                                         }
                                     }
                                     state.model = model_id.clone();
+                                    state.model_provider = provider_name.clone();
                                     let _ = apply(
                                         &mut state,
                                         TuiEvent::Status(format!("Model: {model_id}")),
@@ -2186,53 +2270,40 @@ pub fn run(mut state: TuiState, parts: Option<std::sync::Arc<AgentParts>>) -> st
                         .lock()
                         .map(|state| state.provider_name.clone())
                         .unwrap_or_default();
-                    let next_id = if ids.len() <= 1 {
-                        None
-                    } else {
-                        let index = ids
-                            .iter()
-                            .position(|choice| {
-                                choice.id == current && choice.provider == current_provider
-                            })
-                            .unwrap_or(0);
-                        Some(ids[(index + 1) % ids.len()].clone())
-                    };
-                    match next_id {
-                        None => {
+                    let next = next_switchable_model(&ids, &current, &current_provider, |choice| {
+                        rebuild_provider(parts_ref, &choice.provider, &choice.id)
+                    });
+                    match next {
+                        NextModel::OnlyOne => {
                             let _ = apply(
                                 &mut state,
                                 TuiEvent::Status("Only one model available".to_string()),
                             );
                         }
-                        Some(next_id) => {
-                            match rebuild_provider(parts_ref, &next_id.provider, &next_id.id) {
-                                Ok(provider) => {
-                                    if let Ok(mut guard) = parts_ref.model_state.lock() {
-                                        guard.model_id.clone_from(&next_id.id);
-                                        guard.provider_name.clone_from(&next_id.provider);
-                                        guard.provider = provider;
-                                    }
-                                    if let Some(writer) = parts_ref.writer.as_ref() {
-                                        if let Ok(mut guard) = writer.lock() {
-                                            let _ = guard.append_model_change(
-                                                &next_id.provider,
-                                                &next_id.id,
-                                            );
-                                        }
-                                    }
-                                    state.model = next_id.id.clone();
-                                    let _ = apply(
-                                        &mut state,
-                                        TuiEvent::Status(format!("Switched to {}", next_id.id)),
-                                    );
-                                }
-                                Err(error) => {
-                                    let _ = apply(
-                                        &mut state,
-                                        TuiEvent::Status(format!("无法切换模型：{error}")),
-                                    );
+                        NextModel::NoneSwitchable(error) => {
+                            let _ = apply(
+                                &mut state,
+                                TuiEvent::Status(format!("无法切换模型：{error}")),
+                            );
+                        }
+                        NextModel::Chosen(next_id, provider) => {
+                            if let Ok(mut guard) = parts_ref.model_state.lock() {
+                                guard.model_id.clone_from(&next_id.id);
+                                guard.provider_name.clone_from(&next_id.provider);
+                                guard.provider = provider;
+                            }
+                            if let Some(writer) = parts_ref.writer.as_ref() {
+                                if let Ok(mut guard) = writer.lock() {
+                                    let _ =
+                                        guard.append_model_change(&next_id.provider, &next_id.id);
                                 }
                             }
+                            state.model = next_id.id.clone();
+                            state.model_provider = next_id.provider.clone();
+                            let _ = apply(
+                                &mut state,
+                                TuiEvent::Status(format!("Switched to {}", next_id.id)),
+                            );
                         }
                     }
                     dirty = true;
@@ -3195,14 +3266,19 @@ mod r3_wiring_tests {
         assert!(r3.contains("\x1b[?2004h"), "r3 启动应开启括号粘贴：{r3:?}");
         // P7-6ae/S2b：kitty 查询三元组已接线（应答由协商层消费），顺序 2004h → kitty → 25l。
         let paste_at = r3.find("\x1b[?2004h").expect("缺 2004h");
-        let kitty_at = r3
-            .find("\x1b[>7u\x1b[?u\x1b[c")
-            .expect("缺 kitty 查询三元组");
         let hide_at = r3.find("\x1b[?25l").expect("缺 hideCursor");
-        assert!(
-            paste_at < kitty_at && kitty_at < hide_at,
-            "启动顺序应为 2004h → kitty → 25l：{r3:?}"
-        );
+        assert!(paste_at < hide_at, "启动顺序应为 2004h → 25l：{r3:?}");
+        // Windows 不发 kitty 查询（没有协商层消费应答），只在 Unix 断言该三元组。
+        #[cfg(not(windows))]
+        {
+            let kitty_at = r3
+                .find("\x1b[>7u\x1b[?u\x1b[c")
+                .expect("缺 kitty 查询三元组");
+            assert!(
+                paste_at < kitty_at && kitty_at < hide_at,
+                "启动顺序应为 2004h → kitty → 25l：{r3:?}"
+            );
+        }
     }
 
     /// 退出幂等：连续调用只放行第一次（正常退出 + 信号 + panic hook 共用）。
@@ -3279,7 +3355,7 @@ mod diag_dump {
 
 #[cfg(test)]
 mod p76ab_tests {
-    use super::{r3_exit_bytes, startup_bytes};
+    use super::r3_exit_bytes;
 
     /// S2：r3 退出顺序 `2004l` → `<u` →（可选）`>4;0m` → `25h`。
     #[test]
@@ -3306,8 +3382,12 @@ mod p76ab_tests {
     }
 
     /// S2b：r3 启动含 kitty 三元组（应答由协商层消费，实测无泄漏）。
+    /// Windows 不发该查询（没有协商层消费应答，见 `startup_bytes`），故只在 Unix 断言。
     #[test]
+    #[cfg(not(windows))]
     fn r3_startup_contains_kitty_triplet() {
+        use super::startup_bytes;
+
         let bytes = std::str::from_utf8(startup_bytes()).expect("不是 UTF-8");
         assert!(
             bytes.contains("\x1b[>7u\x1b[?u\x1b[c"),
@@ -3325,69 +3405,268 @@ mod p76ab_tests {
 /// 与 crossterm 路径的差别：解析完全由 `pi_tui::input`（StdinBuffer 端口）负责，
 /// 到期（孤立 ESC 10 ms / 序列 100 ms）由本线程按 `wake` 显式驱动 `flush()`。
 /// `input.rs` / `term_negotiate` / `osc11` 的串联留到 S4。
+/// Windows 按键 → `TuiEvent`。
+///
+/// 两条真机实测约束（2026-10-29，conhost + `WriteConsoleInputW` 注入真按键）：
+/// - **只接受 `KeyEventKind::Press`**：crossterm 0.28 对 Windows 的 key-up 记录也产出
+///   `Release`（`event/sys/windows/parse.rs:286-292`）；不过滤的话每个字符会被插入两次
+///   （实测：只发 down 的 `abc` → `abc`，发 down+up 的 `xyz` → `xxyyzz`，`Ctrl+P` 也一次切两个）。
+/// - **`Shift+Tab` 到达时就是 `KeyCode::BackTab`**（同一处 `VK_TAB if SHIFT`），不是
+///   `Tab` + SHIFT；只写后者会落到 `_other => None` 被丢掉（真机 `Shift+Tab` 全无反应）。
+#[cfg(any(windows, test))]
+fn map_windows_key(key: crossterm::event::KeyEvent) -> Option<TuiEvent> {
+    use crossterm::event::{KeyCode, KeyEventKind, KeyModifiers};
+
+    if key.kind != KeyEventKind::Press {
+        return None;
+    }
+    let ctrl = key.modifiers.contains(KeyModifiers::CONTROL);
+    match key.code {
+        KeyCode::Char(ch) if ctrl => match ch.to_ascii_lowercase() {
+            'c' => Some(TuiEvent::Clear),
+            'd' => Some(TuiEvent::CtrlD),
+            'p' => Some(TuiEvent::CtrlP),
+            'n' => Some(TuiEvent::CtrlN),
+            's' => Some(TuiEvent::CtrlS),
+            'o' => Some(TuiEvent::CtrlO),
+            'l' => Some(TuiEvent::CtrlL),
+            't' => Some(TuiEvent::CtrlT),
+            'z' => Some(TuiEvent::CtrlZ),
+            'a' => Some(TuiEvent::LineStart),
+            'e' => Some(TuiEvent::LineEnd),
+            'k' => Some(TuiEvent::DeleteToLineEnd),
+            'u' => Some(TuiEvent::DeleteToLineStart),
+            'w' => Some(TuiEvent::DeleteWordBackward),
+            'j' => Some(TuiEvent::Newline),
+            _unmapped => None,
+        },
+        KeyCode::Char(ch) => Some(TuiEvent::Char(ch)),
+        KeyCode::Enter => Some(TuiEvent::Enter),
+        KeyCode::Backspace => Some(TuiEvent::Backspace),
+        KeyCode::Esc => Some(TuiEvent::Escape),
+        KeyCode::Left => Some(TuiEvent::CursorLeft),
+        KeyCode::Right => Some(TuiEvent::CursorRight),
+        KeyCode::Up => Some(TuiEvent::HistoryPrev),
+        KeyCode::Down => Some(TuiEvent::HistoryNext),
+        KeyCode::BackTab => Some(TuiEvent::BackTab),
+        KeyCode::Tab if key.modifiers.contains(KeyModifiers::SHIFT) => Some(TuiEvent::BackTab),
+        KeyCode::Tab => Some(TuiEvent::Tab),
+        KeyCode::Home => Some(TuiEvent::LineStart),
+        KeyCode::End => Some(TuiEvent::LineEnd),
+        KeyCode::Delete => Some(TuiEvent::Delete),
+        _other => None,
+    }
+}
+
+/// 终端查询应答的过滤状态（Windows 专用）。
+///
+/// Windows 控制台把我们启动时发出的查询应答（DA1 `\x1b[?1;0c`、kitty `\x1b[?…u`、
+/// OSC 11 颜色应答）也写进输入缓冲，crossterm 只把它当作一串 `KeyCode::Char` ⇒ 字符会被
+/// 插进编辑器（真机实测：启动后编辑框里已有 `[?1;0c`，导致提示词被污染、`Ctrl+D`/`Ctrl+L`
+/// 因 `input` 非空而失效）。Unix 的 `input.rs` 自带协商层，这里补一个最小等价实现。
+#[cfg(any(windows, test))]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+enum RespState {
+    #[default]
+    Idle,
+    /// 收到 ESC，尚未确定是按键还是应答。
+    AfterEsc,
+    /// `ESC [` … 等 CSI 终止字节。
+    Csi,
+    /// `ESC ]` … 等 BEL / ST。
+    Osc,
+    /// OSC 内的 ESC，等 `\\`。
+    OscEsc,
+    /// `ESC O` 后的单个字符。
+    Ss3,
+}
+
+/// [`RespFilter::feed`] 的结果。
+#[cfg(any(windows, test))]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum FilterOut {
+    /// 丢弃（应答的一部分，或 ESC 还在等后续字符）。
+    Nothing,
+    /// 普通字符：原样发出。
+    Char(char),
+    /// 是用户的 Esc 键（不是应答）。
+    Escape,
+    /// 用户的 Esc 键 + 跟随字符。
+    EscapeThenChar(char),
+}
+
+/// 应答过滤状态机（纯逻辑，可单测）。
+#[cfg(any(windows, test))]
+#[derive(Debug, Clone, Default)]
+struct RespFilter {
+    state: RespState,
+    len: usize,
+}
+
+#[cfg(any(windows, test))]
+impl RespFilter {
+    /// 单条序列的最大长度（防御无终止符的脏数据）。
+    const MAX_LEN: usize = 64;
+
+    /// 收到 Esc 键：先挂起，等下一个字符决定去向。
+    ///
+    /// OSC 序列里的 ESC 多半是 ST（`ESC \`）的前半段，不能当成用户的 Esc 键重置状态，
+    /// 否则 `]11;rgb:…\` 这种应答会漏出 `Escape` + `Char('\')`。
+    fn on_escape(&mut self) {
+        self.state = match self.state {
+            RespState::Osc | RespState::OscEsc => RespState::OscEsc,
+            RespState::Idle | RespState::AfterEsc | RespState::Csi | RespState::Ss3 => {
+                self.len = 0;
+                RespState::AfterEsc
+            }
+        };
+    }
+
+    /// 超时（没有后续输入）时，挂起的 Esc 就是用户按的 Esc。
+    fn take_pending_escape(&mut self) -> bool {
+        let pending = self.state == RespState::AfterEsc;
+        self.state = RespState::Idle;
+        self.len = 0;
+        pending
+    }
+
+    /// 喂一个字符，返回该发出的内容。
+    fn feed(&mut self, ch: char) -> FilterOut {
+        match self.state {
+            RespState::Idle => FilterOut::Char(ch),
+            RespState::AfterEsc => match ch {
+                '\x1b' => {
+                    self.state = RespState::AfterEsc;
+                    self.len = 0;
+                    FilterOut::Escape
+                }
+                '[' => {
+                    self.state = RespState::Csi;
+                    self.len = 0;
+                    FilterOut::Nothing
+                }
+                ']' => {
+                    self.state = RespState::Osc;
+                    self.len = 0;
+                    FilterOut::Nothing
+                }
+                'O' => {
+                    self.state = RespState::Ss3;
+                    FilterOut::Nothing
+                }
+                other => {
+                    self.state = RespState::Idle;
+                    FilterOut::EscapeThenChar(other)
+                }
+            },
+            RespState::Csi => {
+                self.len = self.len.saturating_add(1);
+                if ('\x40'..='\x7e').contains(&ch) || self.len > Self::MAX_LEN {
+                    self.state = RespState::Idle;
+                }
+                FilterOut::Nothing
+            }
+            RespState::Ss3 => {
+                self.state = RespState::Idle;
+                FilterOut::Nothing
+            }
+            RespState::Osc => {
+                self.len = self.len.saturating_add(1);
+                if ch == '\x07' || self.len > Self::MAX_LEN {
+                    self.state = RespState::Idle;
+                } else if ch == '\x1b' {
+                    self.state = RespState::OscEsc;
+                }
+                FilterOut::Nothing
+            }
+            RespState::OscEsc => {
+                self.state = if ch == '\\' {
+                    RespState::Idle
+                } else {
+                    RespState::Osc
+                };
+                FilterOut::Nothing
+            }
+        }
+    }
+}
+
 /// Windows 输入线程：crossterm `event::read` → `TuiEvent`。
 ///
 /// Windows 控制台的 VT 输入模式对 `Ctrl+<字母>` 的字节转换不可靠（真机实测
 /// `Ctrl+D` 收不到 `0x04`、`Ctrl+P` 收不到 `0x10`），而 crossterm 直接给出
 /// `KeyCode::Char` + `CONTROL`。Unix 仍走字节路径（与 golden 逐字节对齐）。
+/// 这里还要额外做两件事：只收 `Press`（见 [`map_windows_key`]）、抹掉终端查询应答
+/// （见 [`RespFilter`]）。
 #[cfg(windows)]
 fn spawn_crossterm_input_thread(tx: std::sync::mpsc::Sender<TuiEvent>) {
-    use crossterm::event::{self, Event, KeyCode, KeyEvent, KeyModifiers};
+    use crossterm::event::{self, Event};
 
-    fn map_key(key: KeyEvent) -> Option<TuiEvent> {
-        let ctrl = key.modifiers.contains(KeyModifiers::CONTROL);
-        match key.code {
-            KeyCode::Char(ch) if ctrl => match ch.to_ascii_lowercase() {
-                'c' => Some(TuiEvent::Clear),
-                'd' => Some(TuiEvent::CtrlD),
-                'p' => Some(TuiEvent::CtrlP),
-                'n' => Some(TuiEvent::CtrlN),
-                's' => Some(TuiEvent::CtrlS),
-                'o' => Some(TuiEvent::CtrlO),
-                'l' => Some(TuiEvent::CtrlL),
-                't' => Some(TuiEvent::CtrlT),
-                'z' => Some(TuiEvent::CtrlZ),
-                'a' => Some(TuiEvent::LineStart),
-                'e' => Some(TuiEvent::LineEnd),
-                'k' => Some(TuiEvent::DeleteToLineEnd),
-                'u' => Some(TuiEvent::DeleteToLineStart),
-                'w' => Some(TuiEvent::DeleteWordBackward),
-                'j' => Some(TuiEvent::Newline),
-                _unmapped => None,
-            },
-            KeyCode::Char(ch) => Some(TuiEvent::Char(ch)),
-            KeyCode::Enter => Some(TuiEvent::Enter),
-            KeyCode::Backspace => Some(TuiEvent::Backspace),
-            KeyCode::Esc => Some(TuiEvent::Escape),
-            KeyCode::Left => Some(TuiEvent::CursorLeft),
-            KeyCode::Right => Some(TuiEvent::CursorRight),
-            KeyCode::Up => Some(TuiEvent::HistoryPrev),
-            KeyCode::Down => Some(TuiEvent::HistoryNext),
-            KeyCode::Tab if key.modifiers.contains(KeyModifiers::SHIFT) => Some(TuiEvent::BackTab),
-            KeyCode::Tab => Some(TuiEvent::Tab),
-            KeyCode::Home => Some(TuiEvent::LineStart),
-            KeyCode::End => Some(TuiEvent::LineEnd),
-            KeyCode::Delete => Some(TuiEvent::Delete),
-            _other => None,
-        }
-    }
-
-    std::thread::spawn(move || loop {
-        match event::read() {
-            Ok(Event::Key(key)) => {
-                if let Some(mapped) = map_key(key) {
-                    if tx.send(mapped).is_err() {
+    std::thread::spawn(move || {
+        let mut filter = RespFilter::default();
+        loop {
+            // 30 ms 等不到后续按键 ⇒ 挂起的 ESC 就是用户按的 Esc（应答只会成串到达）。
+            let ready = match event::poll(Duration::from_millis(30)) {
+                Ok(ready) => ready,
+                Err(_) => return,
+            };
+            if !ready {
+                if filter.take_pending_escape() && tx.send(TuiEvent::Escape).is_err() {
+                    return;
+                }
+                continue;
+            }
+            let event = match event::read() {
+                Ok(event) => event,
+                Err(_) => return,
+            };
+            match event {
+                Event::Key(key) => {
+                    let Some(mapped) = map_windows_key(key) else {
+                        continue;
+                    };
+                    match mapped {
+                        TuiEvent::Escape => filter.on_escape(),
+                        TuiEvent::Char(ch) => {
+                            let mut emitted: [Option<TuiEvent>; 2] = [None, None];
+                            match filter.feed(ch) {
+                                FilterOut::Nothing => {}
+                                FilterOut::Char(ch) => emitted[0] = Some(TuiEvent::Char(ch)),
+                                FilterOut::Escape => emitted[0] = Some(TuiEvent::Escape),
+                                FilterOut::EscapeThenChar(ch) => {
+                                    emitted[0] = Some(TuiEvent::Escape);
+                                    emitted[1] = Some(TuiEvent::Char(ch));
+                                }
+                            }
+                            if emitted
+                                .into_iter()
+                                .flatten()
+                                .any(|event| tx.send(event).is_err())
+                            {
+                                return;
+                            }
+                        }
+                        other => {
+                            // 非字符事件证明前面的 ESC 是用户的按键（应答只会是字符）。
+                            if filter.take_pending_escape() && tx.send(TuiEvent::Escape).is_err() {
+                                return;
+                            }
+                            if tx.send(other).is_err() {
+                                return;
+                            }
+                        }
+                    }
+                }
+                Event::Paste(text) => {
+                    if filter.take_pending_escape() && tx.send(TuiEvent::Escape).is_err() {
+                        return;
+                    }
+                    if tx.send(TuiEvent::Paste(text)).is_err() {
                         return;
                     }
                 }
+                _other => {}
             }
-            Ok(Event::Paste(text)) => {
-                if tx.send(TuiEvent::Paste(text)).is_err() {
-                    return;
-                }
-            }
-            Ok(_other) => {}
-            Err(_) => return,
         }
     });
 }
@@ -4007,5 +4286,186 @@ mod clamp_thinking_level_tests {
             clamp_thinking_level(&levels(&["off", "low"]), "high"),
             "low"
         );
+    }
+}
+
+#[cfg(test)]
+mod windows_input_tests {
+    use super::{
+        map_windows_key, next_switchable_model, FilterOut, ModelChoice, NextModel, RespFilter,
+        TuiEvent,
+    };
+    use crossterm::event::{KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
+
+    fn key(code: KeyCode, modifiers: KeyModifiers) -> KeyEvent {
+        KeyEvent::new(code, modifiers)
+    }
+
+    /// 真机缺陷复现：key-up 记录（`KeyEventKind::Release`）必须被丢弃，否则每个字符输入两次。
+    #[test]
+    fn release_events_are_ignored() {
+        let mut release = key(KeyCode::Char('a'), KeyModifiers::NONE);
+        release.kind = KeyEventKind::Release;
+        assert_eq!(map_windows_key(release), None);
+        assert_eq!(
+            map_windows_key(key(KeyCode::Char('a'), KeyModifiers::NONE)),
+            Some(TuiEvent::Char('a'))
+        );
+    }
+
+    /// 真机缺陷复现：crossterm 对 Shift+Tab 给的是 `KeyCode::BackTab`（不是 Tab+SHIFT）。
+    #[test]
+    fn shift_tab_maps_backtab_key_code() {
+        assert_eq!(
+            map_windows_key(key(KeyCode::BackTab, KeyModifiers::SHIFT)),
+            Some(TuiEvent::BackTab)
+        );
+        assert_eq!(
+            map_windows_key(key(KeyCode::Tab, KeyModifiers::NONE)),
+            Some(TuiEvent::Tab)
+        );
+    }
+
+    #[test]
+    fn ctrl_letters_map_to_actions() {
+        assert_eq!(
+            map_windows_key(key(KeyCode::Char('d'), KeyModifiers::CONTROL)),
+            Some(TuiEvent::CtrlD)
+        );
+        assert_eq!(
+            map_windows_key(key(KeyCode::Char('p'), KeyModifiers::CONTROL)),
+            Some(TuiEvent::CtrlP)
+        );
+        assert_eq!(
+            map_windows_key(key(KeyCode::Char('l'), KeyModifiers::CONTROL)),
+            Some(TuiEvent::CtrlL)
+        );
+        assert_eq!(
+            map_windows_key(key(KeyCode::Char('o'), KeyModifiers::CONTROL)),
+            Some(TuiEvent::CtrlO)
+        );
+    }
+
+    /// 按线程里的处理顺序喂一整串字符，返回真正会发给主循环的事件。
+    fn feed_str(filter: &mut RespFilter, text: &str) -> Vec<TuiEvent> {
+        let mut out = Vec::new();
+        for ch in text.chars() {
+            if ch == '\x1b' {
+                filter.on_escape();
+                continue;
+            }
+            match filter.feed(ch) {
+                FilterOut::Nothing => {}
+                FilterOut::Char(ch) => out.push(TuiEvent::Char(ch)),
+                FilterOut::Escape => out.push(TuiEvent::Escape),
+                FilterOut::EscapeThenChar(ch) => {
+                    out.push(TuiEvent::Escape);
+                    out.push(TuiEvent::Char(ch));
+                }
+            }
+        }
+        out
+    }
+
+    /// 真机缺陷复现：conhost / 终端的查询应答不能变成编辑器里的字符。
+    #[test]
+    fn terminal_replies_are_swallowed() {
+        for reply in [
+            "\x1b[?1;0c",                       // conhost 的 DA1 应答
+            "\x1b[?1;2c",                       // Windows Terminal 的 DA1 应答
+            "\x1b[?1u",                         // kitty 键盘协议应答
+            "\x1b]11;rgb:0000/0000/0000\x07",   // OSC 11 背景色应答（BEL 结尾）
+            "\x1b]11;rgb:ffff/ffff/ffff\x1b\\", // OSC 11（ST 结尾）
+            "\x1bOP",                           // SS3（F1）
+        ] {
+            let mut filter = RespFilter::default();
+            let out = feed_str(&mut filter, reply);
+            assert!(out.is_empty(), "{reply:?} 被当成输入：{out:?}");
+            assert!(!filter.take_pending_escape(), "{reply:?} 之后仍挂着 Esc");
+        }
+    }
+
+    /// 过滤不能误伤真实按键：单独的 Esc、Esc 后跟普通字符、普通输入。
+    #[test]
+    fn human_input_survives_the_filter() {
+        let mut filter = RespFilter::default();
+        assert!(feed_str(&mut filter, "\x1b").is_empty());
+        assert!(filter.take_pending_escape());
+        assert_eq!(
+            feed_str(&mut filter, "\x1bq"),
+            vec![TuiEvent::Escape, TuiEvent::Char('q')]
+        );
+        assert_eq!(
+            feed_str(&mut filter, "ab"),
+            vec![TuiEvent::Char('a'), TuiEvent::Char('b')]
+        );
+    }
+
+    fn choices(items: &[(&str, &str)]) -> Vec<ModelChoice> {
+        items
+            .iter()
+            .map(|(provider, id)| ModelChoice {
+                provider: (*provider).to_string(),
+                id: (*id).to_string(),
+            })
+            .collect()
+    }
+
+    /// 真机缺陷复现：解析失败的 `enabledModels` 项要跳过，否则 Ctrl+P 永久卡在同一条错误上。
+    #[test]
+    fn ctrl_p_skips_unresolvable_models() {
+        let list = choices(&[
+            ("openrouter", "openrouter/free"),
+            ("command-code", "inclusionai/ling-3.1-flash:free"),
+            ("opencode-go", "deepseek-v4.1-flash"),
+        ]);
+        let next = next_switchable_model(&list, "openrouter/free", "openrouter", |choice| {
+            if choice.id.ends_with(":free") {
+                Err(format!(
+                    "provider {} 下没有名为 {} 的模型",
+                    choice.provider, choice.id
+                ))
+            } else {
+                Ok(choice.id.clone())
+            }
+        });
+        match next {
+            NextModel::Chosen(choice, built) => {
+                assert_eq!(choice.provider, "opencode-go");
+                assert_eq!(built, "deepseek-v4.1-flash");
+            }
+            other => panic!("应跳过解析失败的项，实际：{other:?}"),
+        }
+    }
+
+    #[test]
+    fn ctrl_p_wraps_around_the_list() {
+        let list = choices(&[("a", "one"), ("b", "two")]);
+        let next = next_switchable_model(&list, "two", "b", |choice| Ok(choice.id.clone()));
+        assert_eq!(
+            next,
+            NextModel::Chosen(
+                ModelChoice {
+                    provider: "a".to_string(),
+                    id: "one".to_string()
+                },
+                "one".to_string()
+            )
+        );
+    }
+
+    #[test]
+    fn ctrl_p_reports_only_one_and_all_failed() {
+        let single = choices(&[("a", "one")]);
+        assert_eq!(
+            next_switchable_model(&single, "one", "a", |choice| Ok(choice.id.clone())),
+            NextModel::OnlyOne
+        );
+        let list = choices(&[("a", "one"), ("b", "two")]);
+        match next_switchable_model::<String>(&list, "one", "a", |_choice| Err("boom".to_string()))
+        {
+            NextModel::NoneSwitchable(error) => assert_eq!(error, "boom"),
+            other => panic!("应报全部失败，实际：{other:?}"),
+        }
     }
 }
