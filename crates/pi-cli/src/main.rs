@@ -186,6 +186,101 @@ fn main() -> ExitCode {
 /// **运行时语义**：`prompt` 会**阻塞**到该次运行结束（期间把事件逐行写到 stdout），
 /// 这与 TS 的异步派发不同——TS 的 `prompt` 响应先回、事件随后到；本实现把响应写在
 /// 运行**之后**。差异已在 notes 记录，未按 TS 形状对齐。
+/// 启动时的模型解析（B-b 接线）：按 ref `model-resolver.ts:622-717` 的五步回落。
+///
+/// 数据来源全部是文件读：
+/// - `models.json`：可用模型列表（`providers.<id>.models[].id`）与 provider 级 `apiKey`；
+/// - `auth.json`：已存凭据（键为 provider 名）；
+/// - 环境变量：`<PROVIDER>_API_KEY`（大写、非字母数字转 `_`），以及 `settings.enabledModels` 作 scoped。
+fn resolve_startup_model(
+    parsed: &Args,
+    settings: &pi_cli::settings::Settings,
+    paths: &pi_cli::runtime::Paths,
+) -> Result<(String, String), String> {
+    use pi_cli::settings::{resolve_initial_model, ModelRef};
+
+    let models_path = paths.agent_dir.join("models.json");
+    let models_value: serde_json::Value = std::fs::read_to_string(&models_path)
+        .ok()
+        .and_then(|text| serde_json::from_str(&text).ok())
+        .unwrap_or_else(|| serde_json::json!({}));
+
+    let mut available: Vec<ModelRef> = Vec::new();
+    let mut provider_api_key: Vec<String> = Vec::new();
+    if let Some(providers) = models_value.get("providers").and_then(|v| v.as_object()) {
+        for (provider, value) in providers {
+            if value
+                .get("apiKey")
+                .and_then(|v| v.as_str())
+                .is_some_and(|key| !key.trim().is_empty())
+            {
+                provider_api_key.push(provider.clone());
+            }
+            if let Some(models) = value.get("models").and_then(|v| v.as_array()) {
+                for model in models {
+                    if let Some(id) = model.get("id").and_then(|v| v.as_str()) {
+                        available.push(ModelRef {
+                            provider: provider.clone(),
+                            id: id.to_string(),
+                        });
+                    }
+                }
+            }
+        }
+    }
+
+    let auth_providers: Vec<String> = std::fs::read_to_string(paths.agent_dir.join("auth.json"))
+        .ok()
+        .and_then(|text| serde_json::from_str::<serde_json::Value>(&text).ok())
+        .and_then(|value| value.as_object().map(|map| map.keys().cloned().collect()))
+        .unwrap_or_default();
+
+    let has_auth = |provider: &str| -> bool {
+        if provider_api_key.iter().any(|item| item == provider)
+            || auth_providers.iter().any(|item| item == provider)
+        {
+            return true;
+        }
+        let env_name = format!(
+            "{}_API_KEY",
+            provider
+                .chars()
+                .map(|ch| if ch.is_ascii_alphanumeric() {
+                    ch.to_ascii_uppercase()
+                } else {
+                    '_'
+                })
+                .collect::<String>()
+        );
+        std::env::var(&env_name).is_ok_and(|value| !value.trim().is_empty())
+    };
+
+    let scoped: Vec<ModelRef> = settings
+        .enabled_models
+        .as_deref()
+        .unwrap_or(&[])
+        .iter()
+        .filter_map(|entry| {
+            let (provider, rest) = entry.split_once('/')?;
+            Some(ModelRef {
+                provider: provider.to_string(),
+                id: rest.to_string(),
+            })
+        })
+        .collect();
+
+    let resolved = resolve_initial_model(
+        parsed.provider.as_deref(),
+        parsed.model.as_deref(),
+        settings,
+        &scoped,
+        &available,
+        parsed.continue_session || parsed.session.is_some(),
+        &has_auth,
+    )?;
+    Ok((resolved.provider, resolved.id))
+}
+
 fn run_rpc(parsed: &Args) -> ExitCode {
     use std::io::BufRead;
 
@@ -199,11 +294,7 @@ fn run_rpc(parsed: &Args) -> ExitCode {
         Ok(settings) => settings,
         Err(code) => return code,
     };
-    let (provider_name, model_id) = match pi_cli::settings::resolve_model(
-        parsed.provider.as_deref(),
-        parsed.model.as_deref(),
-        &settings,
-    ) {
+    let (provider_name, model_id) = match resolve_startup_model(parsed, &settings, &paths) {
         Ok(pair) => pair,
         Err(error) => {
             eprintln!("pi-rs: {error}");
@@ -547,11 +638,7 @@ fn run_print(parsed: &Args, json: bool) -> ExitCode {
         Ok(settings) => settings,
         Err(code) => return code,
     };
-    let (provider_name, model_id) = match pi_cli::settings::resolve_model(
-        parsed.provider.as_deref(),
-        parsed.model.as_deref(),
-        &settings,
-    ) {
+    let (provider_name, model_id) = match resolve_startup_model(parsed, &settings, &paths) {
         Ok(pair) => pair,
         Err(error) => {
             eprintln!("pi-rs: {error}");
@@ -939,11 +1026,7 @@ fn build_tui_agent_parts(
     state: &mut pi_tui::TuiState,
 ) -> Result<std::sync::Arc<pi_cli::tui::AgentParts>, ExitCode> {
     let settings = load_settings(paths)?;
-    let (provider_name, model_id) = match pi_cli::settings::resolve_model(
-        parsed.provider.as_deref(),
-        parsed.model.as_deref(),
-        &settings,
-    ) {
+    let (provider_name, model_id) = match resolve_startup_model(parsed, &settings, paths) {
         Ok(pair) => pair,
         Err(error) => {
             eprintln!("pi-rs: {error}");
