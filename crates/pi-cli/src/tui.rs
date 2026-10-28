@@ -666,10 +666,36 @@ pub fn run(mut state: TuiState, parts: Option<std::sync::Arc<AgentParts>>) -> st
                 .iter()
                 .map(|level| (*level).to_string())
                 .collect();
-            state.thinking_level = parts_ref
+            // ref `sdk.ts:251-254` `clampThinkingLevel(model, level)`：模型能力之外的
+            // 档位夹到**支持的最高档**（如模型只到 `medium` 时 `high` → `medium`）。
+            let requested = parts_ref
                 .initial_thinking_level
                 .clone()
                 .unwrap_or_else(|| "medium".to_string());
+            state.thinking_level = if state
+                .available_thinking_levels
+                .iter()
+                .any(|level| level == &requested)
+            {
+                requested
+            } else {
+                let order = ["off", "minimal", "low", "medium", "high"];
+                let supported_max = state
+                    .available_thinking_levels
+                    .iter()
+                    .filter_map(|level| order.iter().position(|item| item == level))
+                    .max()
+                    .unwrap_or(0);
+                let wanted = order
+                    .iter()
+                    .position(|item| item == &requested)
+                    .unwrap_or(supported_max);
+                order
+                    .get(wanted.min(supported_max))
+                    .copied()
+                    .unwrap_or("medium")
+                    .to_string()
+            };
         }
     }
     let initial = parts

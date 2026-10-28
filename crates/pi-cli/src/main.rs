@@ -1098,6 +1098,12 @@ fn build_tui_agent_parts(
                 }
                 _other => None,
             })
+        })
+        .or_else(|| {
+            // ref `sdk.ts:230-254` 的取值顺序：会话里的 `thinking_level_change` →
+            // （每模型覆盖）→ `settings.defaultThinkingLevel` → `DEFAULT_THINKING_LEVEL`。
+            // 每模型覆盖尚未接（`modelThinkingLevels` 结构待查），其余两级已按序生效。
+            settings.default_thinking_level.clone()
         });
     let available_models: Vec<pi_cli::tui::ModelChoice> = {
         let enabled: Vec<pi_cli::tui::ModelChoice> = settings
