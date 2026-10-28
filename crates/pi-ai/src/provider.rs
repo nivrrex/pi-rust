@@ -388,12 +388,17 @@ impl ProviderError {
     /// 订阅/额度上限类文案：命中即**不可**重试。
     /// `NON_RETRYABLE_PROVIDER_LIMIT_ERROR_PATTERN`，逐字来自 `retry.ts:7-24`。
     /// 传输层里**重试无用**的一类：TLS/证书/配置问题。放在限额模式之后、可重试之前判。
+    /// 证书/TLS **配置**错误：重试不会变好。
+    ///
+    /// 注意**不能**写通用的 `tls`：`client error (Connect): tls handshake eof` 是
+    /// `ifdown eth0` 这类瞬时断网的真实文案（真机已复现），必须可重试。
     const NON_RETRYABLE_TLS_PATTERNS: &[&'static str] = &[
         r#"certificate"#,
         r#"invalid peer"#,
-        r#"tls"#,
         r#"unknown issuer"#,
         r#"self.signed"#,
+        r#"unsupported.?protocol"#,
+        r#"no.?cipher"#,
     ];
 
     const NON_RETRYABLE_LIMIT_PATTERNS: &[&'static str] = &[
@@ -441,6 +446,12 @@ impl ProviderError {
         r#"reset by peer"#,
         r#"broken pipe"#,
         r#"unexpected eof"#,
+        // TLS 握手阶段被网络中断（真实文案：`client error (Connect): tls handshake eof`）。
+        r#"handshake eof"#,
+        r#"handshake failure"#,
+        r#"tls handshake"#,
+        r#"connect error"#,
+        r#"client error \(connect\)"#,
         r#"connection closed before message completed"#,
         r#"connection aborted"#,
         r#"network is unreachable"#,
@@ -626,6 +637,11 @@ mod tests {
             "broken pipe",
             "Network is unreachable",
             "Stream ended without finish_reason",
+            // 真机 `ifdown eth0` 实测文案（reqwest + rustls 连接阶段）：
+            "transport error: error sending request for url (https://openrouter.ai/api/v1/chat/completions): client error (Connect): tls handshake eof",
+            "tls handshake failure",
+            // 握手失败同理：多为网络/中间设备瞬断，重试有意义（证书类另有判据）。
+            "tls handshake failed",
         ] {
             assert!(
                 ProviderError::transport(text).is_retryable(),
@@ -636,7 +652,6 @@ mod tests {
         for text in [
             "invalid peer certificate: UnknownIssuer",
             "certificate verify failed",
-            "tls handshake failed",
             "insufficient credits",
         ] {
             assert!(

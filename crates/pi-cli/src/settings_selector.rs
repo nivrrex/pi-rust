@@ -1571,7 +1571,17 @@ pub fn parse_rfc3339_ms(text: &str) -> Option<u128> {
 
 #[cfg(test)]
 mod resume_list_tests {
-    use super::{format_session_age, parse_rfc3339_ms, shorten_path, ResumeSelector, SessionRow};
+    use super::{format_session_age, shorten_path, ResumeSelector, SessionRow};
+
+    /// `10mo` 对应的毫秒数（`format_session_age` 用 `days / 30` 算月）。
+    const AGE_10_MONTHS_MS: u128 = 300 * 86_400_000;
+
+    fn now_millis_for_test() -> u128 {
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|value| value.as_millis())
+            .unwrap_or(0)
+    }
 
     /// T38 golden：`All` 作用域下列出一行（`› (no messages) … <cwd> 1 9mo`）。
     #[test]
@@ -1585,7 +1595,9 @@ mod resume_list_tests {
             summary: None,
             cwd: "/tmp/tui-T38-resume-list-abc/work".to_string(),
             message_count: 1,
-            modified_ms: parse_rfc3339_ms("2026-01-01T00:00:00.000Z").expect("时间戳"),
+            // 时间戳用**相对现在**的固定偏移：绝对日期会让"9mo"这类断言随时间失效
+            // （2026-10-28 起 2026-01-01 已跨到 10mo，测试就会假失败）。
+            modified_ms: now_millis_for_test() - AGE_10_MONTHS_MS,
         }];
         let lines = selector.lines(100);
         let row = lines
@@ -1594,7 +1606,7 @@ mod resume_list_tests {
             .expect("应有选中行");
         assert!(row.starts_with("› (no messages) "), "{row:?}");
         assert!(
-            row.ends_with("/tmp/tui-T38-resume-list-abc/work 1 9mo"),
+            row.ends_with("/tmp/tui-T38-resume-list-abc/work 1 10mo"),
             "{row:?}"
         );
         assert_eq!(row.chars().count(), 100, "行宽应等于面板宽度：{row:?}");
