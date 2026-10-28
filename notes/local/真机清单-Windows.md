@@ -3,7 +3,7 @@
 被测对象：`pi-rs.exe`（`--version` 第二行应为 `commit 5a31915` 或更新）。
 本文件只列**需要在 Windows 上验证**的项；Linux 侧已自动化覆盖的不在此列。
 
-请在 `C:\Users\Admin\pi` 下执行，逐项记录「通过 / 不通过 + 实际输出或截图」。
+请在 `%USERPROFILE%\pi` 下执行，逐项记录「通过 / 不通过 + 实际输出或截图」。
 **不要**读取或回传任何密钥内容（`auth.json` 只看结构，不看值）。
 
 ---
@@ -11,7 +11,7 @@
 ## 0. 准备
 
 ```bat
-cd C:\Users\Admin\pi
+cd %USERPROFILE%\pi
 pi-rs.exe --version
 dir %USERPROFILE%\.pi\agent
 ```
@@ -45,7 +45,7 @@ pi-rs.exe
 
 | # | 键 | 期望 |
 |---|---|---|
-| 2.1 | `Ctrl+D` | 退出 TUI，终端回到 `C:\Users\Admin\pi>` 提示符 |
+| 2.1 | `Ctrl+D` | 退出 TUI，终端回到 `%USERPROFILE%\pi>` 提示符 |
 | 2.2 | `Ctrl+P` | footer 右侧模型名切换（在 `enabledModels` 的 3 个之间循环）；只有 1 个模型时显示 `Only one model available` |
 | 2.3 | `Ctrl+O` | 工具输出展开/折叠切换 |
 | 2.4 | `Ctrl+L` | 打开模型选择器面板 |

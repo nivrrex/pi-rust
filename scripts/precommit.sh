@@ -11,6 +11,14 @@ cd "$(dirname "$0")/.."
 NODE_BIN="$(ls -d "$HOME"/.local/share/fnm/node-versions/*/installation/bin 2>/dev/null | tail -1 || true)"
 export PATH="${NODE_BIN:+$NODE_BIN:}$HOME/.cargo/bin:$PATH"
 
+# 平台能力探测：Windows/Git Bash 下没有 `unshare`，与网络隔离相关的检查无法执行。
+# 要求：**显式提示并跳过**，不得静默通过（不改变退出码，否则 Windows 上无法提交）。
+if ! command -v unshare >/dev/null 2>&1; then
+  printf '=== 平台能力 ===\n'
+  printf '  ⚠ 未找到 unshare：跳过所有需要网络隔离的检查（pty 探针等）。\n'
+  printf '    这不是"通过"，只是本机无法执行；请在 Linux 上补跑。\n'
+fi
+
 failed=()
 run() {
   local name="$1"
