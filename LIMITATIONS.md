@@ -52,6 +52,11 @@ ref `ai/src/models.ts:926-933` 的 `getSupportedThinkingLevels` 对**声明了**
 - 无 `thinkingLevelMap` 的推理模型：**与 ref 一致**（你也实测 `openrouter/free • high` 两侧相同）；
 - 声明了 `xhigh`/`max` 的模型：我们会**少给**最高两档；声明某档为 `null` 的模型：我们会**多给**该档。
 
+### 退出提示的换行（F2，已按 ref 修，待 Windows 复测）
+ref `interactive-mode.ts:4173` 用 `process.stdout.write("…\n")`：**只发 LF**。
+我们此前用 `writeln!`，在 Windows 上会发 `\r\n`，退出后多一个回车/空行。已改为显式 `write!` + `\n`，
+Linux 侧 golden 不变；Windows 侧需真机对比原版退出输出确认（真机清单第 4 项）。
+
 ### `!command` 配置值的 shell 选择（Windows 上不同）
 ref `utils/shell.ts:67-110` `getShellConfig()` 在 Windows 上**不是** `cmd /C`：
 1. `shellPath`（settings）若配置且存在 → 用它（bash 形态，`-c` 传命令）；

@@ -2805,11 +2805,16 @@ pub fn run(mut state: TuiState, parts: Option<std::sync::Arc<AgentParts>>) -> st
     if let Some(parts) = parts.as_ref() {
         if let Some(id) = session_id_for_resume(parts).filter(|_| session_is_flushed(parts)) {
             let mut out = std::io::stdout();
-            let _ = writeln!(
+            // ref `interactive-mode.ts:4173` 用的是 `process.stdout.write("…\n")`——
+            // **只发 LF**。`writeln!` 在 Windows 上会发 CRLF，退出后会多出一行/多一个
+            // 回车（真机看到的"退出后多一个空行"），所以这里显式写 `\n`。
+            let _ = write!(
                 out,
                 "\u{1b}[2mTo resume this session:\u{1b}[22m pi --session-dir {} --session {id}",
                 parts.session_dir.display()
             );
+            // 只发 LF（不用 `write!` 的换行简写，避免 clippy 的 write_with_newline）。
+            let _ = out.write_all(b"\n");
             let _ = out.flush();
         }
     }
