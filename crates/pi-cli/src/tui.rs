@@ -640,6 +640,35 @@ pub fn take_exit_once(restored: &mut bool) -> bool {
     true
 }
 
+/// 把请求的思考档位夹到**模型支持的档位集合**内（ref `sdk.ts:251-254`
+/// 的 `clampThinkingLevel`）：不支持的档位取"不超过它的最高支持档"，
+/// 比所有支持档都低时取最低支持档。纯函数，便于单测。
+fn clamp_thinking_level(available: &[String], requested: &str) -> String {
+    const ORDER: [&str; 7] = ["off", "minimal", "low", "medium", "high", "xhigh", "max"];
+    if available.iter().any(|level| level == requested) {
+        return requested.to_string();
+    }
+    let supported_max = available
+        .iter()
+        .filter_map(|level| ORDER.iter().position(|item| item == level))
+        .max();
+    let wanted = ORDER.iter().position(|item| *item == requested);
+    match (wanted, supported_max) {
+        (Some(wanted), Some(supported_max)) => ORDER
+            .get(wanted.min(supported_max))
+            .copied()
+            .unwrap_or("medium")
+            .to_string(),
+        (None, Some(supported_max)) => ORDER
+            .get(supported_max)
+            .copied()
+            .unwrap_or("medium")
+            .to_string(),
+        // 模型没有任何可用档位（非推理模型）⇒ 只能是 `off`。
+        _unavailable => "off".to_string(),
+    }
+}
+
 pub fn run(mut state: TuiState, parts: Option<std::sync::Arc<AgentParts>>) -> std::io::Result<i32> {
     install_panic_hook();
     let mut guard = TerminalGuard::new()?;
@@ -672,30 +701,8 @@ pub fn run(mut state: TuiState, parts: Option<std::sync::Arc<AgentParts>>) -> st
                 .initial_thinking_level
                 .clone()
                 .unwrap_or_else(|| "medium".to_string());
-            state.thinking_level = if state
-                .available_thinking_levels
-                .iter()
-                .any(|level| level == &requested)
-            {
-                requested
-            } else {
-                let order = ["off", "minimal", "low", "medium", "high"];
-                let supported_max = state
-                    .available_thinking_levels
-                    .iter()
-                    .filter_map(|level| order.iter().position(|item| item == level))
-                    .max()
-                    .unwrap_or(0);
-                let wanted = order
-                    .iter()
-                    .position(|item| item == &requested)
-                    .unwrap_or(supported_max);
-                order
-                    .get(wanted.min(supported_max))
-                    .copied()
-                    .unwrap_or("medium")
-                    .to_string()
-            };
+            state.thinking_level =
+                clamp_thinking_level(&state.available_thinking_levels, &requested);
         }
     }
     let initial = parts
@@ -3847,5 +3854,39 @@ mod p78b_history_tests {
     fn empty_or_oversized_history_does_not_panic() {
         assert!(produced_tail(3, &[]).is_empty());
         assert!(produced_tail(9, &[user("only")]).is_empty());
+    }
+}
+
+#[cfg(test)]
+mod clamp_thinking_level_tests {
+    use super::clamp_thinking_level;
+
+    fn levels(items: &[&str]) -> Vec<String> {
+        items.iter().map(|item| (*item).to_string()).collect()
+    }
+
+    /// 模型支持到 `medium`、请求 `high` ⇒ 夹成 `medium`（真机配置：
+    /// `defaultThinkingLevel: high` + `openrouter/free`）。
+    #[test]
+    fn high_clamps_down_to_model_max() {
+        let available = levels(&["off", "minimal", "low", "medium"]);
+        assert_eq!(clamp_thinking_level(&available, "high"), "medium");
+        assert_eq!(clamp_thinking_level(&available, "max"), "medium");
+    }
+
+    /// 支持的档位里直接有请求值 ⇒ 原样返回；非推理模型只有 `off` ⇒ 一律 `off`。
+    #[test]
+    fn supported_levels_pass_through() {
+        let available = levels(&["off", "minimal", "low", "medium", "high"]);
+        assert_eq!(clamp_thinking_level(&available, "low"), "low");
+        assert_eq!(clamp_thinking_level(&levels(&["off"]), "high"), "off");
+    }
+
+    /// 请求值不在档位表里（拼错）⇒ 取支持的最高档，不 panic。
+    #[test]
+    fn unknown_level_takes_supported_max() {
+        let available = levels(&["off", "medium", "high"]);
+        assert_eq!(clamp_thinking_level(&available, "turbo"), "high");
+        assert_eq!(clamp_thinking_level(&[], "high"), "off");
     }
 }
