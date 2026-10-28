@@ -322,6 +322,10 @@ async fn handle(
         guard.next += 1;
         // 取证：每条请求**实际用到**的 spec 下标（`served` 是第几次请求）。
         // 默认关闭：S01 等钉子对 `requests.jsonl` 的**行格式**敏感（一请求一行）。
+        //
+        // ⚠ `MOCK_VERBOSE=1` 必须设在 **mock 这个进程**上（不是被测进程）。
+        // 只给被测进程设 → mock 仍走默认格式（不含 `headers`），排查时会误判成
+        // "请求没带 Authorization"（P8e-7/F1-d 实际踩过这个坑）。。
         if std::env::var_os("MOCK_VERBOSE").is_some() {
             if let Some(path) = &guard.log_path {
                 use std::io::Write;
