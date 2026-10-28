@@ -516,6 +516,41 @@ mod resolve_initial_model_tests {
         assert_eq!(resumed, model("openrouter", "openrouter/free"));
     }
 
+    /// B-c：**仅环境变量密钥**（无 settings 默认、无 scoped）⇒ 走第 4 步，
+    /// 按 `defaultModelPerProvider` 顺序命中可用模型（这里 `openrouter` 是唯一可用的）。
+    #[test]
+    fn only_env_auth_uses_provider_default() {
+        let available = [model("openrouter", "moonshotai/kimi-k2.6")];
+        let resolved = resolve_initial_model(
+            None,
+            None,
+            &Settings::default(),
+            &[],
+            &available,
+            false,
+            &|provider| provider == "openrouter",
+        )
+        .expect("应解析成功");
+        assert_eq!(resolved, model("openrouter", "moonshotai/kimi-k2.6"));
+    }
+
+    /// B-c：**仅 auth.json 凭据**（settings 里配了默认）⇒ 第 3 步命中 settings 默认。
+    /// `has_auth` 只对 auth.json 里存在的 provider 返回 true。
+    #[test]
+    fn only_auth_json_credential_uses_saved_default() {
+        let resolved = resolve_initial_model(
+            None,
+            None,
+            &settings(Some("deepseek"), Some("deepseek-v4-pro")),
+            &[],
+            &[model("openrouter", "moonshotai/kimi-k2.6")],
+            false,
+            &|provider| provider == "deepseek",
+        )
+        .expect("应解析成功");
+        assert_eq!(resolved, model("deepseek", "deepseek-v4-pro"));
+    }
+
     /// 5) 没有 settings 默认 ⇒ 先按 `defaultModelPerProvider` 顺序命中，否则第一个可用。
     #[test]
     fn falls_back_to_provider_default_then_first() {
