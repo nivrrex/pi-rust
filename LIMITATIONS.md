@@ -38,6 +38,15 @@
    该场景只有 256 基准。
 5. **Windows 真机未验证**（仅交叉编译通过）；真机 IME 崩溃未复现；退出残留 500ms 有界。
 
+## Windows 待验证项
+见 `真机清单-Windows.md`（交给 Windows 侧 agent 执行的 16 项，覆盖配置目录解析、
+8 个键位、输入法/粘贴、含工具一轮的工具正文与 `Took`、退出空行、`--help` 与模型回落）。
+本轮相关修复均已包含在 `commit 5a31915` 的产物里：
+- `HOME` 为空导致读不到 `auth.json`（改 `home_from`）；
+- 退出提示 CRLF → 只发 LF；
+- 控制字节收不到（Windows 改走 crossterm 事件）；
+- 工具结果按 `tool_call_id` 绑定（此前绑"最后一条"，真实流式下出现空块）。
+
 ## 键位实现缺口（P8e-7 登记）
 
 `ctrl+p`（ref `core/keybindings.ts:106-109` 的 `app.model.cycleForward`）**已实现**：
