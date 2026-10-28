@@ -3582,9 +3582,10 @@ fn marker_apply(state: &TuiState, cols: usize, lines: &mut [String]) {
         return;
     }
     let target = bottom - 1;
-    if lines[target].contains("Working") {
-        return;
-    }
+    // 真机反馈：原版在 `── ⠋ Working` 之前有一个反显方块（编辑器软件光标
+    // `\x1b[7m \x1b[0m`，ref `editor.ts:594-596`）。早期按 mock 回放误判
+    // "TS 该行没有反显"而跳过画光标，真机上就少了一个方块；实测去掉跳过逻辑
+    // 不影响任何 golden（T05/T73/T75 文本与样式仍 same），故不再特判。
     // 光标列：`state.cursor` 是**字符**下标；本行为输入的最后一段时，列即该段的字符偏移。
     let last_segment_start = state.input.rfind('\n').map_or(0, |i| i + 1);
     let col = state.cursor.saturating_sub(last_segment_start);
