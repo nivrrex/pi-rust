@@ -1116,8 +1116,9 @@ fn apply_chrome_styles(
     lines: &[String],
     styles: &mut [Option<style::LineStyle>],
     thinking_level: &str,
+    palette: &theme::Palette,
 ) {
-    use style::{LineStyle, ACCENT, BORDER_MUTED, DIM, MD_HEADING, MUTED, WARNING};
+    use style::LineStyle;
     for (index, line) in lines.iter().enumerate() {
         // 先算，再写：避免 `get_mut` 的借用与读取上一行冲突。
         if styles.get(index).is_some_and(Option::is_some) {
@@ -1141,11 +1142,11 @@ fn apply_chrome_styles(
         // 选择器列表（ref `theme.ts:1209-1217` 的 `getSelectListTheme`）：
         // 选中行前缀与文字 `accent`，`No matching models` 之类提示 `muted`。
         if trimmed.starts_with("→ ") {
-            *slot = Some(LineStyle::fg(ACCENT));
+            *slot = Some(LineStyle::fg(palette.accent));
             continue;
         }
         if trimmed.starts_with("No matching") {
-            *slot = Some(LineStyle::fg(MUTED));
+            *slot = Some(LineStyle::fg(palette.muted));
             continue;
         }
         // 整宽边框（编辑器框/面板框）：`border`。
@@ -1162,35 +1163,35 @@ fn apply_chrome_styles(
             || trimmed.starts_with("Press ctrl+o")
             || trimmed.starts_with("Pi can explain")
         {
-            *slot = Some(LineStyle::fg(DIM));
+            *slot = Some(LineStyle::fg(palette.dim));
             continue;
         }
         // 运行中/等待状态行：`── ⠋ Working ──`（spinner 高亮、文案 muted）。
         // ref 的 `Working` 行整行是 `borderMuted`（`T05` 字节：`38;5;239m`），不是 warning 黄。
         if line.contains("Working") {
-            *slot = Some(LineStyle::fg(BORDER_MUTED));
+            *slot = Some(LineStyle::fg(palette.border_muted));
             continue;
         }
         if line.contains("Retrying") {
-            *slot = Some(LineStyle::fg(WARNING));
+            *slot = Some(LineStyle::fg(palette.warning));
             continue;
         }
         // footer：`路径` 与 `↑n ↓n x%/Nk (auto)`，ref 用 `dim`。
         if trimmed.starts_with("pi v") {
-            *slot = Some(LineStyle::fg(style::ACCENT).bold());
+            *slot = Some(LineStyle::fg(palette.accent).bold());
             continue;
         }
         if trimmed.contains("%/") && trimmed.contains('k') || trimmed.starts_with('/') {
-            *slot = Some(LineStyle::fg(DIM));
+            *slot = Some(LineStyle::fg(palette.dim));
             continue;
         }
         // `[Context]` 段标题用 accent。
         if trimmed.starts_with("[Context]") || trimmed.starts_with("[branch]") {
-            *slot = Some(LineStyle::fg(MD_HEADING));
+            *slot = Some(LineStyle::fg(palette.md_heading));
             continue;
         }
         // 兜底：普通文本行用 muted（与 ref `toolOutput`/正文的基础色接近）。
-        let _ = MUTED;
+        let _ = palette.muted;
     }
 }
 
@@ -1214,30 +1215,34 @@ fn format_duration(duration: std::time::Duration) -> String {
 /// 颜色键取自 ref `theme/dark.json`（C3 取证）：用户消息 `userMessageBg/userMessageText`、
 /// thinking `thinkingText` + 斜体、工具块 `toolPendingBg/toolSuccessBg/toolErrorBg` 底 +
 /// `toolTitle` 粗体 + `toolOutput`、markdown 代码块 `mdCodeBlock`、状态行 `dim`。
-fn item_style(item: &TranscriptItem, line: &str, is_first: bool) -> Option<style::LineStyle> {
-    use style::{
-        LineStyle, ACCENT, DIM, MD_CODE_BLOCK, MUTED, TEXT, TOOL_ERROR_BG, TOOL_SUCCESS_BG,
-        USER_MESSAGE_BG,
-    };
+fn item_style(
+    item: &TranscriptItem,
+    line: &str,
+    is_first: bool,
+    palette: &theme::Palette,
+) -> Option<style::LineStyle> {
+    use style::LineStyle;
     match item {
         // 用户消息：TS 是整块底色 + 默认前景（`user-message.ts:40,48`）。
         // 用户消息：整块底色 + `userMessageText`（= theme `text`，实测 256 色 188），
         // 不是"仅底色+默认前景"（T01 实测 TS 的文字 cell 有前景色）。
-        TranscriptItem::User(_) => Some(LineStyle::fg(TEXT).with_bg(USER_MESSAGE_BG)),
-        TranscriptItem::Thinking(_) => Some(LineStyle::fg(MUTED).italic()),
+        TranscriptItem::User(_) => {
+            Some(LineStyle::fg(palette.text).with_bg(palette.user_message_bg))
+        }
+        TranscriptItem::Thinking(_) => Some(LineStyle::fg(palette.muted).italic()),
         // ref `assistant-message.ts:185-198`：错误/截断/中止提示用 `error` 色。
-        TranscriptItem::Notice(_) => Some(LineStyle::fg(style::ERROR)),
+        TranscriptItem::Notice(_) => Some(LineStyle::fg(palette.error)),
         // 助手正文：TS 实测是**终端默认色**（fg=null），不要强加 text 色。
         TranscriptItem::Assistant(_) => None,
         // 状态行（`Thinking level: …`）在 TS 里是 **dim**（#666666 → 256 色 241），
         // 不是 muted（#808080 → 244）。`compare-style` 实测 TS 侧为 i241。
-        TranscriptItem::Status(_) => Some(LineStyle::fg(DIM)),
-        TranscriptItem::BranchSummary { .. } => Some(LineStyle::fg(ACCENT)),
+        TranscriptItem::Status(_) => Some(LineStyle::fg(palette.dim)),
+        TranscriptItem::BranchSummary { .. } => Some(LineStyle::fg(palette.accent)),
         TranscriptItem::ToolCall { name, is_error, .. } => {
             let background = if *is_error {
-                TOOL_ERROR_BG
+                palette.tool_error_bg
             } else {
-                TOOL_SUCCESS_BG
+                palette.tool_success_bg
             };
             // **padding 行**（块内空行）只有底色，没有前景/粗体（TS 实测 fg=null）。
             if line.trim().is_empty() {
@@ -1246,20 +1251,20 @@ fn item_style(item: &TranscriptItem, line: &str, is_first: bool) -> Option<style
             // 头部（`read input.txt` 这类以工具名开头的行）= `toolTitle` + 粗体。
             // 不能按"第一条内容行"判断：块首是 padding 行，会把样式错位一格（T06 实测）。
             if is_first || line.trim_start().starts_with(name.as_str()) {
-                return Some(LineStyle::fg(TEXT).with_bg(background).bold());
+                return Some(LineStyle::fg(palette.text).with_bg(background).bold());
             }
             // `... (N earlier lines, ctrl+o to expand)` 提示用 **muted**（`#808080`）。
             // ref `core/tools/renderers/bash.ts:93-95` 与
             // `components/tool-execution.ts:170` 都是 `theme.fg("muted", …)`；
-            // 此前误写成 DIM（`#666666`），真机上这行明显偏暗。
+            // 此前误写成 palette.dim（`#666666`），真机上这行明显偏暗。
             if line.starts_with("... (") {
-                return Some(LineStyle::fg(MUTED).with_bg(background));
+                return Some(LineStyle::fg(palette.muted).with_bg(background));
             }
             // 代码块内容行在工具输出里也要绿（`mdCodeBlock`）。
             if line.starts_with("   ") && line.trim_start().starts_with("```") {
-                return Some(LineStyle::fg(MD_CODE_BLOCK).with_bg(background));
+                return Some(LineStyle::fg(palette.md_code_block).with_bg(background));
             }
-            Some(LineStyle::fg(MUTED).with_bg(background))
+            Some(LineStyle::fg(palette.muted).with_bg(background))
         }
     }
 }
@@ -1287,14 +1292,19 @@ fn render_all_cached_inner(
     rows: usize,
     cache: Option<&mut RenderCache>,
 ) -> Vec<String> {
+    let theme = theme::Theme::builtin(&state.theme_name);
+    let palette = theme::Palette::of(&theme);
     render_all_cached_styled_inner(
         state,
         cols,
         rows,
         cache,
         &mut Vec::new(),
-        &mut Vec::new(),
-        &mut SpanSink::default(),
+        RenderStyleOut {
+            markdown_styles: &mut Vec::new(),
+            spans: &mut SpanSink::default(),
+            palette: &palette,
+        },
     )
 }
 
@@ -1308,8 +1318,7 @@ fn render_all_cached_styled_inner(
     rows: usize,
     mut cache: Option<&mut RenderCache>,
     styles: &mut Vec<Option<style::LineStyle>>,
-    markdown_styles: &mut Vec<(usize, Option<style::LineStyle>)>,
-    out_spans: &mut SpanSink,
+    style_out: RenderStyleOut<'_>,
 ) -> Vec<String> {
     let mut lines: Vec<String> = Vec::with_capacity(rows);
     lines.push(String::new());
@@ -1406,7 +1415,14 @@ fn render_all_cached_styled_inner(
                             .get(offset - first_content)
                             .copied()
                             .flatten()
-                            .or_else(|| item_style(item, &lines[offset], offset == first_content));
+                            .or_else(|| {
+                                item_style(
+                                    item,
+                                    &lines[offset],
+                                    offset == first_content,
+                                    style_out.palette,
+                                )
+                            });
                     }
                     // 命中缓存时 span 不走缓存，按同一条目重算一遍（行数一致才用，
                     // 折行行不在 md_lines 里 1:1 对应，直接跳过）。
@@ -1425,7 +1441,8 @@ fn render_all_cached_styled_inner(
                                 continue;
                             }
                             if line_spans.iter().all(|span| span.end <= cached_line.len()) {
-                                out_spans
+                                style_out
+                                    .spans
                                     .markdown
                                     .push((first_content + md_index, line_spans));
                             }
@@ -1498,13 +1515,16 @@ fn render_all_cached_styled_inner(
                     let un_wrapped = segments.len() == 1;
                     for wrapped in segments {
                         if md_style.is_some() {
-                            markdown_styles.push((lines.len(), md_style));
+                            style_out.markdown_styles.push((lines.len(), md_style));
                         }
                         if un_wrapped {
                             if let Some(line_spans) = spans_by_line.get(&index) {
                                 let fits = line_spans.iter().all(|span| span.end <= wrapped.len());
                                 if fits {
-                                    out_spans.markdown.push((lines.len(), line_spans.clone()));
+                                    style_out
+                                        .spans
+                                        .markdown
+                                        .push((lines.len(), line_spans.clone()));
                                 }
                             }
                         }
@@ -1533,7 +1553,7 @@ fn render_all_cached_styled_inner(
                 // 一个空格 + `summary` 用 **accent 色**（不加粗）。整行单色会差这两段。
                 if !summary.is_empty() {
                     let name_end = 1 + name.len();
-                    out_spans.tool_header.push((
+                    style_out.spans.tool_header.push((
                         lines.len() - 1,
                         vec![
                             // 行首那一个空格只带底色、不带前景/粗体（TS 逐格实测）。
@@ -1612,13 +1632,18 @@ fn render_all_cached_styled_inner(
         // 该条目产出的行：`before` 之前是段落空行，`before + 1..` 是内容。
         styles.resize(lines.len(), None);
         for offset in before + 1..lines.len() {
-            let style = item_style(item, &lines[offset], offset == before + 1);
+            let style = item_style(
+                item,
+                &lines[offset],
+                offset == before + 1,
+                style_out.palette,
+            );
             styles[offset] = style;
         }
         if let Some(cache) = cache.as_deref_mut() {
             let rendered: Vec<String> = lines[before + 1..].to_vec();
             let mut cached_md_styles: Vec<Option<style::LineStyle>> = vec![None; rendered.len()];
-            for (index, md_style) in markdown_styles.iter() {
+            for (index, md_style) in style_out.markdown_styles.iter() {
                 if let Some(slot) = cached_md_styles.get_mut(index - (before + 1)) {
                     *slot = *md_style;
                 }
@@ -1939,6 +1964,14 @@ pub fn render_markdown(input: &str) -> Vec<String> {
     render_markdown_styled(input).0
 }
 
+/// 渲染时"只写不读"的输出集合：markdown 行样式、行内 span、以及本次渲染用的调色板。
+/// 打成一个结构是为了让 `render_all_cached_styled_inner` 的参数个数保持在 clippy 阈值内。
+struct RenderStyleOut<'a> {
+    markdown_styles: &'a mut Vec<(usize, Option<style::LineStyle>)>,
+    spans: &'a mut SpanSink,
+    palette: &'a theme::Palette,
+}
+
 /// 帧级 span 收集器：工具头分段与 markdown 行内分段分开记，最后叠加到帧 `spans`。
 #[derive(Debug, Default)]
 struct SpanSink {
@@ -2179,6 +2212,39 @@ pub fn render_markdown_styled(input: &str) -> MarkdownRender {
 }
 
 #[cfg(test)]
+mod theme_wiring_tests {
+    use super::{render_all_marker_cached_styled, RenderCache, TranscriptItem, TuiState};
+
+    fn frame_for(theme: &str) -> (Vec<String>, Vec<Option<crate::style::LineStyle>>) {
+        let mut state = TuiState::new("0.87.1", "/tmp/work", "0.0%/128k (auto)");
+        state.theme_name = theme.to_string();
+        state
+            .transcript
+            .push(TranscriptItem::User("你好".to_string()));
+        let mut cache = RenderCache::new();
+        let frame = render_all_marker_cached_styled(&state, 80, 24, &mut cache);
+        (frame.lines, frame.styles)
+    }
+
+    /// 主题必须真的影响渲染：用户消息整块底色在 dark 是 `#343541`、在 light 是 `#e8e8e8`。
+    #[test]
+    fn user_message_background_follows_theme() {
+        let (dark_lines, dark_styles) = frame_for("dark");
+        let (light_lines, light_styles) = frame_for("light");
+        assert_eq!(dark_lines, light_lines, "主题不能改变文本");
+        assert_ne!(dark_styles, light_styles, "主题必须改变样式");
+
+        let bg_of = |styles: &[Option<crate::style::LineStyle>]| {
+            styles
+                .iter()
+                .find_map(|slot| slot.as_ref().and_then(|style| style.bg))
+        };
+        assert_eq!(bg_of(&dark_styles), Some((0x34, 0x35, 0x41)));
+        assert_eq!(bg_of(&light_styles), Some((0xe8, 0xe8, 0xe8)));
+    }
+}
+
+#[cfg(test)]
 mod tool_block_style_tests {
     use super::{item_style, TranscriptItem};
     use crate::style;
@@ -2199,8 +2265,14 @@ mod tool_block_style_tests {
     #[test]
     fn collapsed_hint_is_muted_not_dim() {
         let item = tool(Some("a\n"));
-        let style = item_style(&item, "... (15 earlier lines, ctrl+o to expand)", false)
-            .expect("提示行必须有样式");
+        let palette = crate::theme::Palette::of(&crate::theme::Theme::builtin("dark"));
+        let style = item_style(
+            &item,
+            "... (15 earlier lines, ctrl+o to expand)",
+            false,
+            &palette,
+        )
+        .expect("提示行必须有样式");
         assert_eq!(style.fg, Some(style::MUTED), "提示行必须是 muted");
         assert_ne!(style.fg, Some(style::DIM), "不能是 DIM");
         assert!(!style.bold, "提示行不加粗");
@@ -2209,16 +2281,18 @@ mod tool_block_style_tests {
     /// ref `renderers/bash.ts:71-73`：工具输出正文用 `toolOutput`（= gray `#808080`）。
     #[test]
     fn tool_output_lines_are_gray() {
+        let palette = crate::theme::Palette::of(&crate::theme::Theme::builtin("dark"));
         let item = tool(Some("total 0\n"));
-        let style = item_style(&item, "total 0", false).expect("输出行必须有样式");
+        let style = item_style(&item, "total 0", false, &palette).expect("输出行必须有样式");
         assert_eq!(style.fg, Some(style::MUTED));
     }
 
     /// ref `tool-execution.ts:156/422`：头部 = `toolTitle`（= text）+ 粗体。
     #[test]
     fn header_is_bold_text_color() {
+        let palette = crate::theme::Palette::of(&crate::theme::Theme::builtin("dark"));
         let item = tool(Some("x\n"));
-        let style = item_style(&item, " bash ls -la", true).expect("头部必须有样式");
+        let style = item_style(&item, " bash ls -la", true, &palette).expect("头部必须有样式");
         assert_eq!(style.fg, Some(style::TEXT));
         assert!(style.bold, "头部必须加粗");
     }
@@ -3443,6 +3517,8 @@ pub fn render_all_marker_cached_styled(
 ) -> StyledFrame {
     let mut styles: Vec<Option<style::LineStyle>> = Vec::new();
     let mut markdown_styles: Vec<(usize, Option<style::LineStyle>)> = Vec::new();
+    let theme = theme::Theme::builtin(&state.theme_name);
+    let palette = theme::Palette::of(&theme);
     let mut out_spans = SpanSink::default();
     let mut lines = render_all_cached_styled_inner(
         state,
@@ -3450,11 +3526,14 @@ pub fn render_all_marker_cached_styled(
         rows,
         Some(cache),
         &mut styles,
-        &mut markdown_styles,
-        &mut out_spans,
+        RenderStyleOut {
+            markdown_styles: &mut markdown_styles,
+            spans: &mut out_spans,
+            palette: &palette,
+        },
     );
     styles.resize(lines.len(), None);
-    apply_chrome_styles(&lines, &mut styles, &state.thinking_level);
+    apply_chrome_styles(&lines, &mut styles, &state.thinking_level, &palette);
     // 助手 markdown 的样式（标题/代码块）最后覆盖：不受空行继承等 chrome 规则影响。
     for (index, md_style) in &markdown_styles {
         if let (Some(style), Some(slot)) = (md_style, styles.get_mut(*index)) {

@@ -143,3 +143,83 @@ mod tests {
         assert_eq!(theme.rgb("userMessageBg"), Some((0x34, 0x35, 0x41)));
     }
 }
+
+/// 渲染层用的调色板：把上游 `colors` 的键名固定成字段，缺键时回落到 dark 的值，
+/// 这样新增主题不会因为少一个键就让某个元素没颜色（与上游 `resolveColors`
+/// 的"缺省继承"精神一致）。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Palette {
+    /// `text`
+    pub text: (u8, u8, u8),
+    /// `muted`（= gray）
+    pub muted: (u8, u8, u8),
+    /// `dim`（= dimGray）
+    pub dim: (u8, u8, u8),
+    /// `accent`
+    pub accent: (u8, u8, u8),
+    /// `warning`
+    pub warning: (u8, u8, u8),
+    /// `error`
+    pub error: (u8, u8, u8),
+    /// `border` / `borderMuted`
+    pub border: (u8, u8, u8),
+    /// `borderMuted`
+    pub border_muted: (u8, u8, u8),
+    /// `userMessageBg`
+    pub user_message_bg: (u8, u8, u8),
+    /// `toolSuccessBg`
+    pub tool_success_bg: (u8, u8, u8),
+    /// `toolErrorBg`
+    pub tool_error_bg: (u8, u8, u8),
+    /// `mdHeading`
+    pub md_heading: (u8, u8, u8),
+    /// `mdCodeBlock`
+    pub md_code_block: (u8, u8, u8),
+    /// `mdCodeBlockBorder`
+    pub md_code_block_border: (u8, u8, u8),
+    /// `mdLink`
+    pub md_link: (u8, u8, u8),
+    /// `mdListBullet` / `mdCode`（两者上游都指向 accent）
+    pub md_list_bullet: (u8, u8, u8),
+    /// `thinkingOff`…`thinkingMax`（编辑框边框随档位）
+    pub thinking: [Option<(u8, u8, u8)>; 7],
+}
+
+impl Palette {
+    /// 从主题取调色板；缺键回落 dark 的同名字段。
+    #[must_use]
+    pub fn of(theme: &Theme) -> Self {
+        let dark = Theme::builtin(DEFAULT_NAME);
+        let get = |theme: &Theme, key: &str| -> Option<(u8, u8, u8)> {
+            theme.rgb(key).or_else(|| dark.rgb(key))
+        };
+        let md_accent = get(theme, "mdListBullet");
+        Self {
+            text: get(theme, "text").unwrap_or((0xd4, 0xd4, 0xd4)),
+            muted: get(theme, "muted").unwrap_or((0x80, 0x80, 0x80)),
+            dim: get(theme, "dim").unwrap_or((0x66, 0x66, 0x66)),
+            accent: get(theme, "accent").unwrap_or((0x8a, 0xbe, 0xb7)),
+            warning: get(theme, "warning").unwrap_or((0xff, 0xff, 0x00)),
+            error: get(theme, "error").unwrap_or((0xcc, 0x66, 0x66)),
+            border: get(theme, "border").unwrap_or((0x50, 0x50, 0x50)),
+            border_muted: get(theme, "borderMuted").unwrap_or((0x50, 0x50, 0x50)),
+            user_message_bg: get(theme, "userMessageBg").unwrap_or((0x34, 0x35, 0x41)),
+            tool_success_bg: get(theme, "toolSuccessBg").unwrap_or((0x28, 0x32, 0x28)),
+            tool_error_bg: get(theme, "toolErrorBg").unwrap_or((0x3c, 0x28, 0x28)),
+            md_heading: get(theme, "mdHeading").unwrap_or((0xf0, 0xc6, 0x74)),
+            md_code_block: get(theme, "mdCodeBlock").unwrap_or((0xb5, 0xbd, 0x68)),
+            md_code_block_border: get(theme, "mdCodeBlockBorder").unwrap_or((0x80, 0x80, 0x80)),
+            md_link: get(theme, "mdLink").unwrap_or((0x81, 0xa2, 0xbe)),
+            md_list_bullet: md_accent.unwrap_or((0x8a, 0xbe, 0xb7)),
+            thinking: [
+                get(theme, "thinkingOff"),
+                get(theme, "thinkingMinimal"),
+                get(theme, "thinkingLow"),
+                get(theme, "thinkingMedium"),
+                get(theme, "thinkingHigh"),
+                get(theme, "thinkingXhigh"),
+                get(theme, "thinkingMax"),
+            ],
+        }
+    }
+}
