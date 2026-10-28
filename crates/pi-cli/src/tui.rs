@@ -891,6 +891,7 @@ pub fn run(mut state: TuiState, parts: Option<std::sync::Arc<AgentParts>>) -> st
                         continue;
                     }
                     TuiEvent::AssistantNotice(_)
+                    | TuiEvent::ThemeName(_)
                     | TuiEvent::ClearStatus
                     | TuiEvent::CtrlZ
                     | TuiEvent::ToolResult { .. }
@@ -969,6 +970,7 @@ pub fn run(mut state: TuiState, parts: Option<std::sync::Arc<AgentParts>>) -> st
                                 }
                                 TuiEvent::CtrlD => sel.reset_filter(),
                                 TuiEvent::Char(_)
+                                | TuiEvent::ThemeName(_)
                                 | TuiEvent::CtrlP
                                 | TuiEvent::CtrlS
                                 | TuiEvent::CtrlN
@@ -1799,8 +1801,11 @@ pub fn run(mut state: TuiState, parts: Option<std::sync::Arc<AgentParts>>) -> st
                                 let _ = crate::settings::persist_setting(
                                     agent_dir,
                                     "theme",
-                                    serde_json::Value::String(theme),
+                                    serde_json::Value::String(theme.clone()),
                                 );
+                                // ref `setTheme`（`settings-manager.ts:793-797`）：
+                                // 写配置后**立即重绘**，不用重启。
+                                let _ = apply(&mut state, TuiEvent::ThemeName(theme));
                             }
                             if let Some((parent, cols)) = settings_parent.take() {
                                 state.open_panel(

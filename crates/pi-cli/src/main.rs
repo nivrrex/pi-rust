@@ -143,6 +143,13 @@ fn main() -> ExitCode {
             // 状态区右侧的模型段：ref `components/footer.ts:170-171` 取**已解析模型的 id**，
             // 缺省显示 `no-model`（不是取 settings 的 defaultModel）。TUI 路径尚未解析模型
             // （P7-4 W3 才接入 agent loop），这里先用 settings 的 defaultModel 近似，缺失则 `no-model`。
+            // 主题：ref `settings-manager.ts:782-791` 的 `theme` 键（缺省 dark）。
+            // 值含 `/` 时上游视为**自定义主题文件路径**（`getTheme()` 返 undefined）。
+            state.theme_name = load_settings(&paths)
+                .ok()
+                .and_then(|settings| settings.theme)
+                .filter(|name| pi_tui::theme::BUILTIN.contains(&name.as_str()))
+                .unwrap_or_else(|| pi_tui::theme::DEFAULT_NAME.to_string());
             state.model = load_settings(&paths)
                 .ok()
                 .and_then(|settings| settings.default_model.clone())

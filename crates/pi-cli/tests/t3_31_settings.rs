@@ -6,6 +6,7 @@ use pi_cli::settings::{parse, resolve_model, Settings};
 fn cli_flags_win_over_settings() {
     let settings = Settings {
         default_thinking_level: None,
+        theme: None,
         enabled_models: None,
         show_hardware_cursor: None,
         default_provider: Some("from-settings".to_string()),
@@ -20,6 +21,7 @@ fn cli_flags_win_over_settings() {
 fn settings_are_used_when_the_cli_is_silent() {
     let settings = Settings {
         default_thinking_level: None,
+        theme: None,
         enabled_models: None,
         show_hardware_cursor: None,
         default_provider: Some("p".to_string()),
@@ -36,6 +38,7 @@ fn settings_are_used_when_the_cli_is_silent() {
 fn a_lone_provider_borrows_the_settings_model_and_vice_versa() {
     let settings = Settings {
         default_thinking_level: None,
+        theme: None,
         enabled_models: None,
         show_hardware_cursor: None,
         default_provider: Some("p".to_string()),
@@ -66,6 +69,7 @@ fn half_a_pair_is_an_error_naming_what_is_missing() {
 fn settings_must_give_both_fields() {
     let only_provider = Settings {
         default_thinking_level: None,
+        theme: None,
         enabled_models: None,
         show_hardware_cursor: None,
         default_provider: Some("p".to_string()),
@@ -77,6 +81,7 @@ fn settings_must_give_both_fields() {
 
     let only_model = Settings {
         default_thinking_level: None,
+        theme: None,
         enabled_models: None,
         show_hardware_cursor: None,
         default_provider: None,

@@ -38,6 +38,11 @@ pub struct Settings {
     /// （ref `settings-manager.getDefaultThinkingLevel()`）。
     #[serde(default, rename = "defaultThinkingLevel")]
     pub default_thinking_level: Option<String>,
+    /// `theme`：内置主题名（`dark`/`light`）或**自定义主题文件路径**。
+    /// ref `settings-manager.ts:782-791`：`getTheme()` 对含 `/` 的值返回 `undefined`
+    /// （即"不是内置名"），由主题加载器按路径处理。
+    #[serde(default)]
+    pub theme: Option<String>,
 }
 
 /// settings.json 的 `compaction` 段。**注意**：这里不拒绝未知键（与 TS 的宽松解析一致），
