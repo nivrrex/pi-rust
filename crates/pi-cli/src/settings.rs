@@ -328,3 +328,226 @@ pub fn persist_nested_setting(
     std::fs::write(&path, format!("{text}\n"))
         .map_err(|error| format!("写入 {} 失败：{error}", path.display()))
 }
+
+/// ref `core/model-resolver.ts:20` 的 `defaultModelPerProvider`（**provider 顺序有意义**：
+/// 第 4 步按这张表的顺序找"默认模型"命中）。只收录本实现认识的 provider；
+/// 表尾未收录的 provider 走"第一个可用模型"兜底。
+pub const DEFAULT_MODEL_PER_PROVIDER: &[(&str, &str)] = &[
+    ("amazon-bedrock", "us.anthropic.claude-opus-4-6-v1"),
+    ("ant-ling", "Ring-2.6-1T"),
+    ("anthropic", "claude-opus-4-8"),
+    ("openai", "gpt-5.5"),
+    ("azure-openai-responses", "gpt-5.4"),
+    ("openai-codex", "gpt-5.5"),
+    ("radius", "balanced"),
+    ("nvidia", "nvidia/nemotron-3-super-120b-a12b"),
+    ("deepseek", "deepseek-v4-pro"),
+    ("google", "gemini-3.1-pro-preview"),
+    ("google-vertex", "gemini-3.1-pro-preview"),
+    ("github-copilot", "gpt-5.4"),
+    ("openrouter", "moonshotai/kimi-k2.6"),
+    ("vercel-ai-gateway", "zai/glm-5.1"),
+    ("xai", "grok-4.7"),
+    ("groq", "openai/gpt-oss-120b"),
+    ("cerebras", "gpt-oss-120b"),
+    ("zai", "glm-5.3"),
+    ("zai-coding-cn", "glm-5.3"),
+    ("mistral", "devstral-medium-latest"),
+    ("minimax", "MiniMax-M2.7"),
+    ("minimax-cn", "MiniMax-M2.7"),
+    ("moonshotai", "kimi-k2.6"),
+    ("moonshotai-cn", "kimi-k2.6"),
+    ("huggingface", "moonshotai/Kimi-K2.6"),
+    ("fireworks", "accounts/fireworks/models/kimi-k2p6"),
+    ("together", "moonshotai/Kimi-K2.6"),
+    ("baseten", "zai-org/GLM-5.2"),
+    ("opencode", "kimi-k2.6"),
+    ("opencode-go", "kimi-k2.6"),
+];
+
+/// 一个"可选模型"（provider + 模型 id）。回落逻辑只需要这两个字段。
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ModelRef {
+    /// provider 名（`models.json` 的键）。
+    pub provider: String,
+    /// 模型 id。
+    pub id: String,
+}
+
+/// 按 ref `model-resolver.ts:622-717` 的顺序解析初始模型。
+///
+/// 1. CLI `--provider` + `--model` 都给 → 直接用；
+/// 2. `scoped`（settings 的 `enabledModels`，按顺序）第一个模型（续会话时跳过）；
+/// 3. settings 的 `defaultProvider`/`defaultModel`，**前提是该 provider 有可用凭据**；
+/// 4. 第一个可用模型：先按 [`DEFAULT_MODEL_PER_PROVIDER`] 的顺序找命中，再取 `available[0]`；
+/// 5. 都没有 → `Err`（调用方报错退出，文案与 ref 的"没有可用模型"一致）。
+pub fn resolve_initial_model(
+    cli_provider: Option<&str>,
+    cli_model: Option<&str>,
+    settings: &Settings,
+    scoped: &[ModelRef],
+    available: &[ModelRef],
+    is_continuing: bool,
+    has_auth: &dyn Fn(&str) -> bool,
+) -> Result<ModelRef, String> {
+    if let (Some(provider), Some(model)) = (cli_provider, cli_model) {
+        return Ok(ModelRef {
+            provider: provider.to_string(),
+            id: model.to_string(),
+        });
+    }
+    if let Some(first) = scoped.first().filter(|_| !is_continuing) {
+        return Ok(first.clone());
+    }
+    if let (Some(provider), Some(model)) = (&settings.default_provider, &settings.default_model) {
+        if has_auth(provider) || available.iter().any(|item| &item.provider == provider) {
+            return Ok(ModelRef {
+                provider: provider.clone(),
+                id: model.clone(),
+            });
+        }
+    }
+    for (provider, default_id) in DEFAULT_MODEL_PER_PROVIDER {
+        if let Some(found) = available
+            .iter()
+            .find(|item| item.provider == *provider && item.id == *default_id)
+        {
+            return Ok(found.clone());
+        }
+    }
+    if let Some(first) = available.first() {
+        return Ok(first.clone());
+    }
+    Err(
+        "没有可用的模型：请用 --provider/--model 指定，或在 settings.json 里配置 \
+         defaultProvider/defaultModel，或为某个 provider 配置 API key"
+            .to_string(),
+    )
+}
+
+#[cfg(test)]
+mod resolve_initial_model_tests {
+    use super::{resolve_initial_model, ModelRef, Settings};
+
+    fn model(provider: &str, id: &str) -> ModelRef {
+        ModelRef {
+            provider: provider.to_string(),
+            id: id.to_string(),
+        }
+    }
+
+    fn settings(default_provider: Option<&str>, default_model: Option<&str>) -> Settings {
+        Settings {
+            default_provider: default_provider.map(str::to_string),
+            default_model: default_model.map(str::to_string),
+            ..Settings::default()
+        }
+    }
+
+    /// 1) CLI 两个参数都给 ⇒ 直接用（ref `model-resolver.ts:648-662`）。
+    #[test]
+    fn cli_wins() {
+        let resolved = resolve_initial_model(
+            Some("p"),
+            Some("m"),
+            &settings(Some("x"), Some("y")),
+            &[],
+            &[],
+            false,
+            &|_| true,
+        )
+        .expect("应解析成功");
+        assert_eq!(resolved, model("p", "m"));
+    }
+
+    /// 2) 空配置目录 + 无可用模型 ⇒ Err（ref 第 5 步：交由调用方报错）。
+    #[test]
+    fn empty_everything_errors() {
+        let error =
+            resolve_initial_model(None, None, &Settings::default(), &[], &[], false, &|_| {
+                false
+            })
+            .expect_err("应报错");
+        assert!(error.contains("没有可用的模型"), "{error}");
+    }
+
+    /// 3) 仅 settings 默认 + 该 provider 有凭据 ⇒ 用默认（ref 第 3 步）。
+    #[test]
+    fn settings_default_with_auth() {
+        let resolved = resolve_initial_model(
+            None,
+            None,
+            &settings(Some("openrouter"), Some("openrouter/free")),
+            &[],
+            &[model("other", "m")],
+            false,
+            &|provider| provider == "openrouter",
+        )
+        .expect("应解析成功");
+        assert_eq!(resolved, model("openrouter", "openrouter/free"));
+    }
+
+    /// 4) scoped 模型优先于 settings 默认；续会话时跳过 scoped（ref 第 2 步）。
+    #[test]
+    fn scoped_models_skip_when_continuing() {
+        let scoped = [model("scoped", "s1")];
+        let resolved = resolve_initial_model(
+            None,
+            None,
+            &settings(Some("openrouter"), Some("openrouter/free")),
+            &scoped,
+            &[model("scoped", "s1")],
+            false,
+            &|_| true,
+        )
+        .expect("应解析成功");
+        assert_eq!(resolved, model("scoped", "s1"));
+
+        let resumed = resolve_initial_model(
+            None,
+            None,
+            &settings(Some("openrouter"), Some("openrouter/free")),
+            &scoped,
+            &[model("other", "m")],
+            true,
+            &|provider| provider == "openrouter",
+        )
+        .expect("应解析成功");
+        assert_eq!(resumed, model("openrouter", "openrouter/free"));
+    }
+
+    /// 5) 没有 settings 默认 ⇒ 先按 `defaultModelPerProvider` 顺序命中，否则第一个可用。
+    #[test]
+    fn falls_back_to_provider_default_then_first() {
+        let available = [
+            model("zzz", "m1"),
+            model("openai", "gpt-5.5"),
+            model("openrouter", "free"),
+        ];
+        let resolved = resolve_initial_model(
+            None,
+            None,
+            &Settings::default(),
+            &[],
+            &available,
+            false,
+            &|_| false,
+        )
+        .expect("应解析成功");
+        // ref 表里 openai 在 openrouter 之前 ⇒ 命中 gpt-5.5。
+        assert_eq!(resolved, model("openai", "gpt-5.5"));
+
+        let only_unknown = [model("zzz", "m1")];
+        let first = resolve_initial_model(
+            None,
+            None,
+            &Settings::default(),
+            &[],
+            &only_unknown,
+            false,
+            &|_| false,
+        )
+        .expect("应解析成功");
+        assert_eq!(first, model("zzz", "m1"));
+    }
+}
