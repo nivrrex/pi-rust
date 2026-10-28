@@ -43,6 +43,10 @@ pub struct Settings {
     /// （即"不是内置名"），由主题加载器按路径处理。
     #[serde(default)]
     pub theme: Option<String>,
+    /// `modelThinkingLevels`：`{"provider/modelId": "high"}` 形式的**每模型档位覆盖**
+    /// （ref `settings-manager.ts:809-811` 的 `getModelThinkingLevel`）。
+    #[serde(default, rename = "modelThinkingLevels")]
+    pub model_thinking_levels: Option<std::collections::BTreeMap<String, String>>,
 }
 
 /// settings.json 的 `compaction` 段。**注意**：这里不拒绝未知键（与 TS 的宽松解析一致），
