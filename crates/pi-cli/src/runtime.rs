@@ -210,7 +210,10 @@ fn expand_config_value(value: &str) -> String {
 
 /// 读配置目录下的 `auth.json`（读不到就返回 `None`，不影响其它凭据来源）。
 fn stored_api_key(provider: &str) -> Option<String> {
-    let home = std::env::var("HOME").unwrap_or_default();
+    // 必须用跨平台 `home_from`：Windows 上 `HOME` 通常不存在，用它会算成 `/.pi/agent`，
+    // 于是 `auth.json` 永远读不到 ⇒ 真机报"Provider \"openrouter\" 没有可用的 API key"
+    // （B-e 只替换了 5 处调用点，**漏了这一处**）。
+    let home = home_from(&|key| std::env::var(key).ok());
     let paths = resolve_paths(&|name| std::env::var(name).ok(), &home, None);
     let text = std::fs::read_to_string(paths.agent_dir.join("auth.json")).ok()?;
     auth_json_api_key(&text, provider)
