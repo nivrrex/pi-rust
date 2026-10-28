@@ -215,13 +215,16 @@ async fn provider_without_configured_headers_sends_none_of_them() {
     assert!(resolved.headers.is_empty(), "样本自检：没有配置头");
     assert!(resolved.api_key.is_none(), "样本自检：没有 apiKey");
 
-    let provider = pi_cli::runtime::build_provider(&resolved, None).expect("构造成功");
+    // F1-e 之后"无 key"会在构造阶段被拒绝（ref 行为），本用例测的是
+    // "没有配置 `headers`"——所以给一个 key，并只断言**没有额外自定义头**
+    // （authorization 是凭据机制必然产生的一行，不属于"配置头"）。
+    let provider =
+        pi_cli::runtime::build_provider(&resolved, Some("sk-test".to_string())).expect("构造成功");
     drive(provider.as_ref()).await;
 
     let headers = mock.first_request_headers();
     assert!(!headers.contains_key("x-fixture"), "{headers:?}");
     assert!(!headers.contains_key("x-model"), "{headers:?}");
-    assert!(!headers.contains_key("authorization"), "{headers:?}");
 }
 
 #[tokio::test]

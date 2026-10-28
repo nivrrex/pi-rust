@@ -109,9 +109,20 @@ pub fn build_provider(
         models_json_api_key: resolved.api_key.clone(),
         oauth: None,
         env_auth_token_vars: Vec::new(),
-        env_api_key_vars: env_vars,
+        env_api_key_vars: env_vars.clone(),
     };
     let credential = resolve_credential(&resolved.provider_name, &sources, &ProcessEnv);
+    // F1-e：**没有任何可用凭据时不要发请求**。ref 在构造 provider 前就要求 resolved key
+    // （`provider-composer.ts:304-312`），不会发出不带 Authorization 的请求让服务端回
+    // `401 No cookie auth credentials found`。
+    if credential.is_none() {
+        return Err(format!(
+            "Provider \"{}\" 没有可用的 API key：请在 auth.json、--api-key、环境变量（{}）\
+             或 models.json 的 apiKey 中提供其一（支持 $VAR / !command 形式）",
+            resolved.provider_name,
+            env_vars.join(" / ")
+        ));
+    }
     // `authHeader: true` → `Authorization: Bearer <apiKey>`（ref `:237` + `provider-composer.ts:304-307`，
     // 没有 key 时 TS 抛 `authHeader requires a resolved API key`）。
     let mut extra_headers = resolved.headers.clone();

@@ -199,7 +199,8 @@ async fn opencode_go_provider_sends_reasoning_content() {
     let request = request();
     assert_sample_has_thinking(&request);
 
-    let provider = pi_cli::runtime::build_provider(&resolved, None).expect("provider 构造成功");
+    let provider = pi_cli::runtime::build_provider(&resolved, Some("sk-test".to_string()))
+        .expect("provider 构造成功");
     let mut stream = stream_with_retry(provider.as_ref(), request).await;
     while futures::StreamExt::next(&mut stream).await.is_some() {}
 
@@ -228,7 +229,8 @@ async fn other_provider_keeps_the_actual_field_name() {
     let request = request();
     assert_sample_has_thinking(&request);
 
-    let provider = pi_cli::runtime::build_provider(&resolved, None).expect("provider 构造成功");
+    let provider = pi_cli::runtime::build_provider(&resolved, Some("sk-test".to_string()))
+        .expect("provider 构造成功");
     let mut stream = stream_with_retry(provider.as_ref(), request).await;
     while futures::StreamExt::next(&mut stream).await.is_some() {}
 
