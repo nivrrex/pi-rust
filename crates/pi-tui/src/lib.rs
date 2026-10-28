@@ -129,6 +129,9 @@ pub enum TranscriptItem {
     Notice(String),
     /// 工具调用块（golden/T06 实测：只显示调用行，如 ` read input.txt`；结果正文默认不显示）。
     ToolCall {
+        /// 工具调用的 id（`AgentEvent::ToolExecutionStart.tool_call_id`）——
+        /// 结果必须按 id 回填，不能取"最后一条"（同一回合多个调用会串）。
+        id: String,
         /// 工具名（如 `read`）。
         name: String,
         /// 已格式化的参数摘要（如 `input.txt`）。
@@ -264,6 +267,8 @@ pub enum TuiEvent {
     AssistantDelta(String),
     /// 工具结果正文（`ToolExecutionEnd`）：回填到**最后一条** `ToolCall`。
     ToolResult {
+        /// 工具调用 id（按 id 回填到对应条目，不取"最后一条"）。
+        id: String,
         /// 结果文本（多个 text 块用换行拼接）。
         output: String,
         /// 是否错误态。
@@ -309,6 +314,8 @@ pub enum TuiEvent {
     ThinkingDelta(String),
     /// agent loop：一次工具调用开始（golden/T06 只显示调用行）。
     ToolCall {
+        /// 工具调用 id。
+        id: String,
         /// 工具名。
         name: String,
         /// 参数摘要（如 `input.txt`）。
@@ -472,15 +479,32 @@ pub fn apply(state: &mut TuiState, event: TuiEvent) -> TuiAction {
             }
             TuiAction::Redraw
         }
-        TuiEvent::ToolResult { output, is_error } => {
-            // 回填到**最后一条** ToolCall（ref 里 ToolExecutionComponent 与调用一一对应）。
+        TuiEvent::ToolResult {
+            id,
+            output,
+            is_error,
+        } => {
+            // 按 `id` 找目标条目（ref `tool-execution` 组件一一对应）；找不到才回退最后一条。
+            let target_index = state
+                .transcript
+                .iter()
+                .rposition(
+                    |item| matches!(item, TranscriptItem::ToolCall { id: want, .. } if want == &id),
+                )
+                .or_else(|| {
+                    state
+                        .transcript
+                        .iter()
+                        .rposition(|item| matches!(item, TranscriptItem::ToolCall { .. }))
+                });
+            let target = target_index.and_then(|index| state.transcript.get_mut(index));
             if let Some(TranscriptItem::ToolCall {
                 output: slot,
                 is_error: flag,
                 started_at,
                 took,
                 ..
-            }) = state.transcript.last_mut()
+            }) = target
             {
                 *slot = Some(output);
                 *flag = is_error;
@@ -528,8 +552,9 @@ pub fn apply(state: &mut TuiState, event: TuiEvent) -> TuiAction {
             }
             TuiAction::Redraw
         }
-        TuiEvent::ToolCall { name, summary } => {
+        TuiEvent::ToolCall { id, name, summary } => {
             state.transcript.push(TranscriptItem::ToolCall {
+                id,
                 name,
                 summary,
                 output: None,
@@ -2279,6 +2304,7 @@ mod tool_block_style_tests {
 
     fn tool(output: Option<&str>) -> TranscriptItem {
         TranscriptItem::ToolCall {
+            id: "test-call".to_string(),
             name: "bash".to_string(),
             summary: "ls -la".to_string(),
             output: output.map(str::to_string),
@@ -2467,6 +2493,7 @@ mod markdown_tests {
             "# 标题\n\n行内 `code` 与结尾。\n".to_string(),
         ));
         state.transcript.push(TranscriptItem::ToolCall {
+            id: "test-call".to_string(),
             name: "read".to_string(),
             summary: "input.txt".to_string(),
             output: None,

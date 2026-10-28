@@ -171,6 +171,7 @@ fn transcript_from_messages(messages: &[pi_ai::message::Message]) -> Vec<pi_tui:
                         } => {
                             push_text(&mut text, &mut out_items);
                             out_items.push(pi_tui::TranscriptItem::ToolCall {
+                                id: format!("replay-{}", out_items.len()),
                                 output: None,
                                 is_error: false,
                                 started_at: None,
@@ -3112,13 +3113,19 @@ impl pi_core::agent::EventSink for TuiEventSink {
                 }
             },
             AgentEvent::ToolExecutionStart {
-                tool_name, args, ..
+                tool_call_id,
+                tool_name,
+                args,
             } => Some(TuiEvent::ToolCall {
+                id: tool_call_id,
                 name: tool_name,
                 summary: tool_summary(&args),
             }),
             AgentEvent::ToolExecutionEnd {
-                result, is_error, ..
+                tool_call_id,
+                tool_name: _,
+                result,
+                is_error,
             } => {
                 // 结果正文：把所有 text 块按换行拼接（ref `render-utils.ts` 的
                 // `getTextOutput` 同口径），图片块在 TUI 里略过。
@@ -3139,6 +3146,7 @@ impl pi_core::agent::EventSink for TuiEventSink {
                     }
                 }
                 Some(TuiEvent::ToolResult {
+                    id: tool_call_id,
                     output: parts.join("\n"),
                     is_error,
                 })
