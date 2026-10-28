@@ -1243,9 +1243,12 @@ fn item_style(item: &TranscriptItem, line: &str, is_first: bool) -> Option<style
             if is_first || line.trim_start().starts_with(name.as_str()) {
                 return Some(LineStyle::fg(TEXT).with_bg(background).bold());
             }
-            // `... (N more lines, ctrl+o to expand)` 提示用 muted。
+            // `... (N earlier lines, ctrl+o to expand)` 提示用 **muted**（`#808080`）。
+            // ref `core/tools/renderers/bash.ts:93-95` 与
+            // `components/tool-execution.ts:170` 都是 `theme.fg("muted", …)`；
+            // 此前误写成 DIM（`#666666`），真机上这行明显偏暗。
             if line.starts_with("... (") {
-                return Some(LineStyle::fg(DIM).with_bg(background));
+                return Some(LineStyle::fg(MUTED).with_bg(background));
             }
             // 代码块内容行在工具输出里也要绿（`mdCodeBlock`）。
             if line.starts_with("   ") && line.trim_start().starts_with("```") {
