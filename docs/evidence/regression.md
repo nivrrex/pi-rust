@@ -78,3 +78,23 @@
 - `cargo test --workspace`：755/0/1；`scripts/precommit.sh` 十一项通过
 - 样式级真彩：T01/T05/T28/T35/T73/T75 **全 same**，T77 **3**（合计 3）
 - 样式级 256：T05/T35/T73/T75/T77 **全 same**，T01 3、T28 2（合计 5）
+
+## 主题支持（P9，自述未核实）
+- 内置主题数据**直接内嵌上游** `theme/dark.json`、`theme/light.json`（`include_str!`），
+  解析 `vars`→`colors` 引用链（ref `theme.ts` 的 `loadTheme`/`resolveColors`）；未知主题回落 dark。
+- `settings.json` 的 `theme` 键生效（缺省 dark）；`/settings` 选主题写盘并发
+  `TuiEvent::ThemeName` 立即重绘。
+- 渲染取色全部走 `theme::Palette`（`item_style`、`apply_chrome_styles`、`header_spans`、
+  工具头 spans、markdown 各键、编辑框边框 `thinkingOff…thinkingMax`）。
+- 回归维度：`scripts/regress-tui.sh` 支持 `THEME=dark|light`（场景目录与 golden 目录随主题切换）。
+
+### 实测
+| 口径 | 结果 |
+|---|---|
+| dark 文本级 glibc ×3 | same=189 / different=0 / nogolden=39 |
+| musl ×1 | same=63 / different=0 / nogolden=13 |
+| dark 样式级（真彩 7 场景） | 仅 T77 3 格（TS 录制自身不稳定） |
+| light 样式级（真彩 6 场景） | **全 same** |
+| light 文本级（1 轮，6 场景） | same=6 / different=0 |
+| light 256（T01/T05 抽查） | 文本 same + 样式 same |
+| 单元/集成测试 | 761/0；clippy 0；precommit 十一项 |
