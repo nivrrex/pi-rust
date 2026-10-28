@@ -52,6 +52,18 @@ ref `ai/src/models.ts:926-933` 的 `getSupportedThinkingLevels` 对**声明了**
 - 无 `thinkingLevelMap` 的推理模型：**与 ref 一致**（你也实测 `openrouter/free • high` 两侧相同）；
 - 声明了 `xhigh`/`max` 的模型：我们会**少给**最高两档；声明某档为 `null` 的模型：我们会**多给**该档。
 
+### `!command` 配置值的 shell 选择（Windows 上不同）
+ref `utils/shell.ts:67-110` `getShellConfig()` 在 Windows 上**不是** `cmd /C`：
+1. `shellPath`（settings）若配置且存在 → 用它（bash 形态，`-c` 传命令）；
+2. 否则找 `%ProgramFiles%\Git\bin\bash.exe`、`%ProgramFiles(x86)%\Git\bin\bash.exe`；
+3. 再找 PATH 上的 `bash.exe`（Cygwin/MSYS2/WSL）；
+4. 都没有 → **报错**列出安装建议，不静默降级。
+
+我们的 `run_config_command`（`crates/pi-ai/src/credentials.rs`）在 Windows 上用 `cmd /C`，
+**与 ref 不一致**：`cmd` 的引号/转义与 bash 不同，`!` 命令若含 bash 语法（管道、`$(…)`、单引号）
+在 Windows 上会行为不同。Linux 下两侧都是 `sh -c`/`bash -c` 语义接近，已验证一致。
+**已登记为已知差距**，修法（找 bash → 报错）需在 Windows 上验证后再落。
+
 ### Windows 二进制未真机验证
 `bcryptprimitives.dll` 是本机 wine 8.0（Debian 包）**没有实现**的 DLL（`find /usr/lib -name 'bcryptprimitives*'` 无命中），
 且本机缺 `wine32`；这属于环境限制，不是产物问题（PE32+ 合法、16 项导入）。替代验证见真机清单。
