@@ -1206,7 +1206,38 @@ fn build_tui_agent_parts(
             })
             .collect();
         if !enabled.is_empty() {
-            enabled
+            // ref `core/model-resolver.ts:282-382`：启动时把 `enabledModels` 解析成
+            // scope，**匹配不到的项被丢弃并打 Warning**（`No models match pattern "<p>"`），
+            // 而不是留到运行时再跳过。这里做同样的过滤 + 告警。
+            let known: std::collections::BTreeSet<(String, String)> = models_config
+                .providers
+                .iter()
+                .flat_map(|(provider, value)| {
+                    value
+                        .get("models")
+                        .and_then(|models| models.as_array())
+                        .map(|models| {
+                            models
+                                .iter()
+                                .filter_map(|model| model.get("id").and_then(|id| id.as_str()))
+                                .map(|id| (provider.clone(), id.to_string()))
+                                .collect::<Vec<_>>()
+                        })
+                        .unwrap_or_default()
+                })
+                .collect();
+            let mut kept: Vec<pi_cli::tui::ModelChoice> = Vec::new();
+            for choice in enabled {
+                if known.contains(&(choice.provider.clone(), choice.id.clone())) {
+                    kept.push(choice);
+                } else {
+                    eprintln!(
+                        "Warning: No models match pattern \"{}/{}\"",
+                        choice.provider, choice.id
+                    );
+                }
+            }
+            kept
         } else {
             let mut fallback: Vec<pi_cli::tui::ModelChoice> = models_config
                 .providers
