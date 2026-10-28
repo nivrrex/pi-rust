@@ -38,6 +38,18 @@
    该场景只有 256 基准。
 5. **Windows 真机未验证**（仅交叉编译通过）；真机 IME 崩溃未复现；退出残留 500ms 有界。
 
+## 键位实现缺口（P8e-7 登记）
+
+`ctrl+p`（ref `core/keybindings.ts:106-109` 的 `app.model.cycleForward`）**尚未实现**：
+TUI 主循环把 `TuiEvent::CtrlP` 归入"吞掉不处理"的分支（`crates/pi-cli/src/tui.rs:2071`），
+所以在主界面按 `ctrl+p` 没有任何反应——这不是 Windows 特有问题，Linux 同样。
+同组还有：
+- `app.model.cycleBackward`（Windows 上 `alt+p`、其它平台 `shift+ctrl+p`）——未实现；
+- `app.model.select`（`ctrl+l`）——**已实现**（打开选择器，`T91`/`T79` 有 golden）。
+
+修法：在 `ctrl+p` 分支读 `enabledModels` 顺序的下一项 → 切模型（需要重建 provider 与更新 footer
+的 `model • level`），并补一条 golden。
+
 ## 与上游的已知差距（P8e-6 登记）
 
 ### 未实现的 CLI 子命令与选项（`--help` 里不再列，按 ref 应存在）
