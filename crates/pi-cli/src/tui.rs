@@ -648,25 +648,32 @@ fn clamp_thinking_level(available: &[String], requested: &str) -> String {
     if available.iter().any(|level| level == requested) {
         return requested.to_string();
     }
-    let supported_max = available
-        .iter()
-        .filter_map(|level| ORDER.iter().position(|item| item == level))
-        .max();
-    let wanted = ORDER.iter().position(|item| *item == requested);
-    match (wanted, supported_max) {
-        (Some(wanted), Some(supported_max)) => ORDER
-            .get(wanted.min(supported_max))
-            .copied()
-            .unwrap_or("medium")
-            .to_string(),
-        (None, Some(supported_max)) => ORDER
-            .get(supported_max)
-            .copied()
-            .unwrap_or("medium")
-            .to_string(),
-        // 模型没有任何可用档位（非推理模型）⇒ 只能是 `off`。
-        _unavailable => "off".to_string(),
+    let Some(requested_index) = ORDER.iter().position(|item| *item == requested) else {
+        // 未知档位：ref `models.ts:942-943` 返回 `availableLevels[0] ?? "off"`。
+        return available
+            .first()
+            .cloned()
+            .unwrap_or_else(|| "off".to_string());
+    };
+    // ref `models.ts:945-952`：**先向上找**（requestedIndex → 更大），再向下回退。
+    for index in requested_index..ORDER.len() {
+        if let Some(candidate) = ORDER.get(index) {
+            if available.iter().any(|level| level == candidate) {
+                return (*candidate).to_string();
+            }
+        }
     }
+    for index in (0..requested_index).rev() {
+        if let Some(candidate) = ORDER.get(index) {
+            if available.iter().any(|level| level == candidate) {
+                return (*candidate).to_string();
+            }
+        }
+    }
+    available
+        .first()
+        .cloned()
+        .unwrap_or_else(|| "off".to_string())
 }
 
 pub fn run(mut state: TuiState, parts: Option<std::sync::Arc<AgentParts>>) -> std::io::Result<i32> {
@@ -3894,11 +3901,25 @@ mod clamp_thinking_level_tests {
         assert_eq!(clamp_thinking_level(&levels(&["off"]), "high"), "off");
     }
 
-    /// 请求值不在档位表里（拼错）⇒ 取支持的最高档，不 panic。
+    /// 请求值不在档位表里（拼错）⇒ ref `models.ts:942-943` 取 `availableLevels[0] ?? "off"`。
     #[test]
-    fn unknown_level_takes_supported_max() {
-        let available = levels(&["off", "medium", "high"]);
-        assert_eq!(clamp_thinking_level(&available, "turbo"), "high");
+    fn unknown_level_falls_back_to_lowest_available() {
+        let available = levels(&["medium", "high"]);
+        assert_eq!(clamp_thinking_level(&available, "turbo"), "medium");
         assert_eq!(clamp_thinking_level(&[], "high"), "off");
+    }
+
+    /// ref `models.ts:945-952`：不可用时**先向上找**，找不到才向下。
+    /// 例如支持集合只有 `off`+`high`、请求 `low` ⇒ 取 `high`（不是 `off`）。
+    #[test]
+    fn unsupported_level_prefers_higher_neighbour() {
+        let available = levels(&["off", "high"]);
+        assert_eq!(clamp_thinking_level(&available, "low"), "high");
+        assert_eq!(clamp_thinking_level(&available, "minimal"), "high");
+        // 已在上限之上则只能向下回退。
+        assert_eq!(
+            clamp_thinking_level(&levels(&["off", "low"]), "high"),
+            "low"
+        );
     }
 }
