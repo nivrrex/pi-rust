@@ -40,15 +40,14 @@
 
 ## 键位实现缺口（P8e-7 登记）
 
-`ctrl+p`（ref `core/keybindings.ts:106-109` 的 `app.model.cycleForward`）**尚未实现**：
-TUI 主循环把 `TuiEvent::CtrlP` 归入"吞掉不处理"的分支（`crates/pi-cli/src/tui.rs:2071`），
-所以在主界面按 `ctrl+p` 没有任何反应——这不是 Windows 特有问题，Linux 同样。
-同组还有：
-- `app.model.cycleBackward`（Windows 上 `alt+p`、其它平台 `shift+ctrl+p`）——未实现；
-- `app.model.select`（`ctrl+l`）——**已实现**（打开选择器，`T91`/`T79` 有 golden）。
+`ctrl+p`（ref `core/keybindings.ts:106-109` 的 `app.model.cycleForward`）**已实现**：
+`crates/pi-cli/src/tui.rs:2176` 起按 `available_models` 顺序切到下一项并重建 provider
+（只有一个模型时给状态提示 `Only one model available`）。此前我在本文件里误记为"未实现"，
+原因是把**选择器打开时**那条"吞掉按键"的分支（`:2065-2078`）误当成主界面分支——已更正。
 
-修法：在 `ctrl+p` 分支读 `enabledModels` 顺序的下一项 → 切模型（需要重建 provider 与更新 footer
-的 `model • level`），并补一条 golden。
+仍未实现：
+- `app.model.cycleBackward`（Windows 上 `alt+p`、其它平台 `shift+ctrl+p`）；
+- 其余 ref 键位中未覆盖的条目，见上一节。
 
 ## 与上游的已知差距（P8e-6 登记）
 
