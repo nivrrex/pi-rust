@@ -2733,7 +2733,7 @@ pub fn run(mut state: TuiState, parts: Option<std::sync::Arc<AgentParts>>) -> st
                                     crate::settings_selector::scan_sessions(&parts.session_dir);
                                 sel.current_cwd = parts.cwd.clone();
                             }
-                            sel.home = std::env::var("HOME").unwrap_or_default();
+                            sel.home = crate::runtime::home_from(&|key| std::env::var(key).ok());
                             state.open_panel(pi_tui::PanelPlacement::BelowEditor, sel.lines(cols));
                             selector = Some(SelectorUi::Resume(sel, cols));
                         }

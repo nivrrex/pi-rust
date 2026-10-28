@@ -28,6 +28,30 @@ pub fn expand_tilde(path: &str, home: &str) -> PathBuf {
     }
 }
 
+/// 用户主目录（跨平台）：`HOME` → `USERPROFILE`（Windows）→
+/// `HOMEDRIVE`+`HOMEPATH`（老式 Windows）。ref 用 `os.homedir()`，
+/// 在 Windows 上等价于 `USERPROFILE`。
+///
+/// 真机问题：Windows 上 `HOME` 通常**不存在**，之前只读 `HOME` 会让
+/// `home` 变成空串 ⇒ 配置目录算成 `/.pi/agent`，表现为"没关联到标准目录"。
+pub fn home_from(env: &dyn Fn(&str) -> Option<String>) -> String {
+    fn take(value: Option<String>) -> Option<String> {
+        value
+            .map(|text| text.trim().to_string())
+            .filter(|text| !text.is_empty())
+    }
+    if let Some(home) = take(env("HOME")) {
+        return home;
+    }
+    if let Some(profile) = take(env("USERPROFILE")) {
+        return profile;
+    }
+    if let (Some(drive), Some(path)) = (take(env("HOMEDRIVE")), take(env("HOMEPATH"))) {
+        return format!("{drive}{path}");
+    }
+    String::new()
+}
+
 /// 解析路径。`env` 抽象出来便于单测（生产实现读 `std::env::var`）。
 pub fn resolve_paths(
     env: &dyn Fn(&str) -> Option<String>,
@@ -226,6 +250,44 @@ mod tests {
             paths.session_dir,
             PathBuf::from("/home/u/.pi/agent/sessions")
         );
+    }
+
+    /// 主目录解析（B-e）：Windows 上 `HOME` 通常不存在，必须回落到 `USERPROFILE`，
+    /// 否则配置目录会算成 `/.pi/agent`（真机表现为"没关联到标准目录"）。
+    #[test]
+    fn home_prefers_home_then_userprofile() {
+        assert_eq!(
+            super::home_from(&env_from(&[
+                ("HOME", "/home/u"),
+                ("USERPROFILE", r"C:\\Users\\u")
+            ])),
+            "/home/u"
+        );
+        assert_eq!(
+            super::home_from(&env_from(&[("USERPROFILE", r"C:\\Users\\u")])),
+            r"C:\\Users\\u"
+        );
+        assert_eq!(
+            super::home_from(&env_from(&[
+                ("HOMEDRIVE", "C:"),
+                ("HOMEPATH", r"\\Users\\u")
+            ])),
+            r"C:\\Users\\u"
+        );
+        assert_eq!(super::home_from(&env_from(&[("HOME", "   ")])), "");
+    }
+
+    /// Windows 形态的路径拼接：`USERPROFILE` 下拼 `.pi/agent`，且 session 目录在其下。
+    #[test]
+    fn windows_home_builds_standard_agent_dir() {
+        let env = env_from(&[("USERPROFILE", r"C:\\Users\\Admin")]);
+        let home = super::home_from(&env);
+        let paths = resolve_paths(&env, &home, None);
+        assert_eq!(
+            paths.agent_dir,
+            PathBuf::from(r"C:\\Users\\Admin").join(".pi").join("agent")
+        );
+        assert_eq!(paths.session_dir, paths.agent_dir.join("sessions"));
     }
 
     #[test]

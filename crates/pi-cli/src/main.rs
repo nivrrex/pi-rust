@@ -119,7 +119,7 @@ fn main() -> ExitCode {
                 eprintln!("pi-rs: 模式 interactive 需要 TTY（stdin 不是终端）；用 -p/--print 或 --mode rpc");
                 return ExitCode::from(1);
             }
-            let home = std::env::var("HOME").unwrap_or_default();
+            let home = pi_cli::runtime::home_from(&|key| std::env::var(key).ok());
             let paths = pi_cli::runtime::resolve_paths(
                 &|key| std::env::var(key).ok(),
                 &home,
@@ -189,7 +189,7 @@ fn main() -> ExitCode {
 fn run_rpc(parsed: &Args) -> ExitCode {
     use std::io::BufRead;
 
-    let home = std::env::var("HOME").unwrap_or_default();
+    let home = pi_cli::runtime::home_from(&|key| std::env::var(key).ok());
     let paths = pi_cli::runtime::resolve_paths(
         &|key| std::env::var(key).ok(),
         &home,
@@ -534,7 +534,7 @@ fn run_print(parsed: &Args, json: bool) -> ExitCode {
             return ExitCode::from(1);
         }
     };
-    let home = std::env::var("HOME").unwrap_or_default();
+    let home = pi_cli::runtime::home_from(&|key| std::env::var(key).ok());
     let paths = pi_cli::runtime::resolve_paths(
         &|key| std::env::var(key).ok(),
         &home,
