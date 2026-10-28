@@ -55,6 +55,20 @@
 - Windows 上 `cargo test --workspace` 仍有 12 个平台相关 target 失败（mock-provider 为 Linux ELF、
   `/tmp` 路径、`COLORTERM` 环境等），与代码缺陷无关，清单见上述 notes。
 
+## Windows 输入路径的三处偏差（P8e-9/C-a 登记，含更正）
+
+| # | 偏差 | ref 做法（行号） | 我们的做法 | 影响 |
+|---|---|---|---|---|
+| 1 | 输入事件来源 | ref 走 **VT 输入字节**路径：`packages/tui/src/terminal.ts:194-198` 在 `setRawMode(true)` 后调 `enableWindowsVTInput()`（`SetConsoleMode` 打开 `ENABLE_VIRTUAL_TERMINAL_INPUT`），再按字节解析 | 用 **crossterm 事件**（`KeyCode` + `KeyModifiers`），不打开 VT 输入 | 键位语义一致（`9a9ab38` 真机实测 Ctrl+D / Ctrl+P / Shift+Tab 均正常），但拿不到 VT 字节流的附带能力（见 2、3） |
+| 2 | Kitty 键盘协议 | ref 在 Windows 也**询问** Kitty 协议（`terminal.ts:200-202` `queryAndEnableKittyProtocol()`），失败才退回 `modifyOtherKeys` | 我们**不发** DA1/kitty 查询（无协商层消费应答；修复前应答会污染编辑框，现直接不发） | 无 Kitty 键盘协议 ⇒ 无法区分 `ctrl+shift+字母` 一类组合 |
+| 3 | 括号粘贴 | ref 启用 `\x1b[?2004h`（`terminal.ts:184-185`），粘贴被包在 `\x1b[200~…\x1b[201~`，由 `stdin-buffer.ts:25-26/328-366` 拆整段 | 我们仍**发** `?2004h`，但 Windows 的 crossterm 事件路径只给 `Event::Paste`（是否含换行取决于终端） | **风险**：多行粘贴可能被当成多次回车 ⇒ 多次提交。需真人在 Windows Terminal 下验证 |
+
+### 更正：此前"Windows 控制台不转换 Ctrl+D"的断言不成立
+P8e-7 回复里我写过"Windows 控制台在 VT 输入模式下不把 `Ctrl+D` 转成 `0x04`"——**该说法无直接证据**，只是当时
+"按键无反应"的一种猜测。Windows 侧实测的真因是两件事：①`map_key()` 未过滤 `KeyEventKind::Release`
+（crossterm 对 key-up 也发事件）导致字符翻倍；②启动期 DA1 应答 `[?1;0c` 被当成输入写进编辑框，
+编辑框非空 ⇒ `Ctrl+D` 不触发退出。两者均已修（`9a9ab38`）。
+
 ## 键位实现缺口（P8e-7 登记）
 
 `ctrl+p`（ref `core/keybindings.ts:106-109` 的 `app.model.cycleForward`）**已实现**：
