@@ -1313,8 +1313,8 @@ fn print_help() {
          选项:\n\
          \x20 --mode <text|json|rpc>   应用模式\n\
          \x20 --print, -p              非交互模式\n\
-         \x20 --provider <名>          provider（本版本必填）\n\
-         \x20 --model <名>             模型（本版本必填）\n\
+         \x20 --provider <名>          provider 名（缺省：settings 的 defaultProvider / 可用模型回落）\n\
+         \x20 --model <名>             模型名或 id（支持 provider/id 形式；同上回落）\n\
          \x20 --api-key <key>          API key\n\
          \x20 --system-prompt <文本>   覆盖系统提示\n\
          \x20 --append-system-prompt <文本>  追加系统提示（可重复）\n\
