@@ -2165,6 +2165,52 @@ pub fn render_markdown_styled(input: &str) -> MarkdownRender {
 }
 
 #[cfg(test)]
+mod tool_block_style_tests {
+    use super::{item_style, TranscriptItem};
+    use crate::style;
+
+    fn tool(output: Option<&str>) -> TranscriptItem {
+        TranscriptItem::ToolCall {
+            name: "bash".to_string(),
+            summary: "ls -la".to_string(),
+            output: output.map(str::to_string),
+            is_error: false,
+            started_at: None,
+            took: None,
+        }
+    }
+
+    /// ref `renderers/bash.ts:93-95`、`tool-execution.ts:170`：折叠提示用 **muted**
+    /// （`#808080`）。此前写成 DIM（`#666666`）导致真机上这行偏暗——用测试钉住。
+    #[test]
+    fn collapsed_hint_is_muted_not_dim() {
+        let item = tool(Some("a\n"));
+        let style = item_style(&item, "... (15 earlier lines, ctrl+o to expand)", false)
+            .expect("提示行必须有样式");
+        assert_eq!(style.fg, Some(style::MUTED), "提示行必须是 muted");
+        assert_ne!(style.fg, Some(style::DIM), "不能是 DIM");
+        assert!(!style.bold, "提示行不加粗");
+    }
+
+    /// ref `renderers/bash.ts:71-73`：工具输出正文用 `toolOutput`（= gray `#808080`）。
+    #[test]
+    fn tool_output_lines_are_gray() {
+        let item = tool(Some("total 0\n"));
+        let style = item_style(&item, "total 0", false).expect("输出行必须有样式");
+        assert_eq!(style.fg, Some(style::MUTED));
+    }
+
+    /// ref `tool-execution.ts:156/422`：头部 = `toolTitle`（= text）+ 粗体。
+    #[test]
+    fn header_is_bold_text_color() {
+        let item = tool(Some("x\n"));
+        let style = item_style(&item, " bash ls -la", true).expect("头部必须有样式");
+        assert_eq!(style.fg, Some(style::TEXT));
+        assert!(style.bold, "头部必须加粗");
+    }
+}
+
+#[cfg(test)]
 mod markdown_tests {
     use super::{render_markdown, render_markdown_styled, TranscriptItem, TuiState};
     use crate::style;
