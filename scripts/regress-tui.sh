@@ -28,13 +28,24 @@ SERIAL="T10 T52-tree-summarize"
 OUT_ROOT=${OUT_ROOT:-/tmp/regress-tui}
 rm -rf "$OUT_ROOT"; mkdir -p "$OUT_ROOT"
 
+# 主题维度：`THEME=dark|light`。light 用 `scenarios-tui-light/` + `golden-tui-light/`，
+# 缺省 dark 保持原有路径（`scenarios-tui/` + `golden-tui/`），因此默认行为不变。
+THEME=${THEME:-dark}
+case "$THEME" in
+  dark) SCEN_DIR=scenarios-tui; GOLD_DIR=golden-tui ;;
+  light) SCEN_DIR=scenarios-tui-light; GOLD_DIR=golden-tui-light ;;
+  *) echo "regress-tui: THEME 只接受 dark|light，收到 $THEME" >&2; exit 2 ;;
+esac
+
+export THEME SCEN_DIR GOLD_DIR
+
 run_one() {
   name=$1; run=$2; out="$OUT_ROOT/$name/run-$run"
   mkdir -p "$out"
   unshare -n sh -c "ip link set lo up; env PATH=\"$PATH\" TUI_CMD=$BIN DIFTEST_IMPL=pi-rs \
-    node $REPO/tools/difftest/run-tui.mjs --scenario $REPO/scenarios-tui/$name.json --out $out" \
+    node $REPO/tools/difftest/run-tui.mjs --scenario $REPO/$SCEN_DIR/$name.json --out $out" \
     > "$out/run.log" 2>&1
-  gold="$REPO/golden-tui/$name/run-1/raw.bin"
+  gold="$REPO/$GOLD_DIR/$name/run-1/raw.bin"
   raw="$out/run-1/raw.bin"
   if [ ! -f "$gold" ]; then echo "$name run-$run nogolden"; return; fi
   if [ ! -f "$raw" ]; then echo "$name run-$run runfail"; return; fi
@@ -48,7 +59,7 @@ run_one() {
 
 serial_list=""
 parallel_list=""
-for path in "$REPO"/scenarios-tui/*.json; do
+for path in "$REPO"/$SCEN_DIR/*.json; do
   name=$(basename "$path" .json)
   case " $SERIAL " in *" $name "*) serial_list="$serial_list $name" ;; esac
   case " $SERIAL " in *" $name "*) ;; *) parallel_list="$parallel_list $name" ;; esac
@@ -61,9 +72,9 @@ echo "$serial_list" | tr ' ' '\n' | grep -v '^$' | while read -r name; do
   for run in $(seq 1 "$RUNS"); do echo "$name $run"; done
 done > "$OUT_ROOT/serial.txt"
 
-xargs -P "$JOBS" -n 2 sh -c "$(declare -f run_one); REPO=$REPO OUT_ROOT=$OUT_ROOT BIN=$BIN run_one \"\$0\" \"\$1\"" \
+xargs -P "$JOBS" -n 2 sh -c "$(declare -f run_one); REPO=$REPO OUT_ROOT=$OUT_ROOT BIN=$BIN SCEN_DIR=$SCEN_DIR GOLD_DIR=$GOLD_DIR run_one \"\$0\" \"\$1\"" \
   < "$OUT_ROOT/parallel.txt" > "$OUT_ROOT/parallel.log" 2>&1
-xargs -P 1 -n 2 sh -c "$(declare -f run_one); REPO=$REPO OUT_ROOT=$OUT_ROOT BIN=$BIN run_one \"\$0\" \"\$1\"" \
+xargs -P 1 -n 2 sh -c "$(declare -f run_one); REPO=$REPO OUT_ROOT=$OUT_ROOT BIN=$BIN SCEN_DIR=$SCEN_DIR GOLD_DIR=$GOLD_DIR run_one \"\$0\" \"\$1\"" \
   < "$OUT_ROOT/serial.txt" > "$OUT_ROOT/serial.log" 2>&1
 
 cat "$OUT_ROOT/parallel.log" "$OUT_ROOT/serial.log" > "$OUT_ROOT/result.txt"
