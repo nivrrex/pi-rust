@@ -98,3 +98,13 @@
 | light 文本级（1 轮，6 场景） | same=6 / different=0 |
 | light 256（T01/T05 抽查） | 文本 same + 样式 same |
 | 单元/集成测试 | 761/0；clippy 0；precommit 十一项 |
+
+## 最终门禁（本轮，数字自述未核实）
+| 口径 | 结果 |
+|---|---|
+| dark 文本级 glibc ×3 | **same=189 / different=0 / nogolden=39 / runfail=0** |
+| light 文本级 ×3 | **same=18 / different=0 / runfail=0**（6 场景 ×3 轮） |
+| musl 静态 ×1 | **same=63 / different=0 / nogolden=13 / runfail=0** |
+| pty 探针（6 个） | Esc 中止 / 断网重试 / 中止延迟 / IME 光标 / 退出残留（20 次）/ 错误累积 `[1,2,3,4]` 全绿 |
+| 单元/集成 | `cargo test --workspace` 764/0；`node --test tools/difftest/test/*` 91 pass |
+| 检查 | clippy `-D warnings` 0、`lint-banned` OK、`precommit.sh` 十一项通过 |
