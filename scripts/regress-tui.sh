@@ -49,8 +49,12 @@ run_one() {
   raw="$out/run-1/raw.bin"
   if [ ! -f "$gold" ]; then echo "$name run-$run nogolden"; return; fi
   if [ ! -f "$raw" ]; then echo "$name run-$run runfail"; return; fi
+  # 每个场景可能声明自己的 `tui.cols/rows`（如 T05-w80）；比较必须用**场景的**尺寸，
+  # 否则 80 列录的 golden 会被按 100 列回放，必然 different。
+  dims=$(node -e 'const fs=require("fs");const s=JSON.parse(fs.readFileSync(process.argv[1],"utf8"));const t=s.tui||{};process.stdout.write(`${t.cols||100} ${t.rows||30}`)' "$REPO/$SCEN_DIR/$name.json" 2>/dev/null)
+  cols=${dims%% *}; rows=${dims##* }
   if node "$REPO/tools/difftest/compare-tui.mjs" --left "$gold" --right "$raw" \
-      --cols 100 --rows 30 2>&1 | head -1 | grep -q same; then
+      --cols "$cols" --rows "$rows" 2>&1 | head -1 | grep -q same; then
     echo "$name run-$run same"
   else
     echo "$name run-$run DIFFERENT"
