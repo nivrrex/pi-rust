@@ -1155,7 +1155,10 @@ fn apply_chrome_styles(
         if !trimmed.is_empty() && trimmed.chars().all(|ch| ch == '─') {
             // ref `interactive-mode.ts:4356-4363`：编辑框边框色 = 当前思考档位的颜色
             // （`theme.ts:371-395` 的 `getThinkingBorderColor`）。
-            *slot = Some(LineStyle::fg(crate::style::thinking_border(thinking_level)));
+            *slot = Some(LineStyle::fg(thinking_border_color(
+                thinking_level,
+                palette,
+            )));
             continue;
         }
         // 启动键位提示与 `Press ctrl+o …`：`dim`（ref `:985-994` 走 muted/dim 口径）。
@@ -3541,7 +3544,7 @@ pub fn render_all_marker_cached_styled(
         }
     }
     marker_apply(state, cols, &mut lines);
-    let mut spans = header_spans(&lines);
+    let mut spans = header_spans(&lines, &palette);
     // 工具头部的多色分段按**条目行区间**记录后叠加（不用全屏文本匹配）。
     for (index, line_spans) in out_spans
         .tool_header
@@ -3590,8 +3593,30 @@ pub struct StyledFrame {
 /// 规格取自 TS 实际屏幕（`compare-style` 的 run 分析）：
 /// - `pi v0.87.1`：`pi` 是 accent + 粗体（外层再套 dim），其余 dim；
 /// - 键位提示行：**键名 dim、说明 muted**（`escape` / `ctrl+c/ctrl+d` / `/` / `!` / `ctrl+o`）。
-fn header_spans(lines: &[String]) -> Vec<Vec<style::Span>> {
-    use style::{LineStyle, ACCENT, DIM, MUTED};
+// 思考档位 → 编辑框边框色（ref `theme.ts:371-395` 的 `getThinkingBorderColor`）。
+// 颜色来自主题的 `thinkingOff`…`thinkingMax`，缺键回落 dark。
+fn thinking_border_color(level: &str, palette: &theme::Palette) -> (u8, u8, u8) {
+    let index = match level {
+        "off" => 0,
+        "minimal" => 1,
+        "low" => 2,
+        "medium" => 3,
+        "high" => 4,
+        "xhigh" => 5,
+        "max" => 6,
+        // 未知档位（上游只会出现上表七个）⇒ 用边框兜底色。
+        _unknown => return palette.border_muted,
+    };
+    palette
+        .thinking
+        .get(index)
+        .copied()
+        .flatten()
+        .unwrap_or(palette.border_muted)
+}
+
+fn header_spans(lines: &[String], palette: &theme::Palette) -> Vec<Vec<style::Span>> {
+    use style::LineStyle;
     const KEY_TOKENS: [&str; 5] = ["escape", "ctrl+c/ctrl+d", "/", "!", "ctrl+o"];
     let mut out: Vec<Vec<style::Span>> = Vec::new();
     let mut in_context_section = false;
@@ -3604,7 +3629,7 @@ fn header_spans(lines: &[String]) -> Vec<Vec<style::Span>> {
             out.push(vec![style::Span::new(
                 0,
                 line.len(),
-                LineStyle::fg(style::MD_HEADING),
+                LineStyle::fg(palette.md_heading),
             )]);
             continue;
         }
@@ -3612,7 +3637,7 @@ fn header_spans(lines: &[String]) -> Vec<Vec<style::Span>> {
             out.push(vec![style::Span::new(
                 0,
                 line.len(),
-                LineStyle::fg(style::DIM),
+                LineStyle::fg(palette.dim),
             )]);
             continue;
         }
@@ -3627,8 +3652,8 @@ fn header_spans(lines: &[String]) -> Vec<Vec<style::Span>> {
             // 粗体**始终加**（真彩 TS 发 `\x1b[1m`；256 下 TS 自己在不同场景不一致：
             // T28 录到无 bold、T77 录到有 bold，属上游帧序列差异，取多数且与真彩一致的做法）。
             let spans = vec![
-                style::Span::new(lead, lead + short, LineStyle::fg(ACCENT).bold()),
-                style::Span::new(lead + short, line.len(), LineStyle::fg(DIM)),
+                style::Span::new(lead, lead + short, LineStyle::fg(palette.accent).bold()),
+                style::Span::new(lead + short, line.len(), LineStyle::fg(palette.dim)),
             ];
             out.push(spans);
             continue;
@@ -3674,9 +3699,9 @@ fn header_spans(lines: &[String]) -> Vec<Vec<style::Span>> {
                     end += 1;
                 }
                 let style = if is_key {
-                    LineStyle::fg(DIM)
+                    LineStyle::fg(palette.dim)
                 } else {
-                    LineStyle::fg(MUTED)
+                    LineStyle::fg(palette.muted)
                 };
                 spans.push(style::Span::new(index, end, style));
                 index = end;
