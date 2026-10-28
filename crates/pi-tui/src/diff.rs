@@ -593,8 +593,14 @@ fn diff_render_body_styled(
         let new_line = new_lines.get(i).map_or("", String::as_str);
         let old_style = state.previous_styles.get(i).copied().flatten();
         let new_style = styles.get(i).copied().flatten();
-        let old_spans = state.previous_spans.get(i);
-        let new_spans = spans.get(i);
+        // `None`（该行没有 span）与 `Some(空 vec)`（占位）语义相同，必须视为相等，
+        // 否则 `previous_spans` 与 `spans` 长度不一致时，边界行会被永久判成"变化"，
+        // 于是每帧都从那一行重画到屏幕底部（错误状态输出量随历史平方增长）。
+        let old_spans = state
+            .previous_spans
+            .get(i)
+            .filter(|line_spans| !line_spans.is_empty());
+        let new_spans = spans.get(i).filter(|line_spans| !line_spans.is_empty());
         if old_line != new_line || old_style != new_style || old_spans != new_spans {
             if first_changed.is_none() {
                 first_changed = Some(i);
