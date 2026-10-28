@@ -20,6 +20,7 @@
 // P7-6k/W2：主屏差分渲染的纯函数移植（本批不接线，见模块文档）。
 pub mod diff;
 pub mod style;
+pub mod theme;
 // P7-6q/W3：键盘输入层纯函数（本批不接线）。
 pub mod input;
 // P7-6w/W2：终端协商状态机（纯函数，本批不接线）。
