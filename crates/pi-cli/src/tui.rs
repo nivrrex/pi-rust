@@ -742,6 +742,11 @@ pub fn run(mut state: TuiState, parts: Option<std::sync::Arc<AgentParts>>) -> st
     // 输入线程拿走一份发送端（agent run 需要主线程这份，故 clone 后再 move）。
     let input_tx = tx.clone();
     // P7-6ae/S3：**r3 走原始字节路径**（input.rs → 键名映射），R1/R2 仍走 crossterm。
+    // Windows 例外：控制台在 VT 输入模式下不把 `Ctrl+D`/`Ctrl+P` 变成可用字节
+    // （真机反馈"ctrl+d 无法退出、ctrl+p 切换不了模型"），改用 crossterm 事件。
+    #[cfg(windows)]
+    spawn_crossterm_input_thread(input_tx);
+    #[cfg(not(windows))]
     spawn_r3_input_thread(input_tx);
 
     let mut cols = terminal::size().map(|(c, _)| c as usize).unwrap_or(80);
@@ -3320,6 +3325,74 @@ mod p76ab_tests {
 /// 与 crossterm 路径的差别：解析完全由 `pi_tui::input`（StdinBuffer 端口）负责，
 /// 到期（孤立 ESC 10 ms / 序列 100 ms）由本线程按 `wake` 显式驱动 `flush()`。
 /// `input.rs` / `term_negotiate` / `osc11` 的串联留到 S4。
+/// Windows 输入线程：crossterm `event::read` → `TuiEvent`。
+///
+/// Windows 控制台的 VT 输入模式对 `Ctrl+<字母>` 的字节转换不可靠（真机实测
+/// `Ctrl+D` 收不到 `0x04`、`Ctrl+P` 收不到 `0x10`），而 crossterm 直接给出
+/// `KeyCode::Char` + `CONTROL`。Unix 仍走字节路径（与 golden 逐字节对齐）。
+#[cfg(windows)]
+fn spawn_crossterm_input_thread(tx: std::sync::mpsc::Sender<TuiEvent>) {
+    use crossterm::event::{self, Event, KeyCode, KeyEvent, KeyModifiers};
+
+    fn map_key(key: KeyEvent) -> Option<TuiEvent> {
+        let ctrl = key.modifiers.contains(KeyModifiers::CONTROL);
+        match key.code {
+            KeyCode::Char(ch) if ctrl => match ch.to_ascii_lowercase() {
+                'c' => Some(TuiEvent::Clear),
+                'd' => Some(TuiEvent::CtrlD),
+                'p' => Some(TuiEvent::CtrlP),
+                'n' => Some(TuiEvent::CtrlN),
+                's' => Some(TuiEvent::CtrlS),
+                'o' => Some(TuiEvent::CtrlO),
+                'l' => Some(TuiEvent::CtrlL),
+                't' => Some(TuiEvent::CtrlT),
+                'z' => Some(TuiEvent::CtrlZ),
+                'a' => Some(TuiEvent::LineStart),
+                'e' => Some(TuiEvent::LineEnd),
+                'k' => Some(TuiEvent::DeleteToLineEnd),
+                'u' => Some(TuiEvent::DeleteToLineStart),
+                'w' => Some(TuiEvent::DeleteWordBackward),
+                'j' => Some(TuiEvent::Newline),
+                _unmapped => None,
+            },
+            KeyCode::Char(ch) => Some(TuiEvent::Char(ch)),
+            KeyCode::Enter => Some(TuiEvent::Enter),
+            KeyCode::Backspace => Some(TuiEvent::Backspace),
+            KeyCode::Esc => Some(TuiEvent::Escape),
+            KeyCode::Left => Some(TuiEvent::CursorLeft),
+            KeyCode::Right => Some(TuiEvent::CursorRight),
+            KeyCode::Up => Some(TuiEvent::HistoryPrev),
+            KeyCode::Down => Some(TuiEvent::HistoryNext),
+            KeyCode::Tab if key.modifiers.contains(KeyModifiers::SHIFT) => Some(TuiEvent::BackTab),
+            KeyCode::Tab => Some(TuiEvent::Tab),
+            KeyCode::Home => Some(TuiEvent::LineStart),
+            KeyCode::End => Some(TuiEvent::LineEnd),
+            KeyCode::Delete => Some(TuiEvent::Delete),
+            _other => None,
+        }
+    }
+
+    std::thread::spawn(move || loop {
+        match event::read() {
+            Ok(Event::Key(key)) => {
+                if let Some(mapped) = map_key(key) {
+                    if tx.send(mapped).is_err() {
+                        return;
+                    }
+                }
+            }
+            Ok(Event::Paste(text)) => {
+                if tx.send(TuiEvent::Paste(text)).is_err() {
+                    return;
+                }
+            }
+            Ok(_other) => {}
+            Err(_) => return,
+        }
+    });
+}
+
+#[cfg(not(windows))]
 fn spawn_r3_input_thread(tx: std::sync::mpsc::Sender<TuiEvent>) {
     use pi_tui::input::InputState;
     use std::io::Read;
