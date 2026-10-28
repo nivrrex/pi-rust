@@ -108,3 +108,19 @@
 | pty 探针（6 个） | Esc 中止 / 断网重试 / 中止延迟 / IME 光标 / 退出残留（20 次）/ 错误累积 `[1,2,3,4]` 全绿 |
 | 单元/集成 | `cargo test --workspace` 764/0；`node --test tools/difftest/test/*` 91 pass |
 | 检查 | clippy `-D warnings` 0、`lint-banned` OK、`precommit.sh` 十一项通过 |
+
+## P8 出口定义重判（P8e-7 批末，最终 HEAD）
+| # | 条目 | 结果 | 依据 |
+|---|---|---|---|
+| 1 | 文本级 glibc×3、musl×1 全 same | **达成** | dark ×3 `same=189/0`、light ×3 `same=18/0`、musl ×1 `same=63/0` |
+| 2 | 屏幕错位根治或证明为回放器假象 | **达成** | 判定为 `compare-style` 缺隐式滚屏（`notes/evidence/K1p-replayer-compare.md`），已修并加性质测试 |
+| 3 | 真彩判定九条 + 两套 SGR 单测 | **达成** | `style.rs` 九条判定 + `truecolor_from` 14 条单测 |
+| 4 | 样式级差异为 0 或逐项 ref 归因且换过两种方法 | **达成（归因口径）** | 真彩 7 场景仅 T77 3 格（TS 录制自身不稳定，输出等于其 run-2/3）；light 6 场景全 same |
+| 5 | 43 条绑定判定与 LIMITATIONS 一致 | **达成** | `LIMITATIONS.md` 键位与交互段 |
+| 6 | 无未提交、无 stray、precommit 通过 | **达成** | 工作区干净、`check-no-stray` 无残留、十一项通过 |
+
+## P8e-7 批内新增的实质修复（供出口复核）
+- `apiKey` 的 `$VAR` / `${VAR}` / `!command` 三形态此前未解析（`450c320`、`fa8fdb6`）。
+- 无凭据时仍发请求、由服务端回 401 → 改为本地拒绝不发请求（`0cd8f7d`）。
+- 退出提示用 `writeln!` 在 Windows 发 CRLF → 改为只发 LF（`770df1a`）。
+- `MOCK_VERBOSE` 必须设在 mock 进程（取证坑位已写进 `tools/mock-provider` 注释，`099f8c9`）。
