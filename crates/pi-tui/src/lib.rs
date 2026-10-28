@@ -1341,10 +1341,16 @@ fn render_all_cached_styled_inner(
     ));
     lines.push(String::new());
     // ref `:995-998`
-    lines.push(clamp_to_width(
-        " Pi can explain its own features and look up its docs. Ask it how to use or extend Pi.",
-        cols,
-    ));
+    // ref 该段是可换行的 Text（`paddingX = 1` ⇒ 排版宽 `width - 2`）；
+    // 此前用 `clamp_to_width(cols)` 直接截断，窄终端（80 列）会丢掉尾巴而原版是折行。
+    // 折行后**每段都保留 1 列左内边距**（ref 的 Text padding 对每个视觉行都生效，
+    // 实测 TS 续行是 ` extend Pi.`，不是顶格）。
+    for wrapped in wrap_to_width(
+        "Pi can explain its own features and look up its docs. Ask it how to use or extend Pi.",
+        cols.saturating_sub(2),
+    ) {
+        lines.push(format!(" {wrapped}"));
+    }
     lines.push(String::new());
     // ref `:1770-1784`：`[Context]` 段（只显示路径）
     if !state.context_files.is_empty() {
@@ -1515,7 +1521,10 @@ fn render_all_cached_styled_inner(
                 for (index, line) in md_lines.iter().enumerate() {
                     let md_style = md_styles.get(index).copied().flatten();
                     // 长段落必须**折行**而不是截断；折行段沿用所属 markdown 行的样式。
-                    let segments = wrap_to_width(line, cols);
+                    // 宽度扣掉左右各 1 列内边距（ref 助手消息 `outputPad = 1`，
+                    // `assistant-message.ts:31` 传给 Markdown 的 `paddingX`；
+                    // pi-tui 的 Text/Markdown 按 `width - 2 * paddingX` 排版）。
+                    let segments = wrap_to_width(line, cols.saturating_sub(2));
                     // 只有**未被折行**的行才能直接用 span 的字节偏移（T05 的两行都属于这种）。
                     let un_wrapped = segments.len() == 1;
                     for wrapped in segments {
