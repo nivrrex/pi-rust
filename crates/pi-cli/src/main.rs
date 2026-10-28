@@ -1249,10 +1249,7 @@ fn print_help() {
          \x20 write                    写文件（创建/覆盖）\n\
          \x20 grep / find / ls         只读检索（默认不启用）\n\
          \x20 --offline                离线\n\
-         \x20 --help, -h / --version, -v\n\
-         环境变量:\n\
-         \x20 PI_TUI_RENDERER=<r1|r2>  TUI 渲染器：r1=整屏重画（默认）、r2=行级 diff；\n\
-         \x20                           缺失或非法值时回退 r1（非法值另在 stderr 打一行 warning）\n",
+         \x20 --help, -h / --version, -v\n",
         version = pi_core::VERSION
     );
 }
