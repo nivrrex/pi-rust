@@ -61,6 +61,9 @@ struct Scenario {
     max_tokens: Option<u64>,
     #[serde(default)]
     settings: Option<serde_json::Value>,
+    /// 主题名（`dark`/`light`）：runner 写进 `settings.json`，mock 只要求能解析。
+    #[serde(default)]
+    theme: Option<String>,
     #[serde(default)]
     commands: Option<serde_json::Value>,
     #[serde(default)]

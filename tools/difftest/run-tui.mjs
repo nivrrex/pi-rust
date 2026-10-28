@@ -122,8 +122,17 @@ async function main() {
   const providerName = scenario.provider ?? "openai-completions";
   await fs.promises.writeFile(path.join(tmp, "cfg", "models.json"),
     JSON.stringify({ providers: { [providerName]: { baseUrl: `http://127.0.0.1:${mockPort}/v1`, api: providerName, apiKey: "test-key", models: (() => { const extra = (scenario.extraModels ?? []).map((m) => (typeof m === "string" ? { id: m } : m)); const base = scenario.model ?? "mock-model"; return [Object.assign({ id: base }, ...extra.filter((m) => m.id === base)), ...extra.filter((m) => m.id !== base)]; })() } } }, null, 2));
+  // 场景可以声明 `theme`（`dark`/`light`）：主题属于 settings.json 的配置，
+  // 两侧必须喂**同一份**配置才能比较配色（ref `settings-manager.ts:782-791`）。
+  const settingsJson = {
+    defaultProvider: providerName,
+    defaultModel: scenario.model ?? "mock-model",
+  };
+  if (typeof scenario.theme === "string" && scenario.theme.length > 0) {
+    settingsJson.theme = scenario.theme;
+  }
   await fs.promises.writeFile(path.join(tmp, "cfg", "settings.json"),
-    JSON.stringify({ defaultProvider: providerName, defaultModel: scenario.model ?? "mock-model" }, null, 2));
+    JSON.stringify(settingsJson, null, 2));
 
   const defaultCmd = impl === "pi-rs"
     ? path.join(REPO, "target/debug/pi-rs")

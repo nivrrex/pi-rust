@@ -1430,7 +1430,8 @@ fn render_all_cached_styled_inner(
                     // 命中缓存时 span 不走缓存，按同一条目重算一遍（行数一致才用，
                     // 折行行不在 md_lines 里 1:1 对应，直接跳过）。
                     if let TranscriptItem::Assistant(text) = item {
-                        let (md_lines, _, md_spans) = render_markdown_styled(text);
+                        let (md_lines, _, md_spans) =
+                            render_markdown_styled_with(text, style_out.palette);
                         // 缓存里可能多一条尾部空行，因此按**行文本相等**逐条对齐，
                         // 不要求两侧长度完全一致。
                         for (md_index, line_spans) in md_spans {
@@ -1507,7 +1508,8 @@ fn render_all_cached_styled_inner(
                 lines.push(String::new());
             }
             TranscriptItem::Assistant(text) => {
-                let (md_lines, md_styles, md_spans) = render_markdown_styled(text);
+                let (md_lines, md_styles, md_spans) =
+                    render_markdown_styled_with(text, style_out.palette);
                 let spans_by_line: std::collections::HashMap<usize, Vec<style::Span>> =
                     md_spans.into_iter().collect();
                 for (index, line) in md_lines.iter().enumerate() {
@@ -1561,13 +1563,19 @@ fn render_all_cached_styled_inner(
                         vec![
                             // 行首那一个空格只带底色、不带前景/粗体（TS 逐格实测）。
                             style::Span::new(0, 1, style::LineStyle::default()),
-                            style::Span::new(1, name_end, style::LineStyle::fg(style::TEXT).bold()),
+                            style::Span::new(
+                                1,
+                                name_end,
+                                style::LineStyle::fg(style_out.palette.text).bold(),
+                            ),
                             // 名字与参数之间那一个空格同样只带底色。
                             style::Span::new(name_end, name_end + 1, style::LineStyle::default()),
                             style::Span::new(
                                 name_end + 1,
                                 text.len(),
-                                style::LineStyle::fg(style::MD_LIST_BULLET),
+                                // 工具头参数用 `accent`（ref `tool-call` 渲染：名字 toolTitle，
+                                // 参数 accent）；不能用 `mdListBullet`（light 下那是 green）。
+                                style::LineStyle::fg(style_out.palette.accent),
                             ),
                         ],
                     ));
@@ -1993,6 +2001,14 @@ type MarkdownRender = (Vec<String>, Vec<Option<style::LineStyle>>, LineSpans);
 /// 渲染 markdown 并给出**每行样式**（ref `theme/markdown.ts` 的 `md*` 键）。
 #[must_use]
 pub fn render_markdown_styled(input: &str) -> MarkdownRender {
+    // 无主题参数的旧入口：用 dark 调色板（与既有 golden 口径一致）。
+    let palette = theme::Palette::of(&theme::Theme::builtin(theme::DEFAULT_NAME));
+    render_markdown_styled_with(input, &palette)
+}
+
+/// 与 [`render_markdown_styled`] 相同，但 markdown 各色键按给定调色板取。
+#[must_use]
+pub fn render_markdown_styled_with(input: &str, palette: &theme::Palette) -> MarkdownRender {
     use pulldown_cmark::{Event, HeadingLevel, Options, Parser, Tag, TagEnd};
     let mut out: Vec<String> = Vec::new();
     let mut styles: Vec<Option<style::LineStyle>> = Vec::new();
@@ -2032,7 +2048,7 @@ pub fn render_markdown_styled(input: &str) -> MarkdownRender {
             line_spans.push(style::Span::new(
                 1,
                 prefix_len,
-                style::LineStyle::fg(style::MD_LIST_BULLET),
+                style::LineStyle::fg(palette.md_list_bullet),
             ));
         }
         for (start, end) in code_ranges.drain(..) {
@@ -2041,7 +2057,7 @@ pub fn render_markdown_styled(input: &str) -> MarkdownRender {
                 line_spans.push(style::Span::new(
                     prefix_len + start,
                     prefix_len + end,
-                    style::LineStyle::fg(style::MD_CODE),
+                    style::LineStyle::fg(palette.md_code),
                 ));
             }
         }
@@ -2064,7 +2080,7 @@ pub fn render_markdown_styled(input: &str) -> MarkdownRender {
                     styles.push(None);
                 }
                 pending_blank = false;
-                current = Some(style::LineStyle::fg(style::MD_HEADING).bold());
+                current = Some(style::LineStyle::fg(palette.md_heading).bold());
             }
             Event::End(TagEnd::Heading(_)) => {
                 flush_inline(
@@ -2114,7 +2130,7 @@ pub fn render_markdown_styled(input: &str) -> MarkdownRender {
                     &mut out,
                     &mut styles,
                     " ```".to_string(),
-                    Some(style::LineStyle::fg(style::MD_CODE_BLOCK_BORDER)),
+                    Some(style::LineStyle::fg(palette.md_code_block_border)),
                 );
             }
             Event::End(TagEnd::CodeBlock) => {
@@ -2123,7 +2139,7 @@ pub fn render_markdown_styled(input: &str) -> MarkdownRender {
                         &mut out,
                         &mut styles,
                         format!("   {}", code_line.trim_end()),
-                        Some(style::LineStyle::fg(style::MD_CODE_BLOCK)),
+                        Some(style::LineStyle::fg(palette.md_code_block)),
                     );
                     code_line.clear();
                 }
@@ -2131,7 +2147,7 @@ pub fn render_markdown_styled(input: &str) -> MarkdownRender {
                     &mut out,
                     &mut styles,
                     " ```".to_string(),
-                    Some(style::LineStyle::fg(style::MD_CODE_BLOCK_BORDER)),
+                    Some(style::LineStyle::fg(palette.md_code_block_border)),
                 );
                 in_code_block = false;
                 pending_blank = true;
@@ -2149,7 +2165,7 @@ pub fn render_markdown_styled(input: &str) -> MarkdownRender {
                                 &mut out,
                                 &mut styles,
                                 format!("   {}", code_line.trim_end()),
-                                Some(style::LineStyle::fg(style::MD_CODE_BLOCK)),
+                                Some(style::LineStyle::fg(palette.md_code_block)),
                             );
                             code_line.clear();
                         }
@@ -2170,7 +2186,7 @@ pub fn render_markdown_styled(input: &str) -> MarkdownRender {
                             &mut out,
                             &mut styles,
                             format!("   {}", code_line.trim_end()),
-                            Some(style::LineStyle::fg(style::MD_CODE_BLOCK)),
+                            Some(style::LineStyle::fg(palette.md_code_block)),
                         );
                         code_line.clear();
                     }

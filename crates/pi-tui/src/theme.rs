@@ -179,8 +179,10 @@ pub struct Palette {
     pub md_code_block_border: (u8, u8, u8),
     /// `mdLink`
     pub md_link: (u8, u8, u8),
-    /// `mdListBullet` / `mdCode`（两者上游都指向 accent）
+    /// `mdListBullet`（dark 指向 accent、light 指向 green）
     pub md_list_bullet: (u8, u8, u8),
+    /// `mdCode`（行内代码；dark 指向 accent、light 指向 teal）
+    pub md_code: (u8, u8, u8),
     /// `thinkingOff`…`thinkingMax`（编辑框边框随档位）
     pub thinking: [Option<(u8, u8, u8)>; 7],
 }
@@ -210,7 +212,12 @@ impl Palette {
             md_code_block: get(theme, "mdCodeBlock").unwrap_or((0xb5, 0xbd, 0x68)),
             md_code_block_border: get(theme, "mdCodeBlockBorder").unwrap_or((0x80, 0x80, 0x80)),
             md_link: get(theme, "mdLink").unwrap_or((0x81, 0xa2, 0xbe)),
-            md_list_bullet: md_accent.unwrap_or((0x8a, 0xbe, 0xb7)),
+            md_list_bullet: get(theme, "mdListBullet")
+                .or(md_accent)
+                .unwrap_or((0x8a, 0xbe, 0xb7)),
+            md_code: get(theme, "mdCode")
+                .or(md_accent)
+                .unwrap_or((0x8a, 0xbe, 0xb7)),
             thinking: [
                 get(theme, "thinkingOff"),
                 get(theme, "thinkingMinimal"),

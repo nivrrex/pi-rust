@@ -41,6 +41,8 @@ const TOP_LEVEL = new Set([
   "enablePromptTemplates",
   "expectInjections",
   "tui",
+  // 主题（`dark`/`light`）：写进被测进程的 settings.json，两侧同源比较配色。
+  "theme",
 ]);
 
 /** 每个响应条目允许的键（与 `Step` 结构体一致）。 */
