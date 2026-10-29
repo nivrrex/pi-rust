@@ -224,8 +224,18 @@ fn stored_api_key(provider: &str) -> Option<String> {
 /// ref 的目录存在 `<agentDir>/models-store.json`（`core/models-store.ts:46-60`，形状为
 /// `{provider: {models:[…], checkedAt, etag}}`）；也兼容 oracle 导出的 `{provider:[…]}`。
 /// 缺失或解析失败都**不致命**：退回"无目录"。
-#[must_use]
+/// 编译期内置模型目录（来源：`fixtures/models-config/builtin-catalog.json`，由 TS 官方
+/// catalog 导出；随二进制分发，保证零配置时 `/login` 有可选 provider 与模型）。
+pub const EMBEDDED_CATALOG: &str =
+    include_str!("../../../fixtures/models-config/builtin-catalog.json");
+
 pub fn load_builtin_catalog(agent_dir: &std::path::Path) -> Option<pi_ai::config::BuiltInCatalog> {
+    // 编译期内置目录：零配置机器（没有 models-store.json）也要能 `/login` 并跑起来，
+    // 与 ref 的"运行时 provider registry 含内置 provider"对齐。
+    if let Ok(catalog) = pi_ai::config::BuiltInCatalog::from_json(crate::runtime::EMBEDDED_CATALOG)
+    {
+        return Some(catalog);
+    }
     for name in ["models-store.json", "pi-official-catalog.json"] {
         let path = agent_dir.join(name);
         let Ok(text) = std::fs::read_to_string(&path) else {

@@ -94,6 +94,23 @@ pub fn login_options(provider_ids: &[String]) -> Vec<LoginOption> {
     options
 }
 
+/// `/login` 的候选 provider：`models.json` 里配置过的 + 内置目录里的，去重后排序。
+///
+/// ref 的 `getLoginProviderOptions()` 遍历的是**运行时 provider registry**（含内置），
+/// 因此"零配置"的新机器也能 `/login`——这正是 pi-rs 之前缺失的一环。
+#[must_use]
+pub fn merged_provider_ids(configured: &[String], catalog_ids: &[&str]) -> Vec<String> {
+    let mut ids: Vec<String> = configured.to_vec();
+    for id in catalog_ids {
+        if !ids.iter().any(|known| known == id) {
+            ids.push((*id).to_string());
+        }
+    }
+    ids.sort();
+    ids.dedup();
+    ids
+}
+
 /// provider 显示名（未登记的回退为 id 本身，与 ref `?? providerId` 一致）。
 #[must_use]
 pub fn display_name(id: &str) -> &str {
@@ -151,6 +168,19 @@ mod tests {
         let options = login_options(&ids);
         assert!(options.iter().all(|o| o.auth_type == AuthType::ApiKey));
         assert_eq!(options.len(), 2);
+    }
+
+    #[test]
+    fn merged_ids_include_builtin_and_keep_order() {
+        let configured = vec!["zeta".to_string(), "anthropic".to_string()];
+        let builtin = ["openai", "anthropic", "google"];
+        let merged = merged_provider_ids(&configured, &builtin);
+        assert_eq!(merged, ["anthropic", "google", "openai", "zeta"]);
+        assert_eq!(
+            merged.iter().filter(|id| *id == "anthropic").count(),
+            1,
+            "重复 id 只保留一份"
+        );
     }
 
     #[test]

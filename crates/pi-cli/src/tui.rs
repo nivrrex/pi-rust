@@ -756,17 +756,26 @@ fn clamp_thinking_level(available: &[String], requested: &str) -> String {
 /// 刷新可用模型并选中默认模型）。取 `settings.defaultModel`（若属于该 provider），
 /// 否则取 `models.json` 里该 provider 的第一个模型；都没有则保持 `no-model`。
 fn model_after_login(agent_dir: &std::path::Path, provider: &str) -> Option<String> {
-    let settings_text = std::fs::read_to_string(agent_dir.join("settings.json")).ok()?;
-    let settings: serde_json::Value = serde_json::from_str(&settings_text).ok()?;
-    let models_text = std::fs::read_to_string(agent_dir.join("models.json")).ok()?;
-    let models: serde_json::Value = serde_json::from_str(&models_text).ok()?;
-    let entry = models.get("providers")?.get(provider)?;
-    let ids: Vec<String> = entry
-        .get("models")?
-        .as_array()?
-        .iter()
-        .filter_map(|model| model.get("id")?.as_str().map(str::to_string))
-        .collect();
+    // 文件可能根本不存在（零配置机器）：任一缺失都不算错误，继续往下回落内置目录。
+    let settings: serde_json::Value = std::fs::read_to_string(agent_dir.join("settings.json"))
+        .ok()
+        .and_then(|text| serde_json::from_str(&text).ok())
+        .unwrap_or(serde_json::Value::Null);
+    let models: serde_json::Value = std::fs::read_to_string(agent_dir.join("models.json"))
+        .ok()
+        .and_then(|text| serde_json::from_str(&text).ok())
+        .unwrap_or(serde_json::Value::Null);
+    let ids: Vec<String> = models
+        .get("providers")
+        .and_then(|providers| providers.get(provider))
+        .and_then(|entry| entry.get("models"))
+        .and_then(|models| models.as_array())
+        .map(|list| {
+            list.iter()
+                .filter_map(|model| model.get("id")?.as_str().map(str::to_string))
+                .collect()
+        })
+        .unwrap_or_default();
     let default_id = settings
         .get("defaultModel")
         .and_then(|value| value.as_str())
@@ -779,7 +788,12 @@ fn model_after_login(agent_dir: &std::path::Path, provider: &str) -> Option<Stri
             return Some(id);
         }
     }
-    ids.first().cloned()
+    if let Some(id) = ids.first() {
+        return Some(id.clone());
+    }
+    // `models.json` 没配这个 provider 时，用内置目录里该 provider 的第一个模型
+    crate::runtime::load_builtin_catalog(agent_dir)
+        .and_then(|catalog| catalog.first_model(provider).map(str::to_string))
 }
 
 /// `/login` 面板条目（ref `interactive-mode.ts:354-402` 的选择器条目）。
@@ -2993,6 +3007,23 @@ pub fn run(
                                     })
                                     .collect(),
                                 None => Vec::new(),
+                            };
+                            // 同一 provider 同时有 oauth 与 api_key 时（如 anthropic），
+                            // 优先走已实现的 api_key（ref 会先问认证方式；OAuth 尚未实现）。
+                            let matched_api_key: Vec<_> = matched
+                                .iter()
+                                .copied()
+                                .filter(|option| {
+                                    matches!(
+                                        option.auth_type,
+                                        crate::login_options::AuthType::ApiKey
+                                    )
+                                })
+                                .collect();
+                            let matched = if matched_api_key.is_empty() {
+                                matched
+                            } else {
+                                matched_api_key
                             };
                             match (provider_ref.as_deref(), matched.first()) {
                                 (Some(_), Some(option))

@@ -111,10 +111,27 @@ impl ModelsConfig {
         model_id: &str,
         catalog: Option<&BuiltInCatalog>,
     ) -> Result<ResolvedModel, ConfigError> {
-        let raw: &Value = self
-            .providers
-            .get(provider_name)
-            .ok_or_else(|| ConfigError::UnknownProvider(provider_name.to_string()))?;
+        // `models.json` 里没有这个 provider 时，允许**只靠内置目录**解析（ref 的 provider
+        // registry 本来就含内置 provider：`/login` 成功后无需手写 models.json 也能跑）。
+        let synthesized;
+        let raw: &Value = match self.providers.get(provider_name) {
+            Some(raw) => raw,
+            None => {
+                let builtin = catalog
+                    .and_then(|catalog| catalog.find(provider_name, model_id))
+                    .or_else(|| {
+                        catalog
+                            .and_then(|catalog| catalog.defaults_for(provider_name, model_id, None))
+                    })
+                    .ok_or_else(|| ConfigError::UnknownProvider(provider_name.to_string()))?;
+                synthesized = serde_json::json!({
+                    "api": builtin.api,
+                    "baseUrl": builtin.base_url,
+                    "models": [{ "id": model_id }],
+                });
+                &synthesized
+            }
+        };
         let provider: ProviderConfig = serde_json::from_value(raw.clone())
             .map_err(|error: serde_json::Error| ConfigError::Invalid(error.to_string()))?;
         let builtin = catalog.and_then(|catalog| catalog.find(provider_name, model_id));
@@ -442,6 +459,21 @@ impl BuiltInCatalog {
     /// provider 数量。
     pub fn provider_count(&self) -> usize {
         self.providers.len()
+    }
+
+    /// 内置目录里的 provider id（升序）。`/login` 在没有 `models.json` 时用它列候选。
+    #[must_use]
+    pub fn provider_ids(&self) -> Vec<&str> {
+        self.providers.keys().map(String::as_str).collect()
+    }
+
+    /// 某 provider 的第一个内置模型 id（供 `/login` 成功后选默认模型）。
+    #[must_use]
+    pub fn first_model(&self, provider: &str) -> Option<&str> {
+        self.providers
+            .get(provider)?
+            .first()
+            .map(|model| model.id.as_str())
     }
 
     /// 内置模型总数。

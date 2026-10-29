@@ -137,21 +137,30 @@ fn main() -> ExitCode {
             // `/login` 的 provider 列表必须在没有可用模型（parts=None）时也可用，
             // 故直接写到 state 上（`run()` 里若 parts 存在会用同一份覆盖，等价）。
             state.agent_dir = paths.agent_dir.clone();
-            state.login_providers = load_settings(&paths)
-                .ok()
-                .map(|_| {
-                    let mut names: Vec<String> =
-                        std::fs::read_to_string(paths.agent_dir.join("models.json"))
-                            .ok()
-                            .and_then(|text| {
-                                serde_json::from_str::<pi_ai::config::ModelsConfig>(&text).ok()
-                            })
-                            .map(|config| config.providers.keys().cloned().collect::<Vec<_>>())
-                            .unwrap_or_default();
-                    names.sort();
-                    names
-                })
-                .unwrap_or_default();
+            // `/login` 候选 = `models.json` 的 provider ∪ 内置目录的 provider（ref 遍历的
+            // 是含内置的运行时 registry；零配置的新机器也要能用 `/login`）。
+            state.login_providers = {
+                let configured: Vec<String> =
+                    std::fs::read_to_string(paths.agent_dir.join("models.json"))
+                        .ok()
+                        .and_then(|text| {
+                            serde_json::from_str::<pi_ai::config::ModelsConfig>(&text).ok()
+                        })
+                        .map(|config| config.providers.keys().cloned().collect())
+                        .unwrap_or_default();
+                let catalog_ids: Vec<String> =
+                    pi_cli::runtime::load_builtin_catalog(&paths.agent_dir)
+                        .map(|catalog| {
+                            catalog
+                                .provider_ids()
+                                .into_iter()
+                                .map(str::to_string)
+                                .collect()
+                        })
+                        .unwrap_or_default();
+                let catalog_refs: Vec<&str> = catalog_ids.iter().map(String::as_str).collect();
+                pi_cli::login_options::merged_provider_ids(&configured, &catalog_refs)
+            };
             state.context_files = discovered
                 .files
                 .iter()
