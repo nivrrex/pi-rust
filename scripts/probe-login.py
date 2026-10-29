@@ -26,7 +26,7 @@ def txt():
     return re.sub(rb'\x1b\[[0-9;?]*[a-zA-Z]',b'',buf).decode('utf-8','replace').replace('\x1b]8;;\x07','')
 r={}
 r["startup"]=wait("no-model")
-os.write(fd,b"/login mockp\r"); r["login_prompt"]=wait("Logging in to mockp")
+os.write(fd,b"/login mockp"); pump(0.4); os.write(fd,b"\x1b"); pump(0.3); os.write(fd,b"\r"); r["login_prompt"]=wait("Logging in to mockp")
 os.write(fd,b"sk-test-123\r"); r["logged_in"]=wait("Logged in to mockp")
 os.write(fd,b"/quit\r"); pump(1.0)
 p=os.path.join(cfg,"auth.json")

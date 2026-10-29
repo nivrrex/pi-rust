@@ -2952,7 +2952,13 @@ pub fn hotkeys_panel_for_width(cols: usize) -> Vec<String> {
 }
 
 /// 内置斜杠命令（取自 ref `core/slash-commands.ts:19-44` 的 `BUILTIN_SLASH_COMMANDS`，24 项）。
-const SLASH_COMMANDS: [(&str, &str); 24] = [
+const SLASH_COMMANDS: [(&str, &str); 26] = [
+    // ref `interactive-mode.ts:3171-3179`：`/login [provider]` 与 `/logout`
+    (
+        "login",
+        "[provider] — Log in to a provider via OAuth or API key",
+    ),
+    ("logout", "Remove stored credentials saved by /login"),
     ("settings", "Open settings menu"),
     (
         "model",
