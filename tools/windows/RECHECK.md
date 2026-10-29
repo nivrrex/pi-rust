@@ -9,8 +9,8 @@ pi-rs-windows-amd64.exe --version
 
 | 期望 | 说明 |
 |---|---|
-| sha256 = `108b02a7b2db2f3b…`（完整值见 Release 附件 `SHA256SUMS`） | 与附件清单不一致即不要继续 |
-| 第二行 `built <UTC> commit <sha>` | 应为 `commit 9d19857`（或发布时更新的 commit），且**不含 `-dirty`** |
+| sha256 = `4cf5c104a0578aac…`（完整值见 Release 附件 `SHA256SUMS`） | 与附件清单不一致即不要继续 |
+| 第二行 `built <UTC> commit <sha>` | 应为 `commit 797587c`（或发布时更新的 commit），且**不含 `-dirty`** |
 
 差异说明：Windows 侧自编版本用 MSVC/git-bash 工具链、可能带 `-dirty`；发布用版本是在 Linux 上用
 `x86_64-pc-windows-gnu`（rustc 1.99.0 + mingw-w64 GCC 12-win32）**交叉编译**的干净构建。
@@ -41,6 +41,20 @@ pi-rs-windows-amd64.exe --version
    3 行文本与一段 12 行文本——预期整段进入编辑框、**不自动提交**（12 行折叠成
    `[paste #N +M lines]`），再按一次回车才发出。同时确认 `Ctrl+V` 在 Windows Terminal 里
    也能正常工作（`Ctrl+V` 只在 conhost 里不产生按键事件）。
+
+## 粘贴取证（wezterm / 输入法问题定位用）
+
+若在 **wezterm + Rime** 下出现"粘贴折叠不稳定 / 粘贴后上下键失效 / 候选框不跟随光标"，
+用同一个 exe 抓一份事件日志（不需要额外工具）：
+
+```bat
+set PI_TUI_EVENT_DUMP=%TEMP%\pi-events.log
+pi-rs.exe
+```
+
+复现一次粘贴后退出，把 `%TEMP%\pi-events.log` 发回。日志每行是
+`<毫秒>  <crossterm 事件>`——能看出粘贴是 `Event::Paste("…")`（括号粘贴整段到达）
+还是一串 `Key(Char(..))`（逐字符），以及到达间隔。
 
 ## 失败时提供
 项号 + 完整屏幕文本（或截图）+ 上面 `--version` 两行 + `certutil` 的 sha256。
