@@ -1398,10 +1398,15 @@ fn render_all_cached_styled_inner(
     let _ = &state.version;
     lines.push(clamp_to_width(&format!(" pi v{}", DISPLAY_VERSION), cols));
     // ref `:985-990`：键位提示行（默认绑定见 `core/keybindings.ts:93-95` 等）
-    lines.push(clamp_to_width(
-        " escape interrupt · ctrl+c/ctrl+d clear/exit · / commands · ! bash · ctrl+o more",
-        cols,
-    ));
+    // 该行与欢迎语同为可换行 Text（`paddingX = 1` ⇒ 排版宽 `width - 2`）：
+    // 窄终端（80 列）下 TS 会把尾部 `more` 折到下一行且保留 1 列缩进，
+    // 而 `clamp_to_width(cols)` 会把它塞进同一行（T81-80 实测暴露）。
+    for wrapped in wrap_to_width(
+        "escape interrupt · ctrl+c/ctrl+d clear/exit · / commands · ! bash · ctrl+o more",
+        cols.saturating_sub(2),
+    ) {
+        lines.push(format!(" {wrapped}"));
+    }
     // ref `:991-994`
     lines.push(clamp_to_width(
         " Press ctrl+o to show full startup help and loaded resources.",

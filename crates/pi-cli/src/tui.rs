@@ -632,6 +632,10 @@ pub struct AgentParts {
     /// 没有配置时 `available_models` 会回落到 provider 下的全部模型，但那**不是** scope，
     /// 启动屏不应打印 `Model scope:` 行（T01 实测：多打一行会让整屏下移）。
     pub scoped_models_configured: bool,
+    /// `models.json` 里**配置了模型的 provider 名**（去重）。
+    /// ref ``footerData.getAvailableProviderCount()``（`components/footer.ts:193-200`）用它决定
+    /// 是否显示 `(provider)` 前缀——不是"当前 scoped 列表里的 provider"。
+    pub provider_names: Vec<String>,
     /// `-c`/`/resume` 时从会话里恢复的思考档位（最后一个 `thinking_level_change`）。
     pub initial_thinking_level: Option<String>,
     /// 当前模型是否推理（`models.json` 的 `reasoning`；决定思考档位集合）。
@@ -773,14 +777,20 @@ pub fn run(mut state: TuiState, parts: Option<std::sync::Arc<AgentParts>>) -> st
             state.model = current.model_id.clone();
             state.model_provider = current.provider_name.clone();
         }
-        let mut providers: Vec<&str> = parts_ref
-            .available_models
-            .iter()
-            .map(|choice| choice.provider.as_str())
-            .collect();
-        providers.sort_unstable();
-        providers.dedup();
-        state.available_provider_count = providers.len();
+        // 优先用"models.json 里配了模型的 provider 数"（与 ref 的 getAvailableProviderCount 同口径）；
+        // 没有该信息时退回 scoped 列表里的 provider 去重数。
+        state.available_provider_count = if parts_ref.provider_names.is_empty() {
+            let mut providers: Vec<&str> = parts_ref
+                .available_models
+                .iter()
+                .map(|choice| choice.provider.as_str())
+                .collect();
+            providers.sort_unstable();
+            providers.dedup();
+            providers.len()
+        } else {
+            parts_ref.provider_names.len()
+        };
         state.status = format!(
             "0.0%/{} (auto)",
             pi_tui::format_tokens(parts_ref.context_window)

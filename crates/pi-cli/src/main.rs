@@ -1264,6 +1264,11 @@ fn build_tui_agent_parts(
         cwd: cwd.to_string_lossy().to_string(),
         session_dir: paths.session_dir.clone(),
         available_models,
+        provider_names: {
+            let mut names: Vec<String> = models_config.providers.keys().cloned().collect();
+            names.sort();
+            names
+        },
         scoped_models_configured: settings
             .enabled_models
             .as_ref()

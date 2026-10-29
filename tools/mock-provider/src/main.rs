@@ -64,6 +64,9 @@ struct Scenario {
     /// 主题名（`dark`/`light`）：runner 写进 `settings.json`，mock 只要求能解析。
     #[serde(default)]
     theme: Option<String>,
+    /// 额外 provider（runner 写进 `models.json`，mock 自己不消费）。
+    #[serde(default)]
+    extra_providers: Option<serde_json::Value>,
     #[serde(default)]
     commands: Option<serde_json::Value>,
     #[serde(default)]

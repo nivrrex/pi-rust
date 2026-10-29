@@ -120,8 +120,41 @@ async function main() {
     mock.on("exit", (code) => { clearTimeout(timer); reject(new Error(`mock-provider 退出 code=${code}`)); });
   });
   const providerName = scenario.provider ?? "openai-completions";
+  // P8e-10/F：场景可声明 `extraProviders`（`{ name: {api?, apiKey?, models?} }`），
+  // 用于对拍"多 provider 时 footer 的 `(provider)` 前缀"——它们指向同一个 mock，
+  // 只是 provider 名不同，因此 `getAvailableProviderCount() > 1`。
+  const extraProviders =
+    scenario.extraProviders && typeof scenario.extraProviders === "object"
+      ? scenario.extraProviders
+      : {};
+  const providersJson = {
+    [providerName]: {
+      baseUrl: `http://127.0.0.1:${mockPort}/v1`,
+      api: providerName,
+      apiKey: "test-key",
+      // `extraModels`：字符串或对象，**同 id 覆盖基础模型**（V3 起支持）。
+      models: (() => {
+        const extra = (scenario.extraModels ?? []).map((m) =>
+          typeof m === "string" ? { id: m } : m,
+        );
+        const base = scenario.model ?? "mock-model";
+        return [
+          Object.assign({ id: base }, ...extra.filter((m) => m.id === base)),
+          ...extra.filter((m) => m.id !== base),
+        ];
+      })(),
+    },
+  };
+  for (const [name, spec] of Object.entries(extraProviders)) {
+    providersJson[name] = {
+      baseUrl: `http://127.0.0.1:${mockPort}/v1`,
+      api: spec?.api ?? providerName,
+      apiKey: spec?.apiKey ?? "test-key",
+      models: Array.isArray(spec?.models) ? spec.models : [{ id: scenario.model ?? "mock-model" }],
+    };
+  }
   await fs.promises.writeFile(path.join(tmp, "cfg", "models.json"),
-    JSON.stringify({ providers: { [providerName]: { baseUrl: `http://127.0.0.1:${mockPort}/v1`, api: providerName, apiKey: "test-key", models: (() => { const extra = (scenario.extraModels ?? []).map((m) => (typeof m === "string" ? { id: m } : m)); const base = scenario.model ?? "mock-model"; return [Object.assign({ id: base }, ...extra.filter((m) => m.id === base)), ...extra.filter((m) => m.id !== base)]; })() } } }, null, 2));
+    JSON.stringify({ providers: providersJson }, null, 2));
   // 场景可以声明 `theme`（`dark`/`light`）：主题属于 settings.json 的配置，
   // 两侧必须喂**同一份**配置才能比较配色（ref `settings-manager.ts:782-791`）。
   const settingsJson = {
