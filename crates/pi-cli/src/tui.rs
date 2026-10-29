@@ -636,6 +636,8 @@ pub struct AgentParts {
     /// ref ``footerData.getAvailableProviderCount()``（`components/footer.ts:193-200`）用它决定
     /// 是否显示 `(provider)` 前缀——不是"当前 scoped 列表里的 provider"。
     pub provider_names: Vec<String>,
+    /// `/login` 的 provider 列表（`models.json` 的 provider 键；ref 遍历运行时 provider）。
+    pub login_providers: Vec<String>,
     /// `-c`/`/resume` 时从会话里恢复的思考档位（最后一个 `thinking_level_change`）。
     pub initial_thinking_level: Option<String>,
     /// 当前模型是否推理（`models.json` 的 `reasoning`；决定思考档位集合）。
@@ -779,6 +781,7 @@ pub fn run(mut state: TuiState, parts: Option<std::sync::Arc<AgentParts>>) -> st
         }
         // 优先用"models.json 里配了模型的 provider 数"（与 ref 的 getAvailableProviderCount 同口径）；
         // 没有该信息时退回 scoped 列表里的 provider 去重数。
+        state.login_providers = parts_ref.login_providers.clone();
         state.available_provider_count = if parts_ref.provider_names.is_empty() {
             let mut providers: Vec<&str> = parts_ref
                 .available_models
@@ -2742,6 +2745,54 @@ pub fn run(mut state: TuiState, parts: Option<std::sync::Arc<AgentParts>>) -> st
                                 .map(|line| (*line).to_string())
                                 .collect();
                             state.open_panel(pi_tui::PanelPlacement::Transcript, lines);
+                        }
+                        "login" => {
+                            // ref `interactive-mode.ts:3171-3175`：`/login` 打开 provider 选择。
+                            // c3a 先给占位面板（c3b 接选择器），列出 `login_options` 的内容。
+                            let options =
+                                crate::login_options::login_options(&state.login_providers);
+                            let mut lines = vec![" Login".to_string(), String::new()];
+                            if options.is_empty() {
+                                // ref `core/auth-guidance.ts:16-20` 的同一句话
+                                lines.push(
+                                    " No models available. Use /login to log into a provider via"
+                                        .to_string(),
+                                );
+                                lines.push(" OAuth or API key.".to_string());
+                            } else {
+                                for option in &options {
+                                    lines.push(format!(
+                                        "  {} ({})",
+                                        option.name,
+                                        option.auth_type.as_str()
+                                    ));
+                                }
+                            }
+                            state.open_panel(pi_tui::PanelPlacement::Transcript, lines);
+                        }
+                        "logout" => {
+                            // ref `interactive-mode.ts:3177-3179`：`/logout` 删已存凭据。
+                            let path = parts
+                                .as_ref()
+                                .map(|parts| parts.agent_dir.join("auth.json"));
+                            let mut removed = Vec::new();
+                            if let Some(path) = path {
+                                for provider in &state.login_providers {
+                                    if crate::auth_store::remove_provider(&path, provider)
+                                        .unwrap_or(false)
+                                    {
+                                        removed.push(provider.clone());
+                                    }
+                                }
+                            }
+                            let text = if removed.is_empty() {
+                                // ref `interactive-mode.ts:5834` 的文案
+                                "No stored credentials to remove. /logout only removes credentials saved by /login; environment variables and models.json are unaffected."
+                                    .to_string()
+                            } else {
+                                format!("Logged out of {}.", removed.join(", "))
+                            };
+                            state.transcript.push(pi_tui::TranscriptItem::Status(text));
                         }
                         "settings" => {
                             // P7-7c1：`/settings` 主列表（条目顺序与两列渲染见 `settings_selector`）。

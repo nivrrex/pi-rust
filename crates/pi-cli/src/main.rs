@@ -1281,6 +1281,12 @@ fn build_tui_agent_parts(
             names.sort();
             names
         },
+        login_providers: {
+            // `/login` 列表 = `models.json` 里配置过的 provider（ref 遍历运行时 provider）
+            let mut names: Vec<String> = models_config.providers.keys().cloned().collect();
+            names.sort();
+            names
+        },
         scoped_models_configured: settings
             .enabled_models
             .as_ref()

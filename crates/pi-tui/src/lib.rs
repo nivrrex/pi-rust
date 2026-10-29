@@ -51,6 +51,9 @@ pub struct TuiState {
     /// 工具输出是否全部展开（ref `interactive-mode.ts:475` 默认 `false`；
     /// `ctrl+o` 切换所有工具块，`:4397-4419`）。
     pub tools_expanded: bool,
+    /// `/login` 面板的 provider 列表（来自 `models.json` 的 provider 键，顺序按 ref 的
+    /// 显示名排序在 `login_options` 里完成）。ref `interactive-mode.ts:5629-5663`。
+    pub login_providers: Vec<String>,
     /// 当前主题（`dark`/`light`，来自 `settings.json` 的 `theme` 键）。
     /// ref `theme/theme.ts` 的 `theme` 单例 + `settings-manager.ts:782-791`。
     pub theme_name: String,
@@ -171,6 +174,7 @@ impl TuiState {
         Self {
             retrying: false,
             tools_expanded: false,
+            login_providers: Vec::new(),
             theme_name: crate::theme::DEFAULT_NAME.to_string(),
             thinking_level: "off".to_string(),
             available_thinking_levels: vec!["off".to_string()],
