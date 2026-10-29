@@ -136,6 +136,7 @@ fn main() -> ExitCode {
             );
             // `/login` 的 provider 列表必须在没有可用模型（parts=None）时也可用，
             // 故直接写到 state 上（`run()` 里若 parts 存在会用同一份覆盖，等价）。
+            state.agent_dir = paths.agent_dir.clone();
             state.login_providers = load_settings(&paths)
                 .ok()
                 .map(|_| {

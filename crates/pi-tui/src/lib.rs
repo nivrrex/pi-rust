@@ -51,6 +51,9 @@ pub struct TuiState {
     /// 工具输出是否全部展开（ref `interactive-mode.ts:475` 默认 `false`；
     /// `ctrl+o` 切换所有工具块，`:4397-4419`）。
     pub tools_expanded: bool,
+    /// agent 配置目录（`PI_CODING_AGENT_DIR` 解析后的值）。`/login` 写 `auth.json` 需要它，
+    /// 且**不能**从 `AgentParts` 取——没有可用模型时 parts 为 None。
+    pub agent_dir: std::path::PathBuf,
     /// `/login <provider>` 已选定 provider、正在等用户输入 API key（此时编辑器内容掩码显示）。
     /// ref `interactive-mode.ts:6003-6040` 的 `showApiKeyLoginDialog`。
     pub pending_login_provider: Option<String>,
@@ -177,6 +180,7 @@ impl TuiState {
         Self {
             retrying: false,
             tools_expanded: false,
+            agent_dir: std::path::PathBuf::new(),
             pending_login_provider: None,
             login_providers: Vec::new(),
             theme_name: crate::theme::DEFAULT_NAME.to_string(),

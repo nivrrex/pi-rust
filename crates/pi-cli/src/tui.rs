@@ -2411,9 +2411,11 @@ pub fn run(mut state: TuiState, parts: Option<std::sync::Arc<AgentParts>>) -> st
                     // `/login <provider>` 已选定 provider：这次提交的是 API key。
                     // ref `interactive-mode.ts:6003-6040`（api_key 型对话框）。
                     if let Some(provider) = state.pending_login_provider.take() {
-                        let path = parts
-                            .as_ref()
-                            .map(|parts| parts.agent_dir.join("auth.json"));
+                        let path = if state.agent_dir.as_os_str().is_empty() {
+                            None
+                        } else {
+                            Some(state.agent_dir.join("auth.json"))
+                        };
                         let key = text.trim().to_string();
                         let message = match (path, key.is_empty()) {
                             (_, true) => "API key must not be empty.".to_string(),
@@ -2718,7 +2720,9 @@ pub fn run(mut state: TuiState, parts: Option<std::sync::Arc<AgentParts>>) -> st
                 }
                 TuiAction::Command(name) => {
                     // 已知内建命令（P7-6/W2）：本批只实现 `/quit`、`/session`、`/hotkeys`、`/settings`、`/model`。
-                    match name.as_str() {
+                    // 命令名只取首词，参数留在 `name` 里（ref `/login <provider>` :3172）
+                    let command_word = name.split_whitespace().next().unwrap_or_default();
+                    match command_word {
                         "quit" => break,
                         "session" => {
                             // `/session` 面板（golden-tui/T04 实测形状与字段顺序）：文件/ID/消息统计/token/Cache Warming。
