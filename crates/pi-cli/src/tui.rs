@@ -752,6 +752,26 @@ fn clamp_thinking_level(available: &[String], requested: &str) -> String {
         .unwrap_or_else(|| "off".to_string())
 }
 
+/// `/login` 无参面板的渲染（选中项前缀 `›`，未选中留两空格；ref 的选择器同形）。
+fn login_render(
+    state: &mut pi_tui::TuiState,
+    options: &[crate::login_options::LoginOption],
+    index: usize,
+) {
+    let mut lines = vec![" Login".to_string(), String::new()];
+    for (position, option) in options.iter().enumerate() {
+        let marker = if position == index { " › " } else { "   " };
+        lines.push(format!(
+            "{marker}{} ({})",
+            option.name,
+            option.auth_type.as_str()
+        ));
+    }
+    lines.push(String::new());
+    lines.push(" ↑/↓ to select · Enter to confirm · Esc to cancel".to_string());
+    state.open_panel(pi_tui::PanelPlacement::BelowEditor, lines);
+}
+
 pub fn run(mut state: TuiState, parts: Option<std::sync::Arc<AgentParts>>) -> std::io::Result<i32> {
     install_panic_hook();
     let mut guard = TerminalGuard::new()?;
@@ -765,6 +785,8 @@ pub fn run(mut state: TuiState, parts: Option<std::sync::Arc<AgentParts>>) -> st
     // 跨 Submit 存活的消息历史：第二轮请求体因此天然包含第一轮的 user+assistant（T08 的重点）。
     // 回合串行化状态（P7-7f/perf）：`busy` = 有回合在跑；`queued_inputs` = 等待提交的输入。
     let mut busy = false;
+    // `/login` 无参面板状态：(候选项, 选中下标)
+    let mut login_panel: Option<(Vec<crate::login_options::LoginOption>, usize)> = None;
     let mut queued_inputs: std::collections::VecDeque<String> = std::collections::VecDeque::new();
     // `--continue` 时把历史消息灌进 `history`，并把可显示的部分放进 transcript
     // （否则续写的会话在 TUI 里是空屏、`/tree` 也看不到历史）。
@@ -2405,6 +2427,62 @@ pub fn run(mut state: TuiState, parts: Option<std::sync::Arc<AgentParts>>) -> st
                 dirty = true;
                 continue;
             }
+            // `/login` 无参面板：方向键移动、Enter 选定、Esc 取消（ref
+            // `interactive-mode.ts:356-402` 的选择器交互；这里复用转录区面板）。
+            if let Some((options, index)) = login_panel.as_mut() {
+                match &event {
+                    pi_tui::TuiEvent::HistoryPrev => {
+                        if *index > 0 {
+                            *index -= 1;
+                        }
+                        login_render(&mut state, options, *index);
+                        dirty = true;
+                        continue;
+                    }
+                    pi_tui::TuiEvent::HistoryNext => {
+                        if *index + 1 < options.len() {
+                            *index += 1;
+                        }
+                        login_render(&mut state, options, *index);
+                        dirty = true;
+                        continue;
+                    }
+                    pi_tui::TuiEvent::Escape => {
+                        login_panel = None;
+                        state.close_panel();
+                        dirty = true;
+                        continue;
+                    }
+                    pi_tui::TuiEvent::Enter => {
+                        let chosen = options.get(*index).cloned();
+                        login_panel = None;
+                        state.close_panel();
+                        if let Some(option) = chosen {
+                            if matches!(option.auth_type, crate::login_options::AuthType::ApiKey) {
+                                let notice = format!("Logging in to {} (api_key).", option.name);
+                                state.pending_login_provider = Some(option.id);
+                                state.input.clear();
+                                state.cursor = 0;
+                                state
+                                    .transcript
+                                    .push(pi_tui::TranscriptItem::Status(notice));
+                            } else {
+                                let notice = format!(
+                                    "OAuth login for {} is not supported yet.",
+                                    option.name
+                                );
+                                state
+                                    .transcript
+                                    .push(pi_tui::TranscriptItem::Status(notice));
+                            }
+                        }
+                        dirty = true;
+                        continue;
+                    }
+                    // 面板打开时，其它按键保持原样交给后续流程
+                    _other => {}
+                }
+            }
             match apply(&mut state, event) {
                 TuiAction::Exit => break 'main,
                 TuiAction::Submit(text) => {
@@ -2828,23 +2906,19 @@ pub fn run(mut state: TuiState, parts: Option<std::sync::Arc<AgentParts>>) -> st
                                         .push(pi_tui::TranscriptItem::Status(notice));
                                 }
                                 (None, _) => {
-                                    let mut lines = vec![" Login".to_string(), String::new()];
                                     if options.is_empty() {
-                                        lines.push(
+                                        let lines = vec![
+                                            " Login".to_string(),
+                                            String::new(),
                                             " No models available. Use /login to log into a provider via"
                                                 .to_string(),
-                                        );
-                                        lines.push(" OAuth or API key.".to_string());
+                                            " OAuth or API key.".to_string(),
+                                        ];
+                                        state.open_panel(pi_tui::PanelPlacement::Transcript, lines);
                                     } else {
-                                        for option in &options {
-                                            lines.push(format!(
-                                                "  {} ({})",
-                                                option.name,
-                                                option.auth_type.as_str()
-                                            ));
-                                        }
+                                        login_render(&mut state, &options, 0);
+                                        login_panel = Some((options, 0));
                                     }
-                                    state.open_panel(pi_tui::PanelPlacement::Transcript, lines);
                                 }
                             }
                         }
