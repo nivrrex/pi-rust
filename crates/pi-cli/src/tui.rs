@@ -2771,87 +2771,78 @@ pub fn run(mut state: TuiState, parts: Option<std::sync::Arc<AgentParts>>) -> st
                             state.open_panel(pi_tui::PanelPlacement::Transcript, lines);
                         }
                         "login" => {
-                            // ref `interactive-mode.ts:3171-3175`：`/login` 打开 provider 选择；
-                            // 带 `providerRef` 命中唯一 provider 时直接进入该 provider 登录
-                            // （ref `startProviderLogin` :5708-5716）。
-                            if let Some(provider_ref) = name
+                            // ref `interactive-mode.ts:3171-3175`：`/login [provider]`。带
+                            // providerRef 且命中唯一 api_key 型 provider 时直接进 key 输入态
+                            // （ref `startProviderLogin` :5708-5716），否则弹 provider 面板。
+                            let provider_ref = name
                                 .split_once(' ')
                                 .map(|(_, rest)| rest.trim().to_string())
-                                .filter(|value| !value.is_empty())
-                            {
-                                let options =
-                                    crate::login_options::login_options(&state.login_providers);
-                                let matched: Vec<_> = options
-                                    .iter()
-                                    .filter(|option| {
-                                        option.id.eq_ignore_ascii_case(&provider_ref)
-                                            || option.name.eq_ignore_ascii_case(&provider_ref)
-                                    })
-                                    .collect();
-                                match matched.first() {
-                                    Some(option)
-                                        if matches!(
-                                            option.auth_type,
-                                            crate::login_options::AuthType::ApiKey
-                                        ) =>
-                                    {
-                                        // 进入 api_key 输入态：下一次提交的内容即 key
-                                        state.pending_login_provider = Some(option.id.clone());
-                                        state.input.clear();
-                                        state.cursor = 0;
-                                        let notice =
-                                            format!("Logging in to {} (api_key).", option.name);
-                                        state
-                                            .transcript
-                                            .push(pi_tui::TranscriptItem::Status(notice));
-                                        dirty = true;
-                                        continue;
-                                    }
-                                    Some(option) => {
-                                        // OAuth 型本版本不支持（见 LIMITATIONS.md）
-                                        let notice = format!(
-                                            "OAuth login for {} is not supported yet.",
-                                            option.name
-                                        );
-                                        state
-                                            .transcript
-                                            .push(pi_tui::TranscriptItem::Status(notice));
-                                        dirty = true;
-                                        continue;
-                                    }
-                                    None => {
-                                        let notice =
-                                            format!("No provider matches \"{provider_ref}\".");
-                                        state
-                                            .transcript
-                                            .push(pi_tui::TranscriptItem::Status(notice));
-                                        dirty = true;
-                                        continue;
-                                    }
-                                }
-                            }
-                            // ref `interactive-mode.ts:3171-3175`：`/login` 打开 provider 选择。
-                            // c3a 先给占位面板（c3b 接选择器），列出 `login_options` 的内容。
+                                .filter(|value| !value.is_empty());
                             let options =
                                 crate::login_options::login_options(&state.login_providers);
-                            let mut lines = vec![" Login".to_string(), String::new()];
-                            if options.is_empty() {
-                                // ref `core/auth-guidance.ts:16-20` 的同一句话
-                                lines.push(
-                                    " No models available. Use /login to log into a provider via"
-                                        .to_string(),
-                                );
-                                lines.push(" OAuth or API key.".to_string());
-                            } else {
-                                for option in &options {
-                                    lines.push(format!(
-                                        "  {} ({})",
-                                        option.name,
-                                        option.auth_type.as_str()
-                                    ));
+                            let matched: Vec<_> = match provider_ref.as_ref() {
+                                Some(provider_ref) => options
+                                    .iter()
+                                    .filter(|option| {
+                                        option.id.eq_ignore_ascii_case(provider_ref)
+                                            || option.name.eq_ignore_ascii_case(provider_ref)
+                                    })
+                                    .collect(),
+                                None => Vec::new(),
+                            };
+                            match (provider_ref.as_deref(), matched.first()) {
+                                (Some(_), Some(option))
+                                    if matches!(
+                                        option.auth_type,
+                                        crate::login_options::AuthType::ApiKey
+                                    ) =>
+                                {
+                                    let id = option.id.clone();
+                                    let notice =
+                                        format!("Logging in to {} (api_key).", option.name);
+                                    state.pending_login_provider = Some(id);
+                                    state.input.clear();
+                                    state.cursor = 0;
+                                    state
+                                        .transcript
+                                        .push(pi_tui::TranscriptItem::Status(notice));
+                                }
+                                (Some(_), Some(option)) => {
+                                    // OAuth 型本版本不支持（LIMITATIONS.md）
+                                    let notice = format!(
+                                        "OAuth login for {} is not supported yet.",
+                                        option.name
+                                    );
+                                    state
+                                        .transcript
+                                        .push(pi_tui::TranscriptItem::Status(notice));
+                                }
+                                (Some(provider_ref), None) => {
+                                    let notice = format!("No provider matches \"{provider_ref}\".");
+                                    state
+                                        .transcript
+                                        .push(pi_tui::TranscriptItem::Status(notice));
+                                }
+                                (None, _) => {
+                                    let mut lines = vec![" Login".to_string(), String::new()];
+                                    if options.is_empty() {
+                                        lines.push(
+                                            " No models available. Use /login to log into a provider via"
+                                                .to_string(),
+                                        );
+                                        lines.push(" OAuth or API key.".to_string());
+                                    } else {
+                                        for option in &options {
+                                            lines.push(format!(
+                                                "  {} ({})",
+                                                option.name,
+                                                option.auth_type.as_str()
+                                            ));
+                                        }
+                                    }
+                                    state.open_panel(pi_tui::PanelPlacement::Transcript, lines);
                                 }
                             }
-                            state.open_panel(pi_tui::PanelPlacement::Transcript, lines);
                         }
                         "logout" => {
                             // ref `interactive-mode.ts:3177-3179`：`/logout` 删已存凭据。
