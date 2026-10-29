@@ -3,6 +3,7 @@
 pub mod args;
 pub mod auth_store;
 pub mod auto_compaction;
+pub mod bracket_paste;
 pub mod clipboard;
 pub mod login_options;
 pub mod model_selector;

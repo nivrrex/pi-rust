@@ -4122,6 +4122,9 @@ fn spawn_crossterm_input_thread(tx: std::sync::mpsc::Sender<TuiEvent>) {
     std::thread::spawn(move || {
         let mut filter = RespFilter::default();
         let mut burst = PasteBurst::default();
+        // ConPTY 会把 `ESC[200~`/`ESC[201~` 拆成普通按键（真机日志见
+        // `crate::bracket_paste` 的头注释），这里把它们重组回一段粘贴。
+        let mut bracket = crate::bracket_paste::BracketPaste::default();
         let started = std::time::Instant::now();
         let now_ms = || started.elapsed().as_millis() as u64;
         loop {
@@ -4139,6 +4142,16 @@ fn spawn_crossterm_input_thread(tx: std::sync::mpsc::Sender<TuiEvent>) {
                 }
                 if filter.take_pending_escape() && tx.send(TuiEvent::Escape).is_err() {
                     return;
+                }
+                if let Some(out) = bracket.flush(now_ms()) {
+                    if let crate::bracket_paste::BracketOut::Pass(
+                        crate::bracket_paste::BracketInput::Esc,
+                    ) = out
+                    {
+                        if tx.send(TuiEvent::Escape).is_err() {
+                            return;
+                        }
+                    }
                 }
                 continue;
             }
@@ -4160,6 +4173,27 @@ fn spawn_crossterm_input_thread(tx: std::sync::mpsc::Sender<TuiEvent>) {
             }
             match event {
                 Event::Key(key) => {
+                    // 括号粘贴标记重组（只对 Press 生效，Release 直接丢弃）
+                    if key.kind == crossterm::event::KeyEventKind::Press {
+                        use crate::bracket_paste::{BracketInput, BracketOut};
+                        let input = match key.code {
+                            crossterm::event::KeyCode::Esc => BracketInput::Esc,
+                            crossterm::event::KeyCode::Char(ch) => BracketInput::Char(ch),
+                            _other => BracketInput::Other,
+                        };
+                        match bracket.feed(input, now_ms()) {
+                            BracketOut::Consumed => continue,
+                            BracketOut::Paste(text) => {
+                                let mut emitted = burst.take_all();
+                                emitted.push(TuiEvent::Paste(text));
+                                if emitted.into_iter().any(|event| tx.send(event).is_err()) {
+                                    return;
+                                }
+                                continue;
+                            }
+                            BracketOut::Pass(_) => {}
+                        }
+                    }
                     let Some(mapped) = map_windows_key(key) else {
                         continue;
                     };
