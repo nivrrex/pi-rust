@@ -107,6 +107,10 @@ export function normalizeScreen(lines) {
     // 每次录制的工作目录不同（mkdtemp）⇒ 掩成 <TMP>，否则快照永远不同。
     // 每轮录制的工作目录与 session id 都不同 ⇒ 掩成占位符（它们不是行为差异）。
     [/\/tmp\/tui-[A-Za-z0-9_-]+/g, "<TMP>"],
+    // B1（P8e-11）：录制时 TS 会把自己安装目录的绝对路径写进画面/请求里
+    // （`<home>/…/node_modules/@earendil-works/pi-coding-agent/docs/*.md`）。
+    // 两侧统一掩成 `<PI_PKG>`，这样 golden 里不必保留本机路径。
+    [/[^\s"']*node_modules\/@earendil-works\/pi-coding-agent/g, "<PI_PKG>"],
     [/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/gi, "<UUID>"],
     // 会话列表里的**相对年龄**（`9mo`/`3d`/`2h`）会随录制时间失效：
     // 同一份 golden 过一个月就从 `9mo` 变成 `10mo`（T38/T57 实际踩到）。

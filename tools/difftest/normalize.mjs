@@ -19,6 +19,9 @@ const SHORT_ID_RE = /\b[0-9a-f]{8}\b/g;
 
 export function normalize(text, ctx) {
   let out = text;
+  // B1（P8e-11）：录制时 TS 会把自己的安装路径写进请求/事件（docs 路径、bundle 路径）。
+  // 统一掩成 `<PI_PKG>`，golden 里就不再保留本机检出路径。
+  out = out.replace(/[^\s"']*node_modules\/@earendil-works\/pi-coding-agent/g, "<PI_PKG>");
   out = out.replaceAll(ctx.tmp, "<TMP>");
   out = out.replaceAll(ctx.home, "<HOME>");
   out = out.replace(UUID_RE, "<UUID>");
