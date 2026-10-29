@@ -30,6 +30,7 @@ pi-rs-windows-amd64.exe --version
 | 6 | 含工具一轮（"先 ls 再读 AGENTS.md 前 5 行"） | 工具块**有正文**；`bash`/`powershell` 块末尾有 `Took <时长>` |
 | 7 | `Ctrl+D` 退出后 | `To resume this session: …` 独占一行，其后**不多空行** |
 | 8 | footer | 多 provider 且宽度足够时显示 `(provider)` 前缀；上下文窗口数字与 `settings.json` 一致 |
+| 9 | 多行粘贴 | 粘贴 3 行**不**立刻提交；>10 行折叠成 `[paste #N +M lines]`；再按回车才整段发出（`Ctrl+V` 仅 Windows Terminal 有效，conhost 用 Shift+Insert / 右键） |
 
 ## 额外两项（发布前必须确认，属已知未验证）
 1. `tools/windows/probe-vt-input.ps1 -Mode default` 与 `-Mode vt` 各跑一次，贴回原始字节输出

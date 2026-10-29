@@ -50,6 +50,20 @@
 - 补 `KeyCode::BackTab` 分支；`TerminalGuard` 启动时置 `ENABLE_VIRTUAL_TERMINAL_PROCESSING`；
 - footer 补 `(provider)` 前缀（可用 provider >1 时，放不下则退回）与初始 `0.0%/<window>`（此前写死 128k）。
 
+### Windows 粘贴（2026-10-29 真机报告后修复）
+
+经典 conhost（`cmd.exe` 窗口）的 **Shift+Insert / 右键粘贴不是 bracketed paste**：整段文本被拆成
+一串 `KEY_EVENT`（行间是普通回车）逐个送进输入缓冲，而 `Ctrl+V` 在 conhost 里本来就不是粘贴键
+（Windows Terminal 才有 Ctrl+V）。因此 Windows 侧改用「突发合并」：
+
+- 字符按 30 ms 窗口攒批（人工打字 ≳ 60 ms/字，不受影响）；
+- 回车先挂起 60 ms——期间还有字符进来 ⇒ 判为粘贴里的换行；超时无输入 ⇒ 才当提交；
+- 结果：多行粘贴整段进编辑框（>10 行按 ref `editor.ts` 门槛折叠成 `[paste #N +M lines]`），
+  **不再触发提交**；再按一次回车才发出。
+
+仍未支持：conhost 里 `Ctrl+V` 不自带粘贴（终端层不发送任何按键），要在应用层读剪贴板需引入
+剪贴板依赖或 `unsafe` FFI，两者都需先批准；目前用 Shift+Insert / 右键粘贴即可。
+
 已知剩余（非阻塞）：
 - GBK 控制台把 `↑`/`↓` 按双宽渲染，footer 尾部会折 2 个字符到下一行（Windows Terminal 预计正常，未实测）；
 - Windows 上 `cargo test --workspace` 仍有 12 个平台相关 target 失败（mock-provider 为 Linux ELF、
