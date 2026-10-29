@@ -37,5 +37,10 @@ pi-rs-windows-amd64.exe --version
    （决定是否实施 VT 输入路径）；
 2. Windows Terminal 下：微软拼音候选框是否跟随光标、多行粘贴是否**只**进入编辑框而不触发多次提交。
 
+3. **Windows Terminal 下的粘贴**（需真人）：分别用 `Shift+Insert` 与**右键粘贴**各粘一段
+   3 行文本与一段 12 行文本——预期整段进入编辑框、**不自动提交**（12 行折叠成
+   `[paste #N +M lines]`），再按一次回车才发出。同时确认 `Ctrl+V` 在 Windows Terminal 里
+   也能正常工作（`Ctrl+V` 只在 conhost 里不产生按键事件）。
+
 ## 失败时提供
 项号 + 完整屏幕文本（或截图）+ 上面 `--version` 两行 + `certutil` 的 sha256。
