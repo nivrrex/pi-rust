@@ -752,6 +752,36 @@ fn clamp_thinking_level(available: &[String], requested: &str) -> String {
         .unwrap_or_else(|| "off".to_string())
 }
 
+/// 登录成功后解析该 provider 的默认模型（ref `completeProviderAuthentication`：
+/// 刷新可用模型并选中默认模型）。取 `settings.defaultModel`（若属于该 provider），
+/// 否则取 `models.json` 里该 provider 的第一个模型；都没有则保持 `no-model`。
+fn model_after_login(agent_dir: &std::path::Path, provider: &str) -> Option<String> {
+    let settings_text = std::fs::read_to_string(agent_dir.join("settings.json")).ok()?;
+    let settings: serde_json::Value = serde_json::from_str(&settings_text).ok()?;
+    let models_text = std::fs::read_to_string(agent_dir.join("models.json")).ok()?;
+    let models: serde_json::Value = serde_json::from_str(&models_text).ok()?;
+    let entry = models.get("providers")?.get(provider)?;
+    let ids: Vec<String> = entry
+        .get("models")?
+        .as_array()?
+        .iter()
+        .filter_map(|model| model.get("id")?.as_str().map(str::to_string))
+        .collect();
+    let default_id = settings
+        .get("defaultModel")
+        .and_then(|value| value.as_str())
+        .map(str::to_string);
+    let default_provider = settings
+        .get("defaultProvider")
+        .and_then(|value| value.as_str());
+    if default_provider == Some(provider) {
+        if let Some(id) = default_id.filter(|id| ids.iter().any(|known| known == id)) {
+            return Some(id);
+        }
+    }
+    ids.first().cloned()
+}
+
 /// `/login` 无参面板的渲染（选中项前缀 `›`，未选中留两空格；ref 的选择器同形）。
 fn login_render(
     state: &mut pi_tui::TuiState,
@@ -2501,7 +2531,15 @@ pub fn run(mut state: TuiState, parts: Option<std::sync::Arc<AgentParts>>) -> st
                             (Some(path), false) => {
                                 match crate::auth_store::set_api_key(&path, &provider, &key) {
                                     // 成功提示按 ref 的措辞（不打印 key 本身）
-                                    Ok(()) => format!("Logged in to {provider}."),
+                                    Ok(()) => {
+                                        // ref `completeProviderAuthentication`：刷新并选中默认模型
+                                        if let Some(model) =
+                                            model_after_login(&state.agent_dir, &provider)
+                                        {
+                                            state.model = model;
+                                        }
+                                        format!("Logged in to {provider}.")
+                                    }
                                     Err(error) => format!("Login failed: {error}"),
                                 }
                             }

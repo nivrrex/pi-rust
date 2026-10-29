@@ -83,6 +83,20 @@ P8e-7 回复里我写过"Windows 控制台在 VT 输入模式下不把 `Ctrl+D` 
 （crossterm 对 key-up 也发事件）导致字符翻倍；②启动期 DA1 应答 `[?1;0c` 被当成输入写进编辑框，
 编辑框非空 ⇒ `Ctrl+D` 不触发退出。两者均已修（`9a9ab38`）。
 
+## 登录（`/login`、`/logout`，P8e-11 登记）
+
+- **已实现**：`/login [provider]` 的 api_key 型流程——provider 列表（`models.json` 里的
+  provider）、`/login <provider>` 直达 key 输入、无参时 ↑/↓ 选择 + Enter 确认 + Esc 取消；
+  写入 `<agentDir>/auth.json`（原子写、Unix `0600`、保留未知键）；登录成功后选中该
+  provider 的默认模型（`settings.defaultModel` 或该 provider 的第一个模型）。
+  `/logout` 删除 `auth.json` 里的对应条目。
+- **未实现**：OAuth 型登录。选择列表里标为 `oauth` 的 provider（ref 中 9 个：anthropic、
+  github-copilot、kimi-coding、meta、openai-codex、openrouter、openrouter-images、radius、
+  xai）在选择或指定时给出 `OAuth login for <name> is not supported yet.`，不做任何网络请求。
+- **未实现的连带行为**：ref 登录成功后的"凭据来源/模型范围刷新"提示行、`/logout` 的选择器
+  （本实现直接删除全部已配置 provider 的条目并给出 `Logged out of …` / `No stored
+  credentials to remove. …` 文案）。
+
 ## 键位实现缺口（P8e-7 登记）
 
 `ctrl+p`（ref `core/keybindings.ts:106-109` 的 `app.model.cycleForward`）**已实现**：
