@@ -1226,16 +1226,9 @@ fn build_tui_agent_parts(
                         .unwrap_or_default()
                 })
                 .collect();
-            let mut kept: Vec<pi_cli::tui::ModelChoice> = Vec::new();
-            for choice in enabled {
-                if known.contains(&(choice.provider.clone(), choice.id.clone())) {
-                    kept.push(choice);
-                } else {
-                    eprintln!(
-                        "Warning: No models match pattern \"{}/{}\"",
-                        choice.provider, choice.id
-                    );
-                }
+            let (kept, warnings) = filter_available_models(&enabled, &known);
+            for warning in &warnings {
+                eprintln!("Warning: {warning}");
             }
             kept
         } else {
@@ -1293,6 +1286,30 @@ fn build_tui_agent_parts(
         system_message,
         writer,
     }))
+}
+
+/// `enabledModels` → 可切换模型 scope 的过滤（ref `core/model-resolver.ts:282-382`）。
+///
+/// 匹配不到 `models.json` 里实际存在的 `(provider, id)` 的项**丢弃**并返回告警文案
+/// （调用方以 `Warning: ` 前缀打到 stderr，与 ref 的 `console.warn` 文案一致）。
+/// 纯函数，便于单测：不读文件、不写 stderr。
+fn filter_available_models(
+    enabled: &[pi_cli::tui::ModelChoice],
+    known: &std::collections::BTreeSet<(String, String)>,
+) -> (Vec<pi_cli::tui::ModelChoice>, Vec<String>) {
+    let mut kept: Vec<pi_cli::tui::ModelChoice> = Vec::new();
+    let mut warnings: Vec<String> = Vec::new();
+    for choice in enabled {
+        if known.contains(&(choice.provider.clone(), choice.id.clone())) {
+            kept.push(choice.clone());
+        } else {
+            warnings.push(format!(
+                "No models match pattern \"{}/{}\"",
+                choice.provider, choice.id
+            ));
+        }
+    }
+    (kept, warnings)
 }
 
 fn load_settings(paths: &pi_cli::runtime::Paths) -> Result<pi_cli::settings::Settings, ExitCode> {
@@ -1366,4 +1383,85 @@ fn print_help() {
          \x20 --help, -h / --version, -v\n",
         version = pi_core::VERSION
     );
+}
+
+#[cfg(test)]
+mod enabled_models_tests {
+    use super::filter_available_models;
+    use pi_cli::tui::ModelChoice;
+    use std::collections::BTreeSet;
+
+    fn choice(provider: &str, id: &str) -> ModelChoice {
+        ModelChoice {
+            provider: provider.to_string(),
+            id: id.to_string(),
+        }
+    }
+
+    fn known(items: &[(&str, &str)]) -> BTreeSet<(String, String)> {
+        items
+            .iter()
+            .map(|(provider, id)| ((*provider).to_string(), (*id).to_string()))
+            .collect()
+    }
+
+    /// 有效项保持顺序；无效项被丢弃并给出与 ref 同文案的告警。
+    #[test]
+    fn drops_unmatched_and_warns_with_ref_text() {
+        let enabled = vec![
+            choice("openrouter", "openrouter/free"),
+            choice("command-code", "inclusionai/ling-3.1-flash:free"),
+            choice("opencode-go", "deepseek-v4.1-flash"),
+        ];
+        let known = known(&[
+            ("openrouter", "openrouter/free"),
+            ("command-code", "deepseek/deepseek-v4.1-flash"),
+            ("opencode-go", "deepseek-v4.1-flash"),
+        ]);
+        let (kept, warnings) = filter_available_models(&enabled, &known);
+        assert_eq!(
+            kept,
+            vec![
+                choice("openrouter", "openrouter/free"),
+                choice("opencode-go", "deepseek-v4.1-flash"),
+            ]
+        );
+        assert_eq!(
+            warnings,
+            vec![
+                "No models match pattern \"command-code/inclusionai/ling-3.1-flash:free\""
+                    .to_string()
+            ]
+        );
+    }
+
+    /// 模型 id 自身含 `/`（`provider/id/with/slashes`）时按完整 id 比对，不能二次切分。
+    #[test]
+    fn keeps_ids_containing_slashes() {
+        let enabled = vec![choice("command-code", "deepseek/deepseek-v4.1-flash")];
+        let known = known(&[("command-code", "deepseek/deepseek-v4.1-flash")]);
+        let (kept, warnings) = filter_available_models(&enabled, &known);
+        assert_eq!(kept, enabled);
+        assert!(warnings.is_empty());
+    }
+
+    /// 同名 id 在不同 provider 下不能互相匹配（`(provider, id)` 是二元组）。
+    #[test]
+    fn provider_is_part_of_the_key() {
+        let enabled = vec![choice("opencode-go", "deepseek-v4.1-flash")];
+        let known = known(&[("command-code", "deepseek-v4.1-flash")]);
+        let (kept, warnings) = filter_available_models(&enabled, &known);
+        assert!(kept.is_empty());
+        assert_eq!(
+            warnings,
+            vec!["No models match pattern \"opencode-go/deepseek-v4.1-flash\"".to_string()]
+        );
+    }
+
+    #[test]
+    fn empty_input_yields_empty_output() {
+        let (kept, warnings) = filter_available_models(&[], &known(&[("a", "b")]));
+        assert!(kept.is_empty());
+        assert!(warnings.is_empty());
+    }
 }
