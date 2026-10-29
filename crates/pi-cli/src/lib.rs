@@ -1,6 +1,7 @@
 //! CLI 参数解析与模式判定（可单测的纯逻辑部分）。
 
 pub mod args;
+pub mod auth_store;
 pub mod auto_compaction;
 pub mod clipboard;
 pub mod model_selector;
