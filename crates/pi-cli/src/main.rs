@@ -1454,36 +1454,102 @@ fn reject_unsupported(parsed: &Args) -> Option<ExitCode> {
 }
 
 fn print_help() {
+    println!("pi-rs {}\n", pi_core::VERSION);
+    println!("AI coding assistant with read, bash, edit, write tools\n");
+    println!("Usage:\n  pi-rs [options] [--] [@files...] [messages...]\n");
+    println!("Options:");
+    println!(r#"  --provider <name>              Provider name (default: google)"#);
     println!(
-        "pi-rs {version}\n\
-         \n\
-         用法: pi-rs [选项] [消息...] [@文件...]\n\
-         \n\
-         选项:\n\
-         \x20 --mode <text|json|rpc>   应用模式\n\
-         \x20 --print, -p              非交互模式\n\
-         \x20 --provider <名>          provider 名（缺省：settings 的 defaultProvider / 可用模型回落）\n\
-         \x20 --model <名>             模型名或 id（支持 provider/id 形式；同上回落）\n\
-         \x20 --api-key <key>          API key\n\
-         \x20 --system-prompt <文本>   覆盖系统提示\n\
-         \x20 --append-system-prompt <文本>  追加系统提示（可重复）\n\
-         \x20 --no-session             不写会话文件\n\
-         \x20 --continue, -c           继续最近的会话\n\
-         \x20 --session <路径>         指定会话文件\n\
-         \x20 --no-tools, -nt          不带工具\n\
-         \x20 --tools <列表>           只带这些工具（逗号分隔）\n\
-         \x20 --exclude-tools <列表>   排除这些工具\n\
-         内置工具名:\n\
-         \x20 read                     读取文件\n\
-         \x20 bash                     执行 bash 命令\n\
-         \x20 powershell               执行 PowerShell 命令（仅 Windows）\n\
-         \x20 edit                     精确替换编辑\n\
-         \x20 write                    写文件（创建/覆盖）\n\
-         \x20 grep / find / ls         只读检索（默认不启用）\n\
-         \x20 --offline                离线\n\
-         \x20 --help, -h / --version, -v\n",
-        version = pi_core::VERSION
+        r#"  --model <pattern>              Model pattern or ID (supports "provider/id" and optional ":<thinking>")"#
     );
+    println!(r#"  --api-key <key>                API key (defaults to env vars)"#);
+    println!(
+        r#"  --system-prompt <text>         System prompt (default: coding assistant prompt)"#
+    );
+    println!(
+        r#"  --append-system-prompt <text>  Append text or file contents to the system prompt (can be used multiple times)"#
+    );
+    println!(r#"  --mode <mode>                  Output mode: text (default), json, or rpc"#);
+    println!(r#"  --print, -p                    Non-interactive mode: process prompt and exit"#);
+    println!(r#"  --continue, -c                 Continue previous session"#);
+    println!(r#"  --resume, -r                   Select a session to resume"#);
+    println!(r#"  --session <path|id>            Use specific session file or partial UUID"#);
+    println!(
+        r#"  --session-id <id>              Use exact project session ID, creating it if missing"#
+    );
+    println!(r#"  --session-dir <dir>            Directory for session storage and lookup"#);
+    println!(r#"  --no-session                   Don't save session (ephemeral)"#);
+    println!(r#"  --name, -n <name>              Set session display name"#);
+    println!(
+        r#"  --models <patterns>            Comma-separated model patterns for Ctrl+P cycling"#
+    );
+    println!(
+        r#"  --no-tools, -nt                Disable all tools by default (built-in and extension)"#
+    );
+    println!(
+        r#"  --no-builtin-tools, -nbt       Disable built-in tools by default but keep extension/custom tools enabled"#
+    );
+    println!(
+        r#"  --tools, -t <tools>            Comma-separated allowlist of tool names to enable"#
+    );
+    println!(
+        r#"  --exclude-tools, -xt <tools>   Comma-separated denylist of tool names to disable"#
+    );
+    println!(
+        r#"  --thinking <level>             Set thinking level: off, minimal, low, medium, high, xhigh, max"#
+    );
+    println!(
+        r#"  --no-context-files, -nc        Disable AGENTS.md and CLAUDE.md discovery and loading"#
+    );
+    println!(
+        r#"  --list-models [search]         List available models (with optional fuzzy search)"#
+    );
+    println!(
+        r#"  --verbose                      Force verbose startup (overrides quietStartup setting)"#
+    );
+    println!(r#"  --tui-mode <mode>              TUI mode: regular (default) or fullscreen"#);
+    println!(
+        r#"  --offline                      Disable startup network operations (same as PI_OFFLINE=1)"#
+    );
+    println!(r#"  --help, -h                     Show this help"#);
+    println!(r#"  --version, -v                  Show version number"#);
+    println!("\nBuilt-in tools:");
+    println!("  read                      Read a file");
+    println!("  bash                      Run a bash command");
+    println!("  edit                      Exact string replacement");
+    println!("  write                     Create or overwrite a file");
+    println!("  grep / find / ls          Read-only search (opt-in)");
+    println!("  powershell                Run PowerShell (Windows only)");
+    println!("\nNot implemented in pi-rs (see LIMITATIONS.md):");
+    println!(
+        r#"  --fork <path|id>               Fork specific session file or partial UUID into a new session"#
+    );
+    println!(
+        r#"  --extension, -e <path>         Load an extension file (can be used multiple times)"#
+    );
+    println!(
+        r#"  --no-extensions, -ne           Disable extension discovery (explicit -e paths still work)"#
+    );
+    println!(
+        r#"  --skill <path>                 Load a skill file or directory (can be used multiple times)"#
+    );
+    println!(r#"  --no-skills, -ns               Disable skills discovery and loading"#);
+    println!(
+        r#"  --prompt-template <path>       Load a prompt template file or directory (can be used multiple times)"#
+    );
+    println!(r#"  --no-prompt-templates, -np     Disable prompt template discovery and loading"#);
+    println!(
+        r#"  --theme <path>                 Load a theme file or directory (can be used multiple times)"#
+    );
+    println!(r#"  --use-theme <name[/name]>      Set the initial interactive theme for this run"#);
+    println!(r#"  --no-themes                    Disable theme discovery and loading"#);
+    println!(r#"  --export <file>                Export session file to HTML and exit"#);
+    println!(r#"  --approve, -a                  Trust project-local files for this run"#);
+    println!(r#"  --no-approve, -na              Ignore project-local files for this run"#);
+    println!(
+        r#"  --                             End option parsing; treat remaining arguments as messages/files"#
+    );
+    println!();
 }
 
 #[cfg(test)]
