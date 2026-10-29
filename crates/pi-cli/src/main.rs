@@ -134,6 +134,23 @@ fn main() -> ExitCode {
                 cwd.to_string_lossy().to_string(),
                 "0.0%/128k (auto)",
             );
+            // `/login` 的 provider 列表必须在没有可用模型（parts=None）时也可用，
+            // 故直接写到 state 上（`run()` 里若 parts 存在会用同一份覆盖，等价）。
+            state.login_providers = load_settings(&paths)
+                .ok()
+                .map(|_| {
+                    let mut names: Vec<String> =
+                        std::fs::read_to_string(paths.agent_dir.join("models.json"))
+                            .ok()
+                            .and_then(|text| {
+                                serde_json::from_str::<pi_ai::config::ModelsConfig>(&text).ok()
+                            })
+                            .map(|config| config.providers.keys().cloned().collect::<Vec<_>>())
+                            .unwrap_or_default();
+                    names.sort();
+                    names
+                })
+                .unwrap_or_default();
             state.context_files = discovered
                 .files
                 .iter()

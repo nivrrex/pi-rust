@@ -51,6 +51,9 @@ pub struct TuiState {
     /// 工具输出是否全部展开（ref `interactive-mode.ts:475` 默认 `false`；
     /// `ctrl+o` 切换所有工具块，`:4397-4419`）。
     pub tools_expanded: bool,
+    /// `/login <provider>` 已选定 provider、正在等用户输入 API key（此时编辑器内容掩码显示）。
+    /// ref `interactive-mode.ts:6003-6040` 的 `showApiKeyLoginDialog`。
+    pub pending_login_provider: Option<String>,
     /// `/login` 面板的 provider 列表（来自 `models.json` 的 provider 键，顺序按 ref 的
     /// 显示名排序在 `login_options` 里完成）。ref `interactive-mode.ts:5629-5663`。
     pub login_providers: Vec<String>,
@@ -174,6 +177,7 @@ impl TuiState {
         Self {
             retrying: false,
             tools_expanded: false,
+            pending_login_provider: None,
             login_providers: Vec::new(),
             theme_name: crate::theme::DEFAULT_NAME.to_string(),
             thinking_level: "off".to_string(),
@@ -983,7 +987,8 @@ pub fn apply(state: &mut TuiState, event: TuiEvent) -> TuiAction {
             if let Some(name) = trimmed.strip_prefix('/') {
                 let name = name.split_whitespace().next().unwrap_or_default();
                 if builtin_command(name) {
-                    return TuiAction::Command(name.to_string());
+                    // 保留参数：ref `/login <provider>` 依赖 `text.slice(7)`（:3172）
+                    return TuiAction::Command(trimmed.trim_start_matches('/').to_string());
                 }
             }
             TuiAction::Submit(trimmed)
@@ -2830,7 +2835,10 @@ impl TuiState {
 /// 不在表里的 `/xxx` 一律按普通输入提交（T18 实测：未知命令会被当 prompt 发给模型）。
 #[must_use]
 pub fn builtin_command(name: &str) -> bool {
-    const COMMANDS: [&str; 24] = [
+    const COMMANDS: [&str; 26] = [
+        // ref `interactive-mode.ts:3171-3179`：`/login` 与 `/logout`
+        "login",
+        "logout",
         "settings",
         "model",
         "tree",
