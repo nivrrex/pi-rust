@@ -802,7 +802,14 @@ fn login_render(
     state.open_panel(pi_tui::PanelPlacement::BelowEditor, lines);
 }
 
-pub fn run(mut state: TuiState, parts: Option<std::sync::Arc<AgentParts>>) -> std::io::Result<i32> {
+/// 登录成功后重建 agent 部件的回调（无模型启动时 `parts` 为 None，登录后要用新凭据建出来）。
+pub type RebuildParts = Box<dyn Fn() -> Option<(std::sync::Arc<AgentParts>, String)> + Send + Sync>;
+
+pub fn run(
+    mut state: TuiState,
+    mut parts: Option<std::sync::Arc<AgentParts>>,
+    rebuild: Option<RebuildParts>,
+) -> std::io::Result<i32> {
     install_panic_hook();
     let mut guard = TerminalGuard::new()?;
     let sig_flag = Arc::new(AtomicBool::new(false));
@@ -2537,6 +2544,16 @@ pub fn run(mut state: TuiState, parts: Option<std::sync::Arc<AgentParts>>) -> st
                                             model_after_login(&state.agent_dir, &provider)
                                         {
                                             state.model = model;
+                                        }
+                                        // 无模型启动时 agent 部件没建过；登录后立刻重建，
+                                        // 让当次会话就能对话（无需重启）。
+                                        if parts.is_none() {
+                                            if let Some(build) = rebuild.as_ref() {
+                                                if let Some((built, model)) = build() {
+                                                    parts = Some(built);
+                                                    state.model = model;
+                                                }
+                                            }
                                         }
                                         format!("Logged in to {provider}.")
                                     }

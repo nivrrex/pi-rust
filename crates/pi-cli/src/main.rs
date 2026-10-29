@@ -188,7 +188,33 @@ fn main() -> ExitCode {
                     return ExitCode::from(1);
                 }
             };
-            match runtime.block_on(async { pi_cli::tui::run(state, agent_parts) }) {
+            // 无模型启动时 `agent_parts` 为 None；`/login` 成功后用它重建部件，
+            // 使当次会话就能对话（ref `completeProviderAuthentication` 重建会话）。
+            let rebuild: Option<pi_cli::tui::RebuildParts> = if agent_parts.is_none() {
+                let parsed_clone = parsed.clone();
+                let paths_clone = paths.clone();
+                let cwd_clone = cwd.clone();
+                Some(Box::new(move || {
+                    let mut scratch = pi_tui::TuiState::new(
+                        env!("CARGO_PKG_VERSION"),
+                        cwd_clone.to_string_lossy().to_string(),
+                        "",
+                    );
+                    scratch.agent_dir = paths_clone.agent_dir.clone();
+                    match build_tui_agent_parts(
+                        &parsed_clone,
+                        &paths_clone,
+                        &cwd_clone,
+                        &mut scratch,
+                    ) {
+                        Ok(Some(parts)) => Some((parts, scratch.model.clone())),
+                        Ok(None) | Err(_) => None,
+                    }
+                }))
+            } else {
+                None
+            };
+            match runtime.block_on(async { pi_cli::tui::run(state, agent_parts, rebuild) }) {
                 Ok(code) => ExitCode::from(u8::try_from(code).unwrap_or(1)),
                 Err(error) => {
                     eprintln!("pi-rs: TUI 运行失败：{error}");
