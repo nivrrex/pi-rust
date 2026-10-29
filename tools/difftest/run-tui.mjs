@@ -131,6 +131,15 @@ async function main() {
   if (typeof scenario.theme === "string" && scenario.theme.length > 0) {
     settingsJson.theme = scenario.theme;
   }
+  // P8e-10/M-c：场景可以带 `settings` 对象，**逐键并入** settings.json
+  // （例如 `enabledModels` 里放一个不存在的 id，用来对拍启动期 Warning）。
+  // 只允许并入，不允许覆盖 runner 自己写的 provider/model（否则两侧不再同源）。
+  if (scenario.settings && typeof scenario.settings === "object") {
+    for (const [key, value] of Object.entries(scenario.settings)) {
+      if (key === "defaultProvider" || key === "defaultModel") continue;
+      settingsJson[key] = value;
+    }
+  }
   await fs.promises.writeFile(path.join(tmp, "cfg", "settings.json"),
     JSON.stringify(settingsJson, null, 2));
 
