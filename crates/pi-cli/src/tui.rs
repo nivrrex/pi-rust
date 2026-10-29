@@ -3822,6 +3822,10 @@ fn map_windows_key(key: crossterm::event::KeyEvent) -> Option<TuiEvent> {
             _unmapped => None,
         },
         KeyCode::Char(ch) => Some(TuiEvent::Char(ch)),
+        // ref `keybindings.ts:143`：`tui.input.newLine = ["shift+enter", "ctrl+j"]`。
+        // ConPTY 把粘贴里的换行送成 **Ctrl+Enter**，所以它必须按"插入换行"处理，
+        // 不能当成提交（否则粘贴结束前的裸回车会直接提交）。
+        KeyCode::Enter if ctrl => Some(TuiEvent::Newline),
         KeyCode::Enter => Some(TuiEvent::Enter),
         KeyCode::Backspace => Some(TuiEvent::Backspace),
         KeyCode::Esc => Some(TuiEvent::Escape),
@@ -4098,6 +4102,11 @@ impl PasteBurst {
     }
 
     /// 取出缓冲内容（不清 `enter_pending`）。
+    /// 是否有待决内容（正在攒的字符或挂起的回车）。
+    fn is_pending(&self) -> bool {
+        !self.chars.is_empty() || self.enter_pending
+    }
+
     fn take(&mut self) -> Vec<TuiEvent> {
         let chars = std::mem::take(&mut self.chars);
         if chars.contains(&'\n') {
@@ -4115,43 +4124,153 @@ impl PasteBurst {
 /// `KeyCode::Char` + `CONTROL`。Unix 仍走字节路径（与 golden 逐字节对齐）。
 /// 这里还要额外做两件事：只收 `Press`（见 [`map_windows_key`]）、抹掉终端查询应答
 /// （见 [`RespFilter`]）。
+/// Windows 输入线程的**纯逻辑**部分（可注入时钟，Linux 上也能单测）。
+///
+/// 组合三件事：`RespFilter`（抹掉 DA1 应答）、`PasteBurst`（conhost 逐键粘贴合批）、
+/// `BracketPaste`（ConPTY 把 `ESC[200~`/`ESC[201~` 拆成按键时的重组）。
+#[cfg(any(windows, test))]
+#[derive(Default)]
+pub struct WindowsInput {
+    filter: RespFilter,
+    burst: PasteBurst,
+    bracket: crate::bracket_paste::BracketPaste,
+}
+
+#[cfg(any(windows, test))]
+impl WindowsInput {
+    /// 喂一个 crossterm 按键事件。
+    pub fn on_key(
+        &mut self,
+        key: crossterm::event::KeyEvent,
+        now_ms: u64,
+    ) -> Vec<pi_tui::TuiEvent> {
+        use crate::bracket_paste::{BracketInput, BracketOut};
+        if key.kind == crossterm::event::KeyEventKind::Press {
+            let input = match key.code {
+                crossterm::event::KeyCode::Esc => BracketInput::Esc,
+                crossterm::event::KeyCode::Char(ch) => BracketInput::Char(ch),
+                // ConPTY 在括号粘贴内部把换行送成 Ctrl+Enter：收集时必须当成 '\n'，
+                // 否则会被判成"其它按键"从而中断整段收集。
+                crossterm::event::KeyCode::Enter
+                    if key
+                        .modifiers
+                        .contains(crossterm::event::KeyModifiers::CONTROL) =>
+                {
+                    BracketInput::Char('\n')
+                }
+                _other => BracketInput::Other,
+            };
+            match self.bracket.feed(input, now_ms) {
+                BracketOut::Consumed => return Vec::new(),
+                BracketOut::Paste(text) => {
+                    let mut emitted = self.burst.take_all();
+                    emitted.push(pi_tui::TuiEvent::Paste(text));
+                    return emitted;
+                }
+                // 暂扣的 Esc 被判定"不是标记"：先把它放出去，再处理当前字符
+                BracketOut::EscReleased => return vec![pi_tui::TuiEvent::Escape],
+                BracketOut::Pass(_) => {}
+            }
+        }
+        let Some(mapped) = map_windows_key(key) else {
+            return Vec::new();
+        };
+        let mut emitted: Vec<pi_tui::TuiEvent> = Vec::new();
+        match mapped {
+            pi_tui::TuiEvent::Escape => {
+                emitted.extend(self.burst.take_all());
+                self.filter.on_escape();
+            }
+            pi_tui::TuiEvent::Char(ch) => match self.filter.feed(ch) {
+                FilterOut::Nothing => {}
+                FilterOut::Char(ch) => {
+                    if let Some(previous) = self.burst.on_char(ch, now_ms) {
+                        emitted.extend(previous);
+                    }
+                }
+                FilterOut::Escape => {
+                    emitted.extend(self.burst.take_all());
+                    emitted.push(pi_tui::TuiEvent::Escape);
+                }
+                FilterOut::EscapeThenChar(ch) => {
+                    emitted.extend(self.burst.take_all());
+                    emitted.push(pi_tui::TuiEvent::Escape);
+                    if let Some(previous) = self.burst.on_char(ch, now_ms) {
+                        emitted.extend(previous);
+                    }
+                }
+            },
+            // ConPTY 把粘贴里的换行送成 Ctrl+Enter（见 `map_windows_key`），
+            // 映射到 `Newline`：正在攒粘贴 ⇒ 并入这段文本（当 '\n'）；
+            // 否则就是用户真按了 ctrl+j ⇒ 直接插入换行（ref keybindings.ts:143）。
+            pi_tui::TuiEvent::Newline => {
+                if self.burst.is_pending() {
+                    self.burst.on_enter(now_ms);
+                } else {
+                    emitted.push(pi_tui::TuiEvent::Newline);
+                }
+            }
+            pi_tui::TuiEvent::Enter => {
+                self.burst.on_enter(now_ms);
+            }
+            other => {
+                emitted.extend(self.burst.take_all());
+                if self.filter.take_pending_escape() {
+                    emitted.push(pi_tui::TuiEvent::Escape);
+                }
+                emitted.push(other);
+            }
+        }
+        emitted
+    }
+
+    /// 终端直接给出的整段粘贴（crossterm `Event::Paste`）。
+    pub fn on_paste(&mut self, text: String) -> Vec<pi_tui::TuiEvent> {
+        let mut emitted = self.burst.take_all();
+        if self.filter.take_pending_escape() {
+            emitted.push(pi_tui::TuiEvent::Escape);
+        }
+        emitted.push(pi_tui::TuiEvent::Paste(text));
+        emitted
+    }
+
+    /// 定时 tick（10 ms 粒度）：让挂起的回车与暂扣的 Esc 到期。
+    pub fn tick(&mut self, now_ms: u64) -> Vec<pi_tui::TuiEvent> {
+        let mut emitted: Vec<pi_tui::TuiEvent> = Vec::new();
+        if let Some(events) = self.burst.tick(now_ms) {
+            emitted.extend(events);
+        }
+        if self.filter.take_pending_escape() {
+            emitted.push(pi_tui::TuiEvent::Escape);
+        }
+        if let Some(crate::bracket_paste::BracketOut::EscReleased) = self.bracket.flush(now_ms) {
+            emitted.push(pi_tui::TuiEvent::Escape);
+        }
+        emitted
+    }
+}
+
 #[cfg(windows)]
 fn spawn_crossterm_input_thread(tx: std::sync::mpsc::Sender<TuiEvent>) {
     use crossterm::event::{self, Event};
 
     std::thread::spawn(move || {
-        let mut filter = RespFilter::default();
-        let mut burst = PasteBurst::default();
-        // ConPTY 会把 `ESC[200~`/`ESC[201~` 拆成普通按键（真机日志见
-        // `crate::bracket_paste` 的头注释），这里把它们重组回一段粘贴。
-        let mut bracket = crate::bracket_paste::BracketPaste::default();
+        let mut machine = WindowsInput::default();
         let started = std::time::Instant::now();
         let now_ms = || started.elapsed().as_millis() as u64;
         loop {
-            // 10 ms 粒度：既要及时冲掉粘贴突发（12 ms 窗口），也要给挂起的 ESC 计时。
+            // 10 ms 粒度：既要及时冲掉粘贴突发（12 ms 窗口），也要给挂起的回车到期
             let ready = match event::poll(Duration::from_millis(10)) {
                 Ok(ready) => ready,
                 Err(_) => return,
             };
             if !ready {
-                // 先让粘贴突发到期（挂起的回车 ⇒ 提交），再处理挂起的 ESC。
-                if let Some(events) = burst.tick(now_ms()) {
-                    if events.into_iter().any(|event| tx.send(event).is_err()) {
-                        return;
-                    }
-                }
-                if filter.take_pending_escape() && tx.send(TuiEvent::Escape).is_err() {
+                if machine
+                    .tick(now_ms())
+                    .into_iter()
+                    .any(|event| tx.send(event).is_err())
+                {
                     return;
-                }
-                if let Some(out) = bracket.flush(now_ms()) {
-                    if let crate::bracket_paste::BracketOut::Pass(
-                        crate::bracket_paste::BracketInput::Esc,
-                    ) = out
-                    {
-                        if tx.send(TuiEvent::Escape).is_err() {
-                            return;
-                        }
-                    }
                 }
                 continue;
             }
@@ -4159,8 +4278,8 @@ fn spawn_crossterm_input_thread(tx: std::sync::mpsc::Sender<TuiEvent>) {
                 Ok(event) => event,
                 Err(_) => return,
             };
-            // 诊断开关：`PI_TUI_EVENT_DUMP=<path>` 把每个 crossterm 事件（含时间戳）追加
-            // 到文件，用于定位真机上的粘贴/输入法异常（括号粘贴 vs 逐字符、到达间隔）。
+            // 诊断开关：`PI_TUI_EVENT_DUMP=<path>` 把每个 crossterm 事件（含时间戳）
+            // 追加到文件，用于定位真机上的粘贴/输入法异常。
             if let Some(path) = std::env::var_os("PI_TUI_EVENT_DUMP") {
                 use std::io::Write as _;
                 if let Ok(mut file) = std::fs::OpenOptions::new()
@@ -4171,96 +4290,13 @@ fn spawn_crossterm_input_thread(tx: std::sync::mpsc::Sender<TuiEvent>) {
                     let _ = writeln!(file, "{:>6}ms  {event:?}", started.elapsed().as_millis());
                 }
             }
-            match event {
-                Event::Key(key) => {
-                    // 括号粘贴标记重组（只对 Press 生效，Release 直接丢弃）
-                    if key.kind == crossterm::event::KeyEventKind::Press {
-                        use crate::bracket_paste::{BracketInput, BracketOut};
-                        let input = match key.code {
-                            crossterm::event::KeyCode::Esc => BracketInput::Esc,
-                            crossterm::event::KeyCode::Char(ch) => BracketInput::Char(ch),
-                            _other => BracketInput::Other,
-                        };
-                        match bracket.feed(input, now_ms()) {
-                            BracketOut::Consumed => continue,
-                            BracketOut::Paste(text) => {
-                                let mut emitted = burst.take_all();
-                                emitted.push(TuiEvent::Paste(text));
-                                if emitted.into_iter().any(|event| tx.send(event).is_err()) {
-                                    return;
-                                }
-                                continue;
-                            }
-                            BracketOut::Pass(_) => {}
-                        }
-                    }
-                    let Some(mapped) = map_windows_key(key) else {
-                        continue;
-                    };
-                    match mapped {
-                        TuiEvent::Escape => {
-                            if burst
-                                .take_all()
-                                .into_iter()
-                                .any(|event| tx.send(event).is_err())
-                            {
-                                return;
-                            }
-                            filter.on_escape();
-                        }
-                        TuiEvent::Char(ch) => {
-                            let mut emitted: Vec<TuiEvent> = Vec::new();
-                            match filter.feed(ch) {
-                                FilterOut::Nothing => {}
-                                FilterOut::Char(ch) => {
-                                    if let Some(previous) = burst.on_char(ch, now_ms()) {
-                                        emitted.extend(previous);
-                                    }
-                                }
-                                FilterOut::Escape => {
-                                    emitted.extend(burst.take_all());
-                                    emitted.push(TuiEvent::Escape);
-                                }
-                                FilterOut::EscapeThenChar(ch) => {
-                                    emitted.extend(burst.take_all());
-                                    emitted.push(TuiEvent::Escape);
-                                    if let Some(previous) = burst.on_char(ch, now_ms()) {
-                                        emitted.extend(previous);
-                                    }
-                                }
-                            }
-                            if emitted.into_iter().any(|event| tx.send(event).is_err()) {
-                                return;
-                            }
-                        }
-                        TuiEvent::Enter => {
-                            // 回车先挂起：60 ms 内还有字符 ⇒ 是粘贴的换行；超时 ⇒ 提交（由 tick 发出）。
-                            burst.on_enter(now_ms());
-                        }
-                        other => {
-                            // 非字符事件：先排空粘贴缓冲与挂起的 ESC，再把事件原样送出。
-                            let mut emitted = burst.take_all();
-                            if filter.take_pending_escape() {
-                                emitted.push(TuiEvent::Escape);
-                            }
-                            emitted.push(other);
-                            if emitted.into_iter().any(|event| tx.send(event).is_err()) {
-                                return;
-                            }
-                        }
-                    }
-                }
-                Event::Paste(text) => {
-                    let mut emitted = burst.take_all();
-                    if filter.take_pending_escape() {
-                        emitted.push(TuiEvent::Escape);
-                    }
-                    emitted.push(TuiEvent::Paste(text));
-                    if emitted.into_iter().any(|event| tx.send(event).is_err()) {
-                        return;
-                    }
-                }
-                _other => {}
+            let emitted = match event {
+                Event::Key(key) => machine.on_key(key, now_ms()),
+                Event::Paste(text) => machine.on_paste(text),
+                _other => Vec::new(),
+            };
+            if emitted.into_iter().any(|event| tx.send(event).is_err()) {
+                return;
             }
         }
     });
@@ -5206,5 +5242,170 @@ mod windows_input_tests {
             "到达上限应冲出一批，实际 {} 个",
             emitted.len()
         );
+    }
+
+    #[cfg(test)]
+    mod win_input_tests {
+        use crate::tui::WindowsInput;
+        use crossterm::event::{KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
+        use pi_tui::TuiEvent;
+
+        /// 合成一个按键（Press）。
+        fn press(code: KeyCode) -> KeyEvent {
+            KeyEvent::new(code, KeyModifiers::NONE)
+        }
+
+        fn press_mod(code: KeyCode, modifiers: KeyModifiers) -> KeyEvent {
+            KeyEvent::new(code, modifiers)
+        }
+
+        /// 松开（Release）——真机日志里每个字符都带一条，必须被忽略。
+        fn release(code: KeyCode) -> KeyEvent {
+            KeyEvent::new_with_kind(code, KeyModifiers::NONE, KeyEventKind::Release)
+        }
+
+        /// 一次粘贴：每字符 Press+Release，间隔 1 ms；换行是 `Ctrl+Enter`（ConPTY 的实际形态）。
+        fn paste_events(text: &str, start_ms: u64) -> Vec<(KeyEvent, u64)> {
+            let mut out = Vec::new();
+            let mut at = start_ms;
+            for ch in text.chars() {
+                if ch == '\n' {
+                    out.push((press_mod(KeyCode::Enter, KeyModifiers::CONTROL), at));
+                    out.push((release(KeyCode::Enter), at + 1));
+                } else {
+                    out.push((press(KeyCode::Char(ch)), at));
+                    out.push((release(KeyCode::Char(ch)), at + 1));
+                }
+                at += 2;
+            }
+            out
+        }
+
+        /// `ESC[200~` / `ESC[201~` 被 ConPTY 拆成按键后的形态。
+        fn marker(tail: &str, start_ms: u64) -> Vec<(KeyEvent, u64)> {
+            let mut out = vec![(press(KeyCode::Esc), start_ms)];
+            for (offset, ch) in tail.chars().enumerate() {
+                out.push((press(KeyCode::Char(ch)), start_ms + 1 + offset as u64));
+            }
+            out
+        }
+
+        fn run(events: &[(KeyEvent, u64)], tick_until: u64) -> Vec<TuiEvent> {
+            let mut machine = WindowsInput::default();
+            let mut out = Vec::new();
+            for (key, at) in events {
+                out.extend(machine.on_key(*key, *at));
+            }
+            let mut at = events.last().map_or(0, |(_, at)| *at) + 1;
+            while at <= tick_until {
+                out.extend(machine.tick(at));
+                at += 10;
+            }
+            out
+        }
+
+        fn pastes(events: &[TuiEvent]) -> Vec<String> {
+            events
+                .iter()
+                .filter_map(|event| match event {
+                    TuiEvent::Paste(text) => Some(text.clone()),
+                    _other => None,
+                })
+                .collect()
+        }
+
+        /// 是否出现过"提交"——`TuiAction::Submit` 由 `apply()` 产生，这里用 Enter 事件
+        /// 是否**在粘贴之外**落地来近似：粘贴期间的换行必须是 `Newline` 而不是 `Enter`。
+        fn submits(events: &[TuiEvent]) -> usize {
+            events
+                .iter()
+                .filter(|event| matches!(event, TuiEvent::Enter))
+                .count()
+        }
+
+        fn escapes(events: &[TuiEvent]) -> usize {
+            events
+                .iter()
+                .filter(|event| matches!(event, TuiEvent::Escape))
+                .count()
+        }
+
+        #[test]
+        fn plain_burst_without_markers_becomes_one_paste_and_never_submits() {
+            let mut events = paste_events("aa\nbb\ncc\n", 0);
+            // 真机日志最后一条是 Shift+Insert 的松开
+            events.push((release(KeyCode::Insert), 40));
+            let out = run(&events, 400);
+            assert_eq!(
+                pastes(&out),
+                vec!["aa\nbb\ncc\n".to_string()],
+                "整段合成一次粘贴"
+            );
+            assert_eq!(submits(&out), 0, "粘贴不得触发提交");
+        }
+
+        #[test]
+        fn trailing_marker_residue_is_swallowed() {
+            // 只有结尾残留：正文后紧跟被拆开的 `ESC[201~`
+            let mut events = paste_events("he\nllo", 0);
+            events.extend(marker("[201~", 12));
+            events.push((release(KeyCode::Insert), 20));
+            let out = run(&events, 400);
+            let body = pastes(&out).join("");
+            assert_eq!(body, "he\nllo", "正文完整");
+            assert!(!body.contains("[201~"), "残留标记不得泄漏进正文");
+            assert_eq!(escapes(&out), 0, "标记里的 Esc 不能当成用户按 Esc");
+            assert_eq!(submits(&out), 0);
+        }
+
+        #[test]
+        fn full_markers_become_single_paste_without_residue() {
+            let mut events = marker("[200~", 0);
+            events.extend(paste_events("hi\nthere", 8));
+            events.extend(marker("[201~", 40));
+            let out = run(&events, 400);
+            assert_eq!(pastes(&out), vec!["hi\nthere".to_string()]);
+            assert_eq!(escapes(&out), 0);
+            assert_eq!(submits(&out), 0);
+        }
+
+        #[test]
+        fn split_markers_still_reassemble() {
+            // 起始标记被拆到两次读入里：`Esc [` 一批、`200~` 另外几批
+            let mut events = vec![(press(KeyCode::Esc), 0), (press(KeyCode::Char('[')), 2)];
+            events.extend(marker("200~", 4)[1..].to_vec());
+            events.extend(paste_events("x\ny", 12));
+            events.extend(marker("[201~", 30));
+            let out = run(&events, 400);
+            assert_eq!(pastes(&out), vec!["x\ny".to_string()]);
+            assert_eq!(submits(&out), 0);
+        }
+
+        #[test]
+        fn leading_stray_enter_is_absorbed_by_the_burst() {
+            // ConPTY 启动时会先送一个 Ctrl+Enter 残留；紧接着就是粘贴正文
+            let mut events = vec![(press_mod(KeyCode::Enter, KeyModifiers::CONTROL), 0)];
+            events.extend(paste_events("aa\nbb", 3));
+            let out = run(&events, 400);
+            assert_eq!(pastes(&out), vec!["aa\nbb".to_string()]);
+            assert_eq!(submits(&out), 0, "残留回车不得提交");
+        }
+
+        #[test]
+        fn isolated_escape_still_works() {
+            // 单独按 Esc（没有 `[` 跟随）：暂扣 40 ms 后必须放行，且只放行一次
+            let events = vec![(press(KeyCode::Esc), 0), (release(KeyCode::Esc), 2)];
+            let out = run(&events, 120);
+            assert_eq!(escapes(&out), 1);
+        }
+
+        #[test]
+        fn ctrl_enter_inserts_newline_like_ctrl_j() {
+            // ref `keybindings.ts:143`：newLine = ["shift+enter", "ctrl+j"]；
+            // ConPTY 用 Ctrl+Enter 表示粘贴换行 ⇒ 必须映射为 Newline 而不是 Enter
+            let mut machine = WindowsInput::default();
+            let out = machine.on_key(press_mod(KeyCode::Enter, KeyModifiers::CONTROL), 0);
+            assert_eq!(out, vec![TuiEvent::Newline]);
+        }
     }
 }

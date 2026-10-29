@@ -1,26 +1,23 @@
 //! 括号粘贴标记的**重组器**（Windows / ConPTY 专用修复）。
 //!
 //! 真机取证（WezTerm + Rime，2026-10-29，`PI_TUI_EVENT_DUMP` 日志）：
-//! 我们启动时确实发了 `ESC[?2004h`，但 ConPTY 把终端回送的括号粘贴标记
-//! **拆成了普通按键**——日志里能看到
+//! 启动时我们发了 `ESC[?2004h`，但 ConPTY 把终端回送的标记**拆成了普通按键**：
 //!
 //! ```text
 //! 27564ms  Key(Esc, Press)
-//! 27566ms  Char('[') 27568ms Char('2') 27569ms Char('0') 27571ms Char('1')
-//! 27573ms  Char('~')
+//! 27566ms  Char('[')  27568ms Char('2')  27569ms Char('0')
+//! 27571ms  Char('1')  27573ms Char('~')
 //! ```
 //!
-//! 也就是说 `ESC[201~` 被当成了「Esc + `[201~` 五个字符」，crossterm 永远不会
-//! 给出 `Event::Paste`。后果正是真机报告的三条现象：粘贴内容被拆成一串按键
-//! （折叠成缩略图与否取决于字符间隔）、残留的 `[201~` 变成垃圾输入、以及
-//! 开头那个 `Esc` 把编辑器状态搞乱。
+//! 于是 crossterm 永远不会给出 `Event::Paste`，正文被拆成一串按键，残留的
+//! `[201~` 变成垃圾输入，开头的裸 `Esc` 还会打乱编辑器状态。
 //!
-//! 这里按字节语义在**按键层**把它们重组回来：识别 `Esc [ 2 0 0 ~` 开始收集、
-//! 遇到 `Esc [ 2 0 1 ~` 结束，中间的内容作为一段文本输出。
+//! 这里按字节语义在按键层把它们重组：`Esc [ 2 0 0 ~` 开始收集，
+//! `Esc [ 2 0 1 ~` 结束；孤立的 `[201~`（只有结尾残留）整体吞掉。
 //!
 //! 纯状态机，不碰 I/O，可单测。
 
-/// 输入事件里本模块关心的三种形态。
+/// 本模块关心的输入形态。
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum BracketInput {
     /// 一个 `Esc` 键（Press）。
@@ -34,42 +31,51 @@ pub enum BracketInput {
 /// 状态机输出。
 #[derive(Debug, PartialEq, Eq)]
 pub enum BracketOut {
-    /// 该事件与粘贴标记无关，按原逻辑处理。
+    /// 与粘贴标记无关：按原逻辑处理（`Esc` 可能已被暂扣）。
     Pass(BracketInput),
-    /// 该事件属于标记，已吞掉（不产生任何输入）。
+    /// 属于标记，已吞掉。
     Consumed,
     /// 收集到一段完整的括号粘贴内容。
     Paste(String),
+    /// 暂扣的 `Esc` 到点放行（`flush` 返回）。
+    EscReleased,
 }
 
 /// 标记匹配窗口：`Esc` 之后多少毫秒内到达的字符仍算同一标记。
 const MARKER_WINDOW_MS: u64 = 120;
 
-/// 单独的 `Esc` 什么时候才真的交给上层（等这么久没等到 `[` 就放行）。
+/// 单独按下的 `Esc` 什么时候真的交给上层。
 pub const ESC_HOLD_MS: u64 = 40;
 
-/// 标记起始 `ESC[200~` 与结束 `ESC[201~` 的其余部分（不含 Esc）。
 const START_TAIL: &str = "[200~";
 const END_TAIL: &str = "[201~";
 
 #[derive(Debug, Default)]
 pub struct BracketPaste {
-    /// 刚看到 Esc 的时间戳（标记可能从下一个字符开始）。
-    esc_at: Option<u64>,
-    /// 已挂起、尚未决定归属的 Esc（`Esc` 被暂扣，等 `[` 或超时）。
+    /// 已暂扣、尚未决定归属的 `Esc`（时间戳）。
     held_esc_at: Option<u64>,
-    /// 已匹配的 `START_TAIL` 前缀长度。
-    start_matched: usize,
-    /// 收集中：正文 + 已匹配的 `END_TAIL` 前缀长度 + 「刚见到 Esc」。
+    /// `Esc` 之后已匹配的字符（"[" + "20x~" 的前缀）。
+    seq: String,
+    /// 收集中：正文 + 结束标记已匹配长度 + 是否刚见到 `Esc`。
     collecting: Option<(String, usize, bool)>,
 }
 
 impl BracketPaste {
-    /// 喂一个事件（带毫秒时间戳），返回该事件的处理结果。
     pub fn feed(&mut self, input: BracketInput, now_ms: u64) -> BracketOut {
-        // 收集中：只关心正文与结束标记。
+        // ── 收集中 ────────────────────────────────────────────────
         if let Some((text, matched, esc_pending)) = self.collecting.as_mut() {
             match input {
+                BracketInput::Esc => {
+                    // 结束标记的起点：先挂起
+                    if *matched > 0 {
+                        for byte in END_TAIL.as_bytes().iter().take(*matched) {
+                            text.push(*byte as char);
+                        }
+                        *matched = 0;
+                    }
+                    *esc_pending = true;
+                    return BracketOut::Consumed;
+                }
                 BracketInput::Char(ch) => {
                     if *esc_pending {
                         *esc_pending = false;
@@ -89,13 +95,11 @@ impl BracketPaste {
                         *matched += 1;
                         if *matched == END_TAIL.len() {
                             let body = std::mem::take(text);
-                            let _ = matched;
                             self.collecting = None;
                             return BracketOut::Paste(body);
                         }
                         return BracketOut::Consumed;
                     }
-                    // 不是结束标记：把已匹配的前缀当作正文的一部分
                     if *matched > 0 {
                         for byte in END_TAIL.as_bytes().iter().take(*matched) {
                             text.push(*byte as char);
@@ -105,123 +109,103 @@ impl BracketPaste {
                     text.push(ch);
                     return BracketOut::Consumed;
                 }
-                BracketInput::Esc => {
-                    // Esc 可能是结束标记的起点：先挂起，下一个字符再判定
-                    if let Some(state) = self.collecting.as_mut() {
-                        if state.1 > 0 {
-                            for byte in END_TAIL.as_bytes().iter().take(state.1) {
-                                state.0.push(*byte as char);
-                            }
-                            state.1 = 0;
-                        }
-                        state.2 = true;
-                    }
-                    return BracketOut::Consumed;
-                }
                 BracketInput::Other => {
-                    // 收集中的其它按键：丢弃这段不完整的收集（不把按键吞进正文）
+                    // 收集中遇到其它按键：放弃这次收集（不把按键吞进正文）
                     self.collecting = None;
                     return BracketOut::Pass(input);
                 }
             }
         }
-        // 起始标记匹配中（Esc 之后）。
-        if self.start_matched > 0 {
+        // ── 标记匹配中 ────────────────────────────────────────────
+        if !self.seq.is_empty() {
             let fresh = self
-                .esc_at
+                .held_esc_at
                 .is_some_and(|at| now_ms.saturating_sub(at) <= MARKER_WINDOW_MS);
             if fresh {
                 match input {
                     BracketInput::Char(ch) => {
-                        if ch == START_TAIL.as_bytes()[self.start_matched] as char {
-                            self.start_matched += 1;
-                            if self.start_matched == START_TAIL.len() {
-                                self.start_matched = 0;
-                                self.esc_at = None;
-                                self.collecting = Some((String::new(), 0, false));
-                            }
+                        self.seq.push(ch);
+                        if self.seq == START_TAIL {
+                            self.seq.clear();
+                            self.held_esc_at = None;
+                            self.collecting = Some((String::new(), 0, false));
                             return BracketOut::Consumed;
                         }
-                        // 匹配失败：把已匹配的部分当普通字符还原，然后处理当前字符
-                        let mut out = String::new();
-                        for byte in START_TAIL.as_bytes().iter().take(self.start_matched) {
-                            out.push(*byte as char);
+                        if self.seq == END_TAIL {
+                            // 只有结尾残留（起始标记在窗口外/被吞）：整体丢弃
+                            self.seq.clear();
+                            self.held_esc_at = None;
+                            return BracketOut::Consumed;
                         }
-                        self.start_matched = 0;
-                        self.esc_at = None;
-                        // 已吞掉的 Esc/`[` 等按原样还给上层（作为普通输入）
-                        return if out.is_empty() {
-                            BracketOut::Pass(input)
-                        } else {
-                            BracketOut::Pass(BracketInput::Char('\u{fffd}'))
-                        };
+                        if START_TAIL.starts_with(self.seq.as_str())
+                            || END_TAIL.starts_with(self.seq.as_str())
+                        {
+                            return BracketOut::Consumed;
+                        }
+                        // 不是标记：把暂扣的 Esc 还原给上层，然后放行这个字符
+                        self.seq.clear();
+                        self.held_esc_at = None;
+                        return BracketOut::EscReleased;
                     }
                     BracketInput::Esc => {
-                        self.start_matched = 0;
-                        self.esc_at = Some(now_ms);
-                        return BracketOut::Pass(input);
+                        self.seq.clear();
+                        self.held_esc_at = Some(now_ms);
+                        return BracketOut::Consumed;
                     }
                     BracketInput::Other => {
-                        self.start_matched = 0;
-                        self.esc_at = None;
-                        return BracketOut::Pass(input);
+                        self.seq.clear();
+                        self.held_esc_at = None;
+                        return BracketOut::EscReleased;
                     }
                 }
             }
-            self.start_matched = 0;
-            self.esc_at = None;
+            self.seq.clear();
+            self.held_esc_at = None;
         }
+        // ── 空闲 ──────────────────────────────────────────────────
         match input {
             BracketInput::Esc => {
-                // 先暂扣：真要是单独按下，`flush` 会在 `ESC_HOLD_MS` 后放行。
-                self.esc_at = Some(now_ms);
                 self.held_esc_at = Some(now_ms);
+                self.seq.clear();
                 BracketOut::Consumed
             }
             BracketInput::Char('[') => {
                 if self
-                    .esc_at
+                    .held_esc_at
                     .is_some_and(|at| now_ms.saturating_sub(at) <= MARKER_WINDOW_MS)
                 {
-                    self.start_matched = 1;
+                    self.seq.push('[');
                     BracketOut::Consumed
                 } else {
                     BracketOut::Pass(input)
                 }
             }
             BracketInput::Char(_) | BracketInput::Other => {
-                self.esc_at = None;
+                self.held_esc_at = None;
                 BracketOut::Pass(input)
             }
         }
     }
-}
 
-impl BracketPaste {
-    /// 定时调用：若暂扣的 `Esc` 已超时且没等到 `[`，把它放行给上层。
-    ///
-    /// 这样「单独按 Esc」不会被吞掉，而「`Esc [` 出现在标记里」会被识别。
+    /// 定时调用：暂扣的 `Esc` 超时未成标记 ⇒ 放行。
     pub fn flush(&mut self, now_ms: u64) -> Option<BracketOut> {
         if self.collecting.is_some() {
             return None;
         }
-        if self.start_matched > 0 {
-            // 正在匹配 `[200~`，超时则整段丢弃（标记残缺，不吐垃圾字符）
-            if self
-                .esc_at
+        // 残缺的标记：超时后整段丢弃，避免把 `[20` 之类吐进正文
+        if !self.seq.is_empty()
+            && self
+                .held_esc_at
                 .is_some_and(|at| now_ms.saturating_sub(at) > MARKER_WINDOW_MS)
-            {
-                self.start_matched = 0;
-                self.esc_at = None;
-                self.held_esc_at = None;
-            }
+        {
+            self.seq.clear();
+            self.held_esc_at = None;
             return None;
         }
         match self.held_esc_at {
-            Some(at) if now_ms.saturating_sub(at) >= ESC_HOLD_MS => {
+            Some(at) if now_ms.saturating_sub(at) >= ESC_HOLD_MS && self.seq.is_empty() => {
                 self.held_esc_at = None;
-                self.esc_at = None;
-                Some(BracketOut::Pass(BracketInput::Esc))
+                Some(BracketOut::EscReleased)
             }
             Some(_) | None => None,
         }
@@ -270,10 +254,7 @@ mod tests {
         // Esc 先被暂扣（Consumed），没有 `[` 跟随
         assert_eq!(filter.feed(BracketInput::Esc, 0), BracketOut::Consumed);
         assert_eq!(filter.flush(10), None, "未到 40ms 不放行");
-        assert_eq!(
-            filter.flush(ESC_HOLD_MS + 1),
-            Some(BracketOut::Pass(BracketInput::Esc))
-        );
+        assert_eq!(filter.flush(ESC_HOLD_MS + 1), Some(BracketOut::EscReleased));
     }
 
     #[test]
@@ -286,7 +267,8 @@ mod tests {
         ]);
         assert_eq!(out[0], BracketOut::Consumed, "Esc 被暂扣");
         assert_eq!(out[1], BracketOut::Consumed, "`[` 进入标记匹配");
-        assert!(matches!(out[2], BracketOut::Pass(_)), "{:?}", out[2]);
+        // 第三个字符不构成标记 ⇒ 先把暂扣的 Esc 放出去，再把该字符作为普通输入
+        assert_eq!(out[2], BracketOut::EscReleased, "{:?}", out[2]);
     }
 
     #[test]
