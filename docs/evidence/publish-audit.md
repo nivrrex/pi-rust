@@ -18,7 +18,7 @@
 | `sk-…`（≥16 位）/ `ghp_…` / `github_pat_…` / `BEGIN … PRIVATE KEY` | 无命中（命中项仅本文件对模式名的自述，已改写为文字描述） |
 | `Bearer <≥20 位>` | 无命中（golden 里的 Authorization 是 `test-key`） |
 | 邮箱 | 无命中 |
-| `C:\Users` / `vdisksvr` / `系统盘` | 无命中（`scripts/hooks/pre-commit` 的注释提到过该形态，属说明文字） |
+| `C:\Users`、内网主机名、网络盘共享名 | 无命中（`scripts/hooks/pre-commit` 的注释已改成不点名的描述） |
 | `/root/Desktop/pi-ts-<ver>` | **0**（B1 归一化后清零，见下） |
 
 ## B1 处置（已完成）
