@@ -1063,6 +1063,28 @@ fn run_print(parsed: &Args, json: bool) -> ExitCode {
 ///
 /// 失败时返回 `Err(退出码)`（调用方直接 `return`）。副作用：把状态行的模型段设为**已解析模型的 id**
 /// （ref `components/footer.ts:170-171` 取 `state.model?.id`，而不是 settings 的 `defaultModel`）。
+/// 无可用模型时的启动提示，逐字对齐 ref `core/auth-guidance.ts:16-20` 的
+/// `formatNoModelsAvailableMessage()`（TS 侧前缀 `Warning: ` 由调用方加）。
+fn push_no_models_notice(state: &mut pi_tui::TuiState, agent_dir: &std::path::Path) {
+    let docs = agent_dir.join("docs");
+    state.transcript.push(pi_tui::TranscriptItem::Status(
+        "Warning: No models available. Use /login to log into a provider via OAuth or API key. See:"
+            .to_string(),
+    ));
+    state
+        .transcript
+        .push(pi_tui::TranscriptItem::Status(format!(
+            "  {}",
+            docs.join("providers.md").display()
+        )));
+    state
+        .transcript
+        .push(pi_tui::TranscriptItem::Status(format!(
+            "  {}",
+            docs.join("models.md").display()
+        )));
+}
+
 fn build_tui_agent_parts(
     parsed: &Args,
     paths: &pi_cli::runtime::Paths,
@@ -1074,13 +1096,12 @@ fn build_tui_agent_parts(
         Ok(pair) => pair,
         Err(error) => {
             // ref 允许 `model === undefined` 进入交互模式（footer 显示 `no-model`），
-            // 由用户在里面 `/login` 或 `/model` 补齐；这里**不再直接退出**。
-            eprintln!("pi-rs: {error}");
+            // 由用户在里面 `/login` 或 `/model` 补齐；这里**不再直接退出**，也**不打印
+            // 额外 stderr**（TS 只把提示写进转录区，见 A-b 对拍）。
             state.model = "no-model".to_string();
             // ref `core/auth-guidance.ts:16-20`：`No models available. Use /login …`
-            state.transcript.push(pi_tui::TranscriptItem::Status(format!(
-                "No models available. Use /login to log into a provider via OAuth or API key. ({error})"
-            )));
+            let _ = error;
+            push_no_models_notice(state, &paths.agent_dir);
             return Ok(None);
         }
     };
@@ -1120,9 +1141,9 @@ fn build_tui_agent_parts(
             eprintln!("pi-rs: {error}");
             // 没有可用凭据：ref 的交互模式允许 model 为空、由用户 `/login` 补齐，
             // 因此这里**不退出**，进 TUI 并把报错作为状态行显示。
-            eprintln!("pi-rs: {error}");
             state.model = "no-model".to_string();
-            state.transcript.push(pi_tui::TranscriptItem::Status(error));
+            let _ = error;
+            push_no_models_notice(state, &paths.agent_dir);
             return Ok(None);
         }
     };
