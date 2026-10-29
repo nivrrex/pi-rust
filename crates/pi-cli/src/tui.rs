@@ -2553,10 +2553,18 @@ pub fn run(
                                 if items.is_empty() {
                                     login_panel = None;
                                     state.close_panel();
-                                    state.transcript.push(pi_tui::TranscriptItem::Status(
-                                        "No providers available for that authentication method."
-                                            .to_string(),
-                                    ));
+                                    // 只在没有内置目录时才会走到这里；同一条提示不重复刷屏
+                                    let notice =
+                                        "No providers available for that authentication method.";
+                                    let already = matches!(
+                                        state.transcript.last(),
+                                        Some(pi_tui::TranscriptItem::Status(last)) if last == notice
+                                    );
+                                    if !already {
+                                        state.transcript.push(pi_tui::TranscriptItem::Status(
+                                            notice.to_string(),
+                                        ));
+                                    }
                                 } else {
                                     *options = items;
                                     *index = 0;

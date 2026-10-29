@@ -50,6 +50,22 @@
 - 补 `KeyCode::BackTab` 分支；`TerminalGuard` 启动时置 `ENABLE_VIRTUAL_TERMINAL_PROCESSING`；
 - footer 补 `(provider)` 前缀（可用 provider >1 时，放不下则退回）与初始 `0.0%/<window>`（此前写死 128k）。
 
+### 粘贴与输入法（wezterm + Rime/小狼毫，2026-10-29 用户真机反馈）
+
+真机（wezterm + 小狼毫 rime）上报告的三个现象，**未复现、未定位**：
+
+1. `Shift+Insert` 粘贴多行时，**只有偶尔**折叠成 `[paste #N +M lines]`，多数情况整段展开；
+   先由输入法出字符再粘贴时折叠概率更高，输入法处于中文态时展开概率更高——表现为与
+   输入法时序相关，但不是必然；
+2. 粘贴**之后**方向键左右可用、**上下失效**；
+3. 粘贴**之后**输入法候选框不跟随光标、光标位置错乱。
+
+判断（**未验证**）：第 2、3 条更像"粘贴把编辑器的光标/重绘状态与输入法位置同步打乱"，
+而非粘贴本身判定错误；折叠与否取决于字符到达的时间间隔，与本项目 Windows 侧的
+PasteBurst 启发式（30 ms 攒批 / 60 ms 回车挂起）方向一致，但 wezterm 走的是**括号粘贴**
+（`ESC[200~`），理论上不该触发那条启发式——需要先确认 wezterm 是否真的发了 `ESC[200~`。
+下一步需要：在 wezterm 里抓原始输入字节（`SCRIPT`/`strace`）后再定位。
+
 ### Windows 粘贴（2026-10-29 真机报告后修复）
 
 经典 conhost（`cmd.exe` 窗口）的 **Shift+Insert / 右键粘贴不是 bracketed paste**：整段文本被拆成
