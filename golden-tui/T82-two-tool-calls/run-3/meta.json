@@ -1,0 +1,17 @@
+{
+  "id": "T82-two-tool-calls",
+  "cols": 100,
+  "rows": 30,
+  "helperExit": 0,
+  "exitCode": 0,
+  "stderr": "",
+  "mockStderr": "",
+  "requestLog": "/tmp/t82/run-3/requests.jsonl",
+  "snapshotOffsets": [
+    {
+      "name": "two",
+      "offset": 16461
+    }
+  ],
+  "sessionDir": "/tmp/t82/run-3/session"
+}
