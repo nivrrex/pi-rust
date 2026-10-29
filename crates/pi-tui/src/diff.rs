@@ -49,6 +49,9 @@ pub struct DiffState {
     pub cursor_row: usize,
     /// ↔ `hardwareCursorRow`（`:131`）：终端光标实际所在行。
     pub hardware_cursor_row: usize,
+    /// 上一帧写出的光标**列**（0 基，来自 `position_hardware_cursor` 的 `\e[<col+1>G`）。
+    /// ref 只跟踪行；列留着给调试开关 `PI_TUI_CURSOR_DUMP` 做逐帧行列对比（V6）。
+    pub cursor_col: usize,
     /// ↔ `maxLinesRendered`（`:132`）：工作区历史最大行数（缩小时用于 `clearOnShrink`）。
     pub max_lines_rendered: usize,
     /// 上一帧的**行样式**（P8d/C4）：样式变了也要重画该行，否则那一行会停在
@@ -368,6 +371,7 @@ fn position_hardware_cursor(
     }
     let target_row = row.min(total_lines - 1);
     let target_col = col;
+    state.cursor_col = target_col;
     let row_delta = target_row as i64 - state.hardware_cursor_row as i64;
     push_move(&mut out, row_delta);
     out.push_str(&format!("\x1b[{}G", target_col + 1));

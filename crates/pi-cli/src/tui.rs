@@ -1054,6 +1054,11 @@ pub fn run(
     // 槽位在提交线程启动回合时填入，回合结束后清空。
     let turn_cancel: std::sync::Arc<std::sync::Mutex<Option<tokio_util::sync::CancellationToken>>> =
         std::sync::Arc::new(std::sync::Mutex::new(None));
+    // V6 调试开关：`PI_TUI_CURSOR_DUMP=<路径>`（值为 `1` 时用系统临时目录下的
+    // `pi-rs-cursor.log`）→ 每画一帧追加一行光标行列，供与 TS 侧同口径逐帧对比。
+    // 未设置时**零开销**（不建文件、不格式化）。
+    let mut cursor_dump = cursor_dump_file();
+    let mut frame_index: u64 = 0;
     'main: loop {
         if sig_flag.load(Ordering::SeqCst) {
             break;
@@ -1073,6 +1078,10 @@ pub fn run(
                 &mut diff_state,
                 &mut render_cache,
             )?;
+            if let Some(file) = cursor_dump.as_mut() {
+                frame_index += 1;
+                write_cursor_dump(file, frame_index, cols, rows, &diff_state, &state);
+            }
             dirty = false;
         }
         // P7-6ao/E：**合并同一批已排队的事件**（流式增量常一次到几十上百个）。
@@ -3297,6 +3306,59 @@ fn session_id_for_resume(parts: &AgentParts) -> Option<String> {
     guard.header_id()
 }
 
+/// `PI_TUI_CURSOR_DUMP` 对应的调试文件（未设置 ⇒ `None`，不建文件、不格式化）。
+///
+/// 值为 `1` 时写到系统临时目录的 `pi-rs-cursor.log`，否则当作路径。
+fn cursor_dump_file() -> Option<std::fs::File> {
+    let value = std::env::var("PI_TUI_CURSOR_DUMP").ok()?;
+    if value.is_empty() {
+        return None;
+    }
+    let path = if value == "1" {
+        std::env::temp_dir().join("pi-rs-cursor.log")
+    } else {
+        std::path::PathBuf::from(value)
+    };
+    std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(path)
+        .ok()
+}
+
+/// 一帧的光标转储行（纯函数，便于单测；字段与 V6 的对比口径一致）。
+fn format_cursor_line(
+    frame: u64,
+    cols: usize,
+    rows: usize,
+    diff: &pi_tui::diff::DiffState,
+    state: &TuiState,
+) -> String {
+    format!(
+        "frame={frame} size={cols}x{rows} hw_row={} col={} input={} busy={} thinking={}",
+        diff.hardware_cursor_row,
+        diff.cursor_col,
+        state.input.chars().count(),
+        state.working,
+        state.thinking_level
+    )
+}
+
+/// 追加一帧（I/O 失败一律忽略：调试输出不能影响 TUI 主循环）。
+fn write_cursor_dump(
+    file: &mut std::fs::File,
+    frame: u64,
+    cols: usize,
+    rows: usize,
+    diff: &pi_tui::diff::DiffState,
+    state: &TuiState,
+) {
+    use std::io::Write as _;
+    let line = format_cursor_line(frame, cols, rows, diff, state);
+    let _ = writeln!(file, "{line}");
+    let _ = file.flush();
+}
+
 /// 把当前状态画到终端（光标回左上角逐行覆盖，避免整屏闪烁）。
 fn draw(
     state: &TuiState,
@@ -5407,5 +5469,27 @@ mod windows_input_tests {
             let out = machine.on_key(press_mod(KeyCode::Enter, KeyModifiers::CONTROL), 0);
             assert_eq!(out, vec![TuiEvent::Newline]);
         }
+    }
+}
+
+#[cfg(test)]
+mod cursor_dump_tests {
+    use super::{format_cursor_line, TuiState};
+    use pi_tui::diff::DiffState;
+
+    /// V6 的转储行字段固定：帧号、尺寸、硬件光标行列、输入长度、忙/档位。
+    #[test]
+    fn cursor_dump_line_is_stable() {
+        let mut diff = DiffState::new();
+        diff.hardware_cursor_row = 7;
+        diff.cursor_col = 3;
+        let mut state = TuiState::new("0.87.1", "/tmp/work", "0.0%/128k (auto)");
+        state.input = "hi".to_string();
+        state.thinking_level = "high".to_string();
+        let line = format_cursor_line(12, 100, 30, &diff, &state);
+        assert_eq!(
+            line,
+            "frame=12 size=100x30 hw_row=7 col=3 input=2 busy=false thinking=high"
+        );
     }
 }
