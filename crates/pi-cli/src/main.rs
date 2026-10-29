@@ -684,8 +684,8 @@ fn run_print(parsed: &Args, json: bool) -> ExitCode {
     };
     let (provider_name, model_id) = match resolve_startup_model(parsed, &settings, &paths) {
         Ok(pair) => pair,
-        Err(error) => {
-            eprintln!("pi-rs: {error}");
+        Err(_error) => {
+            print_no_model_error(&paths.agent_dir);
             return ExitCode::from(1);
         }
     };
@@ -1063,6 +1063,15 @@ fn run_print(parsed: &Args, json: bool) -> ExitCode {
 ///
 /// 失败时返回 `Err(退出码)`（调用方直接 `return`）。副作用：把状态行的模型段设为**已解析模型的 id**
 /// （ref `components/footer.ts:170-171` 取 `state.model?.id`，而不是 settings 的 `defaultModel`）。
+/// print/json/rpc 模式下无可用模型时的报错：逐字对齐 ref `core/auth-guidance.ts:16-20`
+/// （`No models available. … See:` + 两行 docs 路径），退出码 1。
+fn print_no_model_error(agent_dir: &std::path::Path) {
+    let docs = agent_dir.join("docs");
+    eprintln!("No models available. Use /login to log into a provider via OAuth or API key. See:");
+    eprintln!("  {}", docs.join("providers.md").display());
+    eprintln!("  {}", docs.join("models.md").display());
+}
+
 /// 无可用模型时的启动提示，逐字对齐 ref `core/auth-guidance.ts:16-20` 的
 /// `formatNoModelsAvailableMessage()`（TS 侧前缀 `Warning: ` 由调用方加）。
 fn push_no_models_notice(state: &mut pi_tui::TuiState, agent_dir: &std::path::Path) {
