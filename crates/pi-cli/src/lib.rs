@@ -4,6 +4,7 @@ pub mod args;
 pub mod auth_store;
 pub mod auto_compaction;
 pub mod clipboard;
+pub mod login_options;
 pub mod model_selector;
 pub mod print_mode;
 pub mod rpc;
