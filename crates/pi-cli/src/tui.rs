@@ -782,24 +782,63 @@ fn model_after_login(agent_dir: &std::path::Path, provider: &str) -> Option<Stri
     ids.first().cloned()
 }
 
-/// `/login` 无参面板的渲染（选中项前缀 `›`，未选中留两空格；ref 的选择器同形）。
-fn login_render(
-    state: &mut pi_tui::TuiState,
-    options: &[crate::login_options::LoginOption],
-    index: usize,
-) {
-    let mut lines = vec![" Login".to_string(), String::new()];
-    for (position, option) in options.iter().enumerate() {
-        let marker = if position == index { " › " } else { "   " };
-        lines.push(format!(
-            "{marker}{} ({})",
-            option.name,
-            option.auth_type.as_str()
-        ));
+/// `/login` 面板条目（ref `interactive-mode.ts:354-402` 的选择器条目）。
+#[derive(Debug, Clone)]
+pub struct LoginItem {
+    pub label: String,
+    /// `None` = 认证方式这一层（"Sign in with an account" / "Sign in with an API key"）
+    pub id: Option<String>,
+    pub auth_type: crate::login_options::AuthType,
+}
+
+/// `/login` 面板渲染（选中项前缀 `→`，其余缩进；提示行照 ref 原文）。
+fn login_render(state: &mut pi_tui::TuiState, items: &[LoginItem], index: usize) {
+    let mut lines = vec![" Select authentication method:".to_string(), String::new()];
+    if items.iter().all(|item| item.id.is_some()) {
+        // provider 这一层：ref 的标题是同一条 "Select authentication method:" 之后的列表，
+        // 这里保持同样形式的列表，不额外加标题。
+        lines.truncate(1);
+        lines.push(String::new());
+    }
+    for (position, item) in items.iter().enumerate() {
+        let marker = if position == index { " → " } else { "   " };
+        lines.push(format!("{marker}{}", item.label));
     }
     lines.push(String::new());
-    lines.push(" ↑/↓ to select · Enter to confirm · Esc to cancel".to_string());
+    lines.push(" ↑↓ navigate  enter select  escape/ctrl+c cancel".to_string());
     state.open_panel(pi_tui::PanelPlacement::BelowEditor, lines);
+}
+
+/// 认证方式层（ref `/login` 第一屏）。
+fn login_method_items() -> Vec<LoginItem> {
+    vec![
+        LoginItem {
+            label: "Sign in with an account".to_string(),
+            id: None,
+            auth_type: crate::login_options::AuthType::Oauth,
+        },
+        LoginItem {
+            label: "Sign in with an API key".to_string(),
+            id: None,
+            auth_type: crate::login_options::AuthType::ApiKey,
+        },
+    ]
+}
+
+/// provider 层（按认证方式过滤）。
+fn login_provider_items(
+    providers: &[String],
+    auth_type: crate::login_options::AuthType,
+) -> Vec<LoginItem> {
+    crate::login_options::login_options(providers)
+        .into_iter()
+        .filter(|option| option.auth_type == auth_type)
+        .map(|option| LoginItem {
+            label: format!("{} ({})", option.name, option.auth_type.as_str()),
+            id: Some(option.id),
+            auth_type: option.auth_type,
+        })
+        .collect()
 }
 
 /// 登录成功后重建 agent 部件的回调（无模型启动时 `parts` 为 None，登录后要用新凭据建出来）。
@@ -823,7 +862,7 @@ pub fn run(
     // 回合串行化状态（P7-7f/perf）：`busy` = 有回合在跑；`queued_inputs` = 等待提交的输入。
     let mut busy = false;
     // `/login` 无参面板状态：(候选项, 选中下标)
-    let mut login_panel: Option<(Vec<crate::login_options::LoginOption>, usize)> = None;
+    let mut login_panel: Option<(Vec<LoginItem>, usize)> = None;
     let mut queued_inputs: std::collections::VecDeque<String> = std::collections::VecDeque::new();
     // `--continue` 时把历史消息灌进 `history`，并把可显示的部分放进 transcript
     // （否则续写的会话在 TUI 里是空屏、`/tree` 也看不到历史）。
@@ -2492,25 +2531,53 @@ pub fn run(
                     }
                     pi_tui::TuiEvent::Enter => {
                         let chosen = options.get(*index).cloned();
-                        login_panel = None;
-                        state.close_panel();
-                        if let Some(option) = chosen {
-                            if matches!(option.auth_type, crate::login_options::AuthType::ApiKey) {
-                                let notice = format!("Logging in to {} (api_key).", option.name);
-                                state.pending_login_provider = Some(option.id);
-                                state.input.clear();
-                                state.cursor = 0;
-                                state
-                                    .transcript
-                                    .push(pi_tui::TranscriptItem::Status(notice));
-                            } else {
-                                let notice = format!(
-                                    "OAuth login for {} is not supported yet.",
-                                    option.name
-                                );
-                                state
-                                    .transcript
-                                    .push(pi_tui::TranscriptItem::Status(notice));
+                        let providers = state.login_providers.clone();
+                        match chosen {
+                            // 认证方式层：进入对应类型的 provider 列表
+                            Some(item) if item.id.is_none() => {
+                                let items = login_provider_items(&providers, item.auth_type);
+                                if items.is_empty() {
+                                    login_panel = None;
+                                    state.close_panel();
+                                    state.transcript.push(pi_tui::TranscriptItem::Status(
+                                        "No providers available for that authentication method."
+                                            .to_string(),
+                                    ));
+                                } else {
+                                    *options = items;
+                                    *index = 0;
+                                    login_render(&mut state, options, 0);
+                                }
+                            }
+                            Some(item) => {
+                                login_panel = None;
+                                state.close_panel();
+                                let name = item
+                                    .label
+                                    .split(" (")
+                                    .next()
+                                    .unwrap_or(&item.label)
+                                    .to_string();
+                                if matches!(item.auth_type, crate::login_options::AuthType::ApiKey)
+                                {
+                                    let notice = format!("Logging in to {name} (api_key).");
+                                    state.pending_login_provider = item.id;
+                                    state.input.clear();
+                                    state.cursor = 0;
+                                    state
+                                        .transcript
+                                        .push(pi_tui::TranscriptItem::Status(notice));
+                                } else {
+                                    let notice =
+                                        format!("OAuth login for {name} is not supported yet.");
+                                    state
+                                        .transcript
+                                        .push(pi_tui::TranscriptItem::Status(notice));
+                                }
+                            }
+                            None => {
+                                login_panel = None;
+                                state.close_panel();
                             }
                         }
                         dirty = true;
@@ -2961,18 +3028,11 @@ pub fn run(
                                         .push(pi_tui::TranscriptItem::Status(notice));
                                 }
                                 (None, _) => {
-                                    if options.is_empty() {
-                                        let lines = vec![
-                                            " Login".to_string(),
-                                            String::new(),
-                                            " No models available. Use /login to log into a provider via"
-                                                .to_string(),
-                                            " OAuth or API key.".to_string(),
-                                        ];
-                                        state.open_panel(pi_tui::PanelPlacement::Transcript, lines);
-                                    } else {
-                                        login_render(&mut state, &options, 0);
-                                        login_panel = Some((options, 0));
+                                    {
+                                        // ref 即使没有任何 provider 也先给认证方式选择
+                                        let items = login_method_items();
+                                        login_render(&mut state, &items, 0);
+                                        login_panel = Some((items, 0));
                                     }
                                 }
                             }
