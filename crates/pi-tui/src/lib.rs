@@ -1972,6 +1972,35 @@ mod tests {
         assert!(!line.contains("(mock)"), "{line:?}");
     }
 
+    /// 边界判定用 `>` 而不是 `>=`（ref `footer.ts:194-200`）：刚好放得下时**保留**前缀，
+    /// 少 1 列才回退到不带前缀的写法。
+    #[test]
+    fn footer_provider_prefix_boundary_is_strictly_greater() {
+        let mut s = state();
+        s.model = "mock-model".to_string();
+        s.model_provider = "mock".to_string();
+        s.available_provider_count = 2;
+        s.available_thinking_levels = vec!["off".to_string()];
+        s.status = "0.0%/128k (auto)".to_string();
+        let need = UnicodeWidthStr::width("0.0%/128k (auto)")
+            + 2
+            + UnicodeWidthStr::width("(mock) mock-model");
+
+        let exact = render(&s, need, 30);
+        let line = exact
+            .iter()
+            .find(|line| line.contains("mock-model"))
+            .expect("有状态行");
+        assert!(line.contains("(mock)"), "恰好放得下时应保留前缀：{line:?}");
+
+        let tight = render(&s, need - 1, 30);
+        let line = tight
+            .iter()
+            .find(|line| line.contains("mock-model"))
+            .expect("有状态行");
+        assert!(!line.contains("(mock)"), "少 1 列时应回退：{line:?}");
+    }
+
     #[test]
     fn startup_screen_matches_the_reference_lines() {
         let mut s = state();
