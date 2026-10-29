@@ -4146,6 +4146,18 @@ fn spawn_crossterm_input_thread(tx: std::sync::mpsc::Sender<TuiEvent>) {
                 Ok(event) => event,
                 Err(_) => return,
             };
+            // 诊断开关：`PI_TUI_EVENT_DUMP=<path>` 把每个 crossterm 事件（含时间戳）追加
+            // 到文件，用于定位真机上的粘贴/输入法异常（括号粘贴 vs 逐字符、到达间隔）。
+            if let Some(path) = std::env::var_os("PI_TUI_EVENT_DUMP") {
+                use std::io::Write as _;
+                if let Ok(mut file) = std::fs::OpenOptions::new()
+                    .create(true)
+                    .append(true)
+                    .open(&path)
+                {
+                    let _ = writeln!(file, "{:>6}ms  {event:?}", started.elapsed().as_millis());
+                }
+            }
             match event {
                 Event::Key(key) => {
                     let Some(mapped) = map_windows_key(key) else {

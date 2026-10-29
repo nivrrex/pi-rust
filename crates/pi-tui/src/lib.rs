@@ -433,6 +433,49 @@ fn push_status(state: &mut TuiState, message: &str) {
 }
 
 /// 处理一个事件；纯函数式（只改 `state`，不做 I/O）。
+/// 多行输入里的上下移动（ref `editor.ts:922-957`）：不在首行/末行时**先移动光标**，
+/// 只有已在首/末行才回落为浏览历史。
+///
+/// 返回 `true` 表示"已把这次按键当成光标移动消费掉"。
+fn move_cursor_vertical(state: &mut TuiState, delta: isize) -> bool {
+    if !state.input.contains('\n') {
+        return false;
+    }
+    let chars: Vec<char> = state.input.chars().collect();
+    let cursor = state.cursor.min(chars.len());
+    let line_of = |position: usize| chars[..position].iter().filter(|c| **c == '\n').count();
+    let current_line = line_of(cursor);
+    let total_lines = line_of(chars.len()) + 1;
+    let column = cursor
+        - chars[..cursor]
+            .iter()
+            .rposition(|c| *c == '\n')
+            .map_or(0, |i| i + 1);
+    let target_line = current_line as isize + delta;
+    if target_line < 0 || target_line as usize >= total_lines {
+        return false;
+    }
+    // 找到目标行的起点与长度
+    let mut seen = 0usize;
+    let mut start = 0usize;
+    for (index, ch) in chars.iter().enumerate() {
+        if seen == target_line as usize {
+            break;
+        }
+        if *ch == '\n' {
+            seen += 1;
+            start = index + 1;
+        }
+    }
+    let end = chars[start..]
+        .iter()
+        .position(|c| *c == '\n')
+        .map_or(chars.len(), |offset| start + offset);
+    let width = end - start;
+    state.cursor = start + column.min(width);
+    true
+}
+
 pub fn apply(state: &mut TuiState, event: TuiEvent) -> TuiAction {
     if state.exited {
         return TuiAction::Exit;
@@ -823,6 +866,9 @@ pub fn apply(state: &mut TuiState, event: TuiEvent) -> TuiAction {
                 state.panel_selection = state.panel_selection.saturating_sub(1);
                 return TuiAction::Redraw;
             }
+            if move_cursor_vertical(state, -1) {
+                return TuiAction::Redraw;
+            }
             if state.history.is_empty() {
                 return TuiAction::Redraw;
             }
@@ -847,6 +893,9 @@ pub fn apply(state: &mut TuiState, event: TuiEvent) -> TuiAction {
             }
             if state.panel.is_some() {
                 state.panel_selection = state.panel_selection.saturating_add(1);
+                return TuiAction::Redraw;
+            }
+            if state.history_pos.is_none() && move_cursor_vertical(state, 1) {
                 return TuiAction::Redraw;
             }
             let Some(index) = state.history_pos else {
@@ -4646,5 +4695,24 @@ mod p8b_thinking_tests {
             item,
             TranscriptItem::Status(text) if text == "Current model does not support thinking"
         )));
+    }
+
+    #[test]
+    fn vertical_moves_cursor_in_multiline_input() {
+        let mut s = TuiState::new("1", "/tmp", "");
+        s.input = "aaa\nbb\nccccc".to_string();
+        s.cursor = 1; // 第一行 col=1
+                      // ↓ 到第二行（该行只有 2 列，光标夹到行尾）
+        apply(&mut s, TuiEvent::HistoryNext);
+        assert_eq!(s.cursor, 5, "第二行 col 夹到 2");
+        // 再 ↓ 到第三行同上列
+        apply(&mut s, TuiEvent::HistoryNext);
+        assert_eq!(s.cursor, 8);
+        // 已在末行 ⇒ 回落为浏览历史（这里没有历史，光标不动）
+        apply(&mut s, TuiEvent::HistoryNext);
+        assert_eq!(s.cursor, 8);
+        // ↑ 回第二行
+        apply(&mut s, TuiEvent::HistoryPrev);
+        assert_eq!(s.cursor, 5);
     }
 }
