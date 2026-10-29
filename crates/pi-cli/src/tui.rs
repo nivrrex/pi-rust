@@ -3615,6 +3615,141 @@ impl RespFilter {
     }
 }
 
+/// Windows 粘贴的“突发”合并（真机缺陷：多行粘贴会直接提交）。
+///
+/// 经典 conhost 的 Shift+Insert / 右键粘贴**不是** bracketed paste：它把整段文本拆成一串
+/// `KEY_EVENT` 逐个送进来，行间是普通回车 ⇒ 第一行末尾的回车就被当成“提交”，
+/// 整段粘贴变成多次对话（真机实测：粘贴 `L1⏎L2⏎L3⏎` 直接把 `L1` 发出）。
+///
+/// 判定办法是**回车后回看**：收到回车先挂起（不提交），`LOOKAHEAD_MS` 内还有字符进来
+/// ⇒ 这是粘贴的换行，继续攒；超时没有后续输入 ⇒ 才把挂起的回车当成提交。
+/// 只靠“字符间隔窗口”不够：实测 12 行粘贴会被 conhost 分块送达，块间间隔会超过窗口。
+#[cfg(any(windows, test))]
+#[derive(Debug, Default, Clone)]
+struct PasteBurst {
+    chars: Vec<char>,
+    /// 挂起的回车（回看中，尚未决定是“粘贴换行”还是“提交”）。
+    enter_pending: bool,
+    last_ms: u64,
+}
+
+#[cfg(any(windows, test))]
+impl PasteBurst {
+    /// 同一段粘贴里字符之间的最大间隔（也是单字的合并窗口：
+    /// 真机实测 conhost 首次送达可能比后续块晚十几毫秒，取 12 ms 会把首字符切出去；
+    /// 人工打字 ≳ 60 ms/字，30 ms 不影响判定，代价是击键显示最多晚 30 ms）。
+    const WINDOW_MS: u64 = 30;
+    /// 回车之后的回看窗口：这段时间内还有字符 ⇒ 该回车是粘贴里的换行。
+    const LOOKAHEAD_MS: u64 = 60;
+    /// 缓冲上限（防御无换行的超大粘贴）。
+    const MAX_CHARS: usize = 4096;
+
+    /// 收入一个字符；返回“上一段需要先发出的事件”（间隔超过窗口 ⇒ 两段不是同一次粘贴）。
+    fn on_char(&mut self, ch: char, now_ms: u64) -> Option<Vec<TuiEvent>> {
+        if self.enter_pending {
+            // 回车后紧跟字符 ⇒ 该回车是粘贴里的换行。
+            self.chars.push('\n');
+            self.enter_pending = false;
+        }
+        let mut flushed = if !self.chars.is_empty()
+            && now_ms.saturating_sub(self.last_ms) > Self::WINDOW_MS
+            && !self.chars.contains(&'\n')
+        {
+            Some(self.take())
+        } else {
+            None
+        };
+        self.chars.push(ch);
+        self.last_ms = now_ms;
+        if self.chars.len() >= Self::MAX_CHARS {
+            let tail = self.take();
+            return Some(match flushed.as_mut() {
+                Some(events) => {
+                    events.extend(tail);
+                    std::mem::take(events)
+                }
+                None => tail,
+            });
+        }
+        flushed
+    }
+
+    /// 收入一个回车。
+    ///
+    /// 紧跟刚到的字符（≤ `WINDOW_MS`）⇒ 这是粘贴里的换行，直接并进缓冲；
+    /// 否则挂起，交给 [`Self::tick`] 的回看窗口裁决（粘贴分块送达时空隙可能大于窗口）。
+    fn on_enter(&mut self, now_ms: u64) {
+        let immediate =
+            !self.chars.is_empty() && now_ms.saturating_sub(self.last_ms) <= Self::WINDOW_MS;
+        self.last_ms = now_ms;
+        if immediate {
+            self.chars.push('\n');
+            self.enter_pending = false;
+            return;
+        }
+        if self.enter_pending {
+            self.chars.push('\n');
+        }
+        self.enter_pending = true;
+    }
+
+    /// 定时驱动（poll 超时）：回看窗口到期 ⇒ 决定挂起的回车是“粘贴换行”还是“提交”。
+    fn tick(&mut self, now_ms: u64) -> Option<Vec<TuiEvent>> {
+        let idle = now_ms.saturating_sub(self.last_ms);
+        if self.enter_pending && idle >= Self::LOOKAHEAD_MS {
+            self.enter_pending = false;
+            if self.chars.is_empty() {
+                // 纯回车 ⇒ 用户提交。
+                return Some(vec![TuiEvent::Enter]);
+            }
+            if self.chars.contains(&'\n') {
+                // 多行内容后面的回车 ⇒ 粘贴末尾的换行，并入粘贴、不提交。
+                self.chars.push('\n');
+                return Some(self.take());
+            }
+            // 单行内容 + 回车 ⇒ 提交。
+            let mut events = self.take();
+            events.push(TuiEvent::Enter);
+            return Some(events);
+        }
+        if self.enter_pending {
+            return None;
+        }
+        if !self.chars.is_empty() && idle > Self::WINDOW_MS {
+            return Some(self.take());
+        }
+        None
+    }
+
+    /// 收到非字符事件（Ctrl+*、方向键等）：立刻按 [`Self::tick`] 的同一套规则结清缓冲。
+    fn take_all(&mut self) -> Vec<TuiEvent> {
+        if !self.enter_pending {
+            return self.take();
+        }
+        self.enter_pending = false;
+        if self.chars.is_empty() {
+            return vec![TuiEvent::Enter];
+        }
+        if self.chars.contains(&'\n') {
+            self.chars.push('\n');
+            return self.take();
+        }
+        let mut events = self.take();
+        events.push(TuiEvent::Enter);
+        events
+    }
+
+    /// 取出缓冲内容（不清 `enter_pending`）。
+    fn take(&mut self) -> Vec<TuiEvent> {
+        let chars = std::mem::take(&mut self.chars);
+        if chars.contains(&'\n') {
+            vec![TuiEvent::Paste(chars.into_iter().collect())]
+        } else {
+            chars.into_iter().map(TuiEvent::Char).collect()
+        }
+    }
+}
+
 /// Windows 输入线程：crossterm `event::read` → `TuiEvent`。
 ///
 /// Windows 控制台的 VT 输入模式对 `Ctrl+<字母>` 的字节转换不可靠（真机实测
@@ -3628,13 +3763,22 @@ fn spawn_crossterm_input_thread(tx: std::sync::mpsc::Sender<TuiEvent>) {
 
     std::thread::spawn(move || {
         let mut filter = RespFilter::default();
+        let mut burst = PasteBurst::default();
+        let started = std::time::Instant::now();
+        let now_ms = || started.elapsed().as_millis() as u64;
         loop {
-            // 30 ms 等不到后续按键 ⇒ 挂起的 ESC 就是用户按的 Esc（应答只会成串到达）。
-            let ready = match event::poll(Duration::from_millis(30)) {
+            // 10 ms 粒度：既要及时冲掉粘贴突发（12 ms 窗口），也要给挂起的 ESC 计时。
+            let ready = match event::poll(Duration::from_millis(10)) {
                 Ok(ready) => ready,
                 Err(_) => return,
             };
             if !ready {
+                // 先让粘贴突发到期（挂起的回车 ⇒ 提交），再处理挂起的 ESC。
+                if let Some(events) = burst.tick(now_ms()) {
+                    if events.into_iter().any(|event| tx.send(event).is_err()) {
+                        return;
+                    }
+                }
                 if filter.take_pending_escape() && tx.send(TuiEvent::Escape).is_err() {
                     return;
                 }
@@ -3650,42 +3794,65 @@ fn spawn_crossterm_input_thread(tx: std::sync::mpsc::Sender<TuiEvent>) {
                         continue;
                     };
                     match mapped {
-                        TuiEvent::Escape => filter.on_escape(),
-                        TuiEvent::Char(ch) => {
-                            let mut emitted: [Option<TuiEvent>; 2] = [None, None];
-                            match filter.feed(ch) {
-                                FilterOut::Nothing => {}
-                                FilterOut::Char(ch) => emitted[0] = Some(TuiEvent::Char(ch)),
-                                FilterOut::Escape => emitted[0] = Some(TuiEvent::Escape),
-                                FilterOut::EscapeThenChar(ch) => {
-                                    emitted[0] = Some(TuiEvent::Escape);
-                                    emitted[1] = Some(TuiEvent::Char(ch));
-                                }
-                            }
-                            if emitted
+                        TuiEvent::Escape => {
+                            if burst
+                                .take_all()
                                 .into_iter()
-                                .flatten()
                                 .any(|event| tx.send(event).is_err())
                             {
                                 return;
                             }
+                            filter.on_escape();
                         }
-                        other => {
-                            // 非字符事件证明前面的 ESC 是用户的按键（应答只会是字符）。
-                            if filter.take_pending_escape() && tx.send(TuiEvent::Escape).is_err() {
+                        TuiEvent::Char(ch) => {
+                            let mut emitted: Vec<TuiEvent> = Vec::new();
+                            match filter.feed(ch) {
+                                FilterOut::Nothing => {}
+                                FilterOut::Char(ch) => {
+                                    if let Some(previous) = burst.on_char(ch, now_ms()) {
+                                        emitted.extend(previous);
+                                    }
+                                }
+                                FilterOut::Escape => {
+                                    emitted.extend(burst.take_all());
+                                    emitted.push(TuiEvent::Escape);
+                                }
+                                FilterOut::EscapeThenChar(ch) => {
+                                    emitted.extend(burst.take_all());
+                                    emitted.push(TuiEvent::Escape);
+                                    if let Some(previous) = burst.on_char(ch, now_ms()) {
+                                        emitted.extend(previous);
+                                    }
+                                }
+                            }
+                            if emitted.into_iter().any(|event| tx.send(event).is_err()) {
                                 return;
                             }
-                            if tx.send(other).is_err() {
+                        }
+                        TuiEvent::Enter => {
+                            // 回车先挂起：60 ms 内还有字符 ⇒ 是粘贴的换行；超时 ⇒ 提交（由 tick 发出）。
+                            burst.on_enter(now_ms());
+                        }
+                        other => {
+                            // 非字符事件：先排空粘贴缓冲与挂起的 ESC，再把事件原样送出。
+                            let mut emitted = burst.take_all();
+                            if filter.take_pending_escape() {
+                                emitted.push(TuiEvent::Escape);
+                            }
+                            emitted.push(other);
+                            if emitted.into_iter().any(|event| tx.send(event).is_err()) {
                                 return;
                             }
                         }
                     }
                 }
                 Event::Paste(text) => {
-                    if filter.take_pending_escape() && tx.send(TuiEvent::Escape).is_err() {
-                        return;
+                    let mut emitted = burst.take_all();
+                    if filter.take_pending_escape() {
+                        emitted.push(TuiEvent::Escape);
                     }
-                    if tx.send(TuiEvent::Paste(text)).is_err() {
+                    emitted.push(TuiEvent::Paste(text));
+                    if emitted.into_iter().any(|event| tx.send(event).is_err()) {
                         return;
                     }
                 }
@@ -4316,8 +4483,8 @@ mod clamp_thinking_level_tests {
 #[cfg(test)]
 mod windows_input_tests {
     use super::{
-        map_windows_key, next_switchable_model, FilterOut, ModelChoice, NextModel, RespFilter,
-        TuiEvent,
+        map_windows_key, next_switchable_model, FilterOut, ModelChoice, NextModel, PasteBurst,
+        RespFilter, TuiEvent,
     };
     use crossterm::event::{KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
 
@@ -4491,5 +4658,149 @@ mod windows_input_tests {
             NextModel::NoneSwitchable(error) => assert_eq!(error, "boom"),
             other => panic!("应报全部失败，实际：{other:?}"),
         }
+    }
+
+    /// 把字符按固定间隔逐个喂进突发缓冲，返回"喂完后的时刻"。
+    fn feed(
+        burst: &mut PasteBurst,
+        text: &str,
+        start: u64,
+        gap: u64,
+        events: &mut Vec<TuiEvent>,
+    ) -> u64 {
+        let mut now = start;
+        for ch in text.chars() {
+            if let Some(previous) = burst.on_char(ch, now) {
+                events.extend(previous);
+            }
+            now += gap;
+        }
+        now
+    }
+
+    /// 事件流里还原出来的文本（`Char` 与 `Paste` 拼接），并断言其中没有提交（`Enter`）。
+    fn pasted_text(events: &[TuiEvent]) -> String {
+        let mut text = String::new();
+        for event in events {
+            match event {
+                TuiEvent::Char(ch) => text.push(*ch),
+                TuiEvent::Paste(body) => text.push_str(body),
+                TuiEvent::Enter => panic!("粘贴过程中不应提交：{events:?}"),
+                _other => {}
+            }
+        }
+        text
+    }
+
+    /// 真机缺陷复现：conhost 的 Shift+Insert 把 `L1⏎L2⏎L3⏎` 拆成字符 + 回车送来，
+    /// 旧实现第一行的回车就提交，整段粘贴变成多次对话 ⇒ 现在必须**不发提交**、内容完整。
+    #[test]
+    fn multi_line_paste_never_submits() {
+        let mut burst = PasteBurst::default();
+        let mut events = Vec::new();
+        let mut now = feed(&mut burst, "L1", 1000, 1, &mut events);
+        burst.on_enter(now);
+        now = feed(&mut burst, "L2", now + 1, 1, &mut events);
+        burst.on_enter(now);
+        now = feed(&mut burst, "L3", now + 1, 1, &mut events);
+        burst.on_enter(now);
+        events.extend(
+            burst
+                .tick(now + PasteBurst::LOOKAHEAD_MS + 1)
+                .unwrap_or_default(),
+        );
+        assert_eq!(pasted_text(&events), "L1\nL2\nL3\n");
+    }
+
+    /// 粘贴被 conhost 分块送达（块间间隔大于字符窗口）时，回车必须走回看窗口变成换行。
+    #[test]
+    fn chunked_paste_with_large_gaps_still_does_not_submit() {
+        let mut burst = PasteBurst::default();
+        let mut events = Vec::new();
+        let mut now = feed(&mut burst, "L1", 0, 20, &mut events);
+        burst.on_enter(now);
+        now = feed(&mut burst, "L2", now + 20, 20, &mut events);
+        burst.on_enter(now);
+        now = feed(&mut burst, "L3", now + 20, 20, &mut events);
+        burst.on_enter(now);
+        events.extend(
+            burst
+                .tick(now + PasteBurst::LOOKAHEAD_MS + 1)
+                .unwrap_or_default(),
+        );
+        assert_eq!(pasted_text(&events), "L1\nL2\nL3\n");
+    }
+
+    /// 正常打字（间隔 ≳ 60 ms）不被当成粘贴；随后的回车单独提交。
+    #[test]
+    fn typing_then_enter_submits() {
+        let mut burst = PasteBurst::default();
+        let mut events = Vec::new();
+        let mut now = feed(&mut burst, "hi", 0, 60, &mut events);
+        events.extend(burst.tick(now).unwrap_or_default());
+        burst.on_enter(now + 60);
+        events.extend(
+            burst
+                .tick(now + 60 + PasteBurst::LOOKAHEAD_MS)
+                .unwrap_or_default(),
+        );
+        assert_eq!(
+            events,
+            vec![TuiEvent::Char('h'), TuiEvent::Char('i'), TuiEvent::Enter]
+        );
+    }
+
+    /// 缓冲为空时的回车 = 用户提交。
+    #[test]
+    fn bare_enter_submits() {
+        let mut burst = PasteBurst::default();
+        burst.on_enter(10);
+        assert_eq!(
+            burst.tick(10 + PasteBurst::LOOKAHEAD_MS),
+            Some(vec![TuiEvent::Enter])
+        );
+    }
+
+    /// 单行粘贴带末尾换行（字符后紧跟回车）⇒ 换行并进粘贴，不提交。
+    #[test]
+    fn single_line_paste_with_newline_inserts_it() {
+        let mut burst = PasteBurst::default();
+        let mut events = Vec::new();
+        let now = feed(&mut burst, "abc", 0, 1, &mut events);
+        burst.on_enter(now);
+        events.extend(
+            burst
+                .tick(now + PasteBurst::WINDOW_MS + 1)
+                .unwrap_or_default(),
+        );
+        assert_eq!(pasted_text(&events), "abc\n");
+    }
+
+    /// 超过窗口间隔的两段字符分别发出（不会跨段拼成一次粘贴）。
+    #[test]
+    fn gap_splits_bursts() {
+        let mut burst = PasteBurst::default();
+        assert!(burst.on_char('a', 0).is_none());
+        let flushed = burst
+            .on_char('b', PasteBurst::WINDOW_MS + 1)
+            .expect("间隔超过窗口应先把上一段冲掉");
+        assert_eq!(flushed, vec![TuiEvent::Char('a')]);
+    }
+
+    /// 无换行的超大粘贴被上限截断（不会无限积累）。
+    #[test]
+    fn huge_single_line_paste_is_capped() {
+        let mut burst = PasteBurst::default();
+        let mut emitted = Vec::new();
+        for index in 0..(PasteBurst::MAX_CHARS + 5) {
+            if let Some(previous) = burst.on_char('x', index as u64) {
+                emitted.extend(previous);
+            }
+        }
+        assert!(
+            emitted.len() >= PasteBurst::MAX_CHARS,
+            "到达上限应冲出一批，实际 {} 个",
+            emitted.len()
+        );
     }
 }
