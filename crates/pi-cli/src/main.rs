@@ -157,7 +157,7 @@ fn main() -> ExitCode {
             // W3-2：为 TUI 装配 agent 部件（与 print 路径同一批函数：settings 解析模型 →
             // models.json 校验/resolve → provider → 系统提示 → LoopConfig）。
             let agent_parts = match build_tui_agent_parts(&parsed, &paths, &cwd, &mut state) {
-                Ok(parts) => Some(parts),
+                Ok(parts) => parts,
                 Err(code) => return code,
             };
             let runtime = match tokio::runtime::Builder::new_current_thread()
@@ -1024,13 +1024,25 @@ fn build_tui_agent_parts(
     paths: &pi_cli::runtime::Paths,
     cwd: &std::path::Path,
     state: &mut pi_tui::TuiState,
-) -> Result<std::sync::Arc<pi_cli::tui::AgentParts>, ExitCode> {
+) -> Result<Option<std::sync::Arc<pi_cli::tui::AgentParts>>, ExitCode> {
     let settings = load_settings(paths)?;
     let (provider_name, model_id) = match resolve_startup_model(parsed, &settings, paths) {
         Ok(pair) => pair,
         Err(error) => {
+            // ref 允许 `model === undefined` 进入交互模式（footer 显示 `no-model`），
+            // 由用户在里面 `/login` 或 `/model` 补齐；这里**不再直接退出**。
             eprintln!("pi-rs: {error}");
-            return Err(ExitCode::from(1));
+            state.model = "no-model".to_string();
+            state
+                .transcript
+                .push(pi_tui::TranscriptItem::Status(format!(
+                    "没有可用的模型：{}",
+                    error
+                )));
+            state.transcript.push(pi_tui::TranscriptItem::Status(
+                "配置好之后可用 /model 选择（/login 尚未实现）".to_string(),
+            ));
+            return Ok(None);
         }
     };
     let models_path = paths.agent_dir.join("models.json");
@@ -1067,7 +1079,15 @@ fn build_tui_agent_parts(
         Ok(provider) => provider,
         Err(error) => {
             eprintln!("pi-rs: {error}");
-            return Err(ExitCode::from(1));
+            // 没有可用凭据：ref 的交互模式允许 model 为空、由用户 `/login` 补齐，
+            // 因此这里**不退出**，进 TUI 并把报错作为状态行显示。
+            eprintln!("pi-rs: {error}");
+            state.model = "no-model".to_string();
+            state.transcript.push(pi_tui::TranscriptItem::Status(error));
+            state.transcript.push(pi_tui::TranscriptItem::Status(
+                "配置好之后可用 /model 选择（/login 尚未实现）".to_string(),
+            ));
+            return Ok(None);
         }
     };
     let (sections, system_text, _skills, _templates) =
@@ -1257,7 +1277,7 @@ fn build_tui_agent_parts(
             fallback
         }
     };
-    Ok(std::sync::Arc::new(pi_cli::tui::AgentParts {
+    Ok(Some(std::sync::Arc::new(pi_cli::tui::AgentParts {
         resumed_path,
         initial_messages,
         agent_dir: paths.agent_dir.clone(),
@@ -1294,7 +1314,7 @@ fn build_tui_agent_parts(
         context_window: resolved.context_window,
         system_message,
         writer,
-    }))
+    })))
 }
 
 /// `enabledModels` → 可切换模型 scope 的过滤（ref `core/model-resolver.ts:282-382`）。

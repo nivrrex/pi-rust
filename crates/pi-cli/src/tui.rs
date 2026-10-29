@@ -3722,6 +3722,7 @@ impl PasteBurst {
     }
 
     /// 收到非字符事件（Ctrl+*、方向键等）：立刻按 [`Self::tick`] 的同一套规则结清缓冲。
+    #[cfg_attr(not(windows), allow(dead_code))]
     fn take_all(&mut self) -> Vec<TuiEvent> {
         if !self.enter_pending {
             return self.take();
@@ -4736,7 +4737,7 @@ mod windows_input_tests {
     fn typing_then_enter_submits() {
         let mut burst = PasteBurst::default();
         let mut events = Vec::new();
-        let mut now = feed(&mut burst, "hi", 0, 60, &mut events);
+        let now = feed(&mut burst, "hi", 0, 60, &mut events);
         events.extend(burst.tick(now).unwrap_or_default());
         burst.on_enter(now + 60);
         events.extend(
