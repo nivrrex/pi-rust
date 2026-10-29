@@ -450,7 +450,16 @@ mod color_mode_tests {
             for (key, value) in *vars {
                 std::env::set_var(key, value);
             }
-            assert_eq!(truecolor_supported(), *expected, "用例 {name}");
+            // `style.rs` 的判定表里有 `cfg!(windows) => true`（ref 的 win32 条件），
+            // 它排在 tmux/screen 的"按 COLORTERM 提示"之后 ⇒ 只有 `unknown_plain`
+            // （未命中任何提示词、且不是 tmux/screen）在 Windows 上期望 true。
+            // 其余用例（含 tmux_without_hint / screen_without_hint 的 false）两侧一致。
+            let want = if cfg!(windows) && *name == "unknown_plain" {
+                true
+            } else {
+                *expected
+            };
+            assert_eq!(truecolor_supported(), want, "用例 {name}");
         }
         for key in [
             "COLORTERM",
