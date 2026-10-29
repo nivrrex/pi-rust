@@ -1264,6 +1264,10 @@ fn build_tui_agent_parts(
         cwd: cwd.to_string_lossy().to_string(),
         session_dir: paths.session_dir.clone(),
         available_models,
+        scoped_models_configured: settings
+            .enabled_models
+            .as_ref()
+            .is_some_and(|models| !models.is_empty()),
         initial_thinking_level,
         supports_thinking: resolved.reasoning,
         model_state: std::sync::Arc::new(std::sync::Mutex::new(pi_cli::tui::CurrentModelState {

@@ -96,6 +96,9 @@ pub struct TuiState {
     pub status: String,
     /// 状态区第二行右侧显示的模型名（golden 里是 `mock-model`，右侧对齐）。
     pub model: String,
+    /// 可切换的模型 scope（`enabledModels` 解析后的 id 列表）。
+    /// ref `interactive-mode.ts:905-916`：非空时启动屏打印 `Model scope: …`。
+    pub model_scope: Vec<String>,
     /// 当前模型所属的 provider（ref `footer.ts:193-200`：多个 provider 可用时右侧加 `(provider)` 前缀）。
     pub model_provider: String,
     /// 可用的 provider 数量（ref `footerData.getAvailableProviderCount()`；>1 才显示前缀）。
@@ -178,6 +181,7 @@ impl TuiState {
             usage_output: 0,
             usage_cost: 0.0,
             version: version.into(),
+            model_scope: Vec::new(),
             cwd: cwd.into(),
             context_files: Vec::new(),
             input: String::new(),
@@ -1229,6 +1233,11 @@ fn apply_chrome_styles(
             continue;
         }
         // footer：`路径` 与 `↑n ↓n x%/Nk (auto)`，ref 用 `dim`。
+        // ref 同一处的 `theme.fg("dim", …)`。
+        if trimmed.starts_with("Model scope:") {
+            *slot = Some(LineStyle::fg(palette.dim));
+            continue;
+        }
         if trimmed.starts_with("pi v") {
             *slot = Some(LineStyle::fg(palette.accent).bold());
             continue;
@@ -1373,6 +1382,16 @@ fn render_all_cached_styled_inner(
     style_out: RenderStyleOut<'_>,
 ) -> Vec<String> {
     let mut lines: Vec<String> = Vec::with_capacity(rows);
+    if !state.model_scope.is_empty() {
+        // ref `interactive-mode.ts:905-916`：`Model scope: <id[:thinking], …> (Ctrl+P to cycle)`
+        lines.push(clamp_to_width(
+            &format!(
+                "Model scope: {} (Ctrl+P to cycle)",
+                state.model_scope.join(", ")
+            ),
+            cols,
+        ));
+    }
     lines.push(String::new());
     // ref `:958`：`pi v<version>`（头部件内边距 → 一个前导空格）
     // golden-tui 的启动屏显示的是**上游 pi 的版本**（0.87.1，见 tag/`ref/`），不是本 crate 的包版本。

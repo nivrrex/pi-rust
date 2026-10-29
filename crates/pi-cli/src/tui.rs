@@ -628,6 +628,10 @@ pub struct AgentParts {
     pub initial_messages: Vec<pi_ai::message::Message>,
     /// 该 provider 下可切换的模型 id 列表（`models.json` 顺序；Ctrl+P 循环用）。
     pub available_models: Vec<ModelChoice>,
+    /// `settings.enabledModels` **是否显式配置**（ref 的 `scopedModels` 非空才是）。
+    /// 没有配置时 `available_models` 会回落到 provider 下的全部模型，但那**不是** scope，
+    /// 启动屏不应打印 `Model scope:` 行（T01 实测：多打一行会让整屏下移）。
+    pub scoped_models_configured: bool,
     /// `-c`/`/resume` 时从会话里恢复的思考档位（最后一个 `thinking_level_change`）。
     pub initial_thinking_level: Option<String>,
     /// 当前模型是否推理（`models.json` 的 `reasoning`；决定思考档位集合）。
@@ -783,6 +787,16 @@ pub fn run(mut state: TuiState, parts: Option<std::sync::Arc<AgentParts>>) -> st
         );
     }
     if let Some(parts_ref) = parts.as_ref() {
+        // ref `interactive-mode.ts:905-916`：启动屏的 `Model scope:` 行来自 scopedModels。
+        state.model_scope = if parts_ref.scoped_models_configured {
+            parts_ref
+                .available_models
+                .iter()
+                .map(|choice| choice.id.clone())
+                .collect()
+        } else {
+            Vec::new()
+        };
         if parts_ref.supports_thinking {
             // ref `ai/src/models.ts:924-931`：`xhigh`/`max` **只有在模型声明了
             // `thinkingLevelMap` 对应项时才出现**；没有映射表的推理模型只有这五档。
