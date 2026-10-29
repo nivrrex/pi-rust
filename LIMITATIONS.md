@@ -93,6 +93,9 @@ P8e-7 回复里我写过"Windows 控制台在 VT 输入模式下不把 `Ctrl+D` 
 - **未实现**：OAuth 型登录。选择列表里标为 `oauth` 的 provider（ref 中 9 个：anthropic、
   github-copilot、kimi-coding、meta、openai-codex、openrouter、openrouter-images、radius、
   xai）在选择或指定时给出 `OAuth login for <name> is not supported yet.`，不做任何网络请求。
+- **已知限制**：`/login` 成功后**当次会话不能立即对话**——没有可用模型启动时 agent 部件
+  （`AgentParts`）根本没构建，登录只更新了 `auth.json` 与 footer 模型名；需重启 `pi-rs`
+  才会用新凭据跑回合。ref 在登录后会重建会话（`completeProviderAuthentication`）。
 - **未实现的连带行为**：ref 登录成功后的"凭据来源/模型范围刷新"提示行、`/logout` 的选择器
   （本实现直接删除全部已配置 provider 的条目并给出 `Logged out of …` / `No stored
   credentials to remove. …` 文案）。
