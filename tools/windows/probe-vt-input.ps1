@@ -1,4 +1,4 @@
-# probe-vt-input.ps1 —— 判断 Windows 控制台在两种输入模式下各给出什么字节。
+﻿# probe-vt-input.ps1 —— 判断 Windows 控制台在两种输入模式下各给出什么字节。
 #
 # 用途（P8e-9/C-d）：裁决"是否值得在 Windows 上改走 VT 输入字节路径"。
 # 纯 PowerShell + Add-Type P/Invoke（kernel32），**不读任何配置或凭据**。
