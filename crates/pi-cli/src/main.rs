@@ -1033,15 +1033,10 @@ fn build_tui_agent_parts(
             // 由用户在里面 `/login` 或 `/model` 补齐；这里**不再直接退出**。
             eprintln!("pi-rs: {error}");
             state.model = "no-model".to_string();
-            state
-                .transcript
-                .push(pi_tui::TranscriptItem::Status(format!(
-                    "没有可用的模型：{}",
-                    error
-                )));
-            state.transcript.push(pi_tui::TranscriptItem::Status(
-                "配置好之后可用 /model 选择（/login 尚未实现）".to_string(),
-            ));
+            // ref `core/auth-guidance.ts:16-20`：`No models available. Use /login …`
+            state.transcript.push(pi_tui::TranscriptItem::Status(format!(
+                "No models available. Use /login to log into a provider via OAuth or API key. ({error})"
+            )));
             return Ok(None);
         }
     };
@@ -1084,9 +1079,6 @@ fn build_tui_agent_parts(
             eprintln!("pi-rs: {error}");
             state.model = "no-model".to_string();
             state.transcript.push(pi_tui::TranscriptItem::Status(error));
-            state.transcript.push(pi_tui::TranscriptItem::Status(
-                "配置好之后可用 /model 选择（/login 尚未实现）".to_string(),
-            ));
             return Ok(None);
         }
     };
