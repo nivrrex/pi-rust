@@ -869,6 +869,15 @@ pub fn apply(state: &mut TuiState, event: TuiEvent) -> TuiAction {
             if move_cursor_vertical(state, -1) {
                 return TuiAction::Redraw;
             }
+            // ref `editor.ts:922-937`：已在首行时，若光标不在列 0 则**跳到行首**；
+            // 只有空编辑器 / 已在浏览历史 / 列已为 0 才翻历史。
+            if state.history_pos.is_none()
+                && !state.input.is_empty()
+                && state.cursor > line_start(&state.input, state.cursor)
+            {
+                state.cursor = line_start(&state.input, state.cursor);
+                return TuiAction::Redraw;
+            }
             if state.history.is_empty() {
                 return TuiAction::Redraw;
             }
@@ -896,6 +905,11 @@ pub fn apply(state: &mut TuiState, event: TuiEvent) -> TuiAction {
                 return TuiAction::Redraw;
             }
             if state.history_pos.is_none() && move_cursor_vertical(state, 1) {
+                return TuiAction::Redraw;
+            }
+            // ref `editor.ts:936-948`：已在末行时跳到行尾（历史浏览态交给下面的逻辑）
+            if state.history_pos.is_none() && state.cursor < line_end(&state.input, state.cursor) {
+                state.cursor = line_end(&state.input, state.cursor);
                 return TuiAction::Redraw;
             }
             let Some(index) = state.history_pos else {
@@ -4708,11 +4722,12 @@ mod p8b_thinking_tests {
         // 再 ↓ 到第三行同上列
         apply(&mut s, TuiEvent::HistoryNext);
         assert_eq!(s.cursor, 8);
-        // 已在末行 ⇒ 回落为浏览历史（这里没有历史，光标不动）
+        // 已在末行 ⇒ ref `editor.ts:936-948`：跳到行尾（这里末行 5 列 ⇒ 12）
         apply(&mut s, TuiEvent::HistoryNext);
-        assert_eq!(s.cursor, 8);
-        // ↑ 回第二行
+        assert_eq!(s.cursor, 12);
+        // ↑ 回第二行：列按"首选列"回到第 5 行尾（3 列口径：光标 12 在第 3 行 col 5，
+        // 第 2 行只有 2 列 ⇒ 夹到行尾 6）
         apply(&mut s, TuiEvent::HistoryPrev);
-        assert_eq!(s.cursor, 5);
+        assert_eq!(s.cursor, 6);
     }
 }
