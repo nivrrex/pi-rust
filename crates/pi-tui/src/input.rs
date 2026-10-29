@@ -116,6 +116,12 @@ impl InputState {
                 }
                 return;
             }
+            // 起始标记可能**分块到达**（例如 tmux `send-keys -l` 一次一个字符）：
+            // 只要当前缓冲还是 `ESC[200~` 的真前缀，就等后续字节，别当成孤立 ESC。
+            // 超时由 `process()` 的 wake/`flush()` 兜底（孤立 Esc 仍会正常发出）。
+            if PASTE_START.as_bytes().starts_with(self.buffer.as_slice()) {
+                return;
+            }
             if self.buffer.starts_with(PASTE_START.as_bytes()) {
                 self.buffer.drain(..PASTE_START.len());
                 self.paste_mode = true;
