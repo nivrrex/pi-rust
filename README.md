@@ -68,6 +68,19 @@ unshare -n sh -c 'ip link set lo up; env PATH="$PATH" DIFTEST_IMPL=pi-rs \
 - `tools/mock-provider/`：本地假 provider（可脚本化 SSE、闸门、断连、错误码），
   所有差分场景都在 `unshare -n` 网络命名空间里跑，绝不触碰真实 provider。
 
+## 主要功能
+
+- 四种模式：TUI（默认）、`-p` print、`--json` 事件流、`--rpc`；
+- **无可用模型也能进 TUI**：启动只打印 `Warning: No models available. Use /login …`，
+  用 `/login` 配置（当前支持 api_key 型 provider），成功后**当次会话即可对话**；
+- `/login`、`/logout`：写/删 `<配置目录>/auth.json`（原子写，Unix `0600`，
+  保留未知键）；OAuth 型 provider 提示暂不支持（见 `LIMITATIONS.md`）；
+- 主题 `dark`/`light`（`settings.json` 的 `theme`，`/settings` 里可切换并立即重绘）；
+- 思考档位 off/minimal/low/medium/high/xhigh/max（`/thinking`、`ctrl+s` 保存）；
+- 模型回落与 `enabledModels` 范围过滤（无效项启动时告警）；
+- apiKey 支持字面量、`$VAR`/`${VAR}` 与 `!command`；
+- 工具结果按 `tool_call_id` 绑定；`grep`/`find` 委托 `rg`/`fd`。
+
 ## 与上游的关系
 
 - 基线：pi **0.87.1**（`v0.87.1` / `f07218c`）。
@@ -81,7 +94,7 @@ unshare -n sh -c 'ip link set lo up; env PATH="$PATH" DIFTEST_IMPL=pi-rs \
 
 1. **`/bug` 提示行**未实现（已裁定为已知偏差）；
 2. 部分 api 未实现（`openai-responses` 已支持；其余见 `LIMITATIONS.md`）；
-3. 扩展机制未实现；
+3. 扩展机制未实现（`--mode rpc` 尚不能承载扩展宿主协议）；
 4. 思考档位：`shift+tab` 循环、`ctrl+s` 保存已实现；anthropic 的 `thinking.budget_tokens` 映射未做。
 
 ## Windows
