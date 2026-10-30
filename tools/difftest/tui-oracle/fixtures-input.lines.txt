@@ -35,8 +35,8 @@ chunk G09I
 chunk G09G
 event data G1tI home 0 0
 event data G1tG end 0 0
-event data G1sxfg== home 0 0
-event data G1s0fg== end 0 0
+event data G1sxfg== - 0 0
+event data G1s0fg== - 0 0
 event data G09I home 0 0
 event data G09G end 0 0
 case h06-insert-delete-pgup-pgdn 0 0 4

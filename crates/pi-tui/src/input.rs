@@ -441,10 +441,11 @@ fn legacy_key(sequence: &str) -> Option<String> {
         ("down", &["\u{1b}[B", "\u{1b}OB"]),
         ("right", &["\u{1b}[C", "\u{1b}OC"]),
         ("left", &["\u{1b}[D", "\u{1b}OD"]),
-        // ref `keys.ts:373-374`：home/end 各四种序列。tmux 实际发的是 `[1~`/`[4~`
-        // （见 `docs/evidence/p8e12-v6-cursor.md` 的 od 取证），TS 在 tmux 下 End 也生效。
-        ("home", &["\u{1b}[H", "\u{1b}OH", "\u{1b}[1~", "\u{1b}[7~"]),
-        ("end", &["\u{1b}[F", "\u{1b}OF", "\u{1b}[4~", "\u{1b}[8~"]),
+        // 只用 `parseKey` 认识的序列：oracle 夹具（生成器跑 ref 的 `parseKey`）里
+        // `[1~`/`[4~` 的 key 是 null。xterm 变体在**键位层**处理（见
+        // `crates/pi-cli/src/tui.rs::map_key_sequence`），这里不得越权。
+        ("home", &["\u{1b}[H", "\u{1b}OH"]),
+        ("end", &["\u{1b}[F", "\u{1b}OF"]),
         ("insert", &["\u{1b}[2~"]),
         ("delete", &["\u{1b}[3~"]),
         ("pageUp", &["\u{1b}[5~", "\u{1b}[[5~"]),

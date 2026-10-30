@@ -4522,6 +4522,15 @@ pub fn map_key_sequence(seq: &str) -> Option<TuiEvent> {
     if seq == "\n" {
         return Some(TuiEvent::Newline);
     }
+    // ref 的两张表要分开看：`keys.ts:373-374` 的 legacy 表（键位匹配用，含
+    // `[1~`/`[7~`/`[4~`/`[8~`）与 `parseKey` 的序列表（不含这四个）。tmux 的本机
+    // （xterm）Home/End 发的正是 `[1~`/`[4~`（`od -c` 取证），TS 键位层认它们，
+    // 所以这里在**键位层**补上；`parse_key` 保持与 oracle 一致（返回 None）。
+    match seq {
+        "\u{1b}[1~" | "\u{1b}[7~" => return Some(TuiEvent::LineStart),
+        "\u{1b}[4~" | "\u{1b}[8~" => return Some(TuiEvent::LineEnd),
+        _other => {}
+    }
     let key = pi_tui::input::parse_key(seq, false);
     let name = key.as_deref().unwrap_or(seq);
     let mapped = match name {
