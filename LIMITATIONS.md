@@ -50,6 +50,14 @@
 - 补 `KeyCode::BackTab` 分支；`TerminalGuard` 启动时置 `ENABLE_VIRTUAL_TERMINAL_PROCESSING`；
 - footer 补 `(provider)` 前缀（可用 provider >1 时，放不下则退回）与初始 `0.0%/<window>`（此前写死 128k）。
 
+### 硬件光标开关（P8e-15 登记）
+
+ref 有 `showHardwareCursor`（`settings-manager.ts:151/1369`，默认 `false`；也可用
+`PI_HARDWARE_CURSOR=1` 打开），打开时**显示**终端硬件光标"以便输入法定位"（ref 原注释）。
+pi-rs 目前始终隐藏硬件光标、只把终端光标定位到编辑框（`ESC[?25l` + 每帧 `ESC[r;cH`），
+**没有**这个开关 ⇒ 在候选框不跟随光标的终端/输入法组合下少一个可试的开关。
+默认行为与 ref 一致（都是关）。
+
 ### 按速率判定粘贴的启发式（P8e-15 登记）
 
 经典 conhost（`cmd.exe` 窗口）**不发括号粘贴标记**，粘贴被拆成一串按键，只能按到达速率推断。
