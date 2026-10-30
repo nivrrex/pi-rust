@@ -4289,6 +4289,10 @@ impl WindowsInput {
                 {
                     BracketInput::Char('\n')
                 }
+                // ConPTY 把粘贴文本里的 tab 还原成 VK_TAB 键事件：收集期它是**正文的一部分**
+                // （ref `editor.ts:1146` 把 tab 展开成 4 空格），不能当成“其它按键”中断收集。
+                // 空闲时 `feed` 会原样 `Pass` 回来，仍按 `TuiEvent::Tab`（补全）处理。
+                crossterm::event::KeyCode::Tab => BracketInput::Char('\t'),
                 _other => BracketInput::Other,
             };
             match self.bracket.feed(input, now_ms) {
@@ -4343,6 +4347,13 @@ impl WindowsInput {
             }
             pi_tui::TuiEvent::Enter => {
                 self.burst.on_enter(now_ms);
+            }
+            // 无括号标记的键流粘贴里，tab 是正文的一部分：攒批中当字符收下，
+            // 空闲时才是编辑器里的 Tab（补全）。
+            pi_tui::TuiEvent::Tab if self.burst.is_pending() => {
+                if let Some(previous) = self.burst.on_char('\t', now_ms) {
+                    emitted.extend(previous);
+                }
             }
             other => {
                 emitted.extend(self.burst.take_all());
@@ -5672,5 +5683,58 @@ mod hardware_cursor_tests {
         assert!(resolve_show_hardware_cursor(None, Some("1")));
         assert!(!resolve_show_hardware_cursor(None, Some("0")));
         assert!(!resolve_show_hardware_cursor(None, None));
+    }
+}
+
+#[cfg(test)]
+mod tab_in_paste_tests {
+    use super::{map_windows_key, WindowsInput};
+    use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+    use pi_tui::TuiEvent;
+
+    fn press(code: KeyCode, modifiers: KeyModifiers) -> KeyEvent {
+        KeyEvent::new(code, modifiers)
+    }
+
+    /// 键流粘贴（conhost Shift+Insert）里的 tab：攒批期间应当作正文里的 '\t'，而不是 Tab 键。
+    #[test]
+    fn tab_inside_keystream_paste_stays_in_text() {
+        let mut input = WindowsInput::default();
+        let mut events = Vec::new();
+        let mut now = 0u64;
+        for ch in "AAA".chars() {
+            events.extend(input.on_key(press(KeyCode::Char(ch), KeyModifiers::NONE), now));
+            now += 1;
+        }
+        input.on_key(press(KeyCode::Enter, KeyModifiers::NONE), now); // 换行（粘贴里）
+        now += 1;
+        events.extend(input.on_key(press(KeyCode::Tab, KeyModifiers::NONE), now));
+        now += 1;
+        for ch in "XYZ".chars() {
+            events.extend(input.on_key(press(KeyCode::Char(ch), KeyModifiers::NONE), now));
+            now += 1;
+        }
+        events.extend(input.tick(now + 10_000));
+        let pasted: String = events
+            .iter()
+            .map(|event| match event {
+                TuiEvent::Paste(text) => text.clone(),
+                TuiEvent::Char(ch) => ch.to_string(),
+                other => panic!("不应出现 {other:?}"),
+            })
+            .collect();
+        assert_eq!(pasted, "AAA\n\tXYZ", "tab 应保留在粘贴文本里");
+    }
+
+    /// 空闲时按 Tab 仍是补全键（不并入任何粘贴）。
+    #[test]
+    fn tab_outside_paste_is_still_the_tab_key() {
+        let mut input = WindowsInput::default();
+        let events = input.on_key(press(KeyCode::Tab, KeyModifiers::NONE), 0);
+        assert_eq!(events, vec![TuiEvent::Tab]);
+        assert_eq!(
+            map_windows_key(press(KeyCode::Tab, KeyModifiers::NONE)),
+            Some(TuiEvent::Tab)
+        );
     }
 }
