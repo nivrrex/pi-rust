@@ -31,6 +31,8 @@ pi-rs-windows-amd64.exe --version
 | 7 | `Ctrl+D` 退出后 | `To resume this session: …` 独占一行，其后**不多空行** |
 | 8 | footer | 多 provider 且宽度足够时显示 `(provider)` 前缀；上下文窗口数字与 `settings.json` 一致 |
 | 9 | 多行粘贴 | 粘贴 3 行**不**立刻提交；>10 行折叠成 `[paste #N +M lines]`；再按回车才整段发出（`Ctrl+V` 仅 Windows Terminal 有效，conhost 用 Shift+Insert / 右键） |
+| 10 | 单行超长粘贴（1200 字符） | 折叠成 `[paste #N C chars]`，**不**提交、不逐字符插入 |
+| 11 | `Shift+Enter` / `Ctrl+Enter` / `Ctrl+J` | 插入换行，**不**提交（ref `tui/src/keybindings.ts:143`）；裸 `Enter` 才提交 |
 
 ## 额外两项（发布前必须确认，属已知未验证）
 1. `tools/windows/probe-vt-input.ps1 -Mode default` 与 `-Mode vt` 各跑一次，贴回原始字节输出

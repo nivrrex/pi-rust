@@ -3884,10 +3884,14 @@ fn map_windows_key(key: crossterm::event::KeyEvent) -> Option<TuiEvent> {
             _unmapped => None,
         },
         KeyCode::Char(ch) => Some(TuiEvent::Char(ch)),
-        // ref `keybindings.ts:143`：`tui.input.newLine = ["shift+enter", "ctrl+j"]`。
-        // ConPTY 把粘贴里的换行送成 **Ctrl+Enter**，所以它必须按"插入换行"处理，
-        // 不能当成提交（否则粘贴结束前的裸回车会直接提交）。
-        KeyCode::Enter if ctrl => Some(TuiEvent::Newline),
+        // ref `packages/tui/src/keybindings.ts:143`：`tui.input.newLine = ["shift+enter", "ctrl+j"]`。
+        // - **Shift+Enter** 是 ref 明确绑定的换行键，必须插入换行而不是提交（W-Q3 复核发现此前漏了）；
+        // - **Ctrl+Enter** 是 ConPTY 对"粘贴里的换行"的编码，也必须按换行处理，
+        //   不能当成提交（否则粘贴结束前的裸回车会直接提交）；
+        // - `Ctrl+J` 由下面的 `Char('j') + CONTROL ⇒ Newline` 覆盖（同样来自 ref:143）。
+        KeyCode::Enter if ctrl || key.modifiers.contains(KeyModifiers::SHIFT) => {
+            Some(TuiEvent::Newline)
+        }
         KeyCode::Enter => Some(TuiEvent::Enter),
         KeyCode::Backspace => Some(TuiEvent::Backspace),
         KeyCode::Esc => Some(TuiEvent::Escape),
@@ -4051,6 +4055,8 @@ impl RespFilter {
 #[derive(Debug, Default, Clone)]
 struct PasteBurst {
     chars: Vec<char>,
+    /// 本段突发第一个字符的时刻（用于判定“这是粘贴而不是打字”）。
+    first_ms: u64,
     /// 挂起的回车（回看中，尚未决定是“粘贴换行”还是“提交”）。
     enter_pending: bool,
     last_ms: u64,
@@ -4066,6 +4072,15 @@ impl PasteBurst {
     const LOOKAHEAD_MS: u64 = 60;
     /// 缓冲上限（防御无换行的超大粘贴）。
     const MAX_CHARS: usize = 4096;
+    /// ref `editor.ts:1296-1312` 的折叠阈值之一（>1000 字符）。
+    const PASTE_FOLD_THRESHOLD: usize = 1000;
+    /// 超过这个长度就认定为粘贴（人类打字达不到），改用更宽的空闲窗口。
+    const LARGE_BURST: usize = 64;
+    /// 大突发的空闲窗口（毫秒）。实测 1200 字符粘贴里偶发 >200 ms 的调度停顿，
+    /// 会把一段切成两段（两段都不到折叠阈值 ⇒ 不折叠），故取 600 ms。
+    const LARGE_BURST_IDLE_MS: u64 = 600;
+    /// 判定“像粘贴”的平均按键间隔上限（毫秒）：人类打字不可能 5 ms/字。
+    const PASTE_AVG_GAP_MS: u64 = 5;
 
     /// 收入一个字符；返回“上一段需要先发出的事件”（间隔超过窗口 ⇒ 两段不是同一次粘贴）。
     fn on_char(&mut self, ch: char, now_ms: u64) -> Option<Vec<TuiEvent>> {
@@ -4075,13 +4090,16 @@ impl PasteBurst {
             self.enter_pending = false;
         }
         let mut flushed = if !self.chars.is_empty()
-            && now_ms.saturating_sub(self.last_ms) > Self::WINDOW_MS
+            && now_ms.saturating_sub(self.last_ms) > self.idle_window()
             && !self.chars.contains(&'\n')
         {
             Some(self.take())
         } else {
             None
         };
+        if self.chars.is_empty() {
+            self.first_ms = now_ms;
+        }
         self.chars.push(ch);
         self.last_ms = now_ms;
         if self.chars.len() >= Self::MAX_CHARS {
@@ -4117,6 +4135,28 @@ impl PasteBurst {
     }
 
     /// 定时驱动（poll 超时）：回看窗口到期 ⇒ 决定挂起的回车是“粘贴换行”还是“提交”。
+    /// 当前这段突发允许的空闲间隔（毫秒）。
+    ///
+    /// 大突发（≥ `LARGE_BURST` 字符）说明是粘贴而非打字（人类 30 ms 打不出 64 个字），
+    /// 此时把窗口放宽到 200 ms：实测 1200 字符粘贴偶发因调度停顿被切成两段，
+    /// 切开后每段都不到折叠阈值，折叠就不会触发（W-Q3 真机 5 次里出现 1 次）。
+    fn idle_window(&self) -> u64 {
+        if self.chars.len() >= Self::LARGE_BURST && self.looks_like_paste() {
+            Self::LARGE_BURST_IDLE_MS
+        } else {
+            Self::WINDOW_MS
+        }
+    }
+
+    /// 平均按键间隔 <= `PASTE_AVG_GAP_MS` 且长度够 ⇒ 是粘贴（人类打字达不到这个速率）。
+    fn looks_like_paste(&self) -> bool {
+        if self.chars.len() < 2 {
+            return false;
+        }
+        let span = self.last_ms.saturating_sub(self.first_ms);
+        span / (self.chars.len() as u64 - 1) <= Self::PASTE_AVG_GAP_MS
+    }
+
     fn tick(&mut self, now_ms: u64) -> Option<Vec<TuiEvent>> {
         let idle = now_ms.saturating_sub(self.last_ms);
         if self.enter_pending && idle >= Self::LOOKAHEAD_MS {
@@ -4138,7 +4178,7 @@ impl PasteBurst {
         if self.enter_pending {
             return None;
         }
-        if !self.chars.is_empty() && idle > Self::WINDOW_MS {
+        if !self.chars.is_empty() && idle > self.idle_window() {
             return Some(self.take());
         }
         None
@@ -4171,7 +4211,11 @@ impl PasteBurst {
 
     fn take(&mut self) -> Vec<TuiEvent> {
         let chars = std::mem::take(&mut self.chars);
-        if chars.contains(&'\n') {
+        self.first_ms = 0;
+        // 多行，或长度超过 ref 的折叠阈值（`editor.ts:1296-1312`：>1000 字符）⇒ 当成一次粘贴。
+        // 后者是 W-Q3 真机发现的缺口：单行 1200 字符粘贴没有换行，旧判定会逐字符插入，
+        // 永远触发不了“折叠”（人类不可能在 30 ms 的突发窗口里打出 1000 个字符）。
+        if chars.contains(&'\n') || chars.len() > Self::PASTE_FOLD_THRESHOLD {
             vec![TuiEvent::Paste(chars.into_iter().collect())]
         } else {
             chars.into_iter().map(TuiEvent::Char).collect()
@@ -5308,9 +5352,18 @@ mod windows_input_tests {
                 emitted.extend(previous);
             }
         }
+        let flushed_chars: usize = emitted
+            .iter()
+            .map(|event| match event {
+                TuiEvent::Paste(text) => text.chars().count(),
+                TuiEvent::Char(_) => 1,
+                _other => 0,
+            })
+            .sum();
         assert!(
-            emitted.len() >= PasteBurst::MAX_CHARS,
-            "到达上限应冲出一批，实际 {} 个",
+            flushed_chars >= PasteBurst::MAX_CHARS,
+            "到达上限应冲出一批，实际 {} 个字符 / {} 个事件",
+            flushed_chars,
             emitted.len()
         );
     }
@@ -5500,5 +5553,84 @@ mod cursor_dump_tests {
             line,
             "frame=12 size=100x30 hw_row=7 col=3 input=2 busy=false thinking=high"
         );
+    }
+}
+
+#[cfg(test)]
+mod q3_wezterm_paste_tests {
+    use super::{PasteBurst, TuiEvent};
+
+    /// W-Q3：WezTerm 的 Shift+Insert 把 1200 字符的单行粘贴按**逐键**送来（实测每个字符
+    /// Press+Release、间隔 ≲ 1 ms、没有 `ESC[200~`）。旧实现只在出现换行时才当粘贴，
+    /// 于是这 1200 个字符被逐个插入，`editor.ts:1296-1312` 的 ">1000 字符折叠" 永远不触发。
+    #[test]
+    fn long_single_line_burst_becomes_one_paste() {
+        let mut burst = PasteBurst::default();
+        let mut events = Vec::new();
+        for index in 0..1200u64 {
+            if let Some(previous) = burst.on_char('x', index) {
+                events.extend(previous);
+            }
+        }
+        // 大突发（≥ LARGE_BURST）的空闲窗口是 200 ms，等过它才冲掉
+        events.extend(
+            burst
+                .tick(1200 + PasteBurst::LARGE_BURST_IDLE_MS + 1)
+                .unwrap_or_default(),
+        );
+        assert_eq!(events.len(), 1, "应折叠成一次粘贴：{:?}", events.len());
+        match &events[0] {
+            TuiEvent::Paste(text) => assert_eq!(text.chars().count(), 1200),
+            other => panic!("应为 Paste，实际：{other:?}"),
+        }
+    }
+
+    /// 多行（3 行合成文本）按逐键 + Ctrl+Enter 换行的真实形状 ⇒ 合并为一次 Paste，且不提交。
+    #[test]
+    fn wezterm_multiline_keystream_becomes_paste_without_submit() {
+        let mut burst = PasteBurst::default();
+        let mut events = Vec::new();
+        let mut now = 0u64;
+        for line in ["SYN-01", "SYN-02", "SYN-03"] {
+            for ch in line.chars() {
+                if let Some(previous) = burst.on_char(ch, now) {
+                    events.extend(previous);
+                }
+                now += 1;
+            }
+            burst.on_enter(now); // ConPTY 把粘贴里的换行送成 Ctrl+Enter
+            now += 1;
+        }
+        events.extend(
+            burst
+                .tick(now + PasteBurst::LOOKAHEAD_MS + 1)
+                .unwrap_or_default(),
+        );
+        assert!(
+            !events.iter().any(|event| matches!(event, TuiEvent::Enter)),
+            "粘贴不应触发提交：{events:?}"
+        );
+        assert_eq!(events.len(), 1, "{events:?}");
+    }
+}
+
+#[cfg(test)]
+mod q3_newline_binding_tests {
+    use super::map_windows_key;
+    use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+    use pi_tui::TuiEvent;
+
+    /// ref `packages/tui/src/keybindings.ts:143`：`tui.input.newLine = ["shift+enter", "ctrl+j"]`。
+    /// 另外 ConPTY 把粘贴里的换行编码成 **Ctrl+Enter**，也必须走换行分支。
+    #[test]
+    fn newline_bindings_match_ref() {
+        let shift_enter = KeyEvent::new(KeyCode::Enter, KeyModifiers::SHIFT);
+        assert_eq!(map_windows_key(shift_enter), Some(TuiEvent::Newline));
+        let ctrl_enter = KeyEvent::new(KeyCode::Enter, KeyModifiers::CONTROL);
+        assert_eq!(map_windows_key(ctrl_enter), Some(TuiEvent::Newline));
+        let ctrl_j = KeyEvent::new(KeyCode::Char('j'), KeyModifiers::CONTROL);
+        assert_eq!(map_windows_key(ctrl_j), Some(TuiEvent::Newline));
+        let plain_enter = KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE);
+        assert_eq!(map_windows_key(plain_enter), Some(TuiEvent::Enter));
     }
 }
