@@ -3535,7 +3535,29 @@ fn draw(
     if let Some(path) = output_dump_path() {
         dump_output(&path, cols, rows, diff_state, &payload);
     }
-    out.write_all(payload.as_bytes())?;
+    write_frame(&mut out, &payload)
+}
+
+/// 把一帧字节按**行**写给终端（每次 `write_all` 都以 `\n` 结尾）。
+///
+/// 为什么不能整帧一次写：Windows 控制台/ConPTY 在一次写入的**末尾**遇到不完整转义
+/// 序列时会把它丢掉、把剩下的字节当普通文本显示（真机两轮实测：`\x1b[0m` 漏成 `0m`、
+/// `\x1b]8;;\x07` 漏成 `;;`）。整帧一次写时，控制台可能按任意字节位置**短写**，
+/// 切点落到 `ESC` 与参数之间就会漏字。官方实现一帧一次 `process.stdout.write`、
+/// 且 Node 侧不会在序列中间切开；我们改为**每行一次写入**，切点永远落在 `\n` 之后，
+/// 不完整序列无从产生（行内最长的序列也不到 20 字节，远小于控制台单次写入容量）。
+fn write_frame(out: &mut impl std::io::Write, payload: &str) -> std::io::Result<()> {
+    let bytes = payload.as_bytes();
+    let mut start = 0_usize;
+    for (index, byte) in bytes.iter().enumerate() {
+        if *byte == b'\n' {
+            out.write_all(&bytes[start..=index])?;
+            start = index + 1;
+        }
+    }
+    if start < bytes.len() {
+        out.write_all(&bytes[start..])?;
+    }
     out.flush()
 }
 
@@ -5780,6 +5802,59 @@ mod windows_input_tests {
             let out = machine.tick(100);
             assert_eq!(out, vec![TuiEvent::Newline], "Ctrl+Enter 必须插入换行");
         }
+    }
+}
+
+#[cfg(test)]
+mod write_frame_tests {
+    use super::write_frame;
+
+    /// 记录每次 `write` 调用的假 writer（不真写）。
+    #[derive(Default)]
+    struct Recorder {
+        calls: Vec<String>,
+        flushed: bool,
+    }
+
+    impl std::io::Write for Recorder {
+        fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+            self.calls.push(String::from_utf8_lossy(buf).to_string());
+            Ok(buf.len())
+        }
+
+        fn flush(&mut self) -> std::io::Result<()> {
+            self.flushed = true;
+            Ok(())
+        }
+    }
+
+    /// 不变量：**除最后一次外，每次写入都必须以 `\n` 结尾**。
+    /// 真机上 ConPTY 会把“写入末尾的不完整转义序列”丢掉、把尾巴当文本显示
+    ///（`\x1b[0m` → `0m`、`\x1b]8;;\x07` → `;;`），所以切点不能落在行内。
+    #[test]
+    fn frame_is_written_line_by_line() {
+        let payload = "\u{1b}[?2026h\u{1b}[2K pi v0.87.1\u{1b}[0m\u{1b}]8;;\u{7}\r\n\u{1b}[2Kmore\u{1b}[0m\r\n\u{1b}[?2026l\u{1b}[3B";
+        let mut out = Recorder::default();
+        write_frame(&mut out, payload).expect("写入");
+        assert!(out.flushed, "必须 flush");
+        assert!(
+            out.calls.len() >= 3,
+            "应按行拆分，实际 {} 次",
+            out.calls.len()
+        );
+        for call in &out.calls[..out.calls.len() - 1] {
+            assert!(call.ends_with('\n'), "非末次写入未以换行结尾：{call:?}");
+        }
+        assert_eq!(out.calls.concat(), payload, "拼回的字节必须与输入一致");
+    }
+
+    /// 没有换行的短帧（首帧之外的纯光标定位字节）也要原样写出并 flush。
+    #[test]
+    fn frame_without_newline_is_one_write() {
+        let mut out = Recorder::default();
+        write_frame(&mut out, "\u{1b}[?2026l").expect("写入");
+        assert_eq!(out.calls, vec!["\u{1b}[?2026l".to_string()]);
+        assert!(out.flushed);
     }
 }
 

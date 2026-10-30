@@ -10,22 +10,6 @@ use unicode_width::UnicodeWidthStr;
 /// 每行末尾的分段复位（`tui.ts:384` `const SEGMENT_RESET = "\x1b[0m\x1b]8;;\x07"`）。
 const SEGMENT_RESET: &str = "\x1b[0m\x1b]8;;\x07";
 
-/// Windows 上**未打开超链接**的行只用 SGR 复位（P8e-17d）。
-///
-/// 真机：ConPTY 会吞掉 OSC 8 的 `ESC]8` 前缀，把残留的 `;;`（+ BEL）当普通字符吐给
-/// 终端——行尾于是凭空多出两个 `;`（与已取证的 `ESC[20`→`1~` 同一形态）。满宽行上这两个
-/// 字符还会越过最后一列触发自动换行，整屏被顶掉一行、后续按行号定位全部错位（真机截图：
-/// 启动块在屏中间重复出现、样式丢失）。行内确实有 OSC 8 时仍需关闭链接，保持原样。
-const SEGMENT_RESET_SGR_ONLY: &str = "\x1b[0m";
-
-/// 该行该用哪一种行尾复位。`suppress_osc8_close` 由调用方按平台传入（纯函数，便于单测）。
-fn segment_reset(line: &str, suppress_osc8_close: bool) -> &'static str {
-    if suppress_osc8_close && !line.contains("\u{1b}]8;") {
-        SEGMENT_RESET_SGR_ONLY
-    } else {
-        SEGMENT_RESET
-    }
-}
 /// 同步输出区开始/结束（`tui-main-screen.ts:283`、`:317`、`:494`、`:567`）。
 const SYNC_START: &str = "\x1b[?2026h";
 const SYNC_END: &str = "\x1b[?2026l";
@@ -552,13 +536,9 @@ fn diff_render_body_styled(
     let mut hardware_cursor_row = state.hardware_cursor_row;
 
     // applyLineResets（`tui.ts:1353-1358`）：每行归一化后接 SEGMENT_RESET。
-    // Windows 上省略无超链接行的 OSC 8 关闭序列（见 `SEGMENT_RESET_SGR_ONLY`）。
     let new_lines: Vec<String> = lines
         .iter()
-        .map(|line| {
-            let normalized = normalize_terminal_output(line);
-            format!("{normalized}{}", segment_reset(&normalized, cfg!(windows)))
-        })
+        .map(|line| format!("{}{SEGMENT_RESET}", normalize_terminal_output(line)))
         .collect();
 
     // 首次渲染：不清屏，直接整屏输出（`:345-350`）。
@@ -1123,7 +1103,7 @@ mod tests {
 
 #[cfg(test)]
 mod cursor_tests {
-    use super::{diff_render_with_cursor, segment_reset, DiffState};
+    use super::{diff_render_with_cursor, DiffState};
     use std::path::PathBuf;
 
     fn fixture_path() -> PathBuf {
@@ -1210,26 +1190,6 @@ mod cursor_tests {
             }
         }
         cases
-    }
-
-    /// Windows 上不能把 OSC 8 关闭序列发给 ConPTY：它会把 `ESC]8` 吞掉、把 `;;` 当字符
-    /// 输出（真机行尾多出 `;;`，满宽行还会因超列换行把整屏顶掉）。
-    #[test]
-    fn windows_line_reset_omits_osc8_unless_a_link_is_open() {
-        assert_eq!(segment_reset(" pi v0.87.1", true), "\u{1b}[0m");
-        assert_eq!(
-            segment_reset("\u{1b}]8;;https://e.com\u{7}x\u{1b}]8;;\u{7}", true),
-            "\u{1b}[0m\u{1b}]8;;\u{7}"
-        );
-        // Unix 与 ref 逐字一致，两个分支都不变。
-        assert_eq!(
-            segment_reset(" pi v0.87.1", false),
-            "\u{1b}[0m\u{1b}]8;;\u{7}"
-        );
-        assert_eq!(
-            segment_reset("\u{1b}]8;;https://e.com\u{7}x", false),
-            "\u{1b}[0m\u{1b}]8;;\u{7}"
-        );
     }
 
     /// 光标夹具：`tools/difftest/tui-oracle/fixtures.json`（由 `gen.mjs` 以 ref 真实

@@ -124,22 +124,32 @@ PasteBurst 启发式（30 ms 攒批 / 60 ms 回车挂起）方向一致，但 we
 - Windows 上 `cargo test --workspace` 仍有 12 个平台相关 target 失败（mock-provider 为 Linux ELF、
   `/tmp` 路径、`COLORTERM` 环境等），与代码缺陷无关，清单见上述 notes。
 
-### ConPTY 会吞掉转义序列前缀，把尾巴当文本吐出（P8e-17b/17d，已按此修）
+### 行尾多出的 `;;` / `0m`：写入被切开后控制台丢了不完整转义序列（P8e-17b–17e）
 
-两次真机故障同型：`ESC[201~` 只剩 `1~`、`OSC 8` 关闭序列 `ESC]8;;BEL` 只剩 `;;`，
-都被当普通字符显示。规律：ConPTY 对**它不认识的转义序列**可能丢掉前缀、把剩余字节当文本
-转给终端；若这些字节落在最后一列，还会触发自动换行把整屏顶掉一行——现象就是内容重复、
-错位、底色丢失（真机截图里启动块在屏中间又出现一次）。
+三轮真机残留同型：`ESC[201~` 只剩 `1~`、`OSC 8` 关闭序列 `ESC]8;;BEL` 只剩 `;;`、
+`\x1b[0m` 只剩 `0m`——残留**永远出现在行尾**，即行尾复位序列的位置。
 
-处置原则：Windows 上**只发终端确实支持、且我们确实需要的序列**——
-不请求括号粘贴（不发 `?2004h`），无超链接的行不发 OSC 8 关闭序列（`diff::segment_reset`）。
-剩余风险（未验证）：SGR（`38;2;r;g;b`）同属长序列，至今无泄漏证据；
-`ctrl+x` 复制在 Windows 上仍退化成 OSC 52（ref `utils/clipboard.ts:103` 在 win32 用 `clip`），
-本批未改，需真机确认是否同样被 ConPTY 扭曲。
+根因（已从 Rust 标准库源码确认）：Windows 控制台句柄上，`std` 每次 `write` 最多转换
+**4096 字节** UTF-8（`library/std/src/sys/pal/windows/stdio.rs` 的
+`let len = cmp::min(data.len(), MAX_BUFFER_SIZE / 2)`，`MAX_BUFFER_SIZE = 8192`）后调用一次
+`WriteConsoleW`；超出的部分由 `write_all` 继续写。我们一帧输出 9–15 KB，必然被切成多个
+`WriteConsoleW` 调用，**切点落在任意字节偏移**（4096、8192…），经常正好在 `ESC` 与参数之间。
+控制台解析到"写入末尾的不完整转义序列"时会丢掉这半截、把剩余字节当普通文本显示 ⇒ 行尾
+复位被拆坏 ⇒ 屏幕多出 `0m` / `;;`；满宽行上多出的字符还会越过最后一列触发自动换行，把
+整屏顶掉一行（真机截图里启动块在屏中间又出现一次）。
+官方实现（`packages/tui/src/terminal.ts:470-471`）是**一帧一次 `process.stdout.write`**，
+Node 侧按整帧写入、不在 4 KB 处切，因此不触发。
+
+处置：`pi-cli` 的 `write_frame` 改为**每行一次写入**，每次都以 `\n` 结尾 ⇒ 切点永远在行后，
+不完整序列无从产生；`diff::applyLineResets` 与 ref 逐字一致（OSC 8 关闭序列保留）。
+此前两批的"Windows 上少发 `?2004h` / 少发 OSC 8"属同一现象的错误归因，其中不请求括号粘贴
+仍保留（`1~` 是输入侧标记被拆，与输出无关）。
 
 排查手段：`PI_TUI_OUTPUT_DUMP=<路径>`（值为 `1` 时写临时目录 `pi-rs-output.log`）
-把每帧实际写给终端的字节转义后落盘（`\e`/`\r`/`\n`/`\a`），可区分"我们发错了"
-还是"PTY 解析坏了"。
+把每帧实际写给终端的字节转义后落盘（`\e`/`\r`/`\n`/`\a`）。
+
+剩余风险（未验证）：`ctrl+x` 复制在 Windows 上仍退化成 OSC 52（ref `utils/clipboard.ts:103`
+在 win32 用 `clip`），本批未改；若该序列同样被切开，会出现 `;`+base64 残片。
 
 ## Windows 输入路径的三处偏差（P8e-9/C-a 登记，含更正）
 
