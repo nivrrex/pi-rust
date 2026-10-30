@@ -5,3 +5,4 @@ crates/pi-cli/src/settings_selector.rs	shorten_path 单元测试的 /root/projec
 tools/difftest/pty_retry_check.py	探针脚本里的示例路径
 docs/evidence/	证据文档（已脱敏；审计文档需引用模式串本身）
 tools/publish/privacy-scan.sh	扫描器自身必须含模式串
+tools/publish/privacy-allowlist.txt	豁免清单本身含路径与说明词
