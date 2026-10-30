@@ -983,13 +983,19 @@ pub fn run(
     let mut diff_state = pi_tui::diff::DiffState::new();
     // P7-6an/U：`showHardwareCursor`（ref `tui.ts:478` 默认 false，由 settings.json 传入，
     // `cli/startup-ui.ts:89`）。开启后 r3 每帧写 `\x1b[?25h` 显示硬件光标。
-    diff_state.show_hardware_cursor = std::env::var("PI_CODING_AGENT_DIR")
-        .ok()
-        .map(std::path::PathBuf::from)
-        .and_then(|dir| std::fs::read_to_string(dir.join("settings.json")).ok())
+    // ref `core/settings-manager.ts:1369-1370`：
+    //   `this.settings.showHardwareCursor ?? process.env.PI_HARDWARE_CURSOR === "1"`
+    // ⇒ settings 优先、环境变量兜底、缺省 false（`tui.ts:478`）。此前这里只在
+    // `PI_CODING_AGENT_DIR` 显式设置时才读 settings，默认配置目录下永远拿不到开关。
+    let settings_show_hardware_cursor = parts
+        .as_ref()
+        .and_then(|parts| std::fs::read_to_string(parts.agent_dir.join("settings.json")).ok())
         .and_then(|text| serde_json::from_str::<crate::settings::Settings>(&text).ok())
-        .and_then(|settings| settings.show_hardware_cursor)
-        .unwrap_or(false);
+        .and_then(|settings| settings.show_hardware_cursor);
+    diff_state.show_hardware_cursor = resolve_show_hardware_cursor(
+        settings_show_hardware_cursor,
+        std::env::var("PI_HARDWARE_CURSOR").ok().as_deref(),
+    );
     // P7-6am/P'：跨帧复用条目渲染缓存（宽度变化由缓存内部自动失效）。
     let mut render_cache = pi_tui::RenderCache::new();
     let mut dirty = true;
@@ -3346,10 +3352,11 @@ fn format_cursor_line(
     state: &TuiState,
 ) -> String {
     format!(
-        "frame={frame} ms={elapsed_ms} size={cols}x{rows} hw_row={} col={} input={} busy={} thinking={}",
+        "frame={frame} ms={elapsed_ms} size={cols}x{rows} hw_row={} col={} input={} cursor={} busy={} thinking={}",
         diff.hardware_cursor_row,
         diff.cursor_col,
         state.input.chars().count(),
+        state.cursor,
         state.working,
         state.thinking_level
     )
@@ -3369,6 +3376,12 @@ fn write_cursor_dump(
     let line = format_cursor_line(frame, elapsed_ms, cols, rows, diff, state);
     let _ = writeln!(file, "{line}");
     let _ = file.flush();
+}
+
+/// `showHardwareCursor` 的取值（ref `core/settings-manager.ts:1369-1370`）：
+/// settings 优先，其次 `PI_HARDWARE_CURSOR=1`，都没有则默认关（`tui.ts:478`）。
+fn resolve_show_hardware_cursor(settings_value: Option<bool>, env_value: Option<&str>) -> bool {
+    settings_value.unwrap_or_else(|| env_value == Some("1"))
 }
 
 /// 把当前状态画到终端（光标回左上角逐行覆盖，避免整屏闪烁）。
@@ -5563,7 +5576,7 @@ mod cursor_dump_tests {
         let line = format_cursor_line(12, 345, 100, 30, &diff, &state);
         assert_eq!(
             line,
-            "frame=12 ms=345 size=100x30 hw_row=7 col=3 input=2 busy=false thinking=high"
+            "frame=12 ms=345 size=100x30 hw_row=7 col=3 input=2 cursor=0 busy=false thinking=high"
         );
     }
 }
@@ -5644,5 +5657,20 @@ mod q3_newline_binding_tests {
         assert_eq!(map_windows_key(ctrl_j), Some(TuiEvent::Newline));
         let plain_enter = KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE);
         assert_eq!(map_windows_key(plain_enter), Some(TuiEvent::Enter));
+    }
+}
+
+#[cfg(test)]
+mod hardware_cursor_tests {
+    use super::resolve_show_hardware_cursor;
+
+    /// ref `core/settings-manager.ts:1369-1370`：`settings.showHardwareCursor ?? env === "1"`。
+    #[test]
+    fn settings_wins_then_env_then_default_off() {
+        assert!(resolve_show_hardware_cursor(Some(true), Some("0")));
+        assert!(!resolve_show_hardware_cursor(Some(false), Some("1")));
+        assert!(resolve_show_hardware_cursor(None, Some("1")));
+        assert!(!resolve_show_hardware_cursor(None, Some("0")));
+        assert!(!resolve_show_hardware_cursor(None, None));
     }
 }

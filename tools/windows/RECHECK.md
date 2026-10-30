@@ -18,7 +18,7 @@ pi-rs-windows-amd64.exe --version
 
 ---
 
-Windows 侧自编参考构建（非发布件）：`commit 7f641f3` / sha256 `6b814610aacea2c1…` / `built 2026-10-30T10:44:55Z`；本批新增的第 10、11 项就是在这份构建上跑的。
+Windows 侧自编参考构建（非发布件，win-fixes 分支，已合入上游 master）：`commit 0164422` / sha256 `be48e04d430cf98f…` / `built 2026-10-30T12:44:33Z`；RECHECK 第 1–11 项在这条线上复跑通过（第 1–5/8/10 项在合并后重跑，6/7/9/11 项在 e4ff244 上跑且代码一致）。上游发布件值见上表。
 
 ## 复跑核心用例（沿用 Windows 侧已有的同一套 conhost/ConPTY 脚本）
 

@@ -50,13 +50,21 @@
 - 补 `KeyCode::BackTab` 分支；`TerminalGuard` 启动时置 `ENABLE_VIRTUAL_TERMINAL_PROCESSING`；
 - footer 补 `(provider)` 前缀（可用 provider >1 时，放不下则退回）与初始 `0.0%/<window>`（此前写死 128k）。
 
-### 硬件光标开关（P8e-15 登记）
+### 硬件光标 / 输入法候选框位置（P8e-15）
 
-ref 有 `showHardwareCursor`（`settings-manager.ts:151/1369`，默认 `false`；也可用
-`PI_HARDWARE_CURSOR=1` 打开），打开时**显示**终端硬件光标"以便输入法定位"（ref 原注释）。
-pi-rs 目前始终隐藏硬件光标、只把终端光标定位到编辑框（`ESC[?25l` + 每帧 `ESC[r;cH`），
-**没有**这个开关 ⇒ 在候选框不跟随光标的终端/输入法组合下少一个可试的开关。
-默认行为与 ref 一致（都是关）。
+输入法候选框跟的是**终端光标的实际位置**。默认情况下 pi-rs 隐藏硬件光标
+（`ESC[?25l`，与 ref `tui.ts:478` 的默认值一致），只把光标定位到编辑框；**部分终端在光标隐藏时
+不更新光标位置**，候选框就会落在错误位置。真机实测（WezTerm，见
+`docs/evidence/w-p8e15-win-fixes.md`）：隐藏时终端报告的坐标停在旧位置（x=129、y 与编辑行无关），
+`showHardwareCursor: true` 时与我们算出的 `hw_row/col` 完全一致。
+
+开启方式（与 ref `core/settings-manager.ts:1369-1370` 同口径，settings 优先、环境变量兜底）：
+
+- `~/.pi/agent/settings.json`（Windows：`%USERPROFILE%\.pigent\settings.json`）里加
+  `"showHardwareCursor": true`；
+- 或启动前设环境变量 `PI_HARDWARE_CURSOR=1`。
+
+默认值保持 `false`（与 ref 一致），不因本项改动。
 
 ### 按速率判定粘贴的启发式（P8e-15 登记）
 

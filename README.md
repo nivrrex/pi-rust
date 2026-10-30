@@ -113,4 +113,9 @@ Windows 上 `bash` 工具要求 PATH 里有 `bash`（Git Bash / MSYS2，与上�
 pi-rs --tools powershell -p "Get-ChildItem"
 ```
 
+**输入法候选框位置**取决于终端光标的实际位置。pi-rs 默认与上游一致地**隐藏**硬件光标
+（只把它定位到编辑框），部分终端在光标隐藏时不更新光标坐标，候选框可能不跟随编辑位置。
+可在 `settings.json` 里设 `"showHardwareCursor": true`（或启动前设 `PI_HARDWARE_CURSOR=1`）
+让终端显示硬件光标，候选框即跟随；默认值不改。
+
 状态：**实验性**，见 `LIMITATIONS.md`。
