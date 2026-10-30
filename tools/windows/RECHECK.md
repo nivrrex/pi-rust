@@ -18,7 +18,7 @@ pi-rs-windows-amd64.exe --version
 
 ---
 
-Windows 侧自编参考构建（非发布件，win-fixes 分支）：`commit 47ae544` / sha256 `6851cbbfafc2c150…` / `built 2026-10-30T14:30:12Z`（含 tab 展开修复，见 `docs/evidence/w-p8e15-tab-paste.md`）；RECHECK 第 1–11 项在这条线上通过。上游发布件值见上表。
+Windows 侧自编参考构建（非发布件，win-fixes 分支）：`commit 49c8e1e` / sha256 `03db64fca925bf31…` / `built 2026-10-30T17:21:11Z`（含记账式标记重组，见 `docs/evidence/w-p8e16-accounting-fix.md`）；RECHECK 第 1–11 项在这条线上通过。上游发布件值见上表。
 
 ## 复跑核心用例（沿用 Windows 侧已有的同一套 conhost/ConPTY 脚本）
 
