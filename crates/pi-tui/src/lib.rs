@@ -19,6 +19,7 @@
 
 // P7-6k/W2：主屏差分渲染的纯函数移植（本批不接线，见模块文档）。
 pub mod diff;
+pub mod gitinfo;
 pub mod style;
 pub mod theme;
 // P7-6q/W3：键盘输入层纯函数（本批不接线）。
@@ -67,6 +68,8 @@ pub struct TuiState {
     pub version: String,
     /// 当前工作目录（状态行左侧）。
     pub cwd: String,
+    /// 家目录（用于 footer 的 `~` 缩写，ref `footer.ts:32-44`）。
+    pub home: Option<String>,
     /// 已加载的项目指令文件路径（`[Context]` 段，按加载顺序）。
     pub context_files: Vec<String>,
     /// 编辑器当前内容（可含 `\n` ⇒ 多行；`Ctrl+J` 插入换行，实测见 P7-5/W1）。
@@ -195,6 +198,7 @@ impl TuiState {
             version: version.into(),
             model_scope: Vec::new(),
             cwd: cwd.into(),
+            home: std::env::var("HOME").ok(),
             context_files: Vec::new(),
             input: String::new(),
             cursor: 0,
@@ -1950,7 +1954,9 @@ fn render_all_cached_styled_inner(
         lines.push(clamp_to_width(&format!("  ({position}/{total})"), cols));
     }
     // 状态区是**两行**（golden 实测）：第一行 cwd；第二行左边 `status`、右边模型名。
-    lines.push(clamp_to_width(&state.cwd, cols));
+    // ref `footer.ts:115-121`：cwd 做家目录缩写，仓库内再追加 ` (<branch>)`
+    let cwd_line = crate::gitinfo::footer_cwd_line(&state.cwd, state.home.as_deref());
+    lines.push(clamp_to_width(&cwd_line, cols));
     // ref `footer.ts:184-190`：推理模型在右侧模型名后追加思考档位
     // （`off` 显示成 `• thinking off`，其余直接 `• <level>`）。
     let status_right_text = if state.available_thinking_levels.len() > 1 {

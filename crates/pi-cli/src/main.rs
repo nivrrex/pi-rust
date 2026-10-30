@@ -132,7 +132,7 @@ fn main() -> ExitCode {
             let mut state = pi_tui::TuiState::new(
                 pi_core::VERSION,
                 cwd.to_string_lossy().to_string(),
-                "0.0%/128k (auto)",
+                "0.0%/0 (auto)",
             );
             // `/login` 的 provider 列表必须在没有可用模型（parts=None）时也可用，
             // 故直接写到 state 上（`run()` 里若 parts 存在会用同一份覆盖，等价）。
@@ -180,7 +180,7 @@ fn main() -> ExitCode {
             state.model = load_settings(&paths)
                 .ok()
                 .and_then(|settings| settings.default_model.clone())
-                .unwrap_or_else(|| "no-model".to_string());
+                .unwrap_or_else(|| "unknown".to_string());
             // W3-2：为 TUI 装配 agent 部件（与 print 路径同一批函数：settings 解析模型 →
             // models.json 校验/resolve → provider → 系统提示 → LoopConfig）。
             let agent_parts = match build_tui_agent_parts(&parsed, &paths, &cwd, &mut state) {
@@ -1086,14 +1086,35 @@ fn print_no_model_error(agent_dir: &std::path::Path) {
 fn push_no_models_notice(state: &mut pi_tui::TuiState, agent_dir: &std::path::Path) {
     // ref `core/auth-guidance.ts:8-20` 的 `formatNoModelsAvailableMessage()` 是**一条**
     // 多行消息（`… See:\n  providers.md\n  models.md`），TS 侧只产生一个块 ⇒ 只跟一个空行。
-    // 先前拆成三条 `Status`，每条都带自己的空行，整屏因此比 TS 多 3 行（Q2 实测）。
-    let docs = agent_dir.join("docs");
+    let docs = docs_dir(agent_dir);
     let text = format!(
         "Warning: No models available. Use /login to log into a provider via OAuth or API key. See:\n  {}\n  {}",
         docs.join("providers.md").display(),
         docs.join("models.md").display()
     );
     state.transcript.push(pi_tui::TranscriptItem::Notice(text));
+}
+
+/// 文档目录（ref `config.ts:445-447`：`getPackageDir()/docs`）。
+///
+/// pi-rs 是**单二进制**，没有安装包目录，所以按下面顺序回落：
+/// 1. `PI_DOCS_DIR`（显式配置）；
+/// 2. 可执行文件旁的 `docs/`（自解压/绿色部署时可用）；
+/// 3. 公开仓库的 docs 目录（本仓库不随二进制分发 docs 页面，见 LIMITATIONS.md）。
+fn docs_dir(agent_dir: &std::path::Path) -> std::path::PathBuf {
+    if let Some(dir) = std::env::var_os("PI_DOCS_DIR") {
+        return std::path::PathBuf::from(dir);
+    }
+    if let Ok(exe) = std::env::current_exe() {
+        if let Some(parent) = exe.parent() {
+            let candidate = parent.join("docs");
+            if candidate.is_dir() {
+                return candidate;
+            }
+        }
+    }
+    let _ = agent_dir;
+    std::path::PathBuf::from("https://github.com/nivrrex/pi-rust/tree/main/docs")
 }
 
 fn build_tui_agent_parts(
@@ -1109,7 +1130,7 @@ fn build_tui_agent_parts(
             // ref 允许 `model === undefined` 进入交互模式（footer 显示 `no-model`），
             // 由用户在里面 `/login` 或 `/model` 补齐；这里**不再直接退出**，也**不打印
             // 额外 stderr**（TS 只把提示写进转录区，见 A-b 对拍）。
-            state.model = "no-model".to_string();
+            state.model = "unknown".to_string();
             // ref `core/auth-guidance.ts:16-20`：`No models available. Use /login …`
             let _ = error;
             push_no_models_notice(state, &paths.agent_dir);
@@ -1152,7 +1173,7 @@ fn build_tui_agent_parts(
             eprintln!("pi-rs: {error}");
             // 没有可用凭据：ref 的交互模式允许 model 为空、由用户 `/login` 补齐，
             // 因此这里**不退出**，进 TUI 并把报错作为状态行显示。
-            state.model = "no-model".to_string();
+            state.model = "unknown".to_string();
             let _ = error;
             push_no_models_notice(state, &paths.agent_dir);
             return Ok(None);

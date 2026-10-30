@@ -106,6 +106,16 @@ P8e-7 回复里我写过"Windows 控制台在 VT 输入模式下不把 `Ctrl+D` 
 （crossterm 对 key-up 也发事件）导致字符翻倍；②启动期 DA1 应答 `[?1;0c` 被当成输入写进编辑框，
 编辑框非空 ⇒ `Ctrl+D` 不触发退出。两者均已修（`9a9ab38`）。
 
+## 无模型时的提示与文档路径（P8e-14 登记）
+
+- 无可用模型时转录区显示 `Warning: No models available. Use /login … See:` 加两行文档路径
+  （ref `core/auth-guidance.ts:16-20`）；**footer** 的上下文用量显示 `0.0%/0 (auto)`、
+  右侧模型名显示 `unknown`，与 TS 实测逐字一致（ref `footer.ts:112-114/170-171`）。
+- 文档路径：ref 用 `getPackageDir()/docs`（`config.ts:445-447`），pi-rs 是**单二进制**、
+  没有安装包目录，按 `PI_DOCS_DIR` → 可执行文件旁 `docs/` → **公开仓库 docs 地址** 依次回落。
+  因此这两行**不会**与 TS 显示同样的本机绝对路径；80 列终端下 TS 的长路径会折行、
+  我们的短地址不折行，整屏行数因此可能差 4 行（纯路径长度所致，非布局差异）。
+
 ## 登录（`/login`、`/logout`，P8e-11 登记）
 
 - **已实现**：`/login [provider]` 的 api_key 型流程——provider 列表（`models.json` 里的
