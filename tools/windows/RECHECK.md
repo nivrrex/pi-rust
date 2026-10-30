@@ -9,8 +9,8 @@ pi-rs-windows-amd64.exe --version
 
 | 期望 | 说明 |
 |---|---|
-| sha256 = `a6f50bd561e01f69…`（完整值见 Release 附件 `SHA256SUMS`） | 与附件清单不一致即不要继续 |
-| 第二行 `built <UTC> commit <sha>` | 应为 `commit 0d09256`（或发布时更新的 commit），且**不含 `-dirty`** |
+| sha256 = `e4db7fe338b64a2b…`（完整值见 Release 附件 `SHA256SUMS`） | 与附件清单不一致即不要继续 |
+| 第二行 `built <UTC> commit <sha>` | 应为 `commit e4ff244`（或发布时更新的 commit），且**不含 `-dirty`** |
 
 差异说明：Windows 侧自编版本用 MSVC/git-bash 工具链、可能带 `-dirty`；发布用版本是在 Linux 上用
 `x86_64-pc-windows-gnu`（rustc 1.99.0 + mingw-w64 GCC 12-win32）**交叉编译**的干净构建。
