@@ -3959,7 +3959,7 @@ enum RespState {
 
 /// [`RespFilter::feed`] 的结果。
 #[cfg(any(windows, test))]
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 enum FilterOut {
     /// 丢弃（应答的一部分，或 ESC 还在等后续字符）。
     Nothing,
@@ -3969,6 +3969,9 @@ enum FilterOut {
     Escape,
     /// 用户的 Esc 键 + 跟随字符。
     EscapeThenChar(char),
+    /// 不是终端应答的 CSI/SS3 序列：**整段原样回放**（不能只吐后半截，
+    /// 否则 `ESC[201~` 会漏成 `1~`——P8e-17 真机症状）。
+    Sequence(String),
 }
 
 /// 应答过滤状态机（纯逻辑，可单测）。
@@ -3977,6 +3980,8 @@ enum FilterOut {
 struct RespFilter {
     state: RespState,
     len: usize,
+    /// Csi/Ss3 已收到的字节（含 `ESC[` 前缀），用于判定"应答"还是"回放"。
+    seq: String,
 }
 
 #[cfg(any(windows, test))]
@@ -3993,17 +3998,41 @@ impl RespFilter {
             RespState::Osc | RespState::OscEsc => RespState::OscEsc,
             RespState::Idle | RespState::AfterEsc | RespState::Csi | RespState::Ss3 => {
                 self.len = 0;
+                self.seq.clear();
                 RespState::AfterEsc
             }
         };
     }
 
     /// 超时（没有后续输入）时，挂起的 Esc 就是用户按的 Esc。
+    ///
+    /// **只能**在 `AfterEsc` 时放行：此前无条件 `state = Idle`，于是一个慢速的
+    /// `ESC[201~`（ConPTY 逐字节、两字节间隔 > 10 ms）会在 tick 里被重置成 Idle，
+    /// 已经吞掉的 `ESC[20` 不会补回，剩下的 `1~` 就当普通字符进编辑器
+    /// —— 这正是真机看不到字符却多出 `1~` 的原因。
     fn take_pending_escape(&mut self) -> bool {
-        let pending = self.state == RespState::AfterEsc;
-        self.state = RespState::Idle;
-        self.len = 0;
-        pending
+        if self.state == RespState::AfterEsc {
+            self.state = RespState::Idle;
+            self.len = 0;
+            true
+        } else {
+            false
+        }
+    }
+
+    /// 这条 CSI/SS3 序列是不是"终端对我们查询的应答"（应吞掉）。
+    ///
+    /// 只认已知形态；其余一律回放，避免把 `ESC[201~` 这类标记的尾巴吃掉。
+    fn is_terminal_reply(sequence: &str) -> bool {
+        let body = sequence
+            .strip_prefix("\u{1b}[")
+            .or_else(|| sequence.strip_prefix("\u{1b}O"));
+        let Some(body) = body else {
+            return false;
+        };
+        // DA1 应答：`?1;0c` 之类；kitty 键盘：`?<flags>u` / `><flags>u`；
+        // 光标位置报告：`<row>;<col>R`；设备属性：`?…c`。
+        body.starts_with('?') || body.starts_with('>') || body.ends_with('R')
     }
 
     /// 喂一个字符，返回该发出的内容。
@@ -4019,6 +4048,8 @@ impl RespFilter {
                 '[' => {
                     self.state = RespState::Csi;
                     self.len = 0;
+                    self.seq.clear();
+                    self.seq.push_str("\u{1b}[");
                     FilterOut::Nothing
                 }
                 ']' => {
@@ -4028,6 +4059,8 @@ impl RespFilter {
                 }
                 'O' => {
                     self.state = RespState::Ss3;
+                    self.seq.clear();
+                    self.seq.push_str("\u{1b}O");
                     FilterOut::Nothing
                 }
                 other => {
@@ -4037,13 +4070,26 @@ impl RespFilter {
             },
             RespState::Csi => {
                 self.len = self.len.saturating_add(1);
-                if ('\x40'..='\x7e').contains(&ch) || self.len > Self::MAX_LEN {
-                    self.state = RespState::Idle;
+                self.seq.push(ch);
+                let terminated = ('\x40'..='\x7e').contains(&ch) || self.len > Self::MAX_LEN;
+                if !terminated {
+                    return FilterOut::Nothing;
                 }
-                FilterOut::Nothing
+                self.state = RespState::Idle;
+                let sequence = std::mem::take(&mut self.seq);
+                if Self::is_terminal_reply(&sequence) {
+                    // 确实是终端应答（DA1 / kitty / 光标报告等）：整段吞掉
+                    FilterOut::Nothing
+                } else {
+                    // 不是应答：**整段原样回放**，绝不只吐尾巴
+                    FilterOut::Sequence(sequence)
+                }
             }
             RespState::Ss3 => {
+                // SS3（`ESC O P` = F1、`ESC O A` = 上行…）永远是**按键**，不是正文；
+                // 这里只负责不让它们变成文本。按键事件由 `map_windows_key` 处理。
                 self.state = RespState::Idle;
+                self.seq.clear();
                 FilterOut::Nothing
             }
             RespState::Osc => {
@@ -4339,6 +4385,15 @@ impl WindowsInput {
                     emitted.push(pi_tui::TuiEvent::Escape);
                     if let Some(previous) = self.burst.on_char(ch, now_ms) {
                         emitted.extend(previous);
+                    }
+                }
+                FilterOut::Sequence(sequence) => {
+                    // 非应答的 CSI/SS3（例如漏过括号重组的 `ESC[201~`）：整段
+                    // 按普通输入回放，避免只吐尾巴（真机 `1~`）。
+                    for ch in sequence.chars() {
+                        if let Some(previous) = self.burst.on_char(ch, now_ms) {
+                            emitted.extend(previous);
+                        }
                     }
                 }
             },
@@ -5151,6 +5206,9 @@ mod windows_input_tests {
                     out.push(TuiEvent::Escape);
                     out.push(TuiEvent::Char(ch));
                 }
+                FilterOut::Sequence(seq) => {
+                    out.extend(seq.chars().map(TuiEvent::Char));
+                }
             }
         }
         out
@@ -5796,5 +5854,68 @@ mod marker_split_tests {
             })
             .collect();
         assert_eq!(text, "ABC", "尾部分片不应落成正文：{text:?}");
+    }
+}
+
+#[cfg(test)]
+mod resp_filter_tests {
+    use super::*;
+
+    /// P8e-17 真机缺陷：`ESC[201~` 逐字节到达、且在 CSI 中途被 tick 打断时，
+    /// 旧实现把状态重置成 Idle ⇒ `ESC[20` 已被吞掉、`1~` 漏进编辑器。
+    #[test]
+    fn slow_csi_never_leaks_tail_after_tick() {
+        let mut filter = RespFilter::default();
+        filter.on_escape();
+        assert_eq!(filter.feed('['), FilterOut::Nothing);
+        assert!(!filter.take_pending_escape(), "Csi 不应被当成孤立 Esc 放行");
+        let mut out = String::new();
+        for ch in "201~".chars() {
+            assert!(!filter.take_pending_escape());
+            match filter.feed(ch) {
+                FilterOut::Nothing => {}
+                FilterOut::Sequence(seq) => out.push_str(&seq),
+                FilterOut::Char(ch) => out.push(ch),
+                FilterOut::Escape | FilterOut::EscapeThenChar(_) => {}
+            }
+        }
+        // 合法结果只有两种：整段吞掉（空），或**整段**回放；不允许只吐尾巴。
+        assert!(
+            out.is_empty() || out == "\u{1b}[201~",
+            "只允许整体吞掉或整体回放，实际：{out:?}"
+        );
+    }
+
+    /// 真正的终端应答仍要吞掉（DA1 / kitty / 光标报告）。
+    #[test]
+    fn terminal_replies_are_swallowed() {
+        for reply in ["\u{1b}[?1;0c", "\u{1b}[?1u", "\u{1b}[>7u", "\u{1b}[12;40R"] {
+            let mut filter = RespFilter::default();
+            filter.on_escape();
+            for (index, ch) in reply.chars().enumerate() {
+                let out = filter.feed(ch);
+                if index > 0 {
+                    assert_eq!(out, FilterOut::Nothing, "{reply:?} 应整体吞掉");
+                }
+            }
+        }
+    }
+
+    /// 非应答序列整段回放（不丢字节）。
+    #[test]
+    fn unknown_csi_is_replayed_whole() {
+        let mut filter = RespFilter::default();
+        filter.on_escape();
+        assert_eq!(filter.feed('['), FilterOut::Nothing);
+        let mut out = String::new();
+        for ch in "201~".chars() {
+            match filter.feed(ch) {
+                FilterOut::Nothing => {}
+                FilterOut::Sequence(seq) => out.push_str(&seq),
+                FilterOut::Char(ch) => out.push(ch),
+                FilterOut::Escape | FilterOut::EscapeThenChar(_) => {}
+            }
+        }
+        assert_eq!(out, "\u{1b}[201~", "非应答序列应整段回放");
     }
 }
