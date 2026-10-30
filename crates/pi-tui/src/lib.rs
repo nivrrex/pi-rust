@@ -941,7 +941,14 @@ pub fn apply(state: &mut TuiState, event: TuiEvent) -> TuiAction {
             // 再按"超过 10 行 / 超过 1000 字符"折叠成 `[paste #N +L lines]` / `[paste #N C chars]`。
             // 先做 CRLF/CR → LF 归一（保留本实现原有的括号粘贴行为），
             // 再按 ref `editor.ts:1280-1284` 滤掉其余控制字符（保留 `\n`）。
-            let normalized = text.replace("\r\n", "\n").replace('\r', "\n");
+            // 归一顺序照 ref `editor.ts:1146` 的 `normalizeText`：
+            //   `\r\n`/`\r` → `\n`，**再把 tab 展开成 4 个空格**。
+            // 少了 tab 步，下一步“滤掉 <32 的控制字符”会把 tab 整块删掉 ⇒ 粘贴后缩进丢失、
+            // 光标列比终端实际列少 4（真机：光标停在可见末尾前 4 格，且落在行了内样式边界上）。
+            let normalized = text
+                .replace("\r\n", "\n")
+                .replace('\r', "\n")
+                .replace('\t', "    ");
             let filtered: String = normalized
                 .chars()
                 .filter(|ch| *ch == '\n' || (*ch as u32) >= 32)
@@ -4647,12 +4654,13 @@ mod p78c_paste_tests {
         assert_eq!(s.input, "[paste #1 +13 lines][paste #2 +13 lines]");
     }
 
-    /// 控制字符被过滤（保留 `\n`），照 ref `editor.ts:1280-1284`。
+    /// 控制字符被过滤（保留 `\n`），照 ref `editor.ts:1280-1284`；
+    /// 但 **tab 不算**——ref `editor.ts:1146` 先把它展开成 4 个空格，再做这层过滤。
     #[test]
     fn control_chars_are_filtered() {
         let mut s = state();
         paste(&mut s, "a\u{1}b\tc");
-        assert_eq!(s.input, "abc");
+        assert_eq!(s.input, "ab    c");
     }
 }
 
@@ -4858,5 +4866,56 @@ mod w2_marker_line_tests {
         let (row_line2b, col_line2b) = marker_row_col(&state);
         assert_eq!(row_line2b, row_line2);
         assert_eq!(col_line2b, 3);
+    }
+}
+
+#[cfg(test)]
+mod tab_paste_tests {
+    use super::{apply, diff, render_all_marker, TuiEvent, TuiState};
+
+    fn state() -> TuiState {
+        TuiState::new("0.87.1", "/tmp/w", "0.0%/128k (auto)")
+    }
+
+    /// ref `editor.ts:1146`：粘贴时 tab 展开成 4 个空格（先归一换行、再展开 tab、
+    /// 最后才滤掉 <32 的控制字符）。此前少了 tab 步，tab 会在过滤阶段被整块删掉。
+    #[test]
+    fn pasted_tab_expands_to_four_spaces() {
+        let mut s = state();
+        let _ = apply(&mut s, TuiEvent::Paste("AAA\n\tXYZ".to_string()));
+        assert_eq!(s.input, "AAA\n    XYZ");
+        assert_eq!(s.cursor, s.input.chars().count(), "光标应在末尾");
+    }
+
+    /// 含 tab 的粘贴后，编辑器光标标记应落在"展开后"的行尾（第二行第 7 列）。
+    #[test]
+    fn marker_after_tab_paste_sits_at_expanded_end() {
+        let mut s = state();
+        let _ = apply(&mut s, TuiEvent::Paste("AAA\n\tXYZ".to_string()));
+        let lines = render_all_marker(&s, 60, 30);
+        let (row, col) = lines
+            .iter()
+            .enumerate()
+            .find_map(|(row, line)| {
+                line.find(diff::CURSOR_MARKER).map(|index| {
+                    let before = &line[..index];
+                    let visible: String = before
+                        .chars()
+                        .filter(|ch| (*ch as u32) >= 32 && *ch != '\x1b')
+                        .collect();
+                    (row, super::display_width(&visible))
+                })
+            })
+            .expect("有光标标记");
+        assert_eq!(col, 7, "第二行 = 4 空格 + XYZ 之后（第 {row} 行）");
+    }
+
+    /// 多行 + tab 混合：每行的 tab 都展开，行数不变。
+    #[test]
+    fn multi_line_paste_with_tabs_keeps_structure() {
+        let mut s = state();
+        let _ = apply(&mut s, TuiEvent::Paste("\tA\n\t\tB\r\nC".to_string()));
+        assert_eq!(s.input, "    A\n        B\nC");
+        assert_eq!(s.input.split('\n').count(), 3);
     }
 }
