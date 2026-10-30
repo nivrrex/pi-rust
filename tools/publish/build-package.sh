@@ -26,6 +26,9 @@ git -C "$ROOT" clone --quiet --no-hardlinks "$ROOT" "$OUT/repo"
 git -C "$OUT/repo" fetch --quiet "$OUT/pi-rs.git.bundle" "$COMMIT:refs/heads/publish"
 git -C "$OUT/repo" checkout --quiet refs/heads/publish
 
+# MANIFEST：把包与构建产物绑死（G''d）。构建 HEAD、发布提交、tree 与产物哈希都记下来。
+"$ROOT"/tools/publish/write-manifest.sh "$OUT" "$COMMIT" "$ARTIFACTS"
+
 cp "$ROOT/tools/publish/publish.sh" "$OUT/publish.sh"
 chmod +x "$OUT/publish.sh"
 

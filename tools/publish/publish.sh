@@ -28,6 +28,19 @@ step "0/6 前置检查"
 [ -f "$HERE/pi-rs.git.bundle" ] || die "缺少发布提交的 bundle：$HERE/pi-rs.git.bundle"
 for f in $ASSETS; do [ -f "$HERE/$f" ] || die "缺少产物：$f"; done
 ( cd "$HERE" && sha256sum -c SHA256SUMS >/dev/null ) || die "SHA256SUMS 与本地产物不一致"
+[ -f "$HERE/MANIFEST" ] || die "缺少 MANIFEST（包与产物未绑定）"
+# 包与提交绑定：MANIFEST 记的 tree 必须等于包里 bundle 的发布提交 tree
+manifest_tree=$(awk '/^publishTree:/{print $2}' "$HERE/MANIFEST")
+bundle_tree=$(git -C "$HERE/repo" rev-parse "refs/heads/publish^{tree}" 2>/dev/null || true)
+[ -n "$manifest_tree" ] || die "MANIFEST 缺少 publishTree"
+[ "$manifest_tree" = "$bundle_tree" ] || die "包与 git bundle 不匹配（MANIFEST tree=$manifest_tree bundle tree=$bundle_tree）——请重建包"
+# 产物哈希必须与 MANIFEST 一致（防止换了产物没更新 MANIFEST）
+while read -r want name; do
+  got=$(sha256sum "$HERE/$name" | awk '{print $1}')
+  [ "$want" = "$got" ] || die "MANIFEST 与产物不一致：$name"
+done <<EOF2
+$(awk '/^artifacts:/{f=1;next} f&&NF{print $2, $3}' "$HERE/MANIFEST")
+EOF2
 printf '✓ 备份 bundle、SHA256SUMS、四份产物、git bundle 齐备\n'
 
 # curl 的凭据配置走 stdin（`-K -`），避免出现在 argv / 历史里
@@ -43,18 +56,32 @@ gh() {
   fi
 }
 
+# 远端默认分支（G''a）：优先 GET /repos/<owner>/<repo>，失败再 `git ls-remote --symref`。
+default_branch() {
+  tmp=$(mktemp)
+  if gh GET "$API" "$tmp" 2>/dev/null && python3 -c 'import json,sys;print(json.load(open(sys.argv[1]))["default_branch"])' "$tmp" >"$tmp.branch" 2>/dev/null; then
+    cat "$tmp.branch"; rm -f "$tmp" "$tmp.branch"; return 0
+  fi
+  rm -f "$tmp"
+  git ls-remote --symref "https://github.com/$REPO" HEAD 2>/dev/null \
+    | awk '/^ref:/{sub("refs/heads/","",$2); print $2; exit}'
+}
+
 gh_up() { # upload <upload_url> <file>
   printf 'header = "Authorization: token %s"\n' "$GITHUB_TOKEN" \
     | curl -sS -K - -X POST -H 'Content-Type: application/octet-stream' \
            --data-binary "@$2" "$1" -o /dev/null
 }
 
-step "1/6 强推 main（发布用单提交）"
+step "1/6 强推默认分支（发布用单提交）"
 if [ "$DRY_RUN" = 1 ]; then
   printf '（DRY_RUN：跳过 git push main）\n'
 else
+  BRANCH=$(default_branch)
+  [ -n "$BRANCH" ] || die "读不到远端默认分支（API 与 ls-remote 都失败）"
+  printf '  远端默认分支：%s\n' "$BRANCH"
   git -C "$HERE/repo" push --force "https://github.com/$REPO" \
-    refs/heads/publish:refs/heads/master \
+    "refs/heads/publish:refs/heads/$BRANCH" \
     || die "强推失败。回滚：git clone $BACKUP_BUNDLE 后按其中的 refs/heads/master 恢复"
   printf '✓ main 已更新\n'
 fi
