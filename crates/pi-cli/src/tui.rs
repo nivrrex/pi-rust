@@ -4147,6 +4147,8 @@ struct PasteBurst {
     /// 挂起的回车（回看中，尚未决定是“粘贴换行”还是“提交”）。
     enter_pending: bool,
     last_ms: u64,
+    /// 最近一次把回车并进正文的时刻（用于合并 CRLF 拆出的两个回车事件）。
+    last_newline_at: Option<u64>,
 }
 
 #[cfg(any(windows, test))]
@@ -4157,6 +4159,9 @@ impl PasteBurst {
     const WINDOW_MS: u64 = 30;
     /// 回车之后的回看窗口：这段时间内还有字符 ⇒ 该回车是粘贴里的换行。
     const LOOKAHEAD_MS: u64 = 60;
+    /// CRLF 合并窗：`CR` 与 `LF` 两个回车事件通常相隔 1-3 ms（真机日志实测 2 ms），
+    /// 人工连按两次回车 ≳ 50 ms，因此 15 ms 足够区分。
+    const CRLF_MS: u64 = 15;
     /// 缓冲上限（防御无换行的超大粘贴）。
     const MAX_CHARS: usize = 4096;
     /// ref `editor.ts:1296-1312` 的折叠阈值之一（>1000 字符）。
@@ -4171,6 +4176,7 @@ impl PasteBurst {
 
     /// 收入一个字符；返回“上一段需要先发出的事件”（间隔超过窗口 ⇒ 两段不是同一次粘贴）。
     fn on_char(&mut self, ch: char, now_ms: u64) -> Option<Vec<TuiEvent>> {
+        self.last_newline_at = None;
         if self.enter_pending {
             // 回车后紧跟字符 ⇒ 该回车是粘贴里的换行。
             self.chars.push('\n');
@@ -4207,16 +4213,28 @@ impl PasteBurst {
     /// 紧跟刚到的字符（≤ `WINDOW_MS`）⇒ 这是粘贴里的换行，直接并进缓冲；
     /// 否则挂起，交给 [`Self::tick`] 的回看窗口裁决（粘贴分块送达时空隙可能大于窗口）。
     fn on_enter(&mut self, now_ms: u64) {
+        // P8e-17b：剪贴板里的换行是 **CRLF**，而括号粘贴关掉后终端会分别送出
+        // `CR`（普通 Enter）与 `LF`（ConPTY 编码成 Ctrl+Enter）⇒ 一行变两个换行，
+        // 真机表现就是"每行中间多一个空行"。两个回车在极短间隔内成对到达时合并成一个。
+        if let Some(at) = self.last_newline_at {
+            if now_ms.saturating_sub(at) <= Self::CRLF_MS {
+                self.last_newline_at = Some(now_ms);
+                self.last_ms = now_ms;
+                return;
+            }
+        }
         let immediate =
             !self.chars.is_empty() && now_ms.saturating_sub(self.last_ms) <= Self::WINDOW_MS;
         self.last_ms = now_ms;
         if immediate {
             self.chars.push('\n');
             self.enter_pending = false;
+            self.last_newline_at = Some(now_ms);
             return;
         }
         if self.enter_pending {
             self.chars.push('\n');
+            self.last_newline_at = Some(now_ms);
         }
         self.enter_pending = true;
     }
@@ -5933,5 +5951,61 @@ mod resp_filter_tests {
             }
         }
         assert_eq!(out, "\u{1b}[201~", "非应答序列应整段回放");
+    }
+}
+
+#[cfg(test)]
+mod crlf_paste_tests {
+    use super::*;
+
+    /// P8e-17b：关掉括号粘贴后，剪贴板的 CRLF 会变成"普通 Enter + Ctrl+Enter"两个
+    /// 事件（真机日志 3418ms/3420ms），必须合并成一个换行，否则每行中间多空行。
+    #[test]
+    fn crlf_pair_becomes_single_newline() {
+        let mut burst = PasteBurst::default();
+        burst.on_char('a', 0);
+        burst.on_enter(2);
+        burst.on_enter(4); // CRLF 的后半
+        burst.on_char('b', 6);
+        let events = burst.take_all();
+        let text: String = events
+            .iter()
+            .map(|event| match event {
+                pi_tui::TuiEvent::Paste(body) => body.clone(),
+                pi_tui::TuiEvent::Char(ch) => ch.to_string(),
+                other => format!("{other:?}"),
+            })
+            .collect();
+        assert!(!text.contains("\n\n"), "不得出现双换行：{text:?}");
+        assert!(text.contains("a\nb"), "应保留单个换行：{text:?}");
+    }
+
+    /// 人工连按两次回车（间隔 ≳ 50 ms）不能被合并：第一下进正文，第二下仍是提交。
+    #[test]
+    fn slow_double_enter_is_not_merged() {
+        let mut burst = PasteBurst::default();
+        burst.on_char('x', 0);
+        burst.on_enter(2);
+        // 第一下在回看窗结束后落成换行
+        let first = burst
+            .tick(2 + PasteBurst::LOOKAHEAD_MS + 1)
+            .unwrap_or_default();
+        assert!(
+            !first
+                .iter()
+                .any(|event| matches!(event, pi_tui::TuiEvent::Enter)),
+            "第一下应当是换行而不是提交：{first:?}"
+        );
+        // 第二下（间隔远超 CRLF 窗）必须还是提交
+        burst.on_enter(200);
+        let second = burst
+            .tick(200 + PasteBurst::LOOKAHEAD_MS + 1)
+            .unwrap_or_default();
+        assert!(
+            second
+                .iter()
+                .any(|event| matches!(event, pi_tui::TuiEvent::Enter)),
+            "第二下应当是提交：{second:?}"
+        );
     }
 }
