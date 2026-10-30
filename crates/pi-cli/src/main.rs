@@ -1084,23 +1084,16 @@ fn print_no_model_error(agent_dir: &std::path::Path) {
 /// 无可用模型时的启动提示，逐字对齐 ref `core/auth-guidance.ts:16-20` 的
 /// `formatNoModelsAvailableMessage()`（TS 侧前缀 `Warning: ` 由调用方加）。
 fn push_no_models_notice(state: &mut pi_tui::TuiState, agent_dir: &std::path::Path) {
+    // ref `core/auth-guidance.ts:8-20` 的 `formatNoModelsAvailableMessage()` 是**一条**
+    // 多行消息（`… See:\n  providers.md\n  models.md`），TS 侧只产生一个块 ⇒ 只跟一个空行。
+    // 先前拆成三条 `Status`，每条都带自己的空行，整屏因此比 TS 多 3 行（Q2 实测）。
     let docs = agent_dir.join("docs");
-    state.transcript.push(pi_tui::TranscriptItem::Status(
-        "Warning: No models available. Use /login to log into a provider via OAuth or API key. See:"
-            .to_string(),
-    ));
-    state
-        .transcript
-        .push(pi_tui::TranscriptItem::Status(format!(
-            "  {}",
-            docs.join("providers.md").display()
-        )));
-    state
-        .transcript
-        .push(pi_tui::TranscriptItem::Status(format!(
-            "  {}",
-            docs.join("models.md").display()
-        )));
+    let text = format!(
+        "Warning: No models available. Use /login to log into a provider via OAuth or API key. See:\n  {}\n  {}",
+        docs.join("providers.md").display(),
+        docs.join("models.md").display()
+    );
+    state.transcript.push(pi_tui::TranscriptItem::Notice(text));
 }
 
 fn build_tui_agent_parts(
