@@ -3897,6 +3897,23 @@ fn thinking_border_color(level: &str, palette: &theme::Palette) -> (u8, u8, u8) 
         .unwrap_or(palette.border_muted)
 }
 
+/// 收敛到字符边界（向下 / 向上），供按字节计的 span 偏移使用（P8e-16）。
+fn floor_char_boundary(text: &str, index: usize) -> usize {
+    let mut index = index.min(text.len());
+    while index > 0 && !text.is_char_boundary(index) {
+        index -= 1;
+    }
+    index
+}
+
+fn ceil_char_boundary(text: &str, index: usize) -> usize {
+    let mut index = index.min(text.len());
+    while index < text.len() && !text.is_char_boundary(index) {
+        index += 1;
+    }
+    index
+}
+
 fn header_spans(lines: &[String], palette: &theme::Palette) -> Vec<Vec<style::Span>> {
     use style::LineStyle;
     const KEY_TOKENS: [&str; 5] = ["escape", "ctrl+c/ctrl+d", "/", "!", "ctrl+o"];
@@ -3977,9 +3994,13 @@ fn header_spans(lines: &[String], palette: &theme::Palette) -> Vec<Vec<style::Sp
             while index < line.len() {
                 let is_key = keyed[index];
                 let mut end = index;
+                // P8e-16：按**字符边界**前进。此前按字节 +1 步进，遇到多字节字符
+                // （`·`/`…`/中文）会把段尾切在字符中间，`write_spans` 切片即 panic。
                 while end < line.len() && keyed[end] == is_key {
                     end += 1;
                 }
+                end = ceil_char_boundary(line, end);
+                index = floor_char_boundary(line, index);
                 let style = if is_key {
                     LineStyle::fg(palette.dim)
                 } else {

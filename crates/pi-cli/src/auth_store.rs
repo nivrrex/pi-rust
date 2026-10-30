@@ -60,8 +60,14 @@ fn write_atomic(
         .duration_since(std::time::UNIX_EPOCH)
         .map(|value| value.subsec_nanos())
         .unwrap_or(0);
-    let tmp: PathBuf =
-        path.with_file_name(format!(".auth.json.tmp-{}-{stamp}", std::process::id()));
+    // 进程内并发写可能拿到同一个纳秒戳（P8e-16 复现：`File exists (os error 17)`），
+    // 再叠一个进程内自增序号，保证临时文件名在进程内唯一。
+    static COUNTER: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+    let seq = COUNTER.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    let tmp: PathBuf = path.with_file_name(format!(
+        ".auth.json.tmp-{}-{stamp}-{seq}",
+        std::process::id()
+    ));
     let mut options = std::fs::OpenOptions::new();
     options.write(true).create_new(true);
     #[cfg(unix)]

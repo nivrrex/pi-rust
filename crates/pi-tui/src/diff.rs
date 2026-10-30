@@ -207,6 +207,25 @@ fn split_trailing_controls(line: &str) -> (&str, &str) {
 }
 
 /// 按 span 写一行：逐段 SGR + 文本，段间复位；最后按需补背景空格到整宽。
+/// 把字节下标收敛到**字符边界**（向下取整）：span 的偏移由调用方计算，
+/// 只要能落进多字节字符中间（例如按字节步进的 run-length 切段），这里兜底。
+fn floor_char_boundary(text: &str, index: usize) -> usize {
+    let mut index = index.min(text.len());
+    while index > 0 && !text.is_char_boundary(index) {
+        index -= 1;
+    }
+    index
+}
+
+/// 向上取整到字符边界（不越过文本末尾）。
+fn ceil_char_boundary(text: &str, index: usize) -> usize {
+    let mut index = index.min(text.len());
+    while index < text.len() && !text.is_char_boundary(index) {
+        index += 1;
+    }
+    index
+}
+
 fn write_spans(out: &mut String, line: &str, spans: &[crate::style::Span], width: usize) {
     let mut cursor = 0_usize;
     let mut last_background = None;
@@ -215,13 +234,17 @@ fn write_spans(out: &mut String, line: &str, spans: &[crate::style::Span], width
             continue;
         }
         if span.start > cursor {
-            out.push_str(&line[cursor..span.start]);
+            // P8e-16 修复：span 的字节偏移可能落在多字节字符中间
+            // （真机崩溃：`end byte index 79 is not a char boundary; inside '…'`），
+            // 切片前统一收敛到字符边界。
+            let gap_end = ceil_char_boundary(line, span.start);
+            out.push_str(&line[cursor..gap_end]);
         }
-        let start = span.start.max(cursor);
+        let start = floor_char_boundary(line, span.start.max(cursor));
         if start >= line.len() {
             break;
         }
-        let end = span.end.min(line.len());
+        let end = ceil_char_boundary(line, span.end.min(line.len()));
         out.push_str(&span.style.prefix());
         out.push_str(&line[start..end]);
         out.push_str(span.style.reset());
@@ -1372,5 +1395,47 @@ mod exit_tests {
                 .collect::<Vec<_>>()
                 .join("\n")
         );
+    }
+}
+
+#[cfg(test)]
+mod char_boundary_tests {
+    use super::*;
+    use crate::style::{LineStyle, Span};
+
+    /// P8e-16 崩溃复现：span 的字节偏移落在多字节字符中间时不得 panic。
+    /// 真机报错：`end byte index 79 is not a char boundary; it is inside '…'`。
+    #[test]
+    fn span_offsets_inside_multibyte_char_do_not_panic() {
+        // '…' 是 3 字节（E2 80 A6），让 span 的起点/终点都落在它内部
+        let line = "abc…def";
+        let ellipsis_start = 3; // '…' 起始字节
+        let spans = vec![
+            Span::new(0, ellipsis_start + 1, LineStyle::default()), // 终点在 '…' 内
+            Span::new(ellipsis_start + 2, line.len(), LineStyle::default()), // 起点在 '…' 内
+        ];
+        let mut out = String::new();
+        write_spans(&mut out, line, &spans, 0);
+        // 关键断言：不 panic，且文本内容不丢
+        let plain = strip_sgr(&out);
+        assert!(plain.contains("abc"), "{plain:?}");
+        assert!(plain.contains("def"), "{plain:?}");
+    }
+
+    fn strip_sgr(text: &str) -> String {
+        let mut out = String::new();
+        let mut chars = text.chars();
+        while let Some(ch) = chars.next() {
+            if ch == '\u{1b}' {
+                for next in chars.by_ref() {
+                    if next == 'm' {
+                        break;
+                    }
+                }
+                continue;
+            }
+            out.push(ch);
+        }
+        out
     }
 }
