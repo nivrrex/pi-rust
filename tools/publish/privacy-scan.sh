@@ -25,7 +25,7 @@ allowed() {
 scan() {
   label=$1; pattern=$2
   # 扫描脚本自身必然含模式串 ⇒ 排除它自己
-  raw=$(git ls-files -z | grep -zv '^tools/publish/privacy-scan.sh$' | xargs -0 grep -lE "$pattern" 2>/dev/null || true)
+  raw=$(git ls-files -z | grep -zv -e '^tools/publish/privacy-scan.sh$' -e '^tools/publish/privacy-allowlist.txt$' | xargs -0 grep -lE "$pattern" 2>/dev/null || true)
   files=""
   for hit in $raw; do
     if allowed "$hit"; then printf '  （豁免）%s\n' "$hit"; else files="$files $hit"; fi
