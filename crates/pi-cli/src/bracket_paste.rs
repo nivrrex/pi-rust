@@ -1,23 +1,21 @@
 //! 括号粘贴标记的**重组器**（Windows / ConPTY 专用修复）。
 //!
-//! 真机取证（WezTerm + Rime，2026-10-29，`PI_TUI_EVENT_DUMP` 日志）：
-//! 启动时我们发了 `ESC[?2004h`，但 ConPTY 把终端回送的标记**拆成了普通按键**：
+//! ConPTY 会把终端回送的 `ESC[200~` / `ESC[201~` 拆成普通按键，甚至拆成多段、段间
+//! 隔一次正文冲刷。这里按字节语义在按键层重组：`ESC [ 2 0 0 ~` 开始收集，
+//! `ESC [ 2 0 1 ~` 结束；只有结尾残留时整体吞掉。
 //!
-//! ```text
-//! 27564ms  Key(Esc, Press)
-//! 27566ms  Char('[')  27568ms Char('2')  27569ms Char('0')
-//! 27571ms  Char('1')  27573ms Char('~')
-//! ```
+//! **记账式重组（2026-10-31）**：旧实现"超时就丢前缀"，于是 `ESC[20` 被丢、`1~`
+//! 落进正文（真机截图里的 `1~`）；多段拆分时还会整段 `200~` 漏出来。现在改成
+//! **不按时间丢任何字节**：
 //!
-//! 于是 crossterm 永远不会给出 `Event::Paste`，正文被拆成一串按键，残留的
-//! `[201~` 变成垃圾输入，开头的裸 `Esc` 还会打乱编辑器状态。
-//!
-//! 这里按字节语义在按键层把它们重组：`Esc [ 2 0 0 ~` 开始收集，
-//! `Esc [ 2 0 1 ~` 结束；孤立的 `[201~`（只有结尾残留）整体吞掉。
+//! - 已匹配的前缀一直记着（`pending`），直到"下一个字符补不齐"或"遇到非字符键"；
+//! - 补得齐 ⇒ 吞掉并继续；补满 ⇒ 按标记处理；
+//! - 补不齐 ⇒ 把前缀（必要时带上暂扣的 `Esc`）**原样按正文交回**，不静默丢字；
+//! - 时间只做两件事：`ESC_HOLD_MS` 后把孤立 `Esc` 放给编辑器；`PENDING_IDLE_MS`
+//!   之后把长期没人理的残片按正文吐回。
 //!
 //! 纯状态机，不碰 I/O，可单测。
 
-/// 本模块关心的输入形态。
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum BracketInput {
     /// 一个 `Esc` 键（Press）。
@@ -33,6 +31,8 @@ pub enum BracketInput {
 pub enum BracketOut {
     /// 与粘贴标记无关：按原逻辑处理（`Esc` 可能已被暂扣）。
     Pass(BracketInput),
+    /// 先把这段正文交给编辑器（标记残片按正文吐回），再处理这个按键。
+    TextThen(String, BracketInput),
     /// 属于标记，已吞掉。
     Consumed,
     /// 收集到一段完整的括号粘贴内容。
@@ -41,32 +41,27 @@ pub enum BracketOut {
     EscReleased,
 }
 
-/// 标记匹配窗口：`Esc` 之后多少毫秒内到达的字符仍算同一标记。
-const MARKER_WINDOW_MS: u64 = 120;
-
-/// 单独按下的 `Esc` 什么时候真的交给上层。
+/// 暂扣的 `Esc` 多久后真的交给编辑器（宁可早放，也不让 Esc 失灵）。
 pub const ESC_HOLD_MS: u64 = 40;
+
+/// 残片最长记忆时间：超过它就把残片按正文吐回（正常情况下不会有这么长的静默）。
+pub const PENDING_IDLE_MS: u64 = 5_000;
 
 const START_TAIL: &str = "[200~";
 const END_TAIL: &str = "[201~";
-/// 已匹配的标记前缀，多久没有新字符才放弃（毫秒）。
-///
-/// 必须远大于 `MARKER_WINDOW_MS`：真机上 `ESC[20` 与 `1~` 之间常隔一次正文冲刷
-/// （> 120 ms），按 Esc 时刻算窗口会把前缀丢掉、把尾巴 `1~` 漏进正文。
-const SEQ_IDLE_MS: u64 = 500;
 
 #[derive(Debug, Default)]
 pub struct BracketPaste {
-    /// 已暂扣、尚未决定归属的 `Esc`（时间戳）。
+    /// 正在匹配的标记前缀：`(已匹配的字符, Esc 是否已经放给编辑器)`。
+    ///
+    /// `matched` 不含 `Esc` 本身（`""` / `"["` / `"[2"` / `"[20"` / `"[200"` …）。
+    /// **不按时间丢弃**：只要下一个字符还能把它补成标记，就一直吞；补不齐才吐回正文。
+    pending: Option<(String, bool)>,
+    /// 暂扣的 `Esc` 时刻（到 `ESC_HOLD_MS` 放行；放行后 `pending` 仍然有效）。
     held_esc_at: Option<u64>,
-    /// 刚把 `Esc` 放给编辑器的时刻：其后 `MARKER_WINDOW_MS` 内若出现 `[`，
-    /// 仍可能是"迟到的标记起点"。
-    released_esc_at: Option<u64>,
-    /// `Esc` 之后已匹配的字符（"[" + "20x~" 的前缀）。
-    seq: String,
-    /// `seq` 最后一次变化的时刻：窗口按"最后一次匹配"算，而不是按 `Esc` 的时刻算。
-    seq_at: u64,
-    /// 收集中：正文 + 结束标记已匹配长度 + 是否刚见到 `Esc`。
+    /// 最后一次活动（`Esc` 或补前缀）的时刻，用于 `PENDING_IDLE_MS`。
+    last_at: u64,
+    /// 收集中：正文 + 结束标记已匹配长度 + 结束标记是否刚见到 `Esc`。
     collecting: Option<(String, usize, bool)>,
 }
 
@@ -119,61 +114,81 @@ impl BracketPaste {
                     return BracketOut::Consumed;
                 }
                 BracketInput::Other => {
-                    // 收集中遇到其它按键：放弃这次收集（不把按键吞进正文）
+                    // 收集中遇到其它按键：正文已收，按 Paste 交回，再处理该按键
+                    let body = std::mem::take(text);
                     self.collecting = None;
-                    return BracketOut::Pass(input);
+                    if body.is_empty() {
+                        return BracketOut::Pass(input);
+                    }
+                    return BracketOut::TextThen(body, input);
                 }
             }
         }
 
-        // ── 标记匹配中 ────────────────────────────────────────────
-        // 窗口按**最后一次匹配**算（`seq_at`）：正文冲刷造成的大间隔不会把已匹配的
-        // 前缀丢掉、把剩下的 `1~` 漏成正文。
-        if !self.seq.is_empty() {
-            if now_ms.saturating_sub(self.seq_at) > SEQ_IDLE_MS {
-                let prefix = std::mem::take(&mut self.seq);
-                self.held_esc_at = None;
-                self.released_esc_at = None;
-                // 明显不是标记：按正文吐回，不静默丢字
-                return BracketOut::Paste(prefix);
-            }
+        // ── 标记匹配中：记账式，不按时间丢字节 ────────────────────
+        if let Some((matched, esc_emitted)) = self.pending.clone() {
+            self.last_at = now_ms;
             match input {
                 BracketInput::Char(ch) => {
-                    self.seq.push(ch);
-                    self.seq_at = now_ms;
-                    if self.seq == START_TAIL || self.seq == END_TAIL {
-                        let start = self.seq == START_TAIL;
-                        self.seq.clear();
+                    let candidate = format!("{matched}{ch}");
+                    if candidate == START_TAIL {
+                        self.pending = None;
                         self.held_esc_at = None;
-                        self.released_esc_at = None;
-                        if start {
-                            self.collecting = Some((String::new(), 0, false));
-                        }
+                        self.collecting = Some((String::new(), 0, false));
                         return BracketOut::Consumed;
                     }
-                    if START_TAIL.starts_with(self.seq.as_str())
-                        || END_TAIL.starts_with(self.seq.as_str())
+                    if candidate == END_TAIL {
+                        // 只有结尾残留：整体吞掉
+                        self.pending = None;
+                        self.held_esc_at = None;
+                        return BracketOut::Consumed;
+                    }
+                    if START_TAIL.starts_with(candidate.as_str())
+                        || END_TAIL.starts_with(candidate.as_str())
                     {
+                        self.pending = Some((candidate, esc_emitted));
                         return BracketOut::Consumed;
                     }
-                    // 不是标记：把已匹配的部分（含当前字符）按正文还给编辑器
-                    let text = std::mem::take(&mut self.seq);
+                    // 补不齐：把（未放行的 Esc +）已匹配前缀 + 当前字符原样交回正文
+                    self.pending = None;
                     self.held_esc_at = None;
-                    self.released_esc_at = None;
+                    let mut text = String::new();
+                    if !esc_emitted {
+                        text.push('\u{1b}');
+                    }
+                    text.push_str(&candidate);
                     return BracketOut::Paste(text);
                 }
                 BracketInput::Esc => {
-                    self.seq.clear();
-                    self.seq_at = now_ms;
+                    // 前一段残片到此为止：按正文交回，再从新的 Esc 重新记账
                     self.held_esc_at = Some(now_ms);
-                    self.released_esc_at = None;
-                    return BracketOut::Consumed;
+                    self.pending = Some((String::new(), false));
+                    if matched.is_empty() && esc_emitted {
+                        return BracketOut::Consumed;
+                    }
+                    let mut text = String::new();
+                    if !esc_emitted {
+                        text.push('\u{1b}');
+                    }
+                    text.push_str(&matched);
+                    if text.is_empty() {
+                        return BracketOut::Consumed;
+                    }
+                    return BracketOut::Paste(text);
                 }
                 BracketInput::Other => {
-                    self.seq.clear();
+                    // 非字符键：残片按正文交回，再把按键放过去
+                    self.pending = None;
                     self.held_esc_at = None;
-                    self.released_esc_at = None;
-                    return BracketOut::Pass(input);
+                    if matched.is_empty() {
+                        return BracketOut::Pass(input);
+                    }
+                    let mut text = String::new();
+                    if !esc_emitted {
+                        text.push('\u{1b}');
+                    }
+                    text.push_str(&matched);
+                    return BracketOut::TextThen(text, input);
                 }
             }
         }
@@ -182,60 +197,45 @@ impl BracketPaste {
         match input {
             BracketInput::Esc => {
                 self.held_esc_at = Some(now_ms);
-                self.seq.clear();
-                self.seq_at = now_ms;
+                self.last_at = now_ms;
+                self.pending = Some((String::new(), false));
                 BracketOut::Consumed
             }
-            BracketInput::Char('[') => {
-                let fresh_hold = self
-                    .held_esc_at
-                    .is_some_and(|at| now_ms.saturating_sub(at) <= MARKER_WINDOW_MS);
-                // Esc 已被放行（> ESC_HOLD_MS），但 `[` 在窗口内赶到：仍按标记起点处理，
-                // 否则整段 `[200~…` 会作为正文进编辑器。
-                let fresh_release = self
-                    .released_esc_at
-                    .is_some_and(|at| now_ms.saturating_sub(at) <= MARKER_WINDOW_MS);
-                if fresh_hold || fresh_release {
-                    self.seq.clear();
-                    self.seq.push('[');
-                    self.seq_at = now_ms;
-                    self.held_esc_at = None;
-                    self.released_esc_at = None;
-                    BracketOut::Consumed
-                } else {
-                    BracketOut::Pass(input)
-                }
-            }
-            BracketInput::Char(_) | BracketInput::Other => {
-                self.held_esc_at = None;
-                self.released_esc_at = None;
-                BracketOut::Pass(input)
-            }
+            BracketInput::Char(_) | BracketInput::Other => BracketOut::Pass(input),
         }
     }
 
-    /// 定时调用：暂扣的 `Esc` 超时未成标记 ⇒ 放行；陈旧前缀 ⇒ 按正文吐回。
+    /// 定时调用：放行孤立的 `Esc`；把长期没人理的残片按正文吐回。
     pub fn flush(&mut self, now_ms: u64) -> Option<BracketOut> {
         if self.collecting.is_some() {
             return None;
         }
-        if !self.seq.is_empty() {
-            if now_ms.saturating_sub(self.seq_at) > SEQ_IDLE_MS {
-                let prefix = std::mem::take(&mut self.seq);
-                self.held_esc_at = None;
-                self.released_esc_at = None;
-                return Some(BracketOut::Paste(prefix));
-            }
-            return None;
+        let (matched, esc_emitted) = self.pending.clone()?;
+        // 孤立 Esc：到点放行（放行后残片仍可继续补全，只是不再重复吐 Esc）
+        if !esc_emitted
+            && self
+                .held_esc_at
+                .is_some_and(|at| now_ms.saturating_sub(at) >= ESC_HOLD_MS)
+        {
+            self.held_esc_at = None;
+            self.pending = Some((matched, true));
+            return Some(BracketOut::EscReleased);
         }
-        match self.held_esc_at {
-            Some(at) if now_ms.saturating_sub(at) >= ESC_HOLD_MS => {
-                self.held_esc_at = None;
-                self.released_esc_at = Some(now_ms);
-                Some(BracketOut::EscReleased)
+        // 残片长期没人理：按正文吐回
+        if now_ms.saturating_sub(self.last_at) > PENDING_IDLE_MS {
+            self.pending = None;
+            self.held_esc_at = None;
+            if matched.is_empty() {
+                return None;
             }
-            Some(_) | None => None,
+            let mut text = String::new();
+            if !esc_emitted {
+                text.push('\u{1b}');
+            }
+            text.push_str(&matched);
+            return Some(BracketOut::Paste(text));
         }
+        None
     }
 }
 
@@ -294,18 +294,24 @@ mod tests {
         ]);
         assert_eq!(out[0], BracketOut::Consumed, "Esc 被暂扣");
         assert_eq!(out[1], BracketOut::Consumed, "`[` 进入标记匹配");
-        // 第三个字符不构成标记 ⇒ 已匹配的 `[A` 必须**原样交回正文**（旧实现会把它丢掉、
-        // 只返回 EscReleased，属于静默丢字）。Esc 本身由 `flush` 在 40 ms 后放行。
-        assert_eq!(out[2], BracketOut::Paste("[A".to_string()), "{:?}", out[2]);
+        // 记账式：暂扣的 Esc 也一并交回（不再丢 Esc，也不再丢 `[`）。
+        assert_eq!(
+            out[2],
+            BracketOut::Paste("\u{1b}[A".to_string()),
+            "{:?}",
+            out[2]
+        );
     }
 
+    /// 记账式：`Esc` 500 ms 后才来 `[` —— 仍按标记起点处理（真机 600 ms 间隔也不该把
+    /// `[200~` 漏进正文）。窗口不再按时间丢字节。
     #[test]
-    fn stale_escape_does_not_start_a_marker() {
+    fn late_bracket_after_escape_still_starts_a_marker() {
         let mut filter = BracketPaste::default();
         assert_eq!(filter.feed(BracketInput::Esc, 0), BracketOut::Consumed);
         assert_eq!(
             filter.feed(BracketInput::Char('['), 500),
-            BracketOut::Pass(BracketInput::Char('['))
+            BracketOut::Consumed
         );
     }
 
@@ -315,7 +321,14 @@ mod tests {
         events.extend(chars("[200~abc", 1));
         events.push((BracketInput::Other, 20));
         let out = run(&events);
-        assert_eq!(out.last(), Some(&BracketOut::Pass(BracketInput::Other)));
+        // 正文按 Paste 交回，非字符键照样放过去（旧实现把已收的 `abc` 整段丢掉）
+        assert_eq!(
+            out.last(),
+            Some(&BracketOut::TextThen(
+                "abc".to_string(),
+                BracketInput::Other
+            ))
+        );
     }
 }
 
@@ -323,7 +336,7 @@ mod tests {
 mod split_marker_matrix_tests {
     //! 夹具只保留**事件类型与间隔**（内容用 `PAYLOAD`），覆盖 ConPTY 逐字节送标记、
     //! 且两批之间被正文冲刷拉开 > `MARKER_WINDOW_MS` 的情形（真机 `1~` 残留）。
-    use super::{BracketInput, BracketOut, BracketPaste, ESC_HOLD_MS, MARKER_WINDOW_MS};
+    use super::{BracketInput, BracketOut, BracketPaste, ESC_HOLD_MS};
 
     fn feed_all(events: &[(BracketInput, u64)]) -> (String, Vec<BracketOut>) {
         let mut paste = BracketPaste::default();
@@ -370,7 +383,7 @@ mod split_marker_matrix_tests {
     /// 起始标记拆在 `Esc[` 之后（`200~PAYLOAD` 会整段落进正文 —— Linux 侧矩阵的第二种泄漏）。
     #[test]
     fn start_marker_split_after_bracket_does_not_leak() {
-        let gap = MARKER_WINDOW_MS + 1;
+        let gap = ESC_HOLD_MS + 1;
         let mut events = vec![(BracketInput::Esc, 0u64), (BracketInput::Char('['), 1)];
         events.extend(chars("200~PAYLOAD", gap, 1));
         events.extend(chars("[201~", gap + 20, 1));
@@ -381,7 +394,7 @@ mod split_marker_matrix_tests {
     /// 真机形态：结束标记拆在 `Esc[20` 之后，间隔 > 窗口 ⇒ 旧实现漏出 `1~`。
     #[test]
     fn end_marker_split_after_20_does_not_leak_tail() {
-        let gap = MARKER_WINDOW_MS + 1;
+        let gap = ESC_HOLD_MS + 1;
         // 正文走括号收集
         let mut events = vec![(BracketInput::Esc, 0u64)];
         events.extend(chars("[200~PAYLOAD", 1, 1));
@@ -410,5 +423,152 @@ mod split_marker_matrix_tests {
         events.extend(chars("[200~PAYLOAD[201~", ESC_HOLD_MS + 1, 1));
         let (text, _out) = feed_all(&events);
         assert_eq!(text, "PAYLOAD", "{text:?}");
+    }
+}
+
+#[cfg(test)]
+mod accounting_matrix_tests {
+    //! 记账式重组的穷举矩阵（只含事件类型与间隔，内容用 PAYLOAD）。
+    use super::{BracketInput, BracketOut, BracketPaste, PENDING_IDLE_MS};
+
+    /// 把事件按时间喂进去，途中每 10 ms 驱动一次 `flush()`；返回收集到的正文与全部输出。
+    fn drive(events: &[(BracketInput, u64)], extra_flush: &[u64]) -> (String, Vec<BracketOut>) {
+        let mut paste = BracketPaste::default();
+        let mut outs = Vec::new();
+        let mut now = 0u64;
+        for (input, at) in events {
+            while now + 10 <= *at {
+                now += 10;
+                if let Some(out) = paste.flush(now) {
+                    outs.push(out);
+                }
+            }
+            // 显式 flush 点（模拟"正文冲刷把它拆开"）
+            for at_flush in extra_flush {
+                if *at_flush >= now && *at_flush < *at {
+                    if let Some(out) = paste.flush(*at_flush) {
+                        outs.push(out);
+                    }
+                }
+            }
+            outs.push(paste.feed(*input, *at));
+        }
+        let mut text = String::new();
+        for out in &outs {
+            match out {
+                BracketOut::Paste(body) => text.push_str(body),
+                BracketOut::TextThen(body, _) => text.push_str(body),
+                _ => {}
+            }
+        }
+        (text, outs)
+    }
+
+    fn payload_events(marker_bytes: &str, start_ms: u64, gap_ms: u64) -> Vec<(BracketInput, u64)> {
+        let mut out = Vec::new();
+        let mut at = start_ms;
+        for ch in marker_bytes.chars() {
+            if ch == '\u{1b}' {
+                out.push((BracketInput::Esc, at));
+            } else {
+                out.push((BracketInput::Char(ch), at));
+            }
+            at += gap_ms;
+        }
+        out
+    }
+
+    /// 两段拆分：在 `ESC[200~PAYLOAD[201~` 的每个位置断开，后半段延后 `gap` 毫秒。
+    #[test]
+    fn two_segment_split_never_leaks_markers() {
+        let full = "\u{1b}[200~PAYLOAD\u{1b}[201~";
+        let chars: Vec<char> = full.chars().collect();
+        for split in 0..=chars.len() {
+            for gap in [0u64, 41, 121, 600] {
+                let mut events = payload_events(&chars[..split].iter().collect::<String>(), 0, 1);
+                let tail: String = chars[split..].iter().collect();
+                events.extend(payload_events(&tail, split as u64 + gap, 1));
+                let (text, _outs) = drive(&events, &[]);
+                assert_eq!(
+                    text, "PAYLOAD",
+                    "split={split} gap={gap} 正文被污染：{text:?}"
+                );
+                assert!(
+                    !text.contains("200~") && !text.contains("201~") && !text.contains("1~"),
+                    "split={split} gap={gap} 泄漏标记残片：{text:?}"
+                );
+            }
+        }
+    }
+
+    /// 三段拆分：`(i, j)` 全覆盖 × 四个间隔。
+    #[test]
+    fn three_segment_split_never_leaks_markers() {
+        let full = "\u{1b}[200~PAYLOAD\u{1b}[201~";
+        let chars: Vec<char> = full.chars().collect();
+        for gap in [0u64, 41, 121, 600] {
+            for i in 0..=chars.len() {
+                for j in i..=chars.len() {
+                    let first: String = chars[..i].iter().collect();
+                    let second: String = chars[i..j].iter().collect();
+                    let third: String = chars[j..].iter().collect();
+                    let mut events = payload_events(&first, 0, 1);
+                    events.extend(payload_events(&second, i as u64 + gap, 1));
+                    events.extend(payload_events(
+                        &third,
+                        i as u64 + gap + second.chars().count() as u64 + gap,
+                        1,
+                    ));
+                    let (text, _outs) = drive(&events, &[]);
+                    assert_eq!(
+                        text, "PAYLOAD",
+                        "i={i} j={j} gap={gap} 正文被污染：{text:?}"
+                    );
+                }
+            }
+        }
+    }
+
+    /// 正文冲刷变体：在 `[200~` 之后、`[201~` 之前各插一次显式 `flush()`。
+    #[test]
+    fn body_flush_variants_do_not_break_the_paste() {
+        for gap in [41u64, 121, 600] {
+            for flush_at in [gap, gap * 2, gap * 3] {
+                let events = payload_events("\u{1b}[200~PAYLOAD\u{1b}[201~", 0, gap);
+                let (text, outs) = drive(&events, &[flush_at]);
+                assert_eq!(text, "PAYLOAD", "gap={gap} flush@{flush_at}: {text:?}");
+                let pastes = outs
+                    .iter()
+                    .filter(|out| matches!(out, BracketOut::Paste(_)))
+                    .count();
+                assert_eq!(pastes, 1, "gap={gap} flush@{flush_at}：应恰好一次 Paste");
+            }
+        }
+    }
+
+    /// 残留标记：只有结尾标记 ⇒ 整体吞掉；只有前缀 ⇒ 作正文交回且不含 `200~`/`201~`。
+    #[test]
+    fn residual_markers_do_not_leak() {
+        let (text, _) = drive(&payload_events("\u{1b}[201~", 0, 1), &[]);
+        assert!(text.is_empty(), "结尾残留应被吞掉：{text:?}");
+
+        for residual in ["\u{1b}[20", "\u{1b}1~", "[201~"] {
+            let (text, _) = drive(&payload_events(residual, 0, 1), &[]);
+            assert!(
+                !text.contains("200~") && !text.contains("201~"),
+                "{residual:?} 漏出完整标记：{text:?}"
+            );
+        }
+    }
+
+    /// 超过 `PENDING_IDLE_MS` 没人理的残片按正文交回（不静默丢字）。
+    #[test]
+    fn stale_prefix_is_returned_as_text() {
+        let events = payload_events("\u{1b}[20", 0, 1);
+        let mut patched = events.clone();
+        patched.push((BracketInput::Char('x'), PENDING_IDLE_MS + 100));
+        let (text, _) = drive(&patched, &[]);
+        assert!(text.contains("[20"), "陈旧前缀不应丢字：{text:?}");
+        assert!(!text.contains("200~"), "{text:?}");
     }
 }
