@@ -4147,8 +4147,10 @@ struct PasteBurst {
     /// 挂起的回车（回看中，尚未决定是“粘贴换行”还是“提交”）。
     enter_pending: bool,
     last_ms: u64,
-    /// 最近一次把回车并进正文的时刻（用于合并 CRLF 拆出的两个回车事件）。
-    last_newline_at: Option<u64>,
+    /// 刚收到一个**普通 Enter（CR）**，还在等它是不是 CRLF 的前半。
+    pending_cr: bool,
+    /// 挂起的回车是 `LF`（`Ctrl+Enter`／用户 ctrl+j）——提交判定时要发 `Newline` 而不是 `Enter`。
+    pending_is_lf: bool,
 }
 
 #[cfg(any(windows, test))]
@@ -4159,9 +4161,6 @@ impl PasteBurst {
     const WINDOW_MS: u64 = 30;
     /// 回车之后的回看窗口：这段时间内还有字符 ⇒ 该回车是粘贴里的换行。
     const LOOKAHEAD_MS: u64 = 60;
-    /// CRLF 合并窗：`CR` 与 `LF` 两个回车事件通常相隔 1-3 ms（真机日志实测 2 ms），
-    /// 人工连按两次回车 ≳ 50 ms，因此 15 ms 足够区分。
-    const CRLF_MS: u64 = 15;
     /// 缓冲上限（防御无换行的超大粘贴）。
     const MAX_CHARS: usize = 4096;
     /// ref `editor.ts:1296-1312` 的折叠阈值之一（>1000 字符）。
@@ -4176,10 +4175,17 @@ impl PasteBurst {
 
     /// 收入一个字符；返回“上一段需要先发出的事件”（间隔超过窗口 ⇒ 两段不是同一次粘贴）。
     fn on_char(&mut self, ch: char, now_ms: u64) -> Option<Vec<TuiEvent>> {
-        self.last_newline_at = None;
+        if self.pending_cr {
+            // CR 后面不是 LF ⇒ 那个 CR 是真正的换行
+            self.pending_cr = false;
+            self.push_newline(true, now_ms);
+        }
         if self.enter_pending {
-            // 回车后紧跟字符 ⇒ 该回车是粘贴里的换行。
-            self.chars.push('\n');
+            // 回车后紧跟字符 ⇒ 该回车是粘贴里的换行；但缓冲区为空时它是杂散换行
+            // （启动残留 / 粘贴首尾），吸收掉不产生空行。
+            if !self.chars.is_empty() {
+                self.chars.push('\n');
+            }
             self.enter_pending = false;
         }
         let mut flushed = if !self.chars.is_empty()
@@ -4212,31 +4218,49 @@ impl PasteBurst {
     ///
     /// 紧跟刚到的字符（≤ `WINDOW_MS`）⇒ 这是粘贴里的换行，直接并进缓冲；
     /// 否则挂起，交给 [`Self::tick`] 的回看窗口裁决（粘贴分块送达时空隙可能大于窗口）。
-    fn on_enter(&mut self, now_ms: u64) {
-        // P8e-17b：剪贴板里的换行是 **CRLF**，而括号粘贴关掉后终端会分别送出
-        // `CR`（普通 Enter）与 `LF`（ConPTY 编码成 Ctrl+Enter）⇒ 一行变两个换行，
-        // 真机表现就是"每行中间多一个空行"。两个回车在极短间隔内成对到达时合并成一个。
-        if let Some(at) = self.last_newline_at {
-            if now_ms.saturating_sub(at) <= Self::CRLF_MS {
-                self.last_newline_at = Some(now_ms);
-                self.last_ms = now_ms;
-                return;
+    /// 收入一个回车。`is_line_feed` 为真表示这是 `Ctrl+Enter`（ConPTY 对 `LF` 的编码）。
+    ///
+    /// P8e-17b：剪贴板的换行是 **CRLF**，终端把它拆成两个事件
+    /// （真机日志 3418ms 普通 Enter + 3420ms Ctrl+Enter，间隔 2 ms）：
+    /// - `CR` + `LF`（1-2 ms 内成对）⇒ **一个**换行；
+    /// - `CR LF CR LF` ⇒ **两个**换行（空行不能被吞，这是上一次修过分的关键）。
+    ///
+    /// 因此只按"CR 是否紧跟 LF"配对，**不看时间窗**：`LF` 自带换行语义，
+    /// `CR` 只是待定的前半段；若后面不是 LF 就补一个换行。
+    fn on_enter(&mut self, is_line_feed: bool, now_ms: u64) {
+        if self.pending_cr {
+            self.pending_cr = false;
+            // 前一个 CR 到此结算：CR 单独出现也是换行（老 Mac 风格或真按回车）
+            self.push_newline(is_line_feed, now_ms);
+            if !is_line_feed {
+                // 连续两个 CR：当前这个继续待定
+                self.pending_cr = true;
             }
+            return;
         }
+        if is_line_feed {
+            self.push_newline(true, now_ms);
+            return;
+        }
+        self.pending_cr = true;
+    }
+
+    /// 把一个已经确定是"换行"的回车并进缓冲区（或挂起等提交判定）。
+    fn push_newline(&mut self, is_lf: bool, now_ms: u64) {
         let immediate =
             !self.chars.is_empty() && now_ms.saturating_sub(self.last_ms) <= Self::WINDOW_MS;
         self.last_ms = now_ms;
         if immediate {
             self.chars.push('\n');
             self.enter_pending = false;
-            self.last_newline_at = Some(now_ms);
             return;
         }
-        if self.enter_pending {
+        if self.enter_pending && !self.chars.is_empty() {
             self.chars.push('\n');
-            self.last_newline_at = Some(now_ms);
         }
+        // 缓冲区为空时挂起的换行是"杂散回车"（启动残留/粘贴首尾），直接吸收
         self.enter_pending = true;
+        self.pending_is_lf = is_lf;
     }
 
     /// 定时驱动（poll 超时）：回看窗口到期 ⇒ 决定挂起的回车是“粘贴换行”还是“提交”。
@@ -4263,12 +4287,24 @@ impl PasteBurst {
     }
 
     fn tick(&mut self, now_ms: u64) -> Option<Vec<TuiEvent>> {
+        if self.pending_cr && now_ms.saturating_sub(self.last_ms) >= Self::LOOKAHEAD_MS {
+            // CR 已经等满一个回看窗：确定它是"真回车"（不是 CRLF 前半），
+            // 直接按纯回车裁决（空缓冲 ⇒ 提交），不必再等一轮。
+            self.pending_cr = false;
+            self.enter_pending = true;
+            self.pending_is_lf = false;
+        }
         let idle = now_ms.saturating_sub(self.last_ms);
         if self.enter_pending && idle >= Self::LOOKAHEAD_MS {
             self.enter_pending = false;
             if self.chars.is_empty() {
-                // 纯回车 ⇒ 用户提交。
-                return Some(vec![TuiEvent::Enter]);
+                // 纯 `LF`（用户按 ctrl+j / ConPTY 的 Ctrl+Enter）⇒ 插入换行；
+                // 纯 `CR` ⇒ 提交。
+                return Some(vec![if self.pending_is_lf {
+                    TuiEvent::Newline
+                } else {
+                    TuiEvent::Enter
+                }]);
             }
             if self.chars.contains(&'\n') {
                 // 多行内容后面的回车 ⇒ 粘贴末尾的换行，并入粘贴、不提交。
@@ -4292,12 +4328,20 @@ impl PasteBurst {
     /// 收到非字符事件（Ctrl+*、方向键等）：立刻按 [`Self::tick`] 的同一套规则结清缓冲。
     #[cfg_attr(not(windows), allow(dead_code))]
     fn take_all(&mut self) -> Vec<TuiEvent> {
+        if self.pending_cr {
+            self.pending_cr = false;
+            self.push_newline(true, self.last_ms);
+        }
         if !self.enter_pending {
             return self.take();
         }
         self.enter_pending = false;
         if self.chars.is_empty() {
-            return vec![TuiEvent::Enter];
+            return vec![if self.pending_is_lf {
+                TuiEvent::Newline
+            } else {
+                TuiEvent::Enter
+            }];
         }
         if self.chars.contains(&'\n') {
             self.chars.push('\n');
@@ -4311,7 +4355,7 @@ impl PasteBurst {
     /// 取出缓冲内容（不清 `enter_pending`）。
     /// 是否有待决内容（正在攒的字符或挂起的回车）。
     fn is_pending(&self) -> bool {
-        !self.chars.is_empty() || self.enter_pending
+        !self.chars.is_empty() || self.enter_pending || self.pending_cr
     }
 
     fn take(&mut self) -> Vec<TuiEvent> {
@@ -4435,14 +4479,12 @@ impl WindowsInput {
             // 映射到 `Newline`：正在攒粘贴 ⇒ 并入这段文本（当 '\n'）；
             // 否则就是用户真按了 ctrl+j ⇒ 直接插入换行（ref keybindings.ts:143）。
             pi_tui::TuiEvent::Newline => {
-                if self.burst.is_pending() {
-                    self.burst.on_enter(now_ms);
-                } else {
-                    emitted.push(pi_tui::TuiEvent::Newline);
-                }
+                // `Ctrl+Enter`（ConPTY 对 LF 的编码）＝真正的换行
+                self.burst.on_enter(true, now_ms);
             }
             pi_tui::TuiEvent::Enter => {
-                self.burst.on_enter(now_ms);
+                // 普通 Enter：先当 CR 待定，紧跟 LF 时配对成一个换行
+                self.burst.on_enter(false, now_ms);
             }
             // 无括号标记的键流粘贴里，tab 是正文的一部分：攒批中当字符收下，
             // 空闲时才是编辑器里的 Tab（补全）。
@@ -5389,11 +5431,11 @@ mod windows_input_tests {
         let mut burst = PasteBurst::default();
         let mut events = Vec::new();
         let mut now = feed(&mut burst, "L1", 1000, 1, &mut events);
-        burst.on_enter(now);
+        burst.on_enter(true, now);
         now = feed(&mut burst, "L2", now + 1, 1, &mut events);
-        burst.on_enter(now);
+        burst.on_enter(true, now);
         now = feed(&mut burst, "L3", now + 1, 1, &mut events);
-        burst.on_enter(now);
+        burst.on_enter(true, now);
         events.extend(
             burst
                 .tick(now + PasteBurst::LOOKAHEAD_MS + 1)
@@ -5408,11 +5450,11 @@ mod windows_input_tests {
         let mut burst = PasteBurst::default();
         let mut events = Vec::new();
         let mut now = feed(&mut burst, "L1", 0, 20, &mut events);
-        burst.on_enter(now);
+        burst.on_enter(true, now);
         now = feed(&mut burst, "L2", now + 20, 20, &mut events);
-        burst.on_enter(now);
+        burst.on_enter(true, now);
         now = feed(&mut burst, "L3", now + 20, 20, &mut events);
-        burst.on_enter(now);
+        burst.on_enter(true, now);
         events.extend(
             burst
                 .tick(now + PasteBurst::LOOKAHEAD_MS + 1)
@@ -5428,7 +5470,7 @@ mod windows_input_tests {
         let mut events = Vec::new();
         let now = feed(&mut burst, "hi", 0, 60, &mut events);
         events.extend(burst.tick(now).unwrap_or_default());
-        burst.on_enter(now + 60);
+        burst.on_enter(false, now + 60);
         events.extend(
             burst
                 .tick(now + 60 + PasteBurst::LOOKAHEAD_MS)
@@ -5444,7 +5486,7 @@ mod windows_input_tests {
     #[test]
     fn bare_enter_submits() {
         let mut burst = PasteBurst::default();
-        burst.on_enter(10);
+        burst.on_enter(false, 10);
         assert_eq!(
             burst.tick(10 + PasteBurst::LOOKAHEAD_MS),
             Some(vec![TuiEvent::Enter])
@@ -5457,7 +5499,7 @@ mod windows_input_tests {
         let mut burst = PasteBurst::default();
         let mut events = Vec::new();
         let now = feed(&mut burst, "abc", 0, 1, &mut events);
-        burst.on_enter(now);
+        burst.on_enter(true, now);
         events.extend(
             burst
                 .tick(now + PasteBurst::WINDOW_MS + 1)
@@ -5663,8 +5705,12 @@ mod windows_input_tests {
             // ref `keybindings.ts:143`：newLine = ["shift+enter", "ctrl+j"]；
             // ConPTY 用 Ctrl+Enter 表示粘贴换行 ⇒ 必须映射为 Newline 而不是 Enter
             let mut machine = WindowsInput::default();
-            let out = machine.on_key(press_mod(KeyCode::Enter, KeyModifiers::CONTROL), 0);
-            assert_eq!(out, vec![TuiEvent::Newline]);
+            // 与提交流程一致：先挂起，`LOOKAHEAD` 之后才裁决
+            assert!(machine
+                .on_key(press_mod(KeyCode::Enter, KeyModifiers::CONTROL), 0)
+                .is_empty());
+            let out = machine.tick(100);
+            assert_eq!(out, vec![TuiEvent::Newline], "Ctrl+Enter 必须插入换行");
         }
     }
 }
@@ -5733,7 +5779,7 @@ mod q3_wezterm_paste_tests {
                 }
                 now += 1;
             }
-            burst.on_enter(now); // ConPTY 把粘贴里的换行送成 Ctrl+Enter
+            burst.on_enter(true, now); // ConPTY 把粘贴里的换行送成 Ctrl+Enter
             now += 1;
         }
         events.extend(
@@ -5958,54 +6004,89 @@ mod resp_filter_tests {
 mod crlf_paste_tests {
     use super::*;
 
-    /// P8e-17b：关掉括号粘贴后，剪贴板的 CRLF 会变成"普通 Enter + Ctrl+Enter"两个
-    /// 事件（真机日志 3418ms/3420ms），必须合并成一个换行，否则每行中间多空行。
-    #[test]
-    fn crlf_pair_becomes_single_newline() {
+    fn burst_text(chars: &[(char, u64, bool)]) -> String {
+        // (字符, 时刻, 是否 LF)
         let mut burst = PasteBurst::default();
-        burst.on_char('a', 0);
-        burst.on_enter(2);
-        burst.on_enter(4); // CRLF 的后半
-        burst.on_char('b', 6);
-        let events = burst.take_all();
-        let text: String = events
-            .iter()
-            .map(|event| match event {
-                pi_tui::TuiEvent::Paste(body) => body.clone(),
-                pi_tui::TuiEvent::Char(ch) => ch.to_string(),
-                other => format!("{other:?}"),
-            })
-            .collect();
-        assert!(!text.contains("\n\n"), "不得出现双换行：{text:?}");
-        assert!(text.contains("a\nb"), "应保留单个换行：{text:?}");
+        let mut text = String::new();
+        for (ch, at, is_lf) in chars {
+            let produced = if *ch == '\r' {
+                if *is_lf {
+                    burst.on_enter(true, *at);
+                } else {
+                    burst.on_enter(false, *at);
+                }
+                None
+            } else {
+                burst.on_char(*ch, *at)
+            };
+            if let Some(events) = produced {
+                for event in events {
+                    match event {
+                        pi_tui::TuiEvent::Paste(body) => text.push_str(&body),
+                        pi_tui::TuiEvent::Char(c) => text.push(c),
+                        _ => {}
+                    }
+                }
+            }
+        }
+        for event in burst.take_all() {
+            match event {
+                pi_tui::TuiEvent::Paste(body) => text.push_str(&body),
+                pi_tui::TuiEvent::Char(c) => text.push(c),
+                _ => {}
+            }
+        }
+        text
     }
 
-    /// 人工连按两次回车（间隔 ≳ 50 ms）不能被合并：第一下进正文，第二下仍是提交。
+    /// 一行结尾的 `CR`+`LF`（间隔 2 ms，真机日志）只算一个换行。
     #[test]
-    fn slow_double_enter_is_not_merged() {
-        let mut burst = PasteBurst::default();
-        burst.on_char('x', 0);
-        burst.on_enter(2);
-        // 第一下在回看窗结束后落成换行
-        let first = burst
-            .tick(2 + PasteBurst::LOOKAHEAD_MS + 1)
-            .unwrap_or_default();
-        assert!(
-            !first
-                .iter()
-                .any(|event| matches!(event, pi_tui::TuiEvent::Enter)),
-            "第一下应当是换行而不是提交：{first:?}"
-        );
-        // 第二下（间隔远超 CRLF 窗）必须还是提交
-        burst.on_enter(200);
-        let second = burst
-            .tick(200 + PasteBurst::LOOKAHEAD_MS + 1)
-            .unwrap_or_default();
-        assert!(
-            second
-                .iter()
-                .any(|event| matches!(event, pi_tui::TuiEvent::Enter)),
-            "第二下应当是提交：{second:?}"
-        );
+    fn crlf_pair_becomes_single_newline() {
+        let text = burst_text(&[
+            ('a', 0, false),
+            ('\r', 2, false),
+            ('\r', 4, true),
+            ('b', 6, false),
+        ]);
+        assert_eq!(text, "a\nb", "CRLF 应合并成一个换行：{text:?}");
+    }
+
+    /// **空行不能被吞**：`CRLF CRLF` 必须产生两个换行。
+    #[test]
+    fn consecutive_crlf_preserves_blank_line() {
+        let text = burst_text(&[
+            ('a', 0, false),
+            ('\r', 2, false),
+            ('\r', 4, true),
+            ('b', 6, false),
+            ('\r', 8, false),
+            ('\r', 10, true),
+            ('c', 12, false),
+        ]);
+        assert_eq!(text, "a\nb\nc", "{text:?}");
+        // 真正的空行：`a CRLF CRLF b`
+        let text2 = burst_text(&[
+            ('a', 0, false),
+            ('\r', 2, false),
+            ('\r', 4, true),
+            ('\r', 6, false),
+            ('\r', 8, true),
+            ('b', 10, false),
+        ]);
+        assert_eq!(text2, "a\n\nb", "空行必须保留：{text2:?}");
+    }
+
+    /// 单独的 `CR`（老式换行）仍然算换行。
+    #[test]
+    fn lone_cr_is_a_newline() {
+        let text = burst_text(&[('a', 0, false), ('\r', 2, false), ('b', 10, false)]);
+        assert_eq!(text, "a\nb", "{text:?}");
+    }
+
+    /// 单独的 `LF`（`Ctrl+Enter`，用户按 ctrl+j）也算换行。
+    #[test]
+    fn lone_lf_is_a_newline() {
+        let text = burst_text(&[('a', 0, false), ('\r', 2, true), ('b', 10, false)]);
+        assert_eq!(text, "a\nb", "{text:?}");
     }
 }
