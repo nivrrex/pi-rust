@@ -4812,7 +4812,7 @@ mod w2_marker_line_tests {
                 match chars.peek() {
                     Some('[') => {
                         chars.next();
-                        while let Some(next) = chars.next() {
+                        for next in chars.by_ref() {
                             if ('\x40'..='\x7e').contains(&next) {
                                 break;
                             }
@@ -4820,7 +4820,7 @@ mod w2_marker_line_tests {
                     }
                     Some(']') => {
                         chars.next();
-                        while let Some(next) = chars.next() {
+                        for next in chars.by_ref() {
                             if next == '\x07' {
                                 break;
                             }
