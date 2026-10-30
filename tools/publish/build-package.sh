@@ -2,12 +2,12 @@
 # 生成发布包（本地执行；不联网、不使用令牌）。
 #
 # 用法：sh tools/publish/build-package.sh <输出目录> [产物目录] [发布提交]
-#   产物目录默认 /root/archives；发布提交默认 refs/heads/publish-v0.87.1
+#   产物目录默认 ${HOME}/archives；发布提交默认 refs/heads/publish-v0.87.1
 set -eu
 OUT=${1:?用法: build-package.sh <输出目录> [产物目录] [发布提交]}
-SRC=${2:-/root/archives}
+SRC=${2:-${HOME}/archives}
 COMMIT=${3:-publish-v0.87.1}  # shellcheck disable=SC2034
-BACKUP_BUNDLE=${BACKUP_BUNDLE:-/root/archives/pi-rust-remote-backup-20261029.bundle}
+BACKUP_BUNDLE=${BACKUP_BUNDLE:-${HOME}/archives/pi-rust-remote-backup-20261029.bundle}
 ROOT=$(cd "$(dirname "$0")/../.." && pwd)
 
 if [ -d "$OUT" ] && [ -n "$(ls -A "$OUT" 2>/dev/null)" ]; then

@@ -6,7 +6,7 @@
 // 这些只能靠对照真实实现来定，不能凭样本猜。
 //
 // 参照实现的位置（2026-xx 实测）：
-//   /root/node_modules/.pnpm/diff@8.0.4/node_modules/diff   （项目树外；`pi-ts-0.87.1/node_modules` 下没有）
+//   <diff 包目录>（用 DIFF_PACKAGE 指定）                    （项目树外；`pi-ts-0.87.1/node_modules` 下没有）
 // 也可用 `DIFF_PACKAGE` 指到别处的同名包。
 //
 // 另：`edit-diff.ts:376-380` 的 `generateDiffString`（带行号与上下文）**不在本 oracle 范围**，
@@ -17,7 +17,11 @@ import { writeFile, mkdir } from "node:fs/promises";
 import path from "node:path";
 
 const require = createRequire(import.meta.url);
-const packagePath = process.env.DIFF_PACKAGE || "/root/node_modules/.pnpm/diff@8.0.4/node_modules/diff";
+const packagePath = process.env.DIFF_PACKAGE;
+if (!packagePath) {
+  console.error("diff-oracle: 需要 DIFF_PACKAGE 指向 `diff` 包目录（不再硬编码本机路径）");
+  process.exit(2);
+}
 const Diff = require(packagePath);
 
 /** `[名字, 旧文本, 新文本]`。覆盖空行、末行无换行、CRLF、重复行、整段替换等。 */

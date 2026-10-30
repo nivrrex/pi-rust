@@ -77,3 +77,41 @@ UTF-8 BOM。当前全绿。
 2. 从公开树排除这 72 个文件：会让 S23b/S24/S51/S60 失去基准（回归里变 `nogolden`）。
 
 在决定之前，**发布包不可用于发布**。
+
+## P8e-15/P1：隐私结论修正（上一轮的阻塞项是误报）
+
+**更正**：P8e-14 把 `逐条检查` 当作"用户全局提示词特征短语"，据此判定 72 个 golden 泄漏了
+用户的全局 `AGENTS.md`。**这个结论错了。**
+
+证据：
+1. `逐条检查` 出现在**场景夹具文本**里（`scenarios/S23b.json` 等的 skill/prompt 示例，
+   原句"逐条检查改动，并在最后给出结论。"），不是用户的全局规则；
+2. 用户全局提示词真正的独有短语（`N先生`、`以上回答已遵循所有设定规则`、`全局提示词`、
+   `用户的偏好`、`不允许编造来源`）在**所有跟踪文件与 golden 中 0 命中**；
+3. 把 harness 的 `HOME`/`XDG_*` 也隔离到场景临时目录后**重录 S23b**，
+   与既有 golden **逐字节 same**（`A/B/C/fs/exit` 全 same）⇒ 隔离没有改变任何输出。
+
+处置：
+- **保留** harness 隔离（`run-tui.mjs` 现在同时设 `HOME`、`XDG_CONFIG_HOME`、
+  `XDG_DATA_HOME`、`XDG_CACHE_HOME`、`XDG_STATE_HOME`），属预防性加固；
+- `privacy-scan.sh` 的提示词模式**只保留用户独有短语**，去掉 `逐条检查` 这类通用词
+  （它会把 fixture 文本误判为用户数据）；
+- 新增 `tools/publish/privacy-allowlist.txt`：仅豁免"单元测试里的假路径"与"审计文档
+  本身必须引用的模式串"，逐条写明理由；
+- 顺带修掉三处**真实的**硬编码用户路径：`tools/publish/{publish,build-package}.sh` 里的
+  `/root/archives` 改为 `${HOME}/archives`；`tools/oracle/diff-oracle.mjs` 不再硬编码
+  `/root/node_modules/.pnpm/...`，改为必须用 `DIFF_PACKAGE` 指定。
+
+当前 `privacy-scan.sh` 结果：**四组全部无命中（`privacy-scan: 全部干净`）**。
+
+## P1d：首版远端是否已含这些内容
+用 `/root/archives/pi-rust-remote-backup-20261029.bundle` 检出首版（`d090939`，3205 个文件）：
+
+| 特征 | 首版命中 |
+|---|---|
+| `N先生` / `以上回答已遵循所有设定规则` | **0** |
+| `vdisksvr` / `系统盘` | **0** |
+| `逐条检查` | 78（同样是场景夹具文本，非用户数据） |
+
+结论：**首版不含任何用户全局提示词正文**；当时的扫描结论（"非密钥、通用 home 下的公开项目
+检出路径"）成立，不需要对已发布内容做补救。

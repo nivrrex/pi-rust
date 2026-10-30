@@ -1,0 +1,7 @@
+# 隐私扫描豁免清单（每行：路径前缀 <TAB> 理由）
+# 只允许"测试夹具里的假路径/假邮箱"与"审计文档里必须出现的模式串说明"。
+crates/pi-cli/src/runtime.rs	单元测试里的 /root 字面量（假路径）
+crates/pi-cli/src/settings_selector.rs	shorten_path 单元测试的 /root/projects/x
+tools/difftest/pty_retry_check.py	探针脚本里的示例路径
+docs/evidence/	证据文档（已脱敏；审计文档需引用模式串本身）
+tools/publish/privacy-scan.sh	扫描器自身必须含模式串

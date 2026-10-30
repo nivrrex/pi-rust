@@ -5,7 +5,7 @@
 # 以 stdin 配置方式传入（不出现在进程参数、不写文件、不打印）。
 #
 # 用法：
-#   cd /root/archives/publish-<日期>
+#   cd $HOME/archives/publish-<日期>
 #   export GITHUB_TOKEN=...
 #   sh publish.sh
 set -eu
@@ -16,7 +16,7 @@ API="${API_BASE:-https://api.github.com}/repos/$REPO"
 DRY_RUN="${DRY_RUN:-0}"
 ASSETS="pi-rs-linux-amd64 pi-rs-linux-amd64-musl pi-rs-linux-arm64 pi-rs-windows-amd64.exe"
 HERE=$(cd "$(dirname "$0")" && pwd)
-BACKUP_BUNDLE="${BACKUP_BUNDLE:-/root/archives/pi-rust-remote-backup-20261029.bundle}"
+BACKUP_BUNDLE="${BACKUP_BUNDLE:-${HOME}/archives/pi-rust-remote-backup-20261029.bundle}"
 
 die() { printf '✗ %s\n' "$1" >&2; exit 1; }
 step() { printf '\n== %s\n' "$1"; }
