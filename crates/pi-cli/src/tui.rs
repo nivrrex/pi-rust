@@ -3327,6 +3327,71 @@ fn session_id_for_resume(parts: &AgentParts) -> Option<String> {
     guard.header_id()
 }
 
+/// `PI_TUI_OUTPUT_DUMP` 对应的调试文件（未设置 ⇒ `None`，不建文件、不格式化）。
+///
+/// 值为 `1` 时写到系统临时目录的 `pi-rs-output.log`，否则当作路径。只解析一次。
+fn output_dump_path() -> Option<std::path::PathBuf> {
+    use std::sync::OnceLock;
+    static PATH: OnceLock<Option<std::path::PathBuf>> = OnceLock::new();
+    PATH.get_or_init(|| {
+        let value = std::env::var("PI_TUI_OUTPUT_DUMP").ok()?;
+        if value.is_empty() {
+            return None;
+        }
+        Some(if value == "1" {
+            std::env::temp_dir().join("pi-rs-output.log")
+        } else {
+            std::path::PathBuf::from(value)
+        })
+    })
+    .clone()
+}
+
+/// 把一帧**写给终端的原始字节**落盘（`PI_TUI_OUTPUT_DUMP`）。
+///
+/// 用途：终端上多出 `1~` / `;;` 这类字符时，只有输出侧原文能区分"我们发错了"
+/// 还是"PTY/终端解析坏了"。转义成一行一条终端行，`\e` = ESC。
+fn dump_output(
+    path: &std::path::Path,
+    cols: usize,
+    rows: usize,
+    diff_state: &pi_tui::diff::DiffState,
+    payload: &str,
+) {
+    use std::io::Write as _;
+    use std::sync::atomic::{AtomicU64, Ordering};
+    static SEQ: AtomicU64 = AtomicU64::new(0);
+    let index = SEQ.fetch_add(1, Ordering::Relaxed) + 1;
+    let Ok(mut file) = std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(path)
+    else {
+        return;
+    };
+    let _ = writeln!(
+        file,
+        "=== frame {index} size={cols}x{rows} viewport_top={} hw_row={} bytes={} ===",
+        diff_state.previous_viewport_top,
+        diff_state.hardware_cursor_row,
+        payload.len()
+    );
+    let mut escaped = String::with_capacity(payload.len());
+    for ch in payload.chars() {
+        match ch {
+            '\u{1b}' => escaped.push_str("\\e"),
+            '\r' => escaped.push_str("\\r"),
+            '\n' => escaped.push_str("\\n\n"),
+            '\u{7}' => escaped.push_str("\\a"),
+            control if (control as u32) < 0x20 => {
+                escaped.push_str(&format!("\\x{:02x}", control as u32));
+            }
+            other => escaped.push(other),
+        }
+    }
+    let _ = writeln!(file, "{escaped}");
+}
+
 /// `PI_TUI_CURSOR_DUMP` 对应的调试文件（未设置 ⇒ `None`，不建文件、不格式化）。
 ///
 /// 值为 `1` 时写到系统临时目录的 `pi-rs-cursor.log`，否则当作路径。
@@ -3467,6 +3532,9 @@ fn draw(
     // 作用：① 终端不会显示半张画面；② 录制的原始流因此有**帧边界**，比较时才能把截断点
     // 回退到完整帧的结尾（见 notes/reports/P7-4c-trim-diag.md 与 notes/decisions.md）。
     let payload = buffer; // r3：`diff_render` 已自带同步区，不能再包一层
+    if let Some(path) = output_dump_path() {
+        dump_output(&path, cols, rows, diff_state, &payload);
+    }
     out.write_all(payload.as_bytes())?;
     out.flush()
 }
@@ -5712,6 +5780,37 @@ mod windows_input_tests {
             let out = machine.tick(100);
             assert_eq!(out, vec![TuiEvent::Newline], "Ctrl+Enter 必须插入换行");
         }
+    }
+}
+
+#[cfg(test)]
+mod output_dump_tests {
+    use super::dump_output;
+    use pi_tui::diff::DiffState;
+
+    /// 输出转储必须把 ESC/CR/LF 转义成可读文本，一帧一条记录头；否则排查时看不出
+    /// 到底哪个字节序列被 PTY 吃掉了。（`PI_TUI_OUTPUT_DUMP` 只在真机排查时开。）
+    #[test]
+    fn output_dump_escapes_control_bytes() {
+        let dir = tempfile::tempdir().expect("临时目录");
+        let path = dir.path().join("out.log");
+        let mut diff = DiffState::new();
+        diff.hardware_cursor_row = 4;
+        dump_output(
+            &path,
+            80,
+            24,
+            &diff,
+            "\u{1b}[2Kpi v0.87.1\u{1b}[0m\u{1b}]8;;\u{7}\r\nnext",
+        );
+        let text = std::fs::read_to_string(&path).expect("读取转储");
+        assert!(text.contains("size=80x24"), "{text}");
+        assert!(text.contains("bytes="), "{text}");
+        assert!(!text.contains('\u{1b}'), "转储里不应留控制字节：{text:?}");
+        assert!(
+            text.contains("\\e[2Kpi v0.87.1\\e[0m\\e]8;;\\a\\r\\n\nnext"),
+            "{text:?}"
+        );
     }
 }
 
