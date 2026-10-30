@@ -44,6 +44,7 @@ exec > >(tee "${PRECOMMIT_LOG}") 2>&1
 run "cargo fmt --check" cargo fmt --check
 run "cargo clippy" cargo clippy --workspace --all-targets -- -D warnings
 run "cargo test" cargo test --workspace
+run "只读目录（ref/ 与 TS 安装包）" node scripts/check-readonly-trees.mjs
 run "仓库约定（BOM/可执行位）" ./scripts/check-repo-conventions.sh
 run "lint-banned" ./scripts/lint-banned.sh
 run "check-spec-cites" python3 scripts/check-spec-cites.py
