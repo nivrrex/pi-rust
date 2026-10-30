@@ -4023,14 +4023,33 @@ fn marker_apply(state: &TuiState, cols: usize, lines: &mut [String]) {
     if bottom == 0 {
         return;
     }
-    let target = bottom - 1;
+    // 光标所在**逻辑行**（W2 真机缺陷：此前一律画在编辑器最后一行，Up/Down 把光标移到
+    // 上一行时画布不跟随 ⇒ 硬件光标/输入法候选框停在最后一行）。
+    let logical_lines = state.input.split('\n').count().max(1);
+    let cursor_byte = state
+        .input
+        .char_indices()
+        .nth(state.cursor)
+        .map_or(state.input.len(), |(index, _ch)| index);
+    let cursor_line = state.input[..cursor_byte]
+        .matches('\n')
+        .count()
+        .min(logical_lines - 1);
+    let target = bottom
+        .saturating_sub(logical_lines)
+        .saturating_add(cursor_line);
     // 真机反馈：原版在 `── ⠋ Working` 之前有一个反显方块（编辑器软件光标
     // `\x1b[7m \x1b[0m`，ref `editor.ts:594-596`）。早期按 mock 回放误判
     // "TS 该行没有反显"而跳过画光标，真机上就少了一个方块；实测去掉跳过逻辑
     // 不影响任何 golden（T05/T73/T75 文本与样式仍 same），故不再特判。
-    // 光标列：`state.cursor` 是**字符**下标；本行为输入的最后一段时，列即该段的字符偏移。
-    let last_segment_start = state.input.rfind('\n').map_or(0, |i| i + 1);
-    let col = state.cursor.saturating_sub(last_segment_start);
+    // 光标列：`state.cursor` 是**字符**下标；取光标**所在行**的起点（不是最后一行的）。
+    let line_start_char: usize = state
+        .input
+        .split('\n')
+        .take(cursor_line)
+        .map(|line| line.chars().count() + 1)
+        .sum();
+    let col = state.cursor.saturating_sub(line_start_char);
     let line = lines[target].clone();
     let byte_index = line
         .char_indices()
@@ -4735,5 +4754,109 @@ mod p8b_thinking_tests {
         // 第 2 行只有 2 列 ⇒ 夹到行尾 6）
         apply(&mut s, TuiEvent::HistoryPrev);
         assert_eq!(s.cursor, 6);
+    }
+}
+
+#[cfg(test)]
+mod w2_multiline_cursor_tests {
+    use super::{apply, TuiAction, TuiEvent, TuiState};
+
+    fn state() -> TuiState {
+        TuiState::new("0.87.1", "/tmp/w", "0.0%/128k (auto)")
+    }
+
+    /// W2：粘贴多行后光标应落在**末尾**，随后 Up 应在行间上移（ref `editor.ts:939-948`）。
+    #[test]
+    fn paste_then_up_moves_between_lines() {
+        let mut s = state();
+        let _ = apply(&mut s, TuiEvent::Paste("SYN-A\nSYN-B\nSYN-C\n".to_string()));
+        assert_eq!(s.input, "SYN-A\nSYN-B\nSYN-C\n");
+        assert_eq!(s.cursor, s.input.chars().count(), "粘贴后光标应在末尾");
+        let _ = apply(&mut s, TuiEvent::HistoryPrev);
+        // ref `editor.ts:939-948`：`moveCursor(-1, 0)` 保持列、夹到目标行长度；
+        // 光标在末行行首（列 0） ⇒ 上移后落在第三行行首。
+        assert_eq!(
+            s.cursor,
+            "SYN-A\nSYN-B\n".chars().count(),
+            "Up 应上移到第三行行首"
+        );
+        let _ = apply(&mut s, TuiEvent::HistoryPrev);
+        assert_eq!(s.cursor, "SYN-A\n".chars().count(), "再 Up 到第二行行首");
+        assert_eq!(apply(&mut s, TuiEvent::HistoryNext), TuiAction::Redraw);
+    }
+}
+
+#[cfg(test)]
+mod w2_marker_line_tests {
+    use super::{diff, render_all_marker, TuiState};
+
+    fn marker_row_col(state: &TuiState) -> (usize, usize) {
+        let lines = render_all_marker(state, 60, 30);
+        for (row, line) in lines.iter().enumerate() {
+            if let Some(index) = line.find(diff::CURSOR_MARKER) {
+                let before = &line[..index];
+                // 去掉行内 SGR/OSC 后算可见宽度
+                let stripped = strip_ansi(before);
+                return (row, super::display_width(&stripped));
+            }
+        }
+        panic!("没有找到光标标记");
+    }
+
+    fn strip_ansi(text: &str) -> String {
+        let mut out = String::new();
+        let mut chars = text.chars().peekable();
+        while let Some(ch) = chars.next() {
+            if ch == '\x1b' {
+                // 跳过 CSI / OSC
+                match chars.peek() {
+                    Some('[') => {
+                        chars.next();
+                        while let Some(next) = chars.next() {
+                            if ('\x40'..='\x7e').contains(&next) {
+                                break;
+                            }
+                        }
+                    }
+                    Some(']') => {
+                        chars.next();
+                        while let Some(next) = chars.next() {
+                            if next == '\x07' {
+                                break;
+                            }
+                        }
+                    }
+                    _ => {}
+                }
+                continue;
+            }
+            out.push(ch);
+        }
+        out
+    }
+
+    /// W2：粘贴 3 行后光标在最后一行；Up 一次后标记应**上移一行**（此前一直停在最后一行）。
+    #[test]
+    fn cursor_marker_follows_logical_line() {
+        let mut state = TuiState::new("0.0.0", "work", "0.0%/128k (auto)");
+        state.input = "SYN-A\nSYN-B\nSYN-C\n".to_string();
+        state.cursor = state.input.chars().count();
+        let (row_end, col_end) = marker_row_col(&state);
+        assert_eq!(col_end, 0, "末行行首");
+
+        state.cursor = "SYN-A\nSYN-B\n".chars().count(); // 第三行行首
+        let (row_line3, col_line3) = marker_row_col(&state);
+        assert_eq!(col_line3, 0);
+        assert_eq!(row_line3 + 1, row_end, "光标应比末行高一行");
+
+        state.cursor = "SYN-A\n".chars().count(); // 第二行行首
+        let (row_line2, _col) = marker_row_col(&state);
+        assert_eq!(row_line2 + 2, row_end, "光标应比末行高两行");
+
+        // 行内右移：列跟随
+        state.cursor = "SYN-A\n".chars().count() + 3;
+        let (row_line2b, col_line2b) = marker_row_col(&state);
+        assert_eq!(row_line2b, row_line2);
+        assert_eq!(col_line2b, 3);
     }
 }
