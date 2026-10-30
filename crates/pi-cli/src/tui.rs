@@ -5738,3 +5738,56 @@ mod tab_in_paste_tests {
         );
     }
 }
+
+#[cfg(test)]
+mod marker_split_tests {
+    use super::WindowsInput;
+    use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+    use pi_tui::TuiEvent;
+
+    fn press(code: KeyCode) -> KeyEvent {
+        KeyEvent::new(code, KeyModifiers::NONE)
+    }
+
+    fn feed_chars(
+        input: &mut WindowsInput,
+        text: &str,
+        start: u64,
+        gap: u64,
+    ) -> (Vec<TuiEvent>, u64) {
+        let mut events = Vec::new();
+        let mut now = start;
+        for ch in text.chars() {
+            events.extend(input.on_key(press(KeyCode::Char(ch)), now));
+            now += gap;
+        }
+        (events, now)
+    }
+
+    /// 用户真机：粘贴结束后 `ESC[201~` 被 ConPTY **分片**送达（分片间隔 > 120 ms 窗口），
+    /// 旧实现把已匹配的 `[20` 丢掉、把尾巴 `1~` 当正文插进编辑器。
+    #[test]
+    fn split_end_marker_must_not_leak_its_tail() {
+        let mut input = WindowsInput::default();
+        // 粘贴正文（走括号收集）
+        let mut events = Vec::new();
+        events.extend(input.on_key(press(KeyCode::Esc), 0));
+        let (more, now) = feed_chars(&mut input, "[200~ABC", 1, 1);
+        events.extend(more);
+        // 结束标记：ESC [ 2 0 送达后停 300 ms，再送 1 ~
+        events.extend(input.on_key(press(KeyCode::Esc), now));
+        let (more, now) = feed_chars(&mut input, "[20", now + 1, 1);
+        events.extend(more);
+        let (more, _now) = feed_chars(&mut input, "1~", now + 300, 1);
+        events.extend(more);
+        let text: String = events
+            .iter()
+            .map(|event| match event {
+                TuiEvent::Paste(text) => text.clone(),
+                TuiEvent::Char(ch) => ch.to_string(),
+                other => format!("<{other:?}>"),
+            })
+            .collect();
+        assert_eq!(text, "ABC", "尾部分片不应落成正文：{text:?}");
+    }
+}
