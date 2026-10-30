@@ -1059,6 +1059,7 @@ pub fn run(
     // 未设置时**零开销**（不建文件、不格式化）。
     let mut cursor_dump = cursor_dump_file();
     let mut frame_index: u64 = 0;
+    let frame_started = std::time::Instant::now();
     'main: loop {
         if sig_flag.load(Ordering::SeqCst) {
             break;
@@ -1080,7 +1081,16 @@ pub fn run(
             )?;
             if let Some(file) = cursor_dump.as_mut() {
                 frame_index += 1;
-                write_cursor_dump(file, frame_index, cols, rows, &diff_state, &state);
+                let elapsed_ms = frame_started.elapsed().as_millis() as u64;
+                write_cursor_dump(
+                    file,
+                    frame_index,
+                    elapsed_ms,
+                    cols,
+                    rows,
+                    &diff_state,
+                    &state,
+                );
             }
             dirty = false;
         }
@@ -3329,13 +3339,14 @@ fn cursor_dump_file() -> Option<std::fs::File> {
 /// 一帧的光标转储行（纯函数，便于单测；字段与 V6 的对比口径一致）。
 fn format_cursor_line(
     frame: u64,
+    elapsed_ms: u64,
     cols: usize,
     rows: usize,
     diff: &pi_tui::diff::DiffState,
     state: &TuiState,
 ) -> String {
     format!(
-        "frame={frame} size={cols}x{rows} hw_row={} col={} input={} busy={} thinking={}",
+        "frame={frame} ms={elapsed_ms} size={cols}x{rows} hw_row={} col={} input={} busy={} thinking={}",
         diff.hardware_cursor_row,
         diff.cursor_col,
         state.input.chars().count(),
@@ -3348,13 +3359,14 @@ fn format_cursor_line(
 fn write_cursor_dump(
     file: &mut std::fs::File,
     frame: u64,
+    elapsed_ms: u64,
     cols: usize,
     rows: usize,
     diff: &pi_tui::diff::DiffState,
     state: &TuiState,
 ) {
     use std::io::Write as _;
-    let line = format_cursor_line(frame, cols, rows, diff, state);
+    let line = format_cursor_line(frame, elapsed_ms, cols, rows, diff, state);
     let _ = writeln!(file, "{line}");
     let _ = file.flush();
 }
@@ -5548,10 +5560,10 @@ mod cursor_dump_tests {
         let mut state = TuiState::new("0.87.1", "/tmp/work", "0.0%/128k (auto)");
         state.input = "hi".to_string();
         state.thinking_level = "high".to_string();
-        let line = format_cursor_line(12, 100, 30, &diff, &state);
+        let line = format_cursor_line(12, 345, 100, 30, &diff, &state);
         assert_eq!(
             line,
-            "frame=12 size=100x30 hw_row=7 col=3 input=2 busy=false thinking=high"
+            "frame=12 ms=345 size=100x30 hw_row=7 col=3 input=2 busy=false thinking=high"
         );
     }
 }
