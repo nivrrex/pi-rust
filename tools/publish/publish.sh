@@ -39,7 +39,7 @@ while read -r want name; do
   got=$(sha256sum "$HERE/$name" | awk '{print $1}')
   [ "$want" = "$got" ] || die "MANIFEST 与产物不一致：$name"
 done <<EOF2
-$(awk '/^artifacts:/{f=1;next} f&&NF{print $2, $3}' "$HERE/MANIFEST")
+$(awk '/^artifacts:/{f=1;next} f&&NF{print $1, $2}' "$HERE/MANIFEST")
 EOF2
 printf '✓ 备份 bundle、SHA256SUMS、四份产物、git bundle 齐备\n'
 
