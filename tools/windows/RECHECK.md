@@ -9,8 +9,8 @@ pi-rs-windows-amd64.exe --version
 
 | 期望 | 说明 |
 |---|---|
-| sha256 = `6b814610aacea2c1…`（完整值见 Release 附件 `SHA256SUMS`） | 与附件清单不一致即不要继续 |
-| 第二行 `built <UTC> commit <sha>` | 应为 `commit 7f641f3`（或发布时更新的 commit），且**不含 `-dirty`** |
+| sha256 = `03aa14e35d994211…`（完整值见 Release 附件 `SHA256SUMS`） | 与附件清单不一致即不要继续 |
+| 第二行 `built <UTC> commit <sha>` | 应为 `commit 850dd57`（或发布时更新的 commit），且**不含 `-dirty`** |
 
 差异说明：Windows 侧自编版本用 MSVC/git-bash 工具链、可能带 `-dirty`；发布用版本是在 Linux 上用
 `x86_64-pc-windows-gnu`（rustc 1.99.0 + mingw-w64 GCC 12-win32）**交叉编译**的干净构建。
@@ -18,7 +18,7 @@ pi-rs-windows-amd64.exe --version
 
 ---
 
-Windows 侧自编参考构建（非发布件，win-fixes 分支，已合入上游 master）：`commit 0164422` / sha256 `be48e04d430cf98f…` / `built 2026-10-30T12:44:33Z`；RECHECK 第 1–11 项在这条线上复跑通过（第 1–5/8/10 项在合并后重跑，6/7/9/11 项在 e4ff244 上跑且代码一致）。上游发布件值见上表。
+Windows 侧自编参考构建（非发布件，win-fixes 分支，已合入上游 master）：`commit 850dd57` / sha256 `03aa14e35d994211…` / `built 2026-10-30T12:44:33Z`；RECHECK 第 1–11 项在这条线上复跑通过（第 1–5/8/10 项在合并后重跑，6/7/9/11 项在 e4ff244 上跑且代码一致）。上游发布件值见上表。
 
 ## 复跑核心用例（沿用 Windows 侧已有的同一套 conhost/ConPTY 脚本）
 
