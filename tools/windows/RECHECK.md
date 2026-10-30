@@ -18,6 +18,8 @@ pi-rs-windows-amd64.exe --version
 
 ---
 
+Windows 侧自编参考构建（非发布件）：`commit 3318cf6` / sha256 `ee394db37ca91754…` / `built 2026-10-30T10:44:55Z`；本批新增的第 10、11 项就是在这份构建上跑的。
+
 ## 复跑核心用例（沿用 Windows 侧已有的同一套 conhost/ConPTY 脚本）
 
 | # | 用例 | 通过标准 |
