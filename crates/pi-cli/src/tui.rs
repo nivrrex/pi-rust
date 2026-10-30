@@ -663,7 +663,12 @@ pub fn startup_bytes() -> &'static [u8] {
     // 没有解析方，因此在 Windows 上也不发 kitty 查询/推送。
     #[cfg(windows)]
     {
-        b"\x1b[?2004h\x1b[?2031h\x1b[?996n\x1b[?25l"
+        // **不在 Windows 上请求括号粘贴**（P8e-17）：ConPTY 会把 wezterm 回送的
+        // `ESC[200~`/`ESC[201~` 拆坏——真机事件日志（`PI_TUI_EVENT_DUMP`）里整段粘贴
+        // 只有按键、**一个 Esc 都没有**，末尾却多出 `1~`：说明 `ESC[20` 被 ConPTY 在
+        // 我们之下吞掉、`1~` 当成普通字符送进来，应用侧无法阻止。
+        // 不请求标记时终端只发纯文本，交给 `PasteBurst` 合批（conhost 通道本来就这么走）。
+        b"\x1b[?2031h\x1b[?996n\x1b[?25l"
     }
     #[cfg(not(windows))]
     {
@@ -3731,7 +3736,17 @@ mod r3_wiring_tests {
             !r3.contains("\x1b[?1049h"),
             "r3 启动不应进入备用屏幕：{r3:?}"
         );
-        assert!(r3.contains("\x1b[?2004h"), "r3 启动应开启括号粘贴：{r3:?}");
+        // Unix 请求括号粘贴；Windows **不请求**（ConPTY 会把标记拆坏并漏出 `1~`）。
+        #[cfg(not(windows))]
+        assert!(
+            r3.contains("\x1b[?2004h"),
+            "Unix 启动应开启括号粘贴：{r3:?}"
+        );
+        #[cfg(windows)]
+        assert!(
+            !r3.contains("\x1b[?2004h"),
+            "Windows 启动不应请求括号粘贴（ConPTY 会拆坏标记）：{r3:?}"
+        );
         // P7-6ae/S2b：kitty 查询三元组已接线（应答由协商层消费），顺序 2004h → kitty → 25l。
         let paste_at = r3.find("\x1b[?2004h").expect("缺 2004h");
         let hide_at = r3.find("\x1b[?25l").expect("缺 hideCursor");
@@ -3742,6 +3757,7 @@ mod r3_wiring_tests {
             let kitty_at = r3
                 .find("\x1b[>7u\x1b[?u\x1b[c")
                 .expect("缺 kitty 查询三元组");
+            let paste_at = r3.find("\x1b[?2004h").expect("缺 2004h");
             assert!(
                 paste_at < kitty_at && kitty_at < hide_at,
                 "启动顺序应为 2004h → kitty → 25l：{r3:?}"
