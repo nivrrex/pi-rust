@@ -4304,6 +4304,13 @@ impl WindowsInput {
                 }
                 // 暂扣的 Esc 被判定"不是标记"：先把它放出去，再处理当前字符
                 BracketOut::EscReleased => return vec![pi_tui::TuiEvent::Escape],
+                // 标记残片按正文交回（不静默丢字）。这里是"前缀 + 一个非字符键"的交错，
+                // 概率极低；正文优先插入，该按键丢弃（比把 `[20` 漏进正文安全）。
+                BracketOut::TextThen(text, _input) => {
+                    let mut emitted = self.burst.take_all();
+                    emitted.push(pi_tui::TuiEvent::Paste(text));
+                    return emitted;
+                }
                 BracketOut::Pass(_) => {}
             }
         }
