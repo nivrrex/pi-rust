@@ -67,6 +67,25 @@ default_branch() {
     | awk '/^ref:/{sub("refs/heads/","",$2); print $2; exit}'
 }
 
+# 带凭据的 git push：令牌只经环境变量交给 GIT_ASKPASS 助手脚本，
+# 不出现在 argv / 命令行历史 / 仓库配置里（`https://user:token@` 会被 ps 看到）。
+git_push_auth() {
+  askpass=$(mktemp)
+  cat > "$askpass" <<'ASKPASS'
+#!/bin/sh
+case "$1" in
+  *Username*) printf '%s\n' "x-access-token" ;;
+  *Password*) printf '%s\n' "${GITHUB_TOKEN:-}" ;;
+esac
+ASKPASS
+  chmod 700 "$askpass"
+  GIT_ASKPASS="$askpass" GIT_TERMINAL_PROMPT=0 GITHUB_TOKEN="$GITHUB_TOKEN" \
+    git -C "$HERE/repo" push --force "https://github.com/$REPO" "$@"
+  status=$?
+  rm -f "$askpass"
+  return $status
+}
+
 gh_up() { # upload <upload_url> <file>
   printf 'header = "Authorization: token %s"\n' "$GITHUB_TOKEN" \
     | curl -sS -K - -X POST -H 'Content-Type: application/octet-stream' \
@@ -80,8 +99,7 @@ else
   BRANCH=$(default_branch)
   [ -n "$BRANCH" ] || die "读不到远端默认分支（API 与 ls-remote 都失败）"
   printf '  远端默认分支：%s\n' "$BRANCH"
-  git -C "$HERE/repo" push --force "https://github.com/$REPO" \
-    "refs/heads/publish:refs/heads/$BRANCH" \
+  git_push_auth "refs/heads/publish:refs/heads/$BRANCH" \
     || die "强推失败。回滚：git clone $BACKUP_BUNDLE 后按其中的 refs/heads/master 恢复"
   printf '✓ main 已更新\n'
 fi
@@ -90,7 +108,7 @@ step "2/7 移动 tag $TAG"
 if [ "$DRY_RUN" = 1 ]; then
   printf '（DRY_RUN：跳过 git push tag）\n'
 else
-  git -C "$HERE/repo" push --force "https://github.com/$REPO" "refs/tags/$TAG:refs/tags/$TAG" \
+  git_push_auth "refs/tags/$TAG:refs/tags/$TAG" \
     || die "tag 推送失败。回滚：以备份 bundle 中的 tag 为准强推回去"
   printf '✓ tag 已指向新提交\n'
 fi
