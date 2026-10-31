@@ -1,7 +1,8 @@
 # H1：4096 字节切分假设的机制实证 —— **不成立**
 
 日期 2026-10-31；环境 Windows 10 LTSC + WezTerm `20240203-110809-5046fc22`。
-实验程序在仓库外（`C:\Users\Admin\pi-rs-wintest\h1\`），**不含任何 pi-rs 代码**；
+实验程序已入库到 `tools/windows/h1/`（开发时的副本在 `%USERPROFILE%\pi-rs-wintest\h1\`），
+**不含任何 pi-rs 代码**；
 测试文本全为合成内容（`A`/`L` 填充、占位行），未读取任何凭据。
 
 ## 一、结论（先说）
