@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""P8b：TUI 的会话级 auto-retry（ref `agent-session.ts:978-990/1503`）。
+"""TUI 的会话级 auto-retry（对齐上游 `agent-session.ts:978-990/1503` 的行为）。
 
 mock 的流在第 2 块后断开（可重试错误），断言：
 - 状态行出现 `Retrying (1/3) in 2s... (escape to cancel)`（ref `status-indicator.ts:54-63` 的文案）；
@@ -11,7 +11,7 @@ mock 的流在第 2 块后断开（可重试错误），断言：
 """
 import fcntl, json, os, pty, re, select, shutil, struct, subprocess, sys, termios, time
 
-REPO = "/root/Desktop/pi-rust"
+REPO = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 BINARY = os.environ.get("PI_RS_BIN", f"{REPO}/target/debug/pi-rs")
 BASE = "/tmp/p8b-retry"
 CFG, SESS, HOME, WORK = (os.path.join(BASE, n) for n in ("cfg", "sess", "home", "work"))

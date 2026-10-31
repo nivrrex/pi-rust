@@ -14,7 +14,7 @@
 | `mode` | string | 否 | `print`（默认）或 `rpc`；rpc 场景由 runner 通过 stdin 驱动 |
 | `commands` | string[] | 否 | `mode: "rpc"` 时的 stdin 命令序列，见下 |
 | `files` | object | 否 | 运行前在临时工作目录里预置的文件：`{"路径": "内容"}` |
-| `tui` | object | 否 | **TUI 场景**：`{"cols":100,"rows":30,"steps":[...],"snapshots":["name"]}`。`cols`/`rows` 为 1..1000 的整数；`steps` 非空，动作 ∈ `waitScreen`（配 `contains`/`timeoutMs`）、`waitStable`（配 `quietMs`/`timeoutMs`）、`type`（配 `text`/可选 `delayMs`）、`snapshot`（配 `name`）、`delay`（配 `ms`：显式等待，TUI 等模型回复时无输出、`waitStable` 会过早判稳）、`waitExit`；`snapshots` 必须非空且与 `snapshot` 步骤的 `name` 一一对应。未知键、非法尺寸、未知动作、快照不匹配、缺 `steps` 均被 `check-scenarios.mjs` 拒绝（与 `deny_unknown_fields` 同精神）。仅 TUI 场景需要；普通场景不得出现该键。 |
+| `tui` | object | 否 | **TUI 场景**：`{"cols":100,"rows":30,"steps":[...],"snapshots":["name"]}`。`cols`/`rows` 为 1..1000 的整数；`steps` 非空，动作 ∈ `waitScreen`（配 `contains`/`timeoutMs`）、`waitStable`（配 `quietMs`/`timeoutMs`）、`type`（配 `text`/可选 `delayMs`）、`snapshot`（配 `name`）、`delay`（配 `ms`：显式等待，TUI 等模型回复时无输出、`waitStable` 会过早判稳）、`waitExit`；`snapshots` 必须非空且与 `snapshot` 步骤的 `name` 一一对应。未知键、非法尺寸、未知动作、快照不匹配、缺 `steps` 均被场景校验器拒绝（与 `deny_unknown_fields` 同精神）。仅 TUI 场景需要；普通场景不得出现该键。 |
 | `responses` | object[] | 是 | 按请求顺序回放；用完以后重复最后一条 |
 
 ## responses 的一���
@@ -44,13 +44,13 @@
 所有阶段都跑 TS，于是录出来的是 TS→TS→TS；对拍时（不设该变量）按场景里写的**绝对**实现跑，例如 X01 = TS（主）→ pi-rs → TS。
 这样比较的就是"Rust 的续写结果与 TS 的续写结果是否无法区分"。
 
-条目键名只允许 `prompt`/`cliArgs`/`impl`，写错会被 `scripts/check-scenarios.mjs` 拒绝。
+条目键名只允许 `prompt`/`cliArgs`/`impl`，写错会被场景校验器拒绝。
 
 ## rpc 场景的 commands
 
 `commands` 是逐行发送的 stdin 命令（严格 JSONL）。runner 会在每条命令后等待
 `gateAfterChunks` 闸门被释放，除非该场景没有闸门。支持 `abort`、`prompt`、`steer`、
-`follow_up`、`get_state` 等，见 `spec/h-rpc.md`。
+`follow_up`、`get_state` 等。
 
 ## 例子
 
