@@ -1,0 +1,60 @@
+{
+  "id": "T85-paste12-w100",
+  "description": "P8e-14：粘贴 12 行（100x30）不铺满屏，折叠/展开与 TS 对齐",
+  "provider": "openai-completions",
+  "model": "mock-model",
+  "mode": "print",
+  "prompt": "say hi",
+  "files": {
+    "AGENTS.md": "# 项目规则\n\n- 项目级：改代码前先跑测试。\n"
+  },
+  "globalFiles": {
+    "CLAUDE.md": "# 全局规则\n\n- 全局级：回答用中文。\n"
+  },
+  "tui": {
+    "cols": 100,
+    "rows": 30,
+    "snapshots": [
+      "pasted"
+    ],
+    "steps": [
+      {
+        "action": "waitScreen",
+        "contains": "Pi can explain",
+        "timeoutMs": 30000
+      },
+      {
+        "action": "waitStable",
+        "quietMs": 1200,
+        "timeoutMs": 25000
+      },
+      {
+        "action": "type",
+        "text": "\u001b[200~L1\rL2\rL3\rL4\rL5\rL6\rL7\rL8\rL9\rL10\rL11\rL12\r\u001b[201~"
+      },
+      {
+        "action": "waitStable",
+        "quietMs": 1000,
+        "timeoutMs": 20000
+      },
+      {
+        "action": "snapshot",
+        "name": "pasted"
+      },
+      {
+        "action": "type",
+        "text": "\u0004"
+      },
+      {
+        "action": "waitExit",
+        "timeoutMs": 20000
+      }
+    ]
+  },
+  "responses": [
+    {
+      "file": "fixtures/sse/openai/text-basic.sse"
+    }
+  ],
+  "settings": {}
+}

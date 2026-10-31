@@ -1,0 +1,80 @@
+{
+  "name": "image-in-tool-result",
+  "input": {
+    "systemPrompt": "sys",
+    "hasTools": false,
+    "reasoning": null,
+    "cacheRetention": null
+  },
+  "error": null,
+  "path": "/v1/messages?beta=true",
+  "headers": {
+    "anthropic-version": "2023-06-01",
+    "x-api-key": "mock-key",
+    "content-type": "application/json"
+  },
+  "body": {
+    "model": "mock-model",
+    "messages": [
+      {
+        "role": "user",
+        "content": [
+          {
+            "type": "text",
+            "text": "look"
+          }
+        ]
+      },
+      {
+        "role": "assistant",
+        "content": [
+          {
+            "type": "tool_use",
+            "id": "call_1",
+            "name": "read",
+            "input": {
+              "path": "p.png"
+            }
+          }
+        ]
+      },
+      {
+        "role": "user",
+        "content": [
+          {
+            "type": "tool_result",
+            "tool_use_id": "call_1",
+            "content": [
+              {
+                "type": "text",
+                "text": "[image/png]"
+              },
+              {
+                "type": "image",
+                "source": {
+                  "type": "base64",
+                  "data": "iVBORw0KGgo="
+                }
+              }
+            ],
+            "is_error": false,
+            "cache_control": {
+              "type": "ephemeral"
+            }
+          }
+        ]
+      }
+    ],
+    "max_tokens": 4096,
+    "stream": true,
+    "system": [
+      {
+        "type": "text",
+        "text": "sys",
+        "cache_control": {
+          "type": "ephemeral"
+        }
+      }
+    ]
+  }
+}

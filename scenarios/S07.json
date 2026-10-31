@@ -1,0 +1,28 @@
+{
+  "id": "S07",
+  "description": "429 + Retry-After 后重试成功",
+  "provider": "openai-completions",
+  "model": "mock-model",
+  "mode": "print",
+  "prompt": "say hi",
+  "responses": [
+    {
+      "file": "fixtures/sse/openai/error-429.sse",
+      "status": 429,
+      "retryAfter": "1"
+    },
+    {
+      "file": "fixtures/sse/openai/text-basic.sse"
+    }
+  ],
+  "script": [
+    {
+      "action": "waitExit"
+    }
+  ],
+  "expectInjections": {
+    "gateHits": 0,
+    "disconnects": 0,
+    "retryAfterSent": 1
+  }
+}

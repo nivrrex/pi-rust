@@ -1,0 +1,136 @@
+{
+  "id": "T61-tree-page-long",
+  "description": "P7-7e：/tree 在 43 条条目上的 ←/→ 翻页（步进 = 终端行数 30）",
+  "provider": "openai-completions",
+  "model": "mock-model",
+  "mode": "tui",
+  "prompt": "say hi",
+  "files": {
+    "AGENTS.md": "# 项目规则\n\n- 项目级：改代码前先跑测试。\n"
+  },
+  "globalFiles": {},
+  "sessionFiles": {
+    "fileName": "2026-01-01T00-00-00-000Z_01a1694e-seeded.jsonl",
+    "content": "{\"type\":\"session\",\"version\":3,\"id\":\"01a1694e-seeded\",\"timestamp\":\"2026-01-01T00:00:00.000Z\",\"cwd\":\"<CWD>\"}\n{\"type\":\"model_change\",\"id\":\"e1\",\"parentId\":null,\"timestamp\":\"2026-01-01T00:00:00.000Z\",\"provider\":\"openai-completions\",\"modelId\":\"mock-model\"}\n{\"type\":\"thinking_level_change\",\"id\":\"t1\",\"parentId\":\"e1\",\"timestamp\":\"2026-01-01T00:00:00.001Z\",\"thinkingLevel\":\"off\"}\n{\"type\":\"message\",\"id\":\"u0\",\"parentId\":\"t1\",\"timestamp\":\"2026-01-01T00:01:00.000Z\",\"message\":{\"role\":\"user\",\"content\":\"msg 00\",\"timestamp\":1767225660000}}\n{\"type\":\"message\",\"id\":\"a0\",\"parentId\":\"u0\",\"timestamp\":\"2026-01-01T00:01:01.000Z\",\"message\":{\"role\":\"assistant\",\"content\":[{\"type\":\"text\",\"text\":\"reply 00\"}],\"api\":\"openai-completions\",\"provider\":\"openai-completions\",\"model\":\"mock-model\",\"usage\":{\"input\":10,\"output\":2,\"cacheRead\":0,\"cacheWrite\":0,\"reasoning\":0,\"totalTokens\":12,\"cost\":{\"input\":9.999999999999999e-06,\"output\":4e-06,\"cacheRead\":0,\"cacheWrite\":0,\"total\":1.3999999999999998e-05}},\"stopReason\":\"stop\",\"timestamp\":1767225661000}}\n{\"type\":\"message\",\"id\":\"u1\",\"parentId\":\"a0\",\"timestamp\":\"2026-01-01T00:01:00.000Z\",\"message\":{\"role\":\"user\",\"content\":\"msg 01\",\"timestamp\":1767225660001}}\n{\"type\":\"message\",\"id\":\"a1\",\"parentId\":\"u1\",\"timestamp\":\"2026-01-01T00:01:01.000Z\",\"message\":{\"role\":\"assistant\",\"content\":[{\"type\":\"text\",\"text\":\"reply 01\"}],\"api\":\"openai-completions\",\"provider\":\"openai-completions\",\"model\":\"mock-model\",\"usage\":{\"input\":10,\"output\":2,\"cacheRead\":0,\"cacheWrite\":0,\"reasoning\":0,\"totalTokens\":12,\"cost\":{\"input\":9.999999999999999e-06,\"output\":4e-06,\"cacheRead\":0,\"cacheWrite\":0,\"total\":1.3999999999999998e-05}},\"stopReason\":\"stop\",\"timestamp\":1767225661001}}\n{\"type\":\"message\",\"id\":\"u2\",\"parentId\":\"a1\",\"timestamp\":\"2026-01-01T00:01:00.000Z\",\"message\":{\"role\":\"user\",\"content\":\"msg 02\",\"timestamp\":1767225660002}}\n{\"type\":\"message\",\"id\":\"a2\",\"parentId\":\"u2\",\"timestamp\":\"2026-01-01T00:01:01.000Z\",\"message\":{\"role\":\"assistant\",\"content\":[{\"type\":\"text\",\"text\":\"reply 02\"}],\"api\":\"openai-completions\",\"provider\":\"openai-completions\",\"model\":\"mock-model\",\"usage\":{\"input\":10,\"output\":2,\"cacheRead\":0,\"cacheWrite\":0,\"reasoning\":0,\"totalTokens\":12,\"cost\":{\"input\":9.999999999999999e-06,\"output\":4e-06,\"cacheRead\":0,\"cacheWrite\":0,\"total\":1.3999999999999998e-05}},\"stopReason\":\"stop\",\"timestamp\":1767225661002}}\n{\"type\":\"message\",\"id\":\"u3\",\"parentId\":\"a2\",\"timestamp\":\"2026-01-01T00:01:00.000Z\",\"message\":{\"role\":\"user\",\"content\":\"msg 03\",\"timestamp\":1767225660003}}\n{\"type\":\"message\",\"id\":\"a3\",\"parentId\":\"u3\",\"timestamp\":\"2026-01-01T00:01:01.000Z\",\"message\":{\"role\":\"assistant\",\"content\":[{\"type\":\"text\",\"text\":\"reply 03\"}],\"api\":\"openai-completions\",\"provider\":\"openai-completions\",\"model\":\"mock-model\",\"usage\":{\"input\":10,\"output\":2,\"cacheRead\":0,\"cacheWrite\":0,\"reasoning\":0,\"totalTokens\":12,\"cost\":{\"input\":9.999999999999999e-06,\"output\":4e-06,\"cacheRead\":0,\"cacheWrite\":0,\"total\":1.3999999999999998e-05}},\"stopReason\":\"stop\",\"timestamp\":1767225661003}}\n{\"type\":\"message\",\"id\":\"u4\",\"parentId\":\"a3\",\"timestamp\":\"2026-01-01T00:01:00.000Z\",\"message\":{\"role\":\"user\",\"content\":\"msg 04\",\"timestamp\":1767225660004}}\n{\"type\":\"message\",\"id\":\"a4\",\"parentId\":\"u4\",\"timestamp\":\"2026-01-01T00:01:01.000Z\",\"message\":{\"role\":\"assistant\",\"content\":[{\"type\":\"text\",\"text\":\"reply 04\"}],\"api\":\"openai-completions\",\"provider\":\"openai-completions\",\"model\":\"mock-model\",\"usage\":{\"input\":10,\"output\":2,\"cacheRead\":0,\"cacheWrite\":0,\"reasoning\":0,\"totalTokens\":12,\"cost\":{\"input\":9.999999999999999e-06,\"output\":4e-06,\"cacheRead\":0,\"cacheWrite\":0,\"total\":1.3999999999999998e-05}},\"stopReason\":\"stop\",\"timestamp\":1767225661004}}\n{\"type\":\"message\",\"id\":\"u5\",\"parentId\":\"a4\",\"timestamp\":\"2026-01-01T00:01:00.000Z\",\"message\":{\"role\":\"user\",\"content\":\"msg 05\",\"timestamp\":1767225660005}}\n{\"type\":\"message\",\"id\":\"a5\",\"parentId\":\"u5\",\"timestamp\":\"2026-01-01T00:01:01.000Z\",\"message\":{\"role\":\"assistant\",\"content\":[{\"type\":\"text\",\"text\":\"reply 05\"}],\"api\":\"openai-completions\",\"provider\":\"openai-completions\",\"model\":\"mock-model\",\"usage\":{\"input\":10,\"output\":2,\"cacheRead\":0,\"cacheWrite\":0,\"reasoning\":0,\"totalTokens\":12,\"cost\":{\"input\":9.999999999999999e-06,\"output\":4e-06,\"cacheRead\":0,\"cacheWrite\":0,\"total\":1.3999999999999998e-05}},\"stopReason\":\"stop\",\"timestamp\":1767225661005}}\n{\"type\":\"message\",\"id\":\"u6\",\"parentId\":\"a5\",\"timestamp\":\"2026-01-01T00:01:00.000Z\",\"message\":{\"role\":\"user\",\"content\":\"msg 06\",\"timestamp\":1767225660006}}\n{\"type\":\"message\",\"id\":\"a6\",\"parentId\":\"u6\",\"timestamp\":\"2026-01-01T00:01:01.000Z\",\"message\":{\"role\":\"assistant\",\"content\":[{\"type\":\"text\",\"text\":\"reply 06\"}],\"api\":\"openai-completions\",\"provider\":\"openai-completions\",\"model\":\"mock-model\",\"usage\":{\"input\":10,\"output\":2,\"cacheRead\":0,\"cacheWrite\":0,\"reasoning\":0,\"totalTokens\":12,\"cost\":{\"input\":9.999999999999999e-06,\"output\":4e-06,\"cacheRead\":0,\"cacheWrite\":0,\"total\":1.3999999999999998e-05}},\"stopReason\":\"stop\",\"timestamp\":1767225661006}}\n{\"type\":\"message\",\"id\":\"u7\",\"parentId\":\"a6\",\"timestamp\":\"2026-01-01T00:01:00.000Z\",\"message\":{\"role\":\"user\",\"content\":\"msg 07\",\"timestamp\":1767225660007}}\n{\"type\":\"message\",\"id\":\"a7\",\"parentId\":\"u7\",\"timestamp\":\"2026-01-01T00:01:01.000Z\",\"message\":{\"role\":\"assistant\",\"content\":[{\"type\":\"text\",\"text\":\"reply 07\"}],\"api\":\"openai-completions\",\"provider\":\"openai-completions\",\"model\":\"mock-model\",\"usage\":{\"input\":10,\"output\":2,\"cacheRead\":0,\"cacheWrite\":0,\"reasoning\":0,\"totalTokens\":12,\"cost\":{\"input\":9.999999999999999e-06,\"output\":4e-06,\"cacheRead\":0,\"cacheWrite\":0,\"total\":1.3999999999999998e-05}},\"stopReason\":\"stop\",\"timestamp\":1767225661007}}\n{\"type\":\"message\",\"id\":\"u8\",\"parentId\":\"a7\",\"timestamp\":\"2026-01-01T00:01:00.000Z\",\"message\":{\"role\":\"user\",\"content\":\"msg 08\",\"timestamp\":1767225660008}}\n{\"type\":\"message\",\"id\":\"a8\",\"parentId\":\"u8\",\"timestamp\":\"2026-01-01T00:01:01.000Z\",\"message\":{\"role\":\"assistant\",\"content\":[{\"type\":\"text\",\"text\":\"reply 08\"}],\"api\":\"openai-completions\",\"provider\":\"openai-completions\",\"model\":\"mock-model\",\"usage\":{\"input\":10,\"output\":2,\"cacheRead\":0,\"cacheWrite\":0,\"reasoning\":0,\"totalTokens\":12,\"cost\":{\"input\":9.999999999999999e-06,\"output\":4e-06,\"cacheRead\":0,\"cacheWrite\":0,\"total\":1.3999999999999998e-05}},\"stopReason\":\"stop\",\"timestamp\":1767225661008}}\n{\"type\":\"message\",\"id\":\"u9\",\"parentId\":\"a8\",\"timestamp\":\"2026-01-01T00:01:00.000Z\",\"message\":{\"role\":\"user\",\"content\":\"msg 09\",\"timestamp\":1767225660009}}\n{\"type\":\"message\",\"id\":\"a9\",\"parentId\":\"u9\",\"timestamp\":\"2026-01-01T00:01:01.000Z\",\"message\":{\"role\":\"assistant\",\"content\":[{\"type\":\"text\",\"text\":\"reply 09\"}],\"api\":\"openai-completions\",\"provider\":\"openai-completions\",\"model\":\"mock-model\",\"usage\":{\"input\":10,\"output\":2,\"cacheRead\":0,\"cacheWrite\":0,\"reasoning\":0,\"totalTokens\":12,\"cost\":{\"input\":9.999999999999999e-06,\"output\":4e-06,\"cacheRead\":0,\"cacheWrite\":0,\"total\":1.3999999999999998e-05}},\"stopReason\":\"stop\",\"timestamp\":1767225661009}}\n{\"type\":\"message\",\"id\":\"u10\",\"parentId\":\"a9\",\"timestamp\":\"2026-01-01T00:01:00.000Z\",\"message\":{\"role\":\"user\",\"content\":\"msg 10\",\"timestamp\":1767225660010}}\n{\"type\":\"message\",\"id\":\"a10\",\"parentId\":\"u10\",\"timestamp\":\"2026-01-01T00:01:01.000Z\",\"message\":{\"role\":\"assistant\",\"content\":[{\"type\":\"text\",\"text\":\"reply 10\"}],\"api\":\"openai-completions\",\"provider\":\"openai-completions\",\"model\":\"mock-model\",\"usage\":{\"input\":10,\"output\":2,\"cacheRead\":0,\"cacheWrite\":0,\"reasoning\":0,\"totalTokens\":12,\"cost\":{\"input\":9.999999999999999e-06,\"output\":4e-06,\"cacheRead\":0,\"cacheWrite\":0,\"total\":1.3999999999999998e-05}},\"stopReason\":\"stop\",\"timestamp\":1767225661010}}\n{\"type\":\"message\",\"id\":\"u11\",\"parentId\":\"a10\",\"timestamp\":\"2026-01-01T00:01:00.000Z\",\"message\":{\"role\":\"user\",\"content\":\"msg 11\",\"timestamp\":1767225660011}}\n{\"type\":\"message\",\"id\":\"a11\",\"parentId\":\"u11\",\"timestamp\":\"2026-01-01T00:01:01.000Z\",\"message\":{\"role\":\"assistant\",\"content\":[{\"type\":\"text\",\"text\":\"reply 11\"}],\"api\":\"openai-completions\",\"provider\":\"openai-completions\",\"model\":\"mock-model\",\"usage\":{\"input\":10,\"output\":2,\"cacheRead\":0,\"cacheWrite\":0,\"reasoning\":0,\"totalTokens\":12,\"cost\":{\"input\":9.999999999999999e-06,\"output\":4e-06,\"cacheRead\":0,\"cacheWrite\":0,\"total\":1.3999999999999998e-05}},\"stopReason\":\"stop\",\"timestamp\":1767225661011}}\n{\"type\":\"message\",\"id\":\"u12\",\"parentId\":\"a11\",\"timestamp\":\"2026-01-01T00:01:00.000Z\",\"message\":{\"role\":\"user\",\"content\":\"msg 12\",\"timestamp\":1767225660012}}\n{\"type\":\"message\",\"id\":\"a12\",\"parentId\":\"u12\",\"timestamp\":\"2026-01-01T00:01:01.000Z\",\"message\":{\"role\":\"assistant\",\"content\":[{\"type\":\"text\",\"text\":\"reply 12\"}],\"api\":\"openai-completions\",\"provider\":\"openai-completions\",\"model\":\"mock-model\",\"usage\":{\"input\":10,\"output\":2,\"cacheRead\":0,\"cacheWrite\":0,\"reasoning\":0,\"totalTokens\":12,\"cost\":{\"input\":9.999999999999999e-06,\"output\":4e-06,\"cacheRead\":0,\"cacheWrite\":0,\"total\":1.3999999999999998e-05}},\"stopReason\":\"stop\",\"timestamp\":1767225661012}}\n{\"type\":\"message\",\"id\":\"u13\",\"parentId\":\"a12\",\"timestamp\":\"2026-01-01T00:01:00.000Z\",\"message\":{\"role\":\"user\",\"content\":\"msg 13\",\"timestamp\":1767225660013}}\n{\"type\":\"message\",\"id\":\"a13\",\"parentId\":\"u13\",\"timestamp\":\"2026-01-01T00:01:01.000Z\",\"message\":{\"role\":\"assistant\",\"content\":[{\"type\":\"text\",\"text\":\"reply 13\"}],\"api\":\"openai-completions\",\"provider\":\"openai-completions\",\"model\":\"mock-model\",\"usage\":{\"input\":10,\"output\":2,\"cacheRead\":0,\"cacheWrite\":0,\"reasoning\":0,\"totalTokens\":12,\"cost\":{\"input\":9.999999999999999e-06,\"output\":4e-06,\"cacheRead\":0,\"cacheWrite\":0,\"total\":1.3999999999999998e-05}},\"stopReason\":\"stop\",\"timestamp\":1767225661013}}\n{\"type\":\"message\",\"id\":\"u14\",\"parentId\":\"a13\",\"timestamp\":\"2026-01-01T00:01:00.000Z\",\"message\":{\"role\":\"user\",\"content\":\"msg 14\",\"timestamp\":1767225660014}}\n{\"type\":\"message\",\"id\":\"a14\",\"parentId\":\"u14\",\"timestamp\":\"2026-01-01T00:01:01.000Z\",\"message\":{\"role\":\"assistant\",\"content\":[{\"type\":\"text\",\"text\":\"reply 14\"}],\"api\":\"openai-completions\",\"provider\":\"openai-completions\",\"model\":\"mock-model\",\"usage\":{\"input\":10,\"output\":2,\"cacheRead\":0,\"cacheWrite\":0,\"reasoning\":0,\"totalTokens\":12,\"cost\":{\"input\":9.999999999999999e-06,\"output\":4e-06,\"cacheRead\":0,\"cacheWrite\":0,\"total\":1.3999999999999998e-05}},\"stopReason\":\"stop\",\"timestamp\":1767225661014}}\n{\"type\":\"message\",\"id\":\"u15\",\"parentId\":\"a14\",\"timestamp\":\"2026-01-01T00:01:00.000Z\",\"message\":{\"role\":\"user\",\"content\":\"msg 15\",\"timestamp\":1767225660015}}\n{\"type\":\"message\",\"id\":\"a15\",\"parentId\":\"u15\",\"timestamp\":\"2026-01-01T00:01:01.000Z\",\"message\":{\"role\":\"assistant\",\"content\":[{\"type\":\"text\",\"text\":\"reply 15\"}],\"api\":\"openai-completions\",\"provider\":\"openai-completions\",\"model\":\"mock-model\",\"usage\":{\"input\":10,\"output\":2,\"cacheRead\":0,\"cacheWrite\":0,\"reasoning\":0,\"totalTokens\":12,\"cost\":{\"input\":9.999999999999999e-06,\"output\":4e-06,\"cacheRead\":0,\"cacheWrite\":0,\"total\":1.3999999999999998e-05}},\"stopReason\":\"stop\",\"timestamp\":1767225661015}}\n{\"type\":\"message\",\"id\":\"u16\",\"parentId\":\"a15\",\"timestamp\":\"2026-01-01T00:01:00.000Z\",\"message\":{\"role\":\"user\",\"content\":\"msg 16\",\"timestamp\":1767225660016}}\n{\"type\":\"message\",\"id\":\"a16\",\"parentId\":\"u16\",\"timestamp\":\"2026-01-01T00:01:01.000Z\",\"message\":{\"role\":\"assistant\",\"content\":[{\"type\":\"text\",\"text\":\"reply 16\"}],\"api\":\"openai-completions\",\"provider\":\"openai-completions\",\"model\":\"mock-model\",\"usage\":{\"input\":10,\"output\":2,\"cacheRead\":0,\"cacheWrite\":0,\"reasoning\":0,\"totalTokens\":12,\"cost\":{\"input\":9.999999999999999e-06,\"output\":4e-06,\"cacheRead\":0,\"cacheWrite\":0,\"total\":1.3999999999999998e-05}},\"stopReason\":\"stop\",\"timestamp\":1767225661016}}\n{\"type\":\"message\",\"id\":\"u17\",\"parentId\":\"a16\",\"timestamp\":\"2026-01-01T00:01:00.000Z\",\"message\":{\"role\":\"user\",\"content\":\"msg 17\",\"timestamp\":1767225660017}}\n{\"type\":\"message\",\"id\":\"a17\",\"parentId\":\"u17\",\"timestamp\":\"2026-01-01T00:01:01.000Z\",\"message\":{\"role\":\"assistant\",\"content\":[{\"type\":\"text\",\"text\":\"reply 17\"}],\"api\":\"openai-completions\",\"provider\":\"openai-completions\",\"model\":\"mock-model\",\"usage\":{\"input\":10,\"output\":2,\"cacheRead\":0,\"cacheWrite\":0,\"reasoning\":0,\"totalTokens\":12,\"cost\":{\"input\":9.999999999999999e-06,\"output\":4e-06,\"cacheRead\":0,\"cacheWrite\":0,\"total\":1.3999999999999998e-05}},\"stopReason\":\"stop\",\"timestamp\":1767225661017}}\n{\"type\":\"message\",\"id\":\"u18\",\"parentId\":\"a17\",\"timestamp\":\"2026-01-01T00:01:00.000Z\",\"message\":{\"role\":\"user\",\"content\":\"msg 18\",\"timestamp\":1767225660018}}\n{\"type\":\"message\",\"id\":\"a18\",\"parentId\":\"u18\",\"timestamp\":\"2026-01-01T00:01:01.000Z\",\"message\":{\"role\":\"assistant\",\"content\":[{\"type\":\"text\",\"text\":\"reply 18\"}],\"api\":\"openai-completions\",\"provider\":\"openai-completions\",\"model\":\"mock-model\",\"usage\":{\"input\":10,\"output\":2,\"cacheRead\":0,\"cacheWrite\":0,\"reasoning\":0,\"totalTokens\":12,\"cost\":{\"input\":9.999999999999999e-06,\"output\":4e-06,\"cacheRead\":0,\"cacheWrite\":0,\"total\":1.3999999999999998e-05}},\"stopReason\":\"stop\",\"timestamp\":1767225661018}}\n{\"type\":\"message\",\"id\":\"u19\",\"parentId\":\"a18\",\"timestamp\":\"2026-01-01T00:01:00.000Z\",\"message\":{\"role\":\"user\",\"content\":\"msg 19\",\"timestamp\":1767225660019}}\n{\"type\":\"message\",\"id\":\"a19\",\"parentId\":\"u19\",\"timestamp\":\"2026-01-01T00:01:01.000Z\",\"message\":{\"role\":\"assistant\",\"content\":[{\"type\":\"text\",\"text\":\"reply 19\"}],\"api\":\"openai-completions\",\"provider\":\"openai-completions\",\"model\":\"mock-model\",\"usage\":{\"input\":10,\"output\":2,\"cacheRead\":0,\"cacheWrite\":0,\"reasoning\":0,\"totalTokens\":12,\"cost\":{\"input\":9.999999999999999e-06,\"output\":4e-06,\"cacheRead\":0,\"cacheWrite\":0,\"total\":1.3999999999999998e-05}},\"stopReason\":\"stop\",\"timestamp\":1767225661019}}\n"
+  },
+  "responses": [
+    {
+      "file": "fixtures/sse/openai/text-basic.sse"
+    }
+  ],
+  "tui": {
+    "cols": 100,
+    "rows": 30,
+    "snapshots": [
+      "open",
+      "page-up",
+      "page-up2",
+      "page-down"
+    ],
+    "steps": [
+      {
+        "action": "waitScreen",
+        "contains": "Pi can explain",
+        "timeoutMs": 25000
+      },
+      {
+        "action": "type",
+        "text": "/tree"
+      },
+      {
+        "action": "waitStable",
+        "quietMs": 800,
+        "timeoutMs": 15000
+      },
+      {
+        "action": "type",
+        "text": "\r"
+      },
+      {
+        "action": "delay",
+        "ms": 7000
+      },
+      {
+        "action": "waitStable",
+        "quietMs": 1500,
+        "timeoutMs": 20000
+      },
+      {
+        "action": "snapshot",
+        "name": "open"
+      },
+      {
+        "action": "type",
+        "text": "\u001b[D"
+      },
+      {
+        "action": "delay",
+        "ms": 900
+      },
+      {
+        "action": "waitStable",
+        "quietMs": 1000,
+        "timeoutMs": 20000
+      },
+      {
+        "action": "snapshot",
+        "name": "page-up"
+      },
+      {
+        "action": "type",
+        "text": "\u001b[D"
+      },
+      {
+        "action": "delay",
+        "ms": 900
+      },
+      {
+        "action": "waitStable",
+        "quietMs": 1000,
+        "timeoutMs": 20000
+      },
+      {
+        "action": "snapshot",
+        "name": "page-up2"
+      },
+      {
+        "action": "type",
+        "text": "\u001b[C"
+      },
+      {
+        "action": "delay",
+        "ms": 900
+      },
+      {
+        "action": "waitStable",
+        "quietMs": 1000,
+        "timeoutMs": 20000
+      },
+      {
+        "action": "snapshot",
+        "name": "page-down"
+      },
+      {
+        "action": "type",
+        "text": "\u001b"
+      },
+      {
+        "action": "waitStable",
+        "quietMs": 600,
+        "timeoutMs": 10000
+      },
+      {
+        "action": "type",
+        "text": "\u0004"
+      },
+      {
+        "action": "waitStable",
+        "quietMs": 500,
+        "timeoutMs": 10000
+      }
+    ]
+  },
+  "cliArgs": [
+    "-c"
+  ]
+}

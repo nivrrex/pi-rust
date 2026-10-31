@@ -1,0 +1,22 @@
+{
+  "provider": "openai-completions",
+  "model": "mock-model",
+  "enableSkills": true,
+  "mode": "print",
+  "prompt": "say hi",
+  "responses": [
+    {
+      "file": "fixtures/sse/openai/text-basic.sse"
+    }
+  ],
+  "files": {
+    "AGENTS.md": "# 项目规则\n\n- 项目级：先跑测试再改代码。\n"
+  },
+  "globalFiles": {
+    "CLAUDE.md": "# 全局规则\n\n- 全局级：回答用中文。\n",
+    "skills/broken-helper/SKILL.md": "---\nname: broken-helper\n---\n\n# 坏的\n",
+    "skills/visible-helper/SKILL.md": "---\nname: visible-helper\ndescription: 正对照：应出现在 skills 段。\n---\n\n# visible-helper\n\n- 先跑测试再改代码。\n"
+  },
+  "id": "S39",
+  "description": "frontmatter 缺 description 的 SKILL.md 被跳过（ref skills.ts:330-332）；同场景放一个正常 skill 作正对照（有效产出闸门）"
+}

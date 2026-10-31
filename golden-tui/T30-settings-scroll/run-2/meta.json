@@ -1,0 +1,25 @@
+{
+  "id": "T30-settings-scroll",
+  "cols": 100,
+  "rows": 30,
+  "helperExit": 0,
+  "exitCode": 0,
+  "stderr": "",
+  "mockStderr": "",
+  "requestLog": "/tmp/n30b-2/requests.jsonl",
+  "snapshotOffsets": [
+    {
+      "name": "scroll-1",
+      "offset": 7678
+    },
+    {
+      "name": "scroll-2",
+      "offset": 9320
+    },
+    {
+      "name": "scroll-3",
+      "offset": 10248
+    }
+  ],
+  "sessionDir": "/tmp/n30b-2/session"
+}

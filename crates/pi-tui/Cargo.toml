@@ -1,0 +1,18 @@
+[package]
+name = "pi-tui"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+# P7 允许清单内的依赖，仅这两项。
+unicode-width = "0.2"
+# 主题层：内置 dark/light 直接用上游 theme/*.json（`include_str!` 后解析），
+# 与上游 `loadTheme` 同源；serde_json 已在工作区允许清单内（非新增 crate）。
+serde_json = "1"
+# P7-4/W3：markdown 子集渲染（P7 允许清单内，理由见 notes/decisions.md）
+pulldown-cmark = { version = "0.12", default-features = false }
+
+[dev-dependencies]
+tempfile.workspace = true

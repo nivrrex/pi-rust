@@ -1,0 +1,35 @@
+{
+  "id": "S34",
+  "description": "rpc：种子 + `--continue` → `new_session`（开新会话）→ `switch_session` 切回**种子文件**（路径用 runner 新增的 `<SESSION_DIR>` 占位符）→ `get_tree` → prompt。验证 switch_session 的打开/校验/切换语义（含新会话建立后的重新绑定）。pi-rs 侧尚未实现，先录 TS 基线。验收：五层 same。",
+  "provider": "openai-completions",
+  "model": "mock-model",
+  "mode": "rpc",
+  "sessionFiles": {
+    "content": "{\"type\": \"session\", \"version\": 3, \"id\": \"seedS28-0000-4000-8000-000000000000\", \"timestamp\": \"2026-01-01T00:00:00.000Z\", \"cwd\": \"<CWD>\"}\n{\"type\": \"message\", \"id\": \"m1\", \"parentId\": null, \"timestamp\": \"2026-01-01T00:00:01.000Z\", \"message\": {\"role\": \"user\", \"content\": [{\"type\": \"text\", \"text\": \"第一个问题\"}], \"timestamp\": 1}}\n{\"type\": \"message\", \"id\": \"m2\", \"parentId\": \"m1\", \"timestamp\": \"2026-01-01T00:00:02.000Z\", \"message\": {\"role\": \"assistant\", \"content\": [{\"type\": \"text\", \"text\": \"第二个回答\"}], \"timestamp\": 2, \"api\": \"openai-completions\", \"provider\": \"mock\", \"model\": \"mock-model\", \"stopReason\": \"stop\", \"usage\": {\"input\": 1, \"output\": 1, \"cacheRead\": 0, \"cacheWrite\": 0, \"totalTokens\": 2, \"cost\": {\"input\": 0, \"output\": 0, \"cacheRead\": 0, \"cacheWrite\": 0, \"total\": 0}}}}\n{\"type\": \"message\", \"id\": \"m3a\", \"parentId\": \"m2\", \"timestamp\": \"2026-01-01T00:00:03.000Z\", \"message\": {\"role\": \"user\", \"content\": [{\"type\": \"text\", \"text\": \"分叉 A\"}], \"timestamp\": 3}}\n{\"type\": \"message\", \"id\": \"m3b\", \"parentId\": \"m2\", \"timestamp\": \"2026-01-01T00:00:04.000Z\", \"message\": {\"role\": \"user\", \"content\": [{\"type\": \"text\", \"text\": \"分叉 B\"}], \"timestamp\": 4}}",
+    "fileName": "session.jsonl"
+  },
+  "commands": [
+    {
+      "type": "new_session"
+    },
+    {
+      "type": "switch_session",
+      "sessionPath": "<SESSION_DIR>/session.jsonl"
+    },
+    {
+      "type": "get_tree"
+    },
+    {
+      "type": "prompt",
+      "message": "切回后再问一句"
+    }
+  ],
+  "responses": [
+    {
+      "file": "fixtures/sse/openai/text-basic.sse"
+    }
+  ],
+  "cliArgs": [
+    "--continue"
+  ]
+}

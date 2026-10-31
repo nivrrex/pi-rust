@@ -1,0 +1,97 @@
+{
+  "id": "T77-thinking-levels",
+  "provider": "openai-completions",
+  "model": "mock-model",
+  "mode": "tui",
+  "prompt": "",
+  "files": {
+    "AGENTS.md": "# 项目规则\n"
+  },
+  "globalFiles": {},
+  "cliArgs": [],
+  "extraModels": [
+    {
+      "id": "mock-model",
+      "reasoning": true
+    }
+  ],
+  "responses": [
+    {
+      "file": "fixtures/sse/openai/text-basic.sse"
+    }
+  ],
+  "description": "P8d/V3：推理模型的多档 thinking（shift+tab 循环）",
+  "tui": {
+    "cols": 100,
+    "rows": 30,
+    "snapshots": [
+      "l1",
+      "l2",
+      "l3"
+    ],
+    "steps": [
+      {
+        "action": "waitScreen",
+        "contains": "Pi can explain",
+        "timeoutMs": 25000
+      },
+      {
+        "action": "type",
+        "text": "\u001b[Z"
+      },
+      {
+        "action": "waitStable",
+        "quietMs": 700,
+        "timeoutMs": 10000
+      },
+      {
+        "action": "snapshot",
+        "name": "l1"
+      },
+      {
+        "action": "type",
+        "text": "\u001b[Z"
+      },
+      {
+        "action": "waitStable",
+        "quietMs": 700,
+        "timeoutMs": 10000
+      },
+      {
+        "action": "snapshot",
+        "name": "l2"
+      },
+      {
+        "action": "type",
+        "text": "\u001b[Z"
+      },
+      {
+        "action": "waitStable",
+        "quietMs": 700,
+        "timeoutMs": 10000
+      },
+      {
+        "action": "snapshot",
+        "name": "l3"
+      },
+      {
+        "action": "type",
+        "text": "\u0003"
+      },
+      {
+        "action": "waitStable",
+        "quietMs": 300,
+        "timeoutMs": 5000
+      },
+      {
+        "action": "type",
+        "text": "\u0004"
+      },
+      {
+        "action": "waitStable",
+        "quietMs": 300,
+        "timeoutMs": 5000
+      }
+    ]
+  }
+}

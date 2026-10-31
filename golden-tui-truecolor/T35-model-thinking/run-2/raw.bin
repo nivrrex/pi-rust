@@ -1,0 +1,439 @@
+[?2004h[>7u[?u[c[?25l]11;?[>4;2m[?2026h[0m]8;;
+[38;2;80;80;80m────────────────────────────────────────────────────────────────────────────────────────────────────[39m[0m]8;;
+[7m [0m                                                                                                   [0m]8;;
+[38;2;80;80;80m────────────────────────────────────────────────────────────────────────────────────────────────────[39m[0m]8;;
+[38;2;102;102;102m/tmp/tui-T35-model-thinking-mEtNgv/work[39m[0m]8;;
+[38;2;102;102;102m0.0%/128k (auto)[39m[38;2;102;102;102m                                                                          mock-model[39m[0m]8;;[?2026l[3A[1G[?25l]0;π - work[?2026h[1A[2K [1m[38;2;138;190;183mpi[39m[22m[38;2;102;102;102m v0.87.1[39m                                                                                         [0m]8;;
+[2K [38;2;102;102;102mescape[39m[38;2;128;128;128m interrupt[39m[38;2;128;128;128m · [39m[38;2;102;102;102mctrl+c/ctrl+d[39m[38;2;128;128;128m clear/exit[39m[38;2;128;128;128m · [39m[38;2;102;102;102m/[39m[38;2;128;128;128m commands[39m[38;2;128;128;128m · [39m[38;2;102;102;102m![39m[38;2;128;128;128m bash[39m[38;2;128;128;128m · [39m[38;2;102;102;102mctrl+o[39m[38;2;128;128;128m more[39m                    [0m]8;;
+[2K [38;2;102;102;102mPress ctrl+o to show full startup help and loaded resources.[39m                                       [0m]8;;
+[2K                                                                                                    [0m]8;;
+[2K [38;2;102;102;102mPi can explain its own features and look up its docs. Ask it how to use or extend Pi.[39m              [0m]8;;
+[2K[0m]8;;
+[2K[0m]8;;
+[2K[38;2;240;198;116m[Context][39m                                                                                           [0m]8;;
+[2K[38;2;102;102;102m  AGENTS.md[39m                                                                                         [0m]8;;
+[2K[0m]8;;
+[2K[0m]8;;
+[2K[38;2;80;80;80m────────────────────────────────────────────────────────────────────────────────────────────────────[39m[0m]8;;
+[2K[7m [0m                                                                                                   [0m]8;;
+[2K[38;2;80;80;80m────────────────────────────────────────────────────────────────────────────────────────────────────[39m[0m]8;;
+[2K[38;2;102;102;102m/tmp/tui-T35-model-thinking-mEtNgv/work[39m[0m]8;;
+[2K[38;2;102;102;102m0.0%/128k (auto)[39m[38;2;102;102;102m                                                                          mock-model[39m[0m]8;;[?2026l[3A[1G[?25l[1G[?25l[?2026h[2K/settings[7m [0m                                                                                          [0m]8;;[?2026l[10G[?25l[?2026h[2B[2K[38;2;138;190;183m→ settings    Open settings menu[39m                                                                    [0m]8;;
+[2K[38;2;102;102;102m/tmp/tui-T35-model-thinking-mEtNgv/work[39m[0m]8;;
+[2K[38;2;102;102;102m0.0%/128k (auto)[39m[38;2;102;102;102m                                                                          mock-model[39m[0m]8;;[?2026l[4A[10G[?25l[?2026h[1A[2K[38;2;95;135;255m────────────────────────────────────────────────────────────────────────────────────────────────────[39m[0m]8;;
+[2K> [7m [27m                                                                                                 [0m]8;;
+[2K[0m]8;;
+[2K[38;2;138;190;183m→ [39m[38;2;138;190;183mAuto-compact                    [39m  [38;2;138;190;183mtrue[39m[0m]8;;
+[2K  Auto-resize images                [38;2;128;128;128mtrue[39m[0m]8;;
+[2K  Block images                      [38;2;128;128;128mfalse[39m[0m]8;;
+[2K  Skill commands                    [38;2;128;128;128mtrue[39m[0m]8;;
+[2K  Show hardware cursor              [38;2;128;128;128mfalse[39m[0m]8;;
+[2K  Editor padding                    [38;2;128;128;128m0[39m[0m]8;;
+[2K  Output padding                    [38;2;128;128;128m1[39m[0m]8;;
+[2K  Autocomplete max items            [38;2;128;128;128m5[39m[0m]8;;
+[2K  Clear on shrink                   [38;2;128;128;128mfalse[39m[0m]8;;
+[2K  Terminal progress                 [38;2;128;128;128mfalse[39m[0m]8;;
+[2K[38;2;102;102;102m  (1/31)[39m[0m]8;;
+[2K[0m]8;;
+[2K[38;2;102;102;102m  Automatically compact context when it gets too large[39m[0m]8;;
+[2K[0m]8;;
+[2K[38;2;102;102;102m  Type to search · Enter/Space to change · Esc to cancel[39m[0m]8;;
+[2K[38;2;95;135;255m────────────────────────────────────────────────────────────────────────────────────────────────────[39m[0m]8;;
+[2K[38;2;102;102;102m/tmp/tui-T35-model-thinking-mEtNgv/work[39m[0m]8;;
+[2K[38;2;102;102;102m0.0%/128k (auto)[39m[38;2;102;102;102m                                                                          mock-model[39m[0m]8;;[?2026l[?25l[?2026h[17A[2K  Auto-compact                      [38;2;128;128;128mtrue[39m[0m]8;;
+[2K[38;2;138;190;183m→ [39m[38;2;138;190;183mAuto-resize images              [39m  [38;2;138;190;183mtrue[39m[0m]8;;
+[2K  Block images                      [38;2;128;128;128mfalse[39m[0m]8;;
+[2K  Skill commands                    [38;2;128;128;128mtrue[39m[0m]8;;
+[2K  Show hardware cursor              [38;2;128;128;128mfalse[39m[0m]8;;
+[2K  Editor padding                    [38;2;128;128;128m0[39m[0m]8;;
+[2K  Output padding                    [38;2;128;128;128m1[39m[0m]8;;
+[2K  Autocomplete max items            [38;2;128;128;128m5[39m[0m]8;;
+[2K  Clear on shrink                   [38;2;128;128;128mfalse[39m[0m]8;;
+[2K  Terminal progress                 [38;2;128;128;128mfalse[39m[0m]8;;
+[2K[38;2;102;102;102m  (2/31)[39m[0m]8;;
+[2K[0m]8;;
+[2K[38;2;102;102;102m  Resize large images to 2000x2000 max for better model compatibility[39m[0m]8;;[?2026l[?25l[?2026h[11A[2K  Auto-resize images                [38;2;128;128;128mtrue[39m[0m]8;;
+[2K[38;2;138;190;183m→ [39m[38;2;138;190;183mBlock images                    [39m  [38;2;138;190;183mfalse[39m[0m]8;;
+[2K  Skill commands                    [38;2;128;128;128mtrue[39m[0m]8;;
+[2K  Show hardware cursor              [38;2;128;128;128mfalse[39m[0m]8;;
+[2K  Editor padding                    [38;2;128;128;128m0[39m[0m]8;;
+[2K  Output padding                    [38;2;128;128;128m1[39m[0m]8;;
+[2K  Autocomplete max items            [38;2;128;128;128m5[39m[0m]8;;
+[2K  Clear on shrink                   [38;2;128;128;128mfalse[39m[0m]8;;
+[2K  Terminal progress                 [38;2;128;128;128mfalse[39m[0m]8;;
+[2K[38;2;102;102;102m  (3/31)[39m[0m]8;;
+[2K[0m]8;;
+[2K[38;2;102;102;102m  Prevent images from being sent to LLM providers[39m[0m]8;;[?2026l[?25l[?2026h[10A[2K  Block images                      [38;2;128;128;128mfalse[39m[0m]8;;
+[2K[38;2;138;190;183m→ [39m[38;2;138;190;183mSkill commands                  [39m  [38;2;138;190;183mtrue[39m[0m]8;;
+[2K  Show hardware cursor              [38;2;128;128;128mfalse[39m[0m]8;;
+[2K  Editor padding                    [38;2;128;128;128m0[39m[0m]8;;
+[2K  Output padding                    [38;2;128;128;128m1[39m[0m]8;;
+[2K  Autocomplete max items            [38;2;128;128;128m5[39m[0m]8;;
+[2K  Clear on shrink                   [38;2;128;128;128mfalse[39m[0m]8;;
+[2K  Terminal progress                 [38;2;128;128;128mfalse[39m[0m]8;;
+[2K[38;2;102;102;102m  (4/31)[39m[0m]8;;
+[2K[0m]8;;
+[2K[38;2;102;102;102m  Register skills as /skill:name commands[39m[0m]8;;[?2026l[?25l[?2026h[9A[2K  Skill commands                    [38;2;128;128;128mtrue[39m[0m]8;;
+[2K[38;2;138;190;183m→ [39m[38;2;138;190;183mShow hardware cursor            [39m  [38;2;138;190;183mfalse[39m[0m]8;;
+[2K  Editor padding                    [38;2;128;128;128m0[39m[0m]8;;
+[2K  Output padding                    [38;2;128;128;128m1[39m[0m]8;;
+[2K  Autocomplete max items            [38;2;128;128;128m5[39m[0m]8;;
+[2K  Clear on shrink                   [38;2;128;128;128mfalse[39m[0m]8;;
+[2K  Terminal progress                 [38;2;128;128;128mfalse[39m[0m]8;;
+[2K[38;2;102;102;102m  (5/31)[39m[0m]8;;
+[2K[0m]8;;
+[2K[38;2;102;102;102m  Show the terminal cursor while still positioning it for IME support[39m[0m]8;;[?2026l[?25l[?2026h[8A[2K  Show hardware cursor              [38;2;128;128;128mfalse[39m[0m]8;;
+[2K[38;2;138;190;183m→ [39m[38;2;138;190;183mEditor padding                  [39m  [38;2;138;190;183m0[39m[0m]8;;
+[2K  Output padding                    [38;2;128;128;128m1[39m[0m]8;;
+[2K  Autocomplete max items            [38;2;128;128;128m5[39m[0m]8;;
+[2K  Clear on shrink                   [38;2;128;128;128mfalse[39m[0m]8;;
+[2K  Terminal progress                 [38;2;128;128;128mfalse[39m[0m]8;;
+[2K[38;2;102;102;102m  (6/31)[39m[0m]8;;
+[2K[0m]8;;
+[2K[38;2;102;102;102m  Horizontal padding for input editor (0-3)[39m[0m]8;;[?2026l[?25l[?2026h[12A[2K  Auto-resize images                [38;2;128;128;128mtrue[39m[0m]8;;
+[2K  Block images                      [38;2;128;128;128mfalse[39m[0m]8;;
+[2K  Skill commands                    [38;2;128;128;128mtrue[39m[0m]8;;
+[2K  Show hardware cursor              [38;2;128;128;128mfalse[39m[0m]8;;
+[2K  Editor padding                    [38;2;128;128;128m0[39m[0m]8;;
+[2K[38;2;138;190;183m→ [39m[38;2;138;190;183mOutput padding                  [39m  [38;2;138;190;183m1[39m[0m]8;;
+[2K  Autocomplete max items            [38;2;128;128;128m5[39m[0m]8;;
+[2K  Clear on shrink                   [38;2;128;128;128mfalse[39m[0m]8;;
+[2K  Terminal progress                 [38;2;128;128;128mfalse[39m[0m]8;;
+[2K  Steering mode                     [38;2;128;128;128mone-at-a-time[39m[0m]8;;
+[2K[38;2;102;102;102m  (7/31)[39m[0m]8;;
+[2K[0m]8;;
+[2K[38;2;102;102;102m  Horizontal padding for user messages, assistant messages, and thinking[39m[0m]8;;[?2026l[?25l[?2026h[12A[2K  Block images                      [38;2;128;128;128mfalse[39m[0m]8;;
+[2K  Skill commands                    [38;2;128;128;128mtrue[39m[0m]8;;
+[2K  Show hardware cursor              [38;2;128;128;128mfalse[39m[0m]8;;
+[2K  Editor padding                    [38;2;128;128;128m0[39m[0m]8;;
+[2K  Output padding                    [38;2;128;128;128m1[39m[0m]8;;
+[2K[38;2;138;190;183m→ [39m[38;2;138;190;183mAutocomplete max items          [39m  [38;2;138;190;183m5[39m[0m]8;;
+[2K  Clear on shrink                   [38;2;128;128;128mfalse[39m[0m]8;;
+[2K  Terminal progress                 [38;2;128;128;128mfalse[39m[0m]8;;
+[2K  Steering mode                     [38;2;128;128;128mone-at-a-time[39m[0m]8;;
+[2K  Follow-up mode                    [38;2;128;128;128mone-at-a-time[39m[0m]8;;
+[2K[38;2;102;102;102m  (8/31)[39m[0m]8;;
+[2K[0m]8;;
+[2K[38;2;102;102;102m  Max visible items in autocomplete dropdown (3-20)[39m[0m]8;;[?2026l[?25l[?2026h[12A[2K  Skill commands                    [38;2;128;128;128mtrue[39m[0m]8;;
+[2K  Show hardware cursor              [38;2;128;128;128mfalse[39m[0m]8;;
+[2K  Editor padding                    [38;2;128;128;128m0[39m[0m]8;;
+[2K  Output padding                    [38;2;128;128;128m1[39m[0m]8;;
+[2K  Autocomplete max items            [38;2;128;128;128m5[39m[0m]8;;
+[2K[38;2;138;190;183m→ [39m[38;2;138;190;183mClear on shrink                 [39m  [38;2;138;190;183mfalse[39m[0m]8;;
+[2K  Terminal progress                 [38;2;128;128;128mfalse[39m[0m]8;;
+[2K  Steering mode                     [38;2;128;128;128mone-at-a-time[39m[0m]8;;
+[2K  Follow-up mode                    [38;2;128;128;128mone-at-a-time[39m[0m]8;;
+[2K  Transport                         [38;2;128;128;128mauto[39m[0m]8;;
+[2K[38;2;102;102;102m  (9/31)[39m[0m]8;;
+[2K[0m]8;;
+[2K[38;2;102;102;102m  Clear empty rows when content shrinks (may cause flicker)[39m[0m]8;;[?2026l[?25l[?2026h[12A[2K  Show hardware cursor              [38;2;128;128;128mfalse[39m[0m]8;;
+[2K  Editor padding                    [38;2;128;128;128m0[39m[0m]8;;
+[2K  Output padding                    [38;2;128;128;128m1[39m[0m]8;;
+[2K  Autocomplete max items            [38;2;128;128;128m5[39m[0m]8;;
+[2K  Clear on shrink                   [38;2;128;128;128mfalse[39m[0m]8;;
+[2K[38;2;138;190;183m→ [39m[38;2;138;190;183mTerminal progress               [39m  [38;2;138;190;183mfalse[39m[0m]8;;
+[2K  Steering mode                     [38;2;128;128;128mone-at-a-time[39m[0m]8;;
+[2K  Follow-up mode                    [38;2;128;128;128mone-at-a-time[39m[0m]8;;
+[2K  Transport                         [38;2;128;128;128mauto[39m[0m]8;;
+[2K  HTTP idle timeout                 [38;2;128;128;128m5 min[39m[0m]8;;
+[2K[38;2;102;102;102m  (10/31)[39m[0m]8;;
+[2K[0m]8;;
+[2K[38;2;102;102;102m  Show OSC 9;4 progress indicators in the terminal tab bar[39m[0m]8;;[?2026l[?25l[?2026h[12A[2K  Editor padding                    [38;2;128;128;128m0[39m[0m]8;;
+[2K  Output padding                    [38;2;128;128;128m1[39m[0m]8;;
+[2K  Autocomplete max items            [38;2;128;128;128m5[39m[0m]8;;
+[2K  Clear on shrink                   [38;2;128;128;128mfalse[39m[0m]8;;
+[2K  Terminal progress                 [38;2;128;128;128mfalse[39m[0m]8;;
+[2K[38;2;138;190;183m→ [39m[38;2;138;190;183mSteering mode                   [39m  [38;2;138;190;183mone-at-a-time[39m[0m]8;;
+[2K  Follow-up mode                    [38;2;128;128;128mone-at-a-time[39m[0m]8;;
+[2K  Transport                         [38;2;128;128;128mauto[39m[0m]8;;
+[2K  HTTP idle timeout                 [38;2;128;128;128m5 min[39m[0m]8;;
+[2K  Cache warming                     [38;2;128;128;128mstreaming[39m[0m]8;;
+[2K[38;2;102;102;102m  (11/31)[39m[0m]8;;
+[2K[0m]8;;
+[2K[38;2;102;102;102m  Enter while streaming queues steering messages. 'one-at-a-time': deliver one, wait for response.[39m[0m]8;;
+[2K[38;2;102;102;102m  'all': deliver all at once.[39m[0m]8;;
+[2K[0m]8;;
+[2K[38;2;102;102;102m  Type to search · Enter/Space to change · Esc to cancel[39m[0m]8;;
+[2K[38;2;95;135;255m────────────────────────────────────────────────────────────────────────────────────────────────────[39m[0m]8;;
+[2K[38;2;102;102;102m/tmp/tui-T35-model-thinking-mEtNgv/work[39m[0m]8;;
+[2K[38;2;102;102;102m0.0%/128k (auto)[39m[38;2;102;102;102m                                                                          mock-model[39m[0m]8;;[?2026l[?25l[?2026h[18A[2K  Output padding                    [38;2;128;128;128m1[39m[0m]8;;
+[2K  Autocomplete max items            [38;2;128;128;128m5[39m[0m]8;;
+[2K  Clear on shrink                   [38;2;128;128;128mfalse[39m[0m]8;;
+[2K  Terminal progress                 [38;2;128;128;128mfalse[39m[0m]8;;
+[2K  Steering mode                     [38;2;128;128;128mone-at-a-time[39m[0m]8;;
+[2K[38;2;138;190;183m→ [39m[38;2;138;190;183mFollow-up mode                  [39m  [38;2;138;190;183mone-at-a-time[39m[0m]8;;
+[2K  Transport                         [38;2;128;128;128mauto[39m[0m]8;;
+[2K  HTTP idle timeout                 [38;2;128;128;128m5 min[39m[0m]8;;
+[2K  Cache warming                     [38;2;128;128;128mstreaming[39m[0m]8;;
+[2K  Hide thinking                     [38;2;128;128;128mfalse[39m[0m]8;;
+[2K[38;2;102;102;102m  (12/31)[39m[0m]8;;
+[2K[0m]8;;
+[2K[38;2;102;102;102m  Alt+Enter queues follow-up messages until agent stops. 'one-at-a-time': deliver one, wait for[39m[0m]8;;
+[2K[38;2;102;102;102m  response. 'all': deliver all at once.[39m[0m]8;;[?2026l[?25l[?2026h[13A[2K  Autocomplete max items            [38;2;128;128;128m5[39m[0m]8;;
+[2K  Clear on shrink                   [38;2;128;128;128mfalse[39m[0m]8;;
+[2K  Terminal progress                 [38;2;128;128;128mfalse[39m[0m]8;;
+[2K  Steering mode                     [38;2;128;128;128mone-at-a-time[39m[0m]8;;
+[2K  Follow-up mode                    [38;2;128;128;128mone-at-a-time[39m[0m]8;;
+[2K[38;2;138;190;183m→ [39m[38;2;138;190;183mTransport                       [39m  [38;2;138;190;183mauto[39m[0m]8;;
+[2K  HTTP idle timeout                 [38;2;128;128;128m5 min[39m[0m]8;;
+[2K  Cache warming                     [38;2;128;128;128mstreaming[39m[0m]8;;
+[2K  Hide thinking                     [38;2;128;128;128mfalse[39m[0m]8;;
+[2K  Mermaid diagrams                  [38;2;128;128;128mstreaming[39m[0m]8;;
+[2K[38;2;102;102;102m  (13/31)[39m[0m]8;;
+[2K[0m]8;;
+[2K[38;2;102;102;102m  Preferred transport for providers that support multiple transports[39m[0m]8;;
+[2K[0m]8;;
+[2K[38;2;102;102;102m  Type to search · Enter/Space to change · Esc to cancel[39m[0m]8;;
+[2K[38;2;95;135;255m────────────────────────────────────────────────────────────────────────────────────────────────────[39m[0m]8;;
+[2K[38;2;102;102;102m/tmp/tui-T35-model-thinking-mEtNgv/work[39m[0m]8;;
+[2K[38;2;102;102;102m0.0%/128k (auto)[39m[38;2;102;102;102m                                                                          mock-model[39m[0m]8;;
+[2K[1A[?2026l[?25l[?2026h[17A[2K  Clear on shrink                   [38;2;128;128;128mfalse[39m[0m]8;;
+[2K  Terminal progress                 [38;2;128;128;128mfalse[39m[0m]8;;
+[2K  Steering mode                     [38;2;128;128;128mone-at-a-time[39m[0m]8;;
+[2K  Follow-up mode                    [38;2;128;128;128mone-at-a-time[39m[0m]8;;
+[2K  Transport                         [38;2;128;128;128mauto[39m[0m]8;;
+[2K[38;2;138;190;183m→ [39m[38;2;138;190;183mHTTP idle timeout               [39m  [38;2;138;190;183m5 min[39m[0m]8;;
+[2K  Cache warming                     [38;2;128;128;128mstreaming[39m[0m]8;;
+[2K  Hide thinking                     [38;2;128;128;128mfalse[39m[0m]8;;
+[2K  Mermaid diagrams                  [38;2;128;128;128mstreaming[39m[0m]8;;
+[2K  Cache miss notices                [38;2;128;128;128mfalse[39m[0m]8;;
+[2K[38;2;102;102;102m  (14/31)[39m[0m]8;;
+[2K[0m]8;;
+[2K[38;2;102;102;102m  Maximum idle gap while waiting for HTTP headers or body chunks. Disable for local models that[39m[0m]8;;
+[2K[38;2;102;102;102m  pause longer than five minutes.[39m[0m]8;;
+[2K[0m]8;;
+[2K[38;2;102;102;102m  Type to search · Enter/Space to change · Esc to cancel[39m[0m]8;;
+[2K[38;2;95;135;255m────────────────────────────────────────────────────────────────────────────────────────────────────[39m[0m]8;;
+[2K[38;2;102;102;102m/tmp/tui-T35-model-thinking-mEtNgv/work[39m[0m]8;;
+[2K[38;2;102;102;102m0.0%/128k (auto)[39m[38;2;102;102;102m                                                                          mock-model[39m[0m]8;;[?2026l[?25l[?2026h[18A[2K  Terminal progress                 [38;2;128;128;128mfalse[39m[0m]8;;
+[2K  Steering mode                     [38;2;128;128;128mone-at-a-time[39m[0m]8;;
+[2K  Follow-up mode                    [38;2;128;128;128mone-at-a-time[39m[0m]8;;
+[2K  Transport                         [38;2;128;128;128mauto[39m[0m]8;;
+[2K  HTTP idle timeout                 [38;2;128;128;128m5 min[39m[0m]8;;
+[2K[38;2;138;190;183m→ [39m[38;2;138;190;183mCache warming                   [39m  [38;2;138;190;183mstreaming[39m[0m]8;;
+[2K  Hide thinking                     [38;2;128;128;128mfalse[39m[0m]8;;
+[2K  Mermaid diagrams                  [38;2;128;128;128mstreaming[39m[0m]8;;
+[2K  Cache miss notices                [38;2;128;128;128mfalse[39m[0m]8;;
+[2K  Collapse changelog                [38;2;128;128;128mfalse[39m[0m]8;;
+[2K[38;2;102;102;102m  (15/31)[39m[0m]8;;
+[2K[0m]8;;
+[2K[38;2;102;102;102m  off; streaming while the agent runs; idle also between runs while continuation stays profitable[39m[0m]8;;
+[2K[0m]8;;
+[2K[38;2;102;102;102m  Type to search · Enter/Space to change · Esc to cancel[39m[0m]8;;
+[2K[38;2;95;135;255m────────────────────────────────────────────────────────────────────────────────────────────────────[39m[0m]8;;
+[2K[38;2;102;102;102m/tmp/tui-T35-model-thinking-mEtNgv/work[39m[0m]8;;
+[2K[38;2;102;102;102m0.0%/128k (auto)[39m[38;2;102;102;102m                                                                          mock-model[39m[0m]8;;
+[2K[1A[?2026l[?25l[?2026h[17A[2K  Steering mode                     [38;2;128;128;128mone-at-a-time[39m[0m]8;;
+[2K  Follow-up mode                    [38;2;128;128;128mone-at-a-time[39m[0m]8;;
+[2K  Transport                         [38;2;128;128;128mauto[39m[0m]8;;
+[2K  HTTP idle timeout                 [38;2;128;128;128m5 min[39m[0m]8;;
+[2K  Cache warming                     [38;2;128;128;128mstreaming[39m[0m]8;;
+[2K[38;2;138;190;183m→ [39m[38;2;138;190;183mHide thinking                   [39m  [38;2;138;190;183mfalse[39m[0m]8;;
+[2K  Mermaid diagrams                  [38;2;128;128;128mstreaming[39m[0m]8;;
+[2K  Cache miss notices                [38;2;128;128;128mfalse[39m[0m]8;;
+[2K  Collapse changelog                [38;2;128;128;128mfalse[39m[0m]8;;
+[2K  Quiet startup                     [38;2;128;128;128mfalse[39m[0m]8;;
+[2K[38;2;102;102;102m  (16/31)[39m[0m]8;;
+[2K[0m]8;;
+[2K[38;2;102;102;102m  Hide thinking blocks in assistant responses[39m[0m]8;;[?2026l[?25l[?2026h[12A[2K  Follow-up mode                    [38;2;128;128;128mone-at-a-time[39m[0m]8;;
+[2K  Transport                         [38;2;128;128;128mauto[39m[0m]8;;
+[2K  HTTP idle timeout                 [38;2;128;128;128m5 min[39m[0m]8;;
+[2K  Cache warming                     [38;2;128;128;128mstreaming[39m[0m]8;;
+[2K  Hide thinking                     [38;2;128;128;128mfalse[39m[0m]8;;
+[2K[38;2;138;190;183m→ [39m[38;2;138;190;183mMermaid diagrams                [39m  [38;2;138;190;183mstreaming[39m[0m]8;;
+[2K  Cache miss notices                [38;2;128;128;128mfalse[39m[0m]8;;
+[2K  Collapse changelog                [38;2;128;128;128mfalse[39m[0m]8;;
+[2K  Quiet startup                     [38;2;128;128;128mfalse[39m[0m]8;;
+[2K  Install telemetry                 [38;2;128;128;128mtrue[39m[0m]8;;
+[2K[38;2;102;102;102m  (17/31)[39m[0m]8;;
+[2K[0m]8;;
+[2K[38;2;102;102;102m  Render Mermaid code blocks as Unicode diagrams[39m[0m]8;;[?2026l[?25l[?2026h[12A[2K  Transport                         [38;2;128;128;128mauto[39m[0m]8;;
+[2K  HTTP idle timeout                 [38;2;128;128;128m5 min[39m[0m]8;;
+[2K  Cache warming                     [38;2;128;128;128mstreaming[39m[0m]8;;
+[2K  Hide thinking                     [38;2;128;128;128mfalse[39m[0m]8;;
+[2K  Mermaid diagrams                  [38;2;128;128;128mstreaming[39m[0m]8;;
+[2K[38;2;138;190;183m→ [39m[38;2;138;190;183mCache miss notices              [39m  [38;2;138;190;183mfalse[39m[0m]8;;
+[2K  Collapse changelog                [38;2;128;128;128mfalse[39m[0m]8;;
+[2K  Quiet startup                     [38;2;128;128;128mfalse[39m[0m]8;;
+[2K  Install telemetry                 [38;2;128;128;128mtrue[39m[0m]8;;
+[2K  Default project trust             [38;2;128;128;128mAsk[39m[0m]8;;
+[2K[38;2;102;102;102m  (18/31)[39m[0m]8;;
+[2K[0m]8;;
+[2K[38;2;102;102;102m  Show transcript notices for cache costs and provider recovery diagnostics[39m[0m]8;;[?2026l[?25l[?2026h[12A[2K  HTTP idle timeout                 [38;2;128;128;128m5 min[39m[0m]8;;
+[2K  Cache warming                     [38;2;128;128;128mstreaming[39m[0m]8;;
+[2K  Hide thinking                     [38;2;128;128;128mfalse[39m[0m]8;;
+[2K  Mermaid diagrams                  [38;2;128;128;128mstreaming[39m[0m]8;;
+[2K  Cache miss notices                [38;2;128;128;128mfalse[39m[0m]8;;
+[2K[38;2;138;190;183m→ [39m[38;2;138;190;183mCollapse changelog              [39m  [38;2;138;190;183mfalse[39m[0m]8;;
+[2K  Quiet startup                     [38;2;128;128;128mfalse[39m[0m]8;;
+[2K  Install telemetry                 [38;2;128;128;128mtrue[39m[0m]8;;
+[2K  Default project trust             [38;2;128;128;128mAsk[39m[0m]8;;
+[2K  Double-escape action              [38;2;128;128;128mtree[39m[0m]8;;
+[2K[38;2;102;102;102m  (19/31)[39m[0m]8;;
+[2K[0m]8;;
+[2K[38;2;102;102;102m  Show condensed changelog after updates[39m[0m]8;;[?2026l[?25l[?2026h[12A[2K  Cache warming                     [38;2;128;128;128mstreaming[39m[0m]8;;
+[2K  Hide thinking                     [38;2;128;128;128mfalse[39m[0m]8;;
+[2K  Mermaid diagrams                  [38;2;128;128;128mstreaming[39m[0m]8;;
+[2K  Cache miss notices                [38;2;128;128;128mfalse[39m[0m]8;;
+[2K  Collapse changelog                [38;2;128;128;128mfalse[39m[0m]8;;
+[2K[38;2;138;190;183m→ [39m[38;2;138;190;183mQuiet startup                   [39m  [38;2;138;190;183mfalse[39m[0m]8;;
+[2K  Install telemetry                 [38;2;128;128;128mtrue[39m[0m]8;;
+[2K  Default project trust             [38;2;128;128;128mAsk[39m[0m]8;;
+[2K  Double-escape action              [38;2;128;128;128mtree[39m[0m]8;;
+[2K  Tree filter mode                  [38;2;128;128;128mdefault[39m[0m]8;;
+[2K[38;2;102;102;102m  (20/31)[39m[0m]8;;
+[2K[0m]8;;
+[2K[38;2;102;102;102m  Disable verbose printing at startup[39m[0m]8;;[?2026l[?25l[?2026h[12A[2K  Hide thinking                     [38;2;128;128;128mfalse[39m[0m]8;;
+[2K  Mermaid diagrams                  [38;2;128;128;128mstreaming[39m[0m]8;;
+[2K  Cache miss notices                [38;2;128;128;128mfalse[39m[0m]8;;
+[2K  Collapse changelog                [38;2;128;128;128mfalse[39m[0m]8;;
+[2K  Quiet startup                     [38;2;128;128;128mfalse[39m[0m]8;;
+[2K[38;2;138;190;183m→ [39m[38;2;138;190;183mInstall telemetry               [39m  [38;2;138;190;183mtrue[39m[0m]8;;
+[2K  Default project trust             [38;2;128;128;128mAsk[39m[0m]8;;
+[2K  Double-escape action              [38;2;128;128;128mtree[39m[0m]8;;
+[2K  Tree filter mode                  [38;2;128;128;128mdefault[39m[0m]8;;
+[2K  Warnings                          [38;2;128;128;128mconfigure[39m[0m]8;;
+[2K[38;2;102;102;102m  (21/31)[39m[0m]8;;
+[2K[0m]8;;
+[2K[38;2;102;102;102m  Send an anonymous version/update ping after changelog-detected updates[39m[0m]8;;[?2026l[?25l[?2026h[12A[2K  Mermaid diagrams                  [38;2;128;128;128mstreaming[39m[0m]8;;
+[2K  Cache miss notices                [38;2;128;128;128mfalse[39m[0m]8;;
+[2K  Collapse changelog                [38;2;128;128;128mfalse[39m[0m]8;;
+[2K  Quiet startup                     [38;2;128;128;128mfalse[39m[0m]8;;
+[2K  Install telemetry                 [38;2;128;128;128mtrue[39m[0m]8;;
+[2K[38;2;138;190;183m→ [39m[38;2;138;190;183mDefault project trust           [39m  [38;2;138;190;183mAsk[39m[0m]8;;
+[2K  Double-escape action              [38;2;128;128;128mtree[39m[0m]8;;
+[2K  Tree filter mode                  [38;2;128;128;128mdefault[39m[0m]8;;
+[2K  Warnings                          [38;2;128;128;128mconfigure[39m[0m]8;;
+[2K  Default thinking level per model  [38;2;128;128;128mnone[39m[0m]8;;
+[2K[38;2;102;102;102m  (22/31)[39m[0m]8;;
+[2K[0m]8;;
+[2K[38;2;102;102;102m  Fallback behavior when no extension or saved trust decision decides project trust[39m[0m]8;;[?2026l[?25l[?2026h[12A[2K  Cache miss notices                [38;2;128;128;128mfalse[39m[0m]8;;
+[2K  Collapse changelog                [38;2;128;128;128mfalse[39m[0m]8;;
+[2K  Quiet startup                     [38;2;128;128;128mfalse[39m[0m]8;;
+[2K  Install telemetry                 [38;2;128;128;128mtrue[39m[0m]8;;
+[2K  Default project trust             [38;2;128;128;128mAsk[39m[0m]8;;
+[2K[38;2;138;190;183m→ [39m[38;2;138;190;183mDouble-escape action            [39m  [38;2;138;190;183mtree[39m[0m]8;;
+[2K  Tree filter mode                  [38;2;128;128;128mdefault[39m[0m]8;;
+[2K  Warnings                          [38;2;128;128;128mconfigure[39m[0m]8;;
+[2K  Default thinking level per model  [38;2;128;128;128mnone[39m[0m]8;;
+[2K  TUI mode                          [38;2;128;128;128mregular[39m[0m]8;;
+[2K[38;2;102;102;102m  (23/31)[39m[0m]8;;
+[2K[0m]8;;
+[2K[38;2;102;102;102m  Action when pressing Escape twice with empty editor[39m[0m]8;;[?2026l[?25l[?2026h[12A[2K  Collapse changelog                [38;2;128;128;128mfalse[39m[0m]8;;
+[2K  Quiet startup                     [38;2;128;128;128mfalse[39m[0m]8;;
+[2K  Install telemetry                 [38;2;128;128;128mtrue[39m[0m]8;;
+[2K  Default project trust             [38;2;128;128;128mAsk[39m[0m]8;;
+[2K  Double-escape action              [38;2;128;128;128mtree[39m[0m]8;;
+[2K[38;2;138;190;183m→ [39m[38;2;138;190;183mTree filter mode                [39m  [38;2;138;190;183mdefault[39m[0m]8;;
+[2K  Warnings                          [38;2;128;128;128mconfigure[39m[0m]8;;
+[2K  Default thinking level per model  [38;2;128;128;128mnone[39m[0m]8;;
+[2K  TUI mode                          [38;2;128;128;128mregular[39m[0m]8;;
+[2K  Fullscreen exit output            [38;2;128;128;128mtranscript[39m[0m]8;;
+[2K[38;2;102;102;102m  (24/31)[39m[0m]8;;
+[2K[0m]8;;
+[2K[38;2;102;102;102m  Default filter when opening /tree[39m[0m]8;;[?2026l[?25l[?2026h[12A[2K  Quiet startup                     [38;2;128;128;128mfalse[39m[0m]8;;
+[2K  Install telemetry                 [38;2;128;128;128mtrue[39m[0m]8;;
+[2K  Default project trust             [38;2;128;128;128mAsk[39m[0m]8;;
+[2K  Double-escape action              [38;2;128;128;128mtree[39m[0m]8;;
+[2K  Tree filter mode                  [38;2;128;128;128mdefault[39m[0m]8;;
+[2K[38;2;138;190;183m→ [39m[38;2;138;190;183mWarnings                        [39m  [38;2;138;190;183mconfigure[39m[0m]8;;
+[2K  Default thinking level per model  [38;2;128;128;128mnone[39m[0m]8;;
+[2K  TUI mode                          [38;2;128;128;128mregular[39m[0m]8;;
+[2K  Fullscreen exit output            [38;2;128;128;128mtranscript[39m[0m]8;;
+[2K  Fullscreen scrollbar              [38;2;128;128;128mauto[39m[0m]8;;
+[2K[38;2;102;102;102m  (25/31)[39m[0m]8;;
+[2K[0m]8;;
+[2K[38;2;102;102;102m  Enable or disable individual warnings[39m[0m]8;;[?2026l[?25l[?2026h[12A[2K  Install telemetry                 [38;2;128;128;128mtrue[39m[0m]8;;
+[2K  Default project trust             [38;2;128;128;128mAsk[39m[0m]8;;
+[2K  Double-escape action              [38;2;128;128;128mtree[39m[0m]8;;
+[2K  Tree filter mode                  [38;2;128;128;128mdefault[39m[0m]8;;
+[2K  Warnings                          [38;2;128;128;128mconfigure[39m[0m]8;;
+[2K[38;2;138;190;183m→ [39m[38;2;138;190;183mDefault thinking level per model[39m  [38;2;138;190;183mnone[39m[0m]8;;
+[2K  TUI mode                          [38;2;128;128;128mregular[39m[0m]8;;
+[2K  Fullscreen exit output            [38;2;128;128;128mtranscript[39m[0m]8;;
+[2K  Fullscreen scrollbar              [38;2;128;128;128mauto[39m[0m]8;;
+[2K  Fullscreen copy on select         [38;2;128;128;128mtrue[39m[0m]8;;
+[2K[38;2;102;102;102m  (26/31)[39m[0m]8;;
+[2K[0m]8;;
+[2K[38;2;102;102;102m  Override the default thinking level for specific models. Shift+Tab cycles in-session.[39m[0m]8;;[?2026l[?25l[?2026h[14A[2K[1m[38;2;138;190;183mPer-Model Thinking Level[39m[22m                                                                            [0m]8;;
+[2K[0m]8;;
+[2K[38;2;128;128;128mStep 1/2 · Select a model to configure[39m                                                              [0m]8;;
+[2K[0m]8;;
+[2K> [7m [27m                                                                                                 [0m]8;;
+[2K[0m]8;;
+[2K[38;2;138;190;183m→ mock-model [38;2;128;128;128m[openai-completions][39m[39m[0m]8;;
+[2K[0m]8;;
+[2K[38;2;102;102;102m  Type to filter · Enter to select · Esc to go back[39m                                                 [0m]8;;
+[2K[38;2;95;135;255m────────────────────────────────────────────────────────────────────────────────────────────────────[39m[0m]8;;
+[2K[38;2;102;102;102m/tmp/tui-T35-model-thinking-mEtNgv/work[39m[0m]8;;
+[2K[38;2;102;102;102m0.0%/128k (auto)[39m[38;2;102;102;102m                                                                          mock-model[39m[0m]8;;
+[2K
+[2K
+[2K
+[2K
+[2K
+[2K
+[2K
+[2K[8A[?2026l[?25l[?2026h[11A[2K[1m[38;2;138;190;183mThinking Level for mock-model [openai-completions][39m[22m                                                  [0m]8;;
+[2K[0m]8;;
+[2K[38;2;128;128;128mStep 2/2 · Select default thinking level for this model[39m                                             [0m]8;;
+[2K[0m]8;;
+[2K[38;2;138;190;183m→   off       No reasoning[39m[0m]8;;
+[2K[0m]8;;
+[2K[38;2;102;102;102m  Enter to select · Esc to go back[39m                                                                  [0m]8;;
+[2K[38;2;95;135;255m────────────────────────────────────────────────────────────────────────────────────────────────────[39m[0m]8;;
+[2K[38;2;102;102;102m/tmp/tui-T35-model-thinking-mEtNgv/work[39m[0m]8;;
+[2K[38;2;102;102;102m0.0%/128k (auto)[39m[38;2;102;102;102m                                                                          mock-model[39m[0m]8;;
+[2K
+[2K[2A[?2026l[?25l[?2026h[9A[2K[1m[38;2;138;190;183mPer-Model Thinking Level[39m[22m                                                                            [0m]8;;
+[2K[0m]8;;
+[2K[38;2;128;128;128mStep 1/2 · Select a model to configure[39m                                                              [0m]8;;
+[2K[0m]8;;
+[2K> [7m [27m                                                                                                 [0m]8;;
+[2K[0m]8;;
+[2K[38;2;138;190;183m→ mock-model [38;2;128;128;128m[openai-completions][39m[39m[0m]8;;
+[2K[0m]8;;
+[2K[38;2;102;102;102m  Type to filter · Enter to select · Esc to go back[39m                                                 [0m]8;;
+[2K[38;2;95;135;255m────────────────────────────────────────────────────────────────────────────────────────────────────[39m[0m]8;;
+[2K[38;2;102;102;102m/tmp/tui-T35-model-thinking-mEtNgv/work[39m[0m]8;;
+[2K[38;2;102;102;102m0.0%/128k (auto)[39m[38;2;102;102;102m                                                                          mock-model[39m[0m]8;;[?2026l[?25l[?2026h[11A[2K> [7m [27m                                                                                                 [0m]8;;
+[2K[0m]8;;
+[2K  Install telemetry                 [38;2;128;128;128mtrue[39m[0m]8;;
+[2K  Default project trust             [38;2;128;128;128mAsk[39m[0m]8;;
+[2K  Double-escape action              [38;2;128;128;128mtree[39m[0m]8;;
+[2K  Tree filter mode                  [38;2;128;128;128mdefault[39m[0m]8;;
+[2K  Warnings                          [38;2;128;128;128mconfigure[39m[0m]8;;
+[2K[38;2;138;190;183m→ [39m[38;2;138;190;183mDefault thinking level per model[39m  [38;2;138;190;183mnone[39m[0m]8;;
+[2K  TUI mode                          [38;2;128;128;128mregular[39m[0m]8;;
+[2K  Fullscreen exit output            [38;2;128;128;128mtranscript[39m[0m]8;;
+[2K  Fullscreen scrollbar              [38;2;128;128;128mauto[39m[0m]8;;
+[2K  Fullscreen copy on select         [38;2;128;128;128mtrue[39m[0m]8;;
+[2K[38;2;102;102;102m  (26/31)[39m[0m]8;;
+[2K[0m]8;;
+[2K[38;2;102;102;102m  Override the default thinking level for specific models. Shift+Tab cycles in-session.[39m[0m]8;;
+[2K[0m]8;;
+[2K[38;2;102;102;102m  Type to search · Enter/Space to change · Esc to cancel[39m[0m]8;;
+[2K[38;2;95;135;255m────────────────────────────────────────────────────────────────────────────────────────────────────[39m[0m]8;;
+[2K[38;2;102;102;102m/tmp/tui-T35-model-thinking-mEtNgv/work[39m[0m]8;;
+[2K[38;2;102;102;102m0.0%/128k (auto)[39m[38;2;102;102;102m                                                                          mock-model[39m[0m]8;;[?2026l[?25l[?2026h[20A[2K[38;2;80;80;80m────────────────────────────────────────────────────────────────────────────────────────────────────[39m[0m]8;;
+[2K[7m [0m                                                                                                   [0m]8;;
+[2K[38;2;80;80;80m────────────────────────────────────────────────────────────────────────────────────────────────────[39m[0m]8;;
+[2K[38;2;102;102;102m/tmp/tui-T35-model-thinking-mEtNgv/work[39m[0m]8;;
+[2K[38;2;102;102;102m0.0%/128k (auto)[39m[38;2;102;102;102m                                                                          mock-model[39m[0m]8;;
+[2K
+[2K
+[2K
+[2K
+[2K
+[2K
+[2K
+[2K
+[2K
+[2K
+[2K
+[2K
+[2K
+[2K
+[2K
+[2K[16A[?2026l[3A[1G[?25l[<u[>4;0m[1G[?25l [4B
+[?25h[?2004l]0;π - work

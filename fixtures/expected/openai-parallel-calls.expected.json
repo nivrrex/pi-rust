@@ -1,0 +1,156 @@
+{
+  "fixture": "fixtures/sse/openai/parallel-toolcalls.sse",
+  "costBits": {
+    "input": "0x3ed4f8b588e368f0",
+    "output": "0x3f04f8b588e368f0",
+    "cacheRead": "0x0000000000000000",
+    "cacheWrite": "0x0000000000000000",
+    "total": "0x3f0797cc39ffd60e"
+  },
+  "api": "openai-completions",
+  "requestCount": 1,
+  "events": [
+    {
+      "type": "start"
+    },
+    {
+      "type": "toolcall_start",
+      "contentIndex": 0
+    },
+    {
+      "type": "toolcall_delta",
+      "contentIndex": 0,
+      "delta": ""
+    },
+    {
+      "type": "toolcall_start",
+      "contentIndex": 1
+    },
+    {
+      "type": "toolcall_delta",
+      "contentIndex": 1,
+      "delta": ""
+    },
+    {
+      "type": "toolcall_delta",
+      "contentIndex": 1,
+      "delta": "{\"path\":\"b"
+    },
+    {
+      "type": "toolcall_delta",
+      "contentIndex": 0,
+      "delta": "{\"path\":\"a"
+    },
+    {
+      "type": "toolcall_delta",
+      "contentIndex": 1,
+      "delta": ".txt\"}"
+    },
+    {
+      "type": "toolcall_delta",
+      "contentIndex": 0,
+      "delta": ".txt\"}"
+    },
+    {
+      "type": "toolcall_end",
+      "contentIndex": 0,
+      "toolCall": {
+        "type": "toolCall",
+        "id": "call_a",
+        "name": "read",
+        "arguments": {
+          "path": "a.txt"
+        }
+      }
+    },
+    {
+      "type": "toolcall_end",
+      "contentIndex": 1,
+      "toolCall": {
+        "type": "toolCall",
+        "id": "call_b",
+        "name": "write",
+        "arguments": {
+          "path": "b.txt"
+        }
+      }
+    },
+    {
+      "type": "done",
+      "reason": "toolUse",
+      "message": {
+        "role": "assistant",
+        "api": "openai-completions",
+        "provider": "mock",
+        "model": "mock-model",
+        "stopReason": "toolUse",
+        "rawStopReason": "tool_calls",
+        "content": [
+          {
+            "type": "toolCall",
+            "id": "call_a",
+            "name": "read",
+            "arguments": {
+              "path": "a.txt"
+            }
+          },
+          {
+            "type": "toolCall",
+            "id": "call_b",
+            "name": "write",
+            "arguments": {
+              "path": "b.txt"
+            }
+          }
+        ],
+        "usage": {
+          "input": 5,
+          "output": 20,
+          "cacheRead": 0,
+          "cacheWrite": 0,
+          "totalTokens": 25,
+          "reasoning": 0,
+          "cost": "<COST_BITS>"
+        }
+      }
+    },
+    {
+      "type": "__result",
+      "message": {
+        "role": "assistant",
+        "api": "openai-completions",
+        "provider": "mock",
+        "model": "mock-model",
+        "stopReason": "toolUse",
+        "rawStopReason": "tool_calls",
+        "content": [
+          {
+            "type": "toolCall",
+            "id": "call_a",
+            "name": "read",
+            "arguments": {
+              "path": "a.txt"
+            }
+          },
+          {
+            "type": "toolCall",
+            "id": "call_b",
+            "name": "write",
+            "arguments": {
+              "path": "b.txt"
+            }
+          }
+        ],
+        "usage": {
+          "input": 5,
+          "output": 20,
+          "cacheRead": 0,
+          "cacheWrite": 0,
+          "totalTokens": 25,
+          "reasoning": 0,
+          "cost": "<COST_BITS>"
+        }
+      }
+    }
+  ]
+}

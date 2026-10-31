@@ -1,0 +1,72 @@
+{
+  "id": "T79-ctrl-l-model",
+  "provider": "openai-completions",
+  "model": "mock-model",
+  "mode": "tui",
+  "prompt": "",
+  "files": {
+    "AGENTS.md": "# 项目规则\n"
+  },
+  "globalFiles": {},
+  "cliArgs": [],
+  "responses": [
+    {
+      "file": "fixtures/sse/openai/text-basic.sse"
+    }
+  ],
+  "description": "P8d/X4：ctrl+l = 刷新模型目录提示 + 打开模型选择器（ref keybindings.ts:116）",
+  "tui": {
+    "cols": 100,
+    "rows": 30,
+    "snapshots": [
+      "panel"
+    ],
+    "steps": [
+      {
+        "action": "waitScreen",
+        "contains": "Pi can explain",
+        "timeoutMs": 25000
+      },
+      {
+        "action": "type",
+        "text": "\f"
+      },
+      {
+        "action": "waitStable",
+        "quietMs": 800,
+        "timeoutMs": 15000
+      },
+      {
+        "action": "snapshot",
+        "name": "panel"
+      },
+      {
+        "action": "type",
+        "text": "\u001b"
+      },
+      {
+        "action": "waitStable",
+        "quietMs": 400,
+        "timeoutMs": 8000
+      },
+      {
+        "action": "type",
+        "text": "\u0003"
+      },
+      {
+        "action": "waitStable",
+        "quietMs": 300,
+        "timeoutMs": 5000
+      },
+      {
+        "action": "type",
+        "text": "\u0004"
+      },
+      {
+        "action": "waitStable",
+        "quietMs": 300,
+        "timeoutMs": 5000
+      }
+    ]
+  }
+}

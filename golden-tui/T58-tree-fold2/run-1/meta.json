@@ -1,0 +1,25 @@
+{
+  "id": "T58-tree-fold2",
+  "cols": 100,
+  "rows": 30,
+  "helperExit": 0,
+  "exitCode": 0,
+  "stderr": "",
+  "mockStderr": "",
+  "requestLog": "/tmp/n58/requests.jsonl",
+  "snapshotOffsets": [
+    {
+      "name": "fold-1",
+      "offset": 9601
+    },
+    {
+      "name": "fold-2",
+      "offset": 10400
+    },
+    {
+      "name": "fold-3",
+      "offset": 10406
+    }
+  ],
+  "sessionDir": "/tmp/n58/session"
+}

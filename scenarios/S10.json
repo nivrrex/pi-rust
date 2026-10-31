@@ -1,0 +1,44 @@
+{
+  "id": "S10",
+  "description": "steering：工具执行期间插入 steer（阻塞 bash + 命令确认后创建标志文件）",
+  "provider": "openai-completions",
+  "model": "mock-model",
+  "mode": "rpc",
+  "commands": [
+    {
+      "type": "prompt",
+      "message": "跑一个会阻塞的命令"
+    }
+  ],
+  "script": [
+    {
+      "action": "waitEvent",
+      "match": "\"type\":\"tool_execution_start\""
+    },
+    {
+      "action": "send",
+      "command": {
+        "type": "steer",
+        "message": "改用中文回答"
+      }
+    },
+    {
+      "action": "createFile",
+      "path": "flag.txt"
+    },
+    {
+      "action": "waitExit"
+    }
+  ],
+  "responses": [
+    {
+      "file": "fixtures/sse/openai/tool-bash-wait.sse"
+    },
+    {
+      "file": "fixtures/sse/openai/text-basic.sse"
+    },
+    {
+      "file": "fixtures/sse/openai/text-basic.sse"
+    }
+  ]
+}

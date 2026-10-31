@@ -1,0 +1,12 @@
+{
+  "providers": {
+    "p": {
+      "baseUrl": "https://a.example/v1",
+      "models": [
+        {
+          "id": "m"
+        }
+      ]
+    }
+  }
+}

@@ -1,0 +1,15 @@
+{
+  "providers": {
+    "p": {
+      "name": "P",
+      "baseUrl": "https://a.example/v1",
+      "api": "openai-completions",
+      "oauth": "radius",
+      "models": [
+        {
+          "id": "m"
+        }
+      ]
+    }
+  }
+}

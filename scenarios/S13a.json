@@ -1,0 +1,17 @@
+{
+  "id": "S13a",
+  "description": "S13：空响应",
+  "provider": "openai-completions",
+  "model": "mock-model",
+  "mode": "print",
+  "prompt": "go",
+  "files": {},
+  "responses": [
+    {
+      "file": "fixtures/sse/openai/empty-reply.sse"
+    },
+    {
+      "file": "fixtures/sse/openai/text-basic.sse"
+    }
+  ]
+}

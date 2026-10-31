@@ -1,0 +1,27 @@
+{
+  "provider": "openai-completions",
+  "model": "mock-model",
+  "enableSkills": true,
+  "enablePromptTemplates": true,
+  "globalFiles": {
+    "skills/review-helper/SKILL.md": "---\nname: review-helper\ndescription: 用于演示 skill 展开的示例技能\n---\n\n请按要点逐条检查改动，并在最后给出结论。\n",
+    "prompts/change-summary.md": "# 变更小结模板\n\n请用三句话概括本次改动：做了什么、影响面、验证方式。\n"
+  },
+  "responses": [
+    {
+      "file": "fixtures/sse/openai/text-basic.sse"
+    }
+  ],
+  "id": "S24b",
+  "mode": "rpc",
+  "description": "skills 与 prompt template：rpc prompt 通道",
+  "commands": [
+    {
+      "type": "get_commands"
+    },
+    {
+      "type": "prompt",
+      "message": "/skill:review-helper 看一下这次改动"
+    }
+  ]
+}

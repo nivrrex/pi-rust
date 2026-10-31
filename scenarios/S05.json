@@ -1,0 +1,13 @@
+{
+  "id": "S05",
+  "description": "bash 工具成功执行",
+  "provider": "openai-completions",
+  "model": "mock-model",
+  "mode": "print",
+  "prompt": "run echo hi",
+  "files": {},
+  "responses": [
+    { "file": "fixtures/sse/openai/tool-bash.sse" },
+    { "file": "fixtures/sse/openai/text-basic.sse" }
+  ]
+}

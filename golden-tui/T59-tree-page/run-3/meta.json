@@ -1,0 +1,17 @@
+{
+  "id": "T59-tree-page",
+  "cols": 100,
+  "rows": 30,
+  "helperExit": 0,
+  "exitCode": 0,
+  "stderr": "",
+  "mockStderr": "",
+  "requestLog": "/tmp/n59-3/requests.jsonl",
+  "snapshotOffsets": [
+    {
+      "name": "after-page",
+      "offset": 9664
+    }
+  ],
+  "sessionDir": "/tmp/n59-3/session"
+}

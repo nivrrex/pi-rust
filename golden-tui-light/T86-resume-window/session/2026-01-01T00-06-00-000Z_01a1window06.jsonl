@@ -1,0 +1,5 @@
+{"type": "session", "version": 3, "id": "01a1window06", "timestamp": "2026-01-01T00:06:00.000Z", "cwd": "/tmp/tui-T86-resume-window-i2cS7j/work"}
+{"type": "model_change", "id": "mc6", "parentId": null, "timestamp": "2026-01-01T00:06:00.000Z", "provider": "openai-completions", "modelId": "mock-model"}
+{"type": "thinking_level_change", "id": "tl6", "parentId": "mc6", "timestamp": "2026-01-01T00:06:00.000Z", "thinkingLevel": "off"}
+{"type": "message", "id": "u6", "parentId": "tl6", "timestamp": "2026-01-01T00:06:00.000Z", "message": {"role": "user", "content": [{"type": "text", "text": "分页会话 06：这是第 6 个预置会话"}]}}
+{"type": "message", "id": "a6", "parentId": "u6", "timestamp": "2026-01-01T00:06:00.000Z", "message": {"role": "assistant", "content": [{"type": "text", "text": "收到（会话 06）"}], "stopReason": "stop", "usage": {"input": 7, "output": 1, "cacheRead": 0, "cacheWrite": 0, "totalTokens": 8, "cost": {"input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0, "total": 0}}}}

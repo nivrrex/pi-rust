@@ -1,0 +1,35 @@
+{
+  "id": "S13h",
+  "provider": "openai-completions",
+  "model": "mock-model",
+  "mode": "rpc",
+  "exitCode": 0,
+  "runs": 10,
+  "sane": true,
+  "stableLayers": {
+    "A": true,
+    "B": false,
+    "C": true
+  },
+  "stderr": "",
+  "stepTrace": [
+    {
+      "index": 0,
+      "action": "waitState",
+      "ms": 22,
+      "result": "ok"
+    },
+    {
+      "index": 1,
+      "action": "waitState",
+      "ms": 1,
+      "result": "ok"
+    },
+    {
+      "index": 2,
+      "action": "waitExit",
+      "ms": 0,
+      "result": "ok"
+    }
+  ]
+}

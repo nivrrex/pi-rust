@@ -1,0 +1,10 @@
+{
+  "description": "provider 与模型都没有 api",
+  "probe": [
+    "p",
+    "m"
+  ],
+  "loadError": "Provider \"p\": Provider p, model m: no \"api\" specified. Set at provider or model level.",
+  "found": null,
+  "modelIds": []
+}

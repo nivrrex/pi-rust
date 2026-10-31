@@ -1,0 +1,122 @@
+{
+  "id": "L-T75-bash-60",
+  "provider": "openai-completions",
+  "model": "mock-model",
+  "mode": "tui",
+  "prompt": "",
+  "files": {
+    "AGENTS.md": "# 项目规则\n"
+  },
+  "globalFiles": {},
+  "cliArgs": [],
+  "responses": [
+    {
+      "file": "fixtures/sse/openai/tool-bash-60.sse",
+      "chunkByEvent": true
+    },
+    {
+      "file": "fixtures/sse/openai/text-basic.sse"
+    }
+  ],
+  "description": "P8d/B3：bash 输出 60 行 ⇒ 折叠只显示尾部 5 行 + earlier lines 提示；ctrl+o 展开",
+  "tui": {
+    "cols": 100,
+    "rows": 30,
+    "snapshots": [
+      "collapsed",
+      "expanded"
+    ],
+    "steps": [
+      {
+        "action": "waitScreen",
+        "contains": "Pi can explain",
+        "timeoutMs": 25000
+      },
+      {
+        "action": "type",
+        "text": "run seq"
+      },
+      {
+        "action": "waitStable",
+        "quietMs": 600,
+        "timeoutMs": 15000
+      },
+      {
+        "action": "type",
+        "text": "\r"
+      },
+      {
+        "action": "delay",
+        "ms": 6000
+      },
+      {
+        "action": "waitStable",
+        "quietMs": 1200,
+        "timeoutMs": 20000
+      },
+      {
+        "action": "delay",
+        "ms": 1500
+      },
+      {
+        "action": "waitStable",
+        "quietMs": 1200,
+        "timeoutMs": 15000
+      },
+      {
+        "action": "snapshot",
+        "name": "collapsed"
+      },
+      {
+        "action": "delay",
+        "ms": 2000
+      },
+      {
+        "action": "waitStable",
+        "quietMs": 500,
+        "timeoutMs": 8000
+      },
+      {
+        "action": "type",
+        "text": "\u000f"
+      },
+      {
+        "action": "waitStable",
+        "quietMs": 800,
+        "timeoutMs": 15000
+      },
+      {
+        "action": "delay",
+        "ms": 1500
+      },
+      {
+        "action": "waitStable",
+        "quietMs": 1200,
+        "timeoutMs": 15000
+      },
+      {
+        "action": "snapshot",
+        "name": "expanded"
+      },
+      {
+        "action": "type",
+        "text": "\u0003"
+      },
+      {
+        "action": "waitStable",
+        "quietMs": 300,
+        "timeoutMs": 5000
+      },
+      {
+        "action": "type",
+        "text": "\u0004"
+      },
+      {
+        "action": "waitStable",
+        "quietMs": 300,
+        "timeoutMs": 5000
+      }
+    ]
+  },
+  "theme": "light"
+}

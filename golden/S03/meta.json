@@ -1,0 +1,15 @@
+{
+  "id": "S03",
+  "provider": "openai-completions",
+  "model": "mock-model",
+  "mode": "print",
+  "exitCode": 0,
+  "runs": 3,
+  "sane": true,
+  "stableLayers": {
+    "A": true,
+    "B": true,
+    "C": true
+  },
+  "stderr": ""
+}

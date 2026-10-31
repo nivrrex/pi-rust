@@ -1,0 +1,20 @@
+{
+  "id": "S23c",
+  "description": "AGENTS.override.md 首个命中优先：cwd 同时放 AGENTS.override.md 与 AGENTS.md，project_context 只应含 override",
+  "provider": "openai-completions",
+  "model": "mock-model",
+  "mode": "print",
+  "prompt": "say hi",
+  "files": {
+    "AGENTS.override.md": "# 覆盖规则\n\n- 只应出现这一份。\n",
+    "AGENTS.md": "# 不该出现\n\n- 被 override 顶掉。\n"
+  },
+  "globalFiles": {
+    "CLAUDE.md": "# 全局规则\n\n- 全局级：回答用中文。\n"
+  },
+  "responses": [
+    {
+      "file": "fixtures/sse/openai/text-basic.sse"
+    }
+  ]
+}

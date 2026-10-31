@@ -1,0 +1,26 @@
+{
+  "provider": "openai-completions",
+  "model": "mock-model",
+  "enableSkills": true,
+  "enablePromptTemplates": true,
+  "mode": "print",
+  "responses": [
+    {
+      "file": "fixtures/sse/openai/text-basic.sse"
+    }
+  ],
+  "files": {
+    "AGENTS.md": "# 项目规则\n\n- 项目级：先跑测试再改代码。\n",
+    "tpls/explicit.md": "显式模板：参数一是 $1；其余 $@\n"
+  },
+  "globalFiles": {
+    "CLAUDE.md": "# 全局规则\n\n- 全局级：回答用中文。\n"
+  },
+  "cliArgs": [
+    "--prompt-template",
+    "tpls/explicit.md"
+  ],
+  "id": "S58",
+  "description": "显式路径 --prompt-template <path>（ref cli/args.ts:184、loadPromptTemplates:273+）：相对 cwd 的模板目录/文件被加载",
+  "prompt": "/explicit 甲 乙"
+}

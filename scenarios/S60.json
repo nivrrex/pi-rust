@@ -1,0 +1,26 @@
+{
+  "provider": "openai-completions",
+  "model": "mock-model",
+  "enableSkills": true,
+  "enablePromptTemplates": true,
+  "globalFiles": {
+    "skills/review-helper/SKILL.md": "---\nname: review-helper\ndescription: 用于演示 skill 展开的示例技能\n---\n\n请按要点逐条检查改动，并在最后给出结论。\n",
+    "prompts/change-summary.md": "# 变更小结模板\n\n请用三句话概括本次改动：做了什么、影响面、验证方式。\n"
+  },
+  "responses": [
+    {
+      "file": "fixtures/sse/openai/text-basic.sse"
+    }
+  ],
+  "id": "S60",
+  "mode": "print",
+  "description": "print 模式下 --tui-mode fullscreen（其余同 S23b）",
+  "prompt": "/skill:review-helper 看一下这次改动",
+  "cliArgs": [
+    "--tui-mode",
+    "fullscreen"
+  ],
+  "files": {
+    "AGENTS.md": "# 项目规则\n\n- 项目级：先跑测试再改代码。\n"
+  }
+}

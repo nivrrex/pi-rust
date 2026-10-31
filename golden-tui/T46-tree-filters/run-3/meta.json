@@ -1,0 +1,25 @@
+{
+  "id": "T46-tree-filters",
+  "cols": 100,
+  "rows": 30,
+  "helperExit": 0,
+  "exitCode": 0,
+  "stderr": "",
+  "mockStderr": "",
+  "requestLog": "/tmp/n46-3/requests.jsonl",
+  "snapshotOffsets": [
+    {
+      "name": "no-tools",
+      "offset": 9033
+    },
+    {
+      "name": "user-only",
+      "offset": 9825
+    },
+    {
+      "name": "default",
+      "offset": 10764
+    }
+  ],
+  "sessionDir": "/tmp/n46-3/session"
+}

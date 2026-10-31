@@ -1,0 +1,17 @@
+{
+  "id": "L-T80-model-scope-invalid",
+  "cols": 100,
+  "rows": 30,
+  "helperExit": 0,
+  "exitCode": 0,
+  "stderr": "",
+  "mockStderr": "",
+  "requestLog": "/tmp/l80/run-2/requests.jsonl",
+  "snapshotOffsets": [
+    {
+      "name": "scope",
+      "offset": 5479
+    }
+  ],
+  "sessionDir": "/tmp/l80/run-2/session"
+}

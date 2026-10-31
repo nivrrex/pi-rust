@@ -1,0 +1,219 @@
+case n1-no-response-key 1
+step key YQ== 0 5
+kitty event:1 0
+kitty key 0
+out start G1s/MjAwNGgbWz43dRtbP3UbW2M=
+out key 
+out stop G1s/MjAwNGwbWzx1
+event YQ==
+case n2-no-response-arrow 1
+step arrow G1tB 0 5
+kitty event:3 0
+kitty arrow 0
+out start G1s/MjAwNGgbWz43dRtbP3UbW2M=
+out arrow 
+out stop G1s/MjAwNGwbWzx1
+event G1tB
+case n3-no-response-paste 1
+step paste G1syMDB+aGkbWzIwMX4= 0 5
+kitty event:14 0
+kitty paste 0
+out start G1s/MjAwNGgbWz43dRtbP3UbW2M=
+out paste 
+out stop G1s/MjAwNGwbWzx1
+event G1syMDB+aGkbWzIwMX4=
+case k1-kitty-flags1 1
+step kitty G1s/MXU= 200 5
+kitty kitty 1
+out start G1s/MjAwNGgbWz43dRtbP3UbW2M=
+out kitty 
+out stop G1s/MjAwNGwbWzx1
+case k2-kitty-flags0 1
+step flags0 G1s/MHU= 200 5
+kitty flags0 0
+out start G1s/MjAwNGgbWz43dRtbP3UbW2M=
+out flags0 G1s+NDsybQ==
+out stop G1s/MjAwNGwbWzx1G1s+NDswbQ==
+case k3-kitty-flags5-then-key 2
+step kitty5 G1s/NXU= 200 5
+step key G1s5Nzs1dQ== 0 5
+kitty kitty5 1
+kitty event:7 1
+kitty key 1
+out start G1s/MjAwNGgbWz43dRtbP3UbW2M=
+out kitty5 
+out key 
+out stop G1s/MjAwNGwbWzx1
+event G1s5Nzs1dQ==
+case d1-da1-only 1
+step da1 G1s/MTsyYw== 200 5
+kitty da1 0
+out start G1s/MjAwNGgbWz43dRtbP3UbW2M=
+out da1 G1s+NDsybQ==
+out stop G1s/MjAwNGwbWzx1G1s+NDswbQ==
+case d2-da1-then-key 2
+step da1 G1s/MTsyYw== 200 5
+step key eA== 0 5
+kitty da1 0
+kitty event:1 0
+kitty key 0
+out start G1s/MjAwNGgbWz43dRtbP3UbW2M=
+out da1 G1s+NDsybQ==
+out key 
+out stop G1s/MjAwNGwbWzx1G1s+NDswbQ==
+event eA==
+case d3-da1-after-kitty 2
+step kitty G1s/MXU= 200 5
+step da1 G1s/MTsyYw== 200 5
+kitty kitty 1
+kitty da1 1
+out start G1s/MjAwNGgbWz43dRtbP3UbW2M=
+out kitty 
+out da1 
+out stop G1s/MjAwNGwbWzx1
+case o1-osc11-bel 1
+step osc11 G10xMTtyZ2I6MDAwMC8wMDAwLzAwMDAH 200 5
+kitty event:24 0
+kitty osc11 0
+out start G1s/MjAwNGgbWz43dRtbP3UbW2M=
+out osc11 
+out stop G1s/MjAwNGwbWzx1
+event G10xMTtyZ2I6MDAwMC8wMDAwLzAwMDAH
+case o2-osc11-st 1
+step osc11st G10xMTtyZ2I6ZmZmZi9mZmZmL2ZmZmYbXA== 200 5
+kitty event:25 0
+kitty osc11st 0
+out start G1s/MjAwNGgbWz43dRtbP3UbW2M=
+out osc11st 
+out stop G1s/MjAwNGwbWzx1
+event G10xMTtyZ2I6ZmZmZi9mZmZmL2ZmZmYbXA==
+case o3-osc11-then-key 2
+step osc11 G10xMTtyZ2I6MTExMS8yMjIyLzMzMzMH 200 5
+step key aw== 0 5
+kitty event:24 0
+kitty osc11 0
+kitty event:1 0
+kitty key 0
+out start G1s/MjAwNGgbWz43dRtbP3UbW2M=
+out osc11 
+out key 
+out stop G1s/MjAwNGwbWzx1
+event G10xMTtyZ2I6MTExMS8yMjIyLzMzMzMH
+event aw==
+case f1-kitty-split 1
+step split G1s/,MXU= 200 5
+kitty split 1
+out start G1s/MjAwNGgbWz43dRtbP3UbW2M=
+out split 
+out stop G1s/MjAwNGwbWzx1
+case f2-da1-split 1
+step split G1s/MQ==,OzJj 200 5
+kitty split 0
+out start G1s/MjAwNGgbWz43dRtbP3UbW2M=
+out split G1s+NDsybQ==
+out stop G1s/MjAwNGwbWzx1G1s+NDswbQ==
+case f3-kitty-split-3 1
+step split3 Gw==,Wz8x,dQ== 200 5
+kitty split3 1
+out start G1s/MjAwNGgbWz43dRtbP3UbW2M=
+out split3 
+out stop G1s/MjAwNGwbWzx1
+case t1-late-tail 2
+step half G1s/ 250 5
+step tail MXU= 200 5
+kitty event:3 0
+kitty half 0
+kitty event:1 0
+kitty event:1 0
+kitty tail 0
+out start G1s/MjAwNGgbWz43dRtbP3UbW2M=
+out half 
+out tail 
+out stop G1s/MjAwNGwbWzx1
+event G1s/
+event MQ==
+event dQ==
+case t2-late-da1 2
+step half G1s/MQ== 250 5
+step tail OzJj 200 5
+kitty event:4 0
+kitty half 0
+kitty event:1 0
+kitty event:1 0
+kitty event:1 0
+kitty tail 0
+out start G1s/MjAwNGgbWz43dRtbP3UbW2M=
+out half 
+out tail 
+out stop G1s/MjAwNGwbWzx1
+event G1s/MQ==
+event Ow==
+event Mg==
+event Yw==
+case t3-late-after-key 3
+step half G1s/ 250 5
+step key eg== 0 5
+step tail MXU= 200 5
+kitty event:3 0
+kitty half 0
+kitty event:1 0
+kitty key 0
+kitty event:1 0
+kitty event:1 0
+kitty tail 0
+out start G1s/MjAwNGgbWz43dRtbP3UbW2M=
+out half 
+out key 
+out tail 
+out stop G1s/MjAwNGwbWzx1
+event G1s/
+event eg==
+event MQ==
+event dQ==
+case i1-key-then-kitty 1
+step mixed YRtbPzF1 200 5
+kitty event:1 0
+kitty mixed 1
+out start G1s/MjAwNGgbWz43dRtbP3UbW2M=
+out mixed 
+out stop G1s/MjAwNGwbWzx1
+event YQ==
+case i2-kitty-then-key 1
+step mixed G1s/MXVi 200 5
+kitty event:1 1
+kitty mixed 1
+out start G1s/MjAwNGgbWz43dRtbP3UbW2M=
+out mixed 
+out stop G1s/MjAwNGwbWzx1
+event Yg==
+case i3-key-kitty-key 3
+step k1 Yw== 0 5
+step kitty G1s/MXU= 200 5
+step k2 ZA== 0 5
+kitty event:1 0
+kitty k1 0
+kitty kitty 1
+kitty event:1 1
+kitty k2 1
+out start G1s/MjAwNGgbWz43dRtbP3UbW2M=
+out k1 
+out kitty 
+out k2 
+out stop G1s/MjAwNGwbWzx1
+event Yw==
+event ZA==
+case s1-stop-after-kitty 1
+step kitty G1s/MXU= 200 5
+kitty kitty 1
+out start G1s/MjAwNGgbWz43dRtbP3UbW2M=
+out kitty 
+out stop G1s/MjAwNGwbWzx1
+case s2-stop-after-flags0 1
+step flags0 G1s/MHU= 200 5
+kitty flags0 0
+out start G1s/MjAwNGgbWz43dRtbP3UbW2M=
+out flags0 G1s+NDsybQ==
+out stop G1s/MjAwNGwbWzx1G1s+NDswbQ==
+case s3-stop-plain 0
+out start G1s/MjAwNGgbWz43dRtbP3UbW2M=
+out stop G1s/MjAwNGwbWzx1

@@ -1,0 +1,4 @@
+data: {"id":"chatcmpl-mock","object":"chat.completion.chunk","created":1700000000,"model":"mock-model","choices":[{"index":0,"delta":{"role":"assistant","content":""},"finish_reason":null}]}
+
+data: {"error":{"message":"the request exceeds the available context size","type":"invalid_request_error","code":"context_length_exceeded"}}
+

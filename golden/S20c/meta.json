@@ -1,0 +1,59 @@
+{
+  "id": "S20c",
+  "provider": "openai-completions",
+  "model": "mock-model",
+  "mode": "rpc",
+  "exitCode": 0,
+  "runs": 3,
+  "sane": true,
+  "stableLayers": {
+    "A": true,
+    "B": true,
+    "C": true
+  },
+  "stderr": "",
+  "stepTrace": [
+    {
+      "index": 0,
+      "action": "waitState",
+      "ms": 302,
+      "result": "ok"
+    },
+    {
+      "index": 1,
+      "action": "send",
+      "ms": 1,
+      "result": "ok"
+    },
+    {
+      "index": 2,
+      "action": "send",
+      "ms": 1,
+      "result": "ok"
+    },
+    {
+      "index": 3,
+      "action": "send",
+      "ms": 0,
+      "result": "ok"
+    },
+    {
+      "index": 4,
+      "action": "send",
+      "ms": 4,
+      "result": "ok"
+    },
+    {
+      "index": 5,
+      "action": "waitState",
+      "ms": 54,
+      "result": "ok"
+    },
+    {
+      "index": 6,
+      "action": "waitExit",
+      "ms": 0,
+      "result": "ok"
+    }
+  ]
+}

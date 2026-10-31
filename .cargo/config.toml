@@ -1,0 +1,5 @@
+# 交叉构建配置（**不含任何本机绝对路径**）。
+# aarch64 Linux musl：用系统装的 `aarch64-linux-gnu-gcc` 作链接器（不新增 Cargo 依赖）；
+# 目标仍是静态链接的 musl（`-C target-feature=+crt-static` 由 musl target 自带）。
+[target.aarch64-unknown-linux-musl]
+linker = "aarch64-linux-gnu-gcc"

@@ -1,0 +1,22 @@
+{
+  "provider": "openai-completions",
+  "model": "mock-model",
+  "enableSkills": true,
+  "mode": "print",
+  "prompt": "say hi",
+  "responses": [
+    {
+      "file": "fixtures/sse/openai/text-basic.sse"
+    }
+  ],
+  "files": {
+    "AGENTS.md": "# 项目规则\n\n- 项目级：先跑测试再改代码。\n"
+  },
+  "globalFiles": {
+    "CLAUDE.md": "# 全局规则\n\n- 全局级：回答用中文。\n",
+    "skills/hidden-helper/SKILL.md": "---\nname: hidden-helper\ndescription: 只允许显式调用。\n\"disable-model-invocation\": true\n---\n\n# hidden-helper\n\n- 先跑测试再改代码。\n",
+    "skills/visible-helper/SKILL.md": "---\nname: visible-helper\ndescription: 正对照：应出现在 skills 段。\n---\n\n# visible-helper\n\n- 先跑测试再改代码。\n"
+  },
+  "id": "S38",
+  "description": "disable-model-invocation: true 的 skill 不进 system 段（ref skills.ts:356）；同场景放一个正常 skill 作正对照（有效产出闸门）"
+}

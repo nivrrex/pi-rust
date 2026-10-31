@@ -1,0 +1,106 @@
+{
+  "fixture": "fixtures/sse/openai/reasoning.sse",
+  "costBits": {
+    "input": "0x3ee0c6f7a0b5ed8d",
+    "output": "0x3ee0c6f7a0b5ed8d",
+    "cacheRead": "0x0000000000000000",
+    "cacheWrite": "0x0000000000000000",
+    "total": "0x3ef0c6f7a0b5ed8d"
+  },
+  "api": "openai-completions",
+  "requestCount": 1,
+  "events": [
+    {
+      "type": "start"
+    },
+    {
+      "type": "thinking_start",
+      "contentIndex": 0
+    },
+    {
+      "type": "thinking_delta",
+      "contentIndex": 0,
+      "delta": "先想一下"
+    },
+    {
+      "type": "text_start",
+      "contentIndex": 1
+    },
+    {
+      "type": "text_delta",
+      "contentIndex": 1,
+      "delta": "答案"
+    },
+    {
+      "type": "thinking_end",
+      "contentIndex": 0,
+      "content": "先想一下"
+    },
+    {
+      "type": "text_end",
+      "contentIndex": 1,
+      "content": "答案"
+    },
+    {
+      "type": "done",
+      "reason": "stop",
+      "message": {
+        "role": "assistant",
+        "api": "openai-completions",
+        "provider": "mock",
+        "model": "mock-model",
+        "stopReason": "stop",
+        "rawStopReason": "stop",
+        "content": [
+          {
+            "type": "thinking",
+            "thinking": "先想一下"
+          },
+          {
+            "type": "text",
+            "text": "答案"
+          }
+        ],
+        "usage": {
+          "input": 8,
+          "output": 4,
+          "cacheRead": 0,
+          "cacheWrite": 0,
+          "totalTokens": 12,
+          "reasoning": 3,
+          "cost": "<COST_BITS>"
+        }
+      }
+    },
+    {
+      "type": "__result",
+      "message": {
+        "role": "assistant",
+        "api": "openai-completions",
+        "provider": "mock",
+        "model": "mock-model",
+        "stopReason": "stop",
+        "rawStopReason": "stop",
+        "content": [
+          {
+            "type": "thinking",
+            "thinking": "先想一下"
+          },
+          {
+            "type": "text",
+            "text": "答案"
+          }
+        ],
+        "usage": {
+          "input": 8,
+          "output": 4,
+          "cacheRead": 0,
+          "cacheWrite": 0,
+          "totalTokens": 12,
+          "reasoning": 3,
+          "cost": "<COST_BITS>"
+        }
+      }
+    }
+  ]
+}

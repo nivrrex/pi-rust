@@ -1,0 +1,29 @@
+{
+  "id": "T86-resume-window",
+  "cols": 100,
+  "rows": 44,
+  "helperExit": 0,
+  "exitCode": 0,
+  "stderr": "",
+  "mockStderr": "",
+  "requestLog": "/root/Desktop/pi-rust/golden-tui-light/T86-resume-window/requests.jsonl",
+  "snapshotOffsets": [
+    {
+      "name": "resume-window",
+      "offset": 8897
+    },
+    {
+      "name": "after-pagedown",
+      "offset": 10634
+    },
+    {
+      "name": "after-pagedown-clamp",
+      "offset": 11076
+    },
+    {
+      "name": "after-pageup",
+      "offset": 12812
+    }
+  ],
+  "sessionDir": "/root/Desktop/pi-rust/golden-tui-light/T86-resume-window/session"
+}

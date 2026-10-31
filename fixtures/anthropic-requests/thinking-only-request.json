@@ -1,0 +1,44 @@
+{
+  "name": "thinking-only-request",
+  "input": {
+    "systemPrompt": "sys",
+    "hasTools": false,
+    "reasoning": "high",
+    "cacheRetention": null
+  },
+  "error": null,
+  "path": "/v1/messages?beta=true",
+  "headers": {
+    "anthropic-version": "2023-06-01",
+    "x-api-key": "mock-key",
+    "content-type": "application/json"
+  },
+  "body": {
+    "model": "mock-model",
+    "messages": [
+      {
+        "role": "user",
+        "content": [
+          {
+            "type": "text",
+            "text": "think",
+            "cache_control": {
+              "type": "ephemeral"
+            }
+          }
+        ]
+      }
+    ],
+    "max_tokens": 4096,
+    "stream": true,
+    "system": [
+      {
+        "type": "text",
+        "text": "sys",
+        "cache_control": {
+          "type": "ephemeral"
+        }
+      }
+    ]
+  }
+}

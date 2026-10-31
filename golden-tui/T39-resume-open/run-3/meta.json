@@ -1,0 +1,17 @@
+{
+  "id": "T39-resume-open",
+  "cols": 100,
+  "rows": 30,
+  "helperExit": 0,
+  "exitCode": 0,
+  "stderr": "",
+  "mockStderr": "",
+  "requestLog": "/tmp/n39b-3/requests.jsonl",
+  "snapshotOffsets": [
+    {
+      "name": "after-resume",
+      "offset": 11714
+    }
+  ],
+  "sessionDir": "/tmp/n39b-3/session"
+}

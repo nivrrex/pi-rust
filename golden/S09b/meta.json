@@ -1,0 +1,42 @@
+{
+  "id": "S09b",
+  "provider": "openai-completions",
+  "model": "mock-model",
+  "mode": "rpc",
+  "exitCode": 0,
+  "runs": 3,
+  "sane": true,
+  "stableLayers": {
+    "A": true,
+    "B": true,
+    "C": true
+  },
+  "stderr": "",
+  "stepTrace": [
+    {
+      "index": 0,
+      "action": "waitEvent",
+      "ms": 50,
+      "result": "matched",
+      "detail": "命中第 1 条事件: {\"type\":\"tool_execution_start\",\"toolCallId\":\"call_wait\",\"toolName\":\"bash\",\"args\":{\"command\":\"while [ ! -f flag.txt ]; do"
+    },
+    {
+      "index": 1,
+      "action": "send",
+      "ms": 15,
+      "result": "ok"
+    },
+    {
+      "index": 2,
+      "action": "createFile",
+      "ms": 0,
+      "result": "ok"
+    },
+    {
+      "index": 3,
+      "action": "waitExit",
+      "ms": 0,
+      "result": "ok"
+    }
+  ]
+}

@@ -1,0 +1,92 @@
+{
+  "id": "T73-ls-tool-tui",
+  "provider": "openai-completions",
+  "model": "mock-model",
+  "mode": "tui",
+  "prompt": "",
+  "files": {
+    "AGENTS.md": "# 项目规则\n",
+    "aardvark.txt": "a\n",
+    "Bravo.txt": "b\n",
+    "dir-nested/inner.txt": "i\n",
+    "zeta/deep/leaf.txt": "l\n"
+  },
+  "globalFiles": {},
+  "cliArgs": [
+    "--tools",
+    "ls"
+  ],
+  "responses": [
+    {
+      "file": "fixtures/sse/openai/tool-ls.sse",
+      "chunkByEvent": true
+    },
+    {
+      "file": "fixtures/sse/openai/text-basic.sse"
+    }
+  ],
+  "description": "ls 工具端到端（V1，TUI）：屏幕上的工具结果块",
+  "tui": {
+    "cols": 100,
+    "rows": 30,
+    "snapshots": [
+      "ls"
+    ],
+    "steps": [
+      {
+        "action": "waitScreen",
+        "contains": "Pi can explain",
+        "timeoutMs": 25000
+      },
+      {
+        "action": "type",
+        "text": "list files"
+      },
+      {
+        "action": "waitStable",
+        "quietMs": 600,
+        "timeoutMs": 15000
+      },
+      {
+        "action": "type",
+        "text": "\r"
+      },
+      {
+        "action": "delay",
+        "ms": 7000
+      },
+      {
+        "action": "waitStable",
+        "quietMs": 1200,
+        "timeoutMs": 15000
+      },
+      {
+        "action": "snapshot",
+        "name": "ls"
+      },
+      {
+        "action": "waitStable",
+        "quietMs": 300,
+        "timeoutMs": 5000
+      },
+      {
+        "action": "type",
+        "text": "\u0003"
+      },
+      {
+        "action": "waitStable",
+        "quietMs": 300,
+        "timeoutMs": 5000
+      },
+      {
+        "action": "type",
+        "text": "\u0004"
+      },
+      {
+        "action": "waitStable",
+        "quietMs": 300,
+        "timeoutMs": 5000
+      }
+    ]
+  }
+}

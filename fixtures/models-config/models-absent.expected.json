@@ -1,0 +1,10 @@
+{
+  "description": "连 models 字段都没有",
+  "probe": [
+    "p",
+    "m"
+  ],
+  "loadError": null,
+  "found": null,
+  "modelIds": []
+}

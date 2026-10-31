@@ -1,0 +1,15 @@
+{
+  "outDir": "fixtures/expected",
+  "cases": [
+    { "name": "openai-text-basic",       "api": "openai-completions",  "fixture": "fixtures/sse/openai/text-basic.sse" },
+    { "name": "openai-reasoning",        "api": "openai-completions",  "fixture": "fixtures/sse/openai/reasoning.sse" },
+    { "name": "openai-parallel-calls",   "api": "openai-completions",  "fixture": "fixtures/sse/openai/parallel-toolcalls.sse" },
+    { "name": "openai-crlf",             "api": "openai-completions",  "fixture": "fixtures/sse/openai/crlf.sse" },
+    { "name": "openai-multiline-data",   "api": "openai-completions",  "fixture": "fixtures/sse/openai/multiline-data.sse" },
+    { "name": "openai-multibyte-split",  "api": "openai-completions",  "fixture": "fixtures/sse/openai/multibyte-split.sse" },
+    { "name": "openai-error-chunk",      "api": "openai-completions",  "fixture": "fixtures/sse/openai/error-chunk.sse" },
+    { "name": "anthropic-basic",         "api": "anthropic-messages",  "fixture": "fixtures/sse/anthropic/basic.sse" },
+    { "name": "anthropic-tool-use-delta","api": "anthropic-messages",  "fixture": "fixtures/sse/anthropic/tool-use-delta.sse" },
+    { "name": "anthropic-ping-only",     "api": "anthropic-messages",  "fixture": "fixtures/sse/anthropic/ping-only.sse" }
+  ]
+}

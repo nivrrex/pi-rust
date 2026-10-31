@@ -1,0 +1,46 @@
+{
+  "id": "S09a",
+  "description": "abort：流式中途（按事件分块，闸门卡在第 2 块之后——此时已收到首个文本增量，abort 落在流进行中）",
+  "provider": "openai-completions",
+  "model": "mock-model",
+  "mode": "rpc",
+  "commands": [
+    {
+      "type": "prompt",
+      "message": "say hi"
+    }
+  ],
+  "responses": [
+    {
+      "file": "fixtures/sse/openai/text-basic.sse",
+      "gateAfterChunks": 2,
+      "chunkByEvent": true
+    },
+    {
+      "file": "fixtures/sse/openai/text-basic.sse"
+    }
+  ],
+  "script": [
+    {
+      "action": "waitEvent",
+      "match": "\"type\":\"message_update\""
+    },
+    {
+      "action": "send",
+      "command": {
+        "type": "abort"
+      }
+    },
+    {
+      "action": "releaseGate"
+    },
+    {
+      "action": "waitExit"
+    }
+  ],
+  "expectInjections": {
+    "gateHits": 1,
+    "disconnects": 0,
+    "retryAfterSent": 0
+  }
+}

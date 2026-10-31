@@ -1,0 +1,17 @@
+{
+  "id": "T60-copy",
+  "cols": 100,
+  "rows": 30,
+  "helperExit": 0,
+  "exitCode": 0,
+  "stderr": "",
+  "mockStderr": "",
+  "requestLog": "/tmp/n60-2/requests.jsonl",
+  "snapshotOffsets": [
+    {
+      "name": "after-copy",
+      "offset": 7962
+    }
+  ],
+  "sessionDir": "/tmp/n60-2/session"
+}

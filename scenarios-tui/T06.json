@@ -1,0 +1,68 @@
+{
+  "provider": "openai-completions",
+  "model": "mock-model",
+  "responses": [
+    {
+      "file": "fixtures/sse/openai/tool-call-read.sse"
+    },
+    {
+      "file": "fixtures/sse/openai/text-basic.sse"
+    }
+  ],
+  "files": {
+    "AGENTS.md": "# 项目规则\n\n- 项目级：改代码前先跑测试。\n",
+    "input.txt": "hello-from-fixture\n"
+  },
+  "id": "T06",
+  "prompt": "read input.txt",
+  "description": "TUI 基线 T06：工具调用（read 读 work 内夹具）的调用块与结果块渲染",
+  "tui": {
+    "cols": 100,
+    "rows": 30,
+    "steps": [
+      {
+        "action": "waitScreen",
+        "contains": "Pi can explain",
+        "timeoutMs": 20000
+      },
+      {
+        "action": "type",
+        "text": "say hi"
+      },
+      {
+        "action": "waitStable",
+        "quietMs": 600,
+        "timeoutMs": 15000
+      },
+      {
+        "action": "type",
+        "text": "\r"
+      },
+      {
+        "action": "delay",
+        "ms": 20000
+      },
+      {
+        "action": "waitStable",
+        "quietMs": 1500,
+        "timeoutMs": 20000
+      },
+      {
+        "action": "snapshot",
+        "name": "after-prompt"
+      },
+      {
+        "action": "type",
+        "text": "\u0004"
+      },
+      {
+        "action": "waitStable",
+        "quietMs": 500,
+        "timeoutMs": 10000
+      }
+    ],
+    "snapshots": [
+      "after-prompt"
+    ]
+  }
+}

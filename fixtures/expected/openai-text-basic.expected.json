@@ -1,0 +1,89 @@
+{
+  "fixture": "fixtures/sse/openai/text-basic.sse",
+  "costBits": {
+    "input": "0x3ee4f8b588e368f0",
+    "output": "0x3ed0c6f7a0b5ed8d",
+    "cacheRead": "0x0000000000000000",
+    "cacheWrite": "0x0000000000000000",
+    "total": "0x3eed5c31593e5fb6"
+  },
+  "api": "openai-completions",
+  "requestCount": 1,
+  "events": [
+    {
+      "type": "start"
+    },
+    {
+      "type": "text_start",
+      "contentIndex": 0
+    },
+    {
+      "type": "text_delta",
+      "contentIndex": 0,
+      "delta": "Hello"
+    },
+    {
+      "type": "text_delta",
+      "contentIndex": 0,
+      "delta": " world"
+    },
+    {
+      "type": "text_end",
+      "contentIndex": 0,
+      "content": "Hello world"
+    },
+    {
+      "type": "done",
+      "reason": "stop",
+      "message": {
+        "role": "assistant",
+        "api": "openai-completions",
+        "provider": "mock",
+        "model": "mock-model",
+        "stopReason": "stop",
+        "rawStopReason": "stop",
+        "content": [
+          {
+            "type": "text",
+            "text": "Hello world"
+          }
+        ],
+        "usage": {
+          "input": 10,
+          "output": 2,
+          "cacheRead": 0,
+          "cacheWrite": 0,
+          "totalTokens": 12,
+          "reasoning": 0,
+          "cost": "<COST_BITS>"
+        }
+      }
+    },
+    {
+      "type": "__result",
+      "message": {
+        "role": "assistant",
+        "api": "openai-completions",
+        "provider": "mock",
+        "model": "mock-model",
+        "stopReason": "stop",
+        "rawStopReason": "stop",
+        "content": [
+          {
+            "type": "text",
+            "text": "Hello world"
+          }
+        ],
+        "usage": {
+          "input": 10,
+          "output": 2,
+          "cacheRead": 0,
+          "cacheWrite": 0,
+          "totalTokens": 12,
+          "reasoning": 0,
+          "cost": "<COST_BITS>"
+        }
+      }
+    }
+  ]
+}

@@ -1,0 +1,17 @@
+{
+  "id": "T57-resume-delete",
+  "cols": 100,
+  "rows": 30,
+  "helperExit": 0,
+  "exitCode": -9,
+  "stderr": "",
+  "mockStderr": "",
+  "requestLog": "/tmp/n57-3/requests.jsonl",
+  "snapshotOffsets": [
+    {
+      "name": "delete-confirm",
+      "offset": 9327
+    }
+  ],
+  "sessionDir": "/tmp/n57-3/session"
+}

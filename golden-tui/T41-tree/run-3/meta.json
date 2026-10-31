@@ -1,0 +1,17 @@
+{
+  "id": "T41-tree",
+  "cols": 100,
+  "rows": 30,
+  "helperExit": 0,
+  "exitCode": 0,
+  "stderr": "",
+  "mockStderr": "",
+  "requestLog": "/tmp/n41-3/requests.jsonl",
+  "snapshotOffsets": [
+    {
+      "name": "tree-open",
+      "offset": 5614
+    }
+  ],
+  "sessionDir": "/tmp/n41-3/session"
+}

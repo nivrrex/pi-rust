@@ -1,0 +1,84 @@
+{
+  "fixture": "fixtures/sse/openai/multiline-data.sse",
+  "costBits": {
+    "input": "0x3ec92a737110e454",
+    "output": "0x3ec0c6f7a0b5ed8d",
+    "cacheRead": "0x0000000000000000",
+    "cacheWrite": "0x0000000000000000",
+    "total": "0x3ed4f8b588e368f0"
+  },
+  "api": "openai-completions",
+  "requestCount": 1,
+  "events": [
+    {
+      "type": "start"
+    },
+    {
+      "type": "text_start",
+      "contentIndex": 0
+    },
+    {
+      "type": "text_delta",
+      "contentIndex": 0,
+      "delta": "多行"
+    },
+    {
+      "type": "text_end",
+      "contentIndex": 0,
+      "content": "多行"
+    },
+    {
+      "type": "done",
+      "reason": "stop",
+      "message": {
+        "role": "assistant",
+        "api": "openai-completions",
+        "provider": "mock",
+        "model": "mock-model",
+        "stopReason": "stop",
+        "rawStopReason": "stop",
+        "content": [
+          {
+            "type": "text",
+            "text": "多行"
+          }
+        ],
+        "usage": {
+          "input": 3,
+          "output": 1,
+          "cacheRead": 0,
+          "cacheWrite": 0,
+          "totalTokens": 4,
+          "reasoning": 0,
+          "cost": "<COST_BITS>"
+        }
+      }
+    },
+    {
+      "type": "__result",
+      "message": {
+        "role": "assistant",
+        "api": "openai-completions",
+        "provider": "mock",
+        "model": "mock-model",
+        "stopReason": "stop",
+        "rawStopReason": "stop",
+        "content": [
+          {
+            "type": "text",
+            "text": "多行"
+          }
+        ],
+        "usage": {
+          "input": 3,
+          "output": 1,
+          "cacheRead": 0,
+          "cacheWrite": 0,
+          "totalTokens": 4,
+          "reasoning": 0,
+          "cost": "<COST_BITS>"
+        }
+      }
+    }
+  ]
+}

@@ -1,0 +1,17 @@
+{
+  "id": "L-T84-paste3-w80",
+  "cols": 80,
+  "rows": 24,
+  "helperExit": 0,
+  "exitCode": -9,
+  "stderr": "",
+  "mockStderr": "",
+  "requestLog": "/tmp/l-T84-paste3-w80-3/requests.jsonl",
+  "snapshotOffsets": [
+    {
+      "name": "pasted",
+      "offset": 4008
+    }
+  ],
+  "sessionDir": "/tmp/l-T84-paste3-w80-3/session"
+}

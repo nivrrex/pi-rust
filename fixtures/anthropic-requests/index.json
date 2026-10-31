@@ -1,0 +1,12 @@
+[
+  "system-only",
+  "no-system",
+  "multi-turn",
+  "with-tools",
+  "tool-use-and-result",
+  "with-image",
+  "image-in-tool-result",
+  "with-thinking",
+  "thinking-only-request",
+  "cache-retention"
+]

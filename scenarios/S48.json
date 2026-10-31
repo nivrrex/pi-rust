@@ -1,0 +1,22 @@
+{
+  "provider": "openai-completions",
+  "model": "mock-model",
+  "enableSkills": true,
+  "mode": "print",
+  "prompt": "say hi",
+  "responses": [
+    {
+      "file": "fixtures/sse/openai/text-basic.sse"
+    }
+  ],
+  "files": {
+    "AGENTS.md": "# 项目规则\n\n- 项目级：先跑测试再改代码。\n"
+  },
+  "globalFiles": {
+    "CLAUDE.md": "# 全局规则\n\n- 全局级：回答用中文。\n",
+    "skills/dq-esc/SKILL.md": "---\nname: dq-esc\ndescription: \"他说 \\\"你好\\\" 然后走了\"\n---\n\n# dq-esc\n",
+    "skills/sq-esc/SKILL.md": "---\nname: sq-esc\ndescription: 'it''s here'\n---\n\n# sq-esc\n"
+  },
+  "id": "S48",
+  "description": "description 的引号转义：双引号串内 \\\" 与单引号串内 ''"
+}

@@ -1,0 +1,25 @@
+{
+  "id": "T13",
+  "cols": 100,
+  "rows": 30,
+  "helperExit": 0,
+  "exitCode": 0,
+  "stderr": "",
+  "mockStderr": "",
+  "requestLog": "/tmp/rr/T13/run-3/requests.jsonl",
+  "snapshotOffsets": [
+    {
+      "name": "wide-typed",
+      "offset": 3476
+    },
+    {
+      "name": "wide-backspace",
+      "offset": 3630
+    },
+    {
+      "name": "wide-delete",
+      "offset": 3937
+    }
+  ],
+  "sessionDir": "/tmp/rr/T13/run-3/session"
+}

@@ -1,0 +1,21 @@
+{
+  "provider": "openai-completions",
+  "model": "mock-model",
+  "enableSkills": true,
+  "mode": "print",
+  "prompt": "say hi",
+  "responses": [
+    {
+      "file": "fixtures/sse/openai/text-basic.sse"
+    }
+  ],
+  "files": {
+    "AGENTS.md": "# 项目规则\n\n- 项目级：先跑测试再改代码。\n"
+  },
+  "globalFiles": {
+    "CLAUDE.md": "# 全局规则\n\n- 全局级：回答用中文。\n",
+    "skills/anchor-helper/SKILL.md": "---\nname: anchor-helper\ndescription: &d 锚点描述\n---\n\n# anchor-helper\n"
+  },
+  "id": "S49",
+  "description": "本实现不支持形态：锚点（description: &d 描述）——记录 TS 行为；pi-rs 偏离（warning+不加载）登记为已知限制"
+}

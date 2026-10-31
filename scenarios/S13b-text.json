@@ -1,0 +1,17 @@
+{
+  "id": "S13b-text",
+  "description": "S13b：length 截断（纯文本）",
+  "provider": "openai-completions",
+  "model": "mock-model",
+  "mode": "print",
+  "prompt": "go",
+  "files": {},
+  "responses": [
+    {
+      "file": "fixtures/sse/openai/length-text.sse"
+    },
+    {
+      "file": "fixtures/sse/openai/text-basic.sse"
+    }
+  ]
+}
