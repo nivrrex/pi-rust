@@ -1,0 +1,46 @@
+{
+  "id": "S20",
+  "description": "手动压缩：rpc compact 命令（带自定义指令），以 get_state 判定空闲",
+  "provider": "openai-completions",
+  "model": "mock-model",
+  "mode": "rpc",
+  "contextWindow": 20000,
+  "maxTokens": 1024,
+  "settings": {
+    "compaction": {
+      "enabled": true,
+      "reserveTokens": 1000,
+      "keepRecentTokens": 2000
+    }
+  },
+  "commands": [
+    {
+      "type": "prompt",
+      "message": "说点长内容"
+    }
+  ],
+  "script": [
+    {
+      "action": "waitState",
+      "match": "\"isStreaming\":false"
+    },
+    {
+      "action": "send",
+      "command": {
+        "type": "compact",
+        "customInstructions": "只保留结论"
+      }
+    },
+    {
+      "action": "waitExit"
+    }
+  ],
+  "responses": [
+    {
+      "file": "fixtures/sse/openai/big-text-usage.sse"
+    },
+    {
+      "file": "fixtures/sse/openai/summary.sse"
+    }
+  ]
+}

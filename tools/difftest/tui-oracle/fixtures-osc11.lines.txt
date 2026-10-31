@@ -1,0 +1,78 @@
+case a1-normal-bel 1
+chunk G10xMTtyZ2I6MTExMS8yMjIyLzMzMzMH
+parsed 1 17 34 51
+case a2-normal-st 1
+chunk G10xMTtyZ2I6ZmZmZi9mZmZmL2ZmZmYbXA==
+parsed 1 255 255 255
+case a3-normal-black 1
+chunk G10xMTtyZ2I6MDAwMC8wMDAwLzAwMDAH
+parsed 1 0 0 0
+case a4-split-2 1
+chunk G10xMTtyZ2I6MTExMS8=
+chunk MjIyMi8zMzMzBw==
+parsed 0 0 0 0
+event G10xMTtyZ2I6MTExMS8=
+event MjIyMi8zMzMzBw==
+case a5-split-3 1
+chunk G10xMTs=
+chunk cmdiOjIyMjIv
+chunk MzMzMy80NDQ0Bw==
+parsed 0 0 0 0
+event G10xMTs=
+event cmdiOjIyMjIv
+event MzMzMy80NDQ0Bw==
+case a6-split-tail 1
+chunk G10xMTtyZ2I6MTIx
+chunk Mi8zNDM0LzU2NTYH
+parsed 0 0 0 0
+event G10xMTtyZ2I6MTIx
+event Mi8zNDM0LzU2NTYH
+case a7-between-keys 1
+chunk YQ==
+chunk G10xMTtyZ2I6MTExMS8yMjIyLzMzMzMH
+chunk Yg==
+parsed 1 17 34 51
+event YQ==
+event Yg==
+case a8-before-key 1
+chunk G10xMTtyZ2I6NDQ0NC81NTU1LzY2NjYH
+chunk eA==
+parsed 1 68 85 102
+event eA==
+case a9-key-then-answer 1
+chunk eg==
+chunk G10xMTtyZ2I6Nzc3Ny84ODg4Lzk5OTkH
+parsed 1 119 136 153
+event eg==
+case b1-timeout 1
+parsed 0 0 0 0
+case b2-timeout-then-answer 1
+chunk G10xMTtyZ2I6MTExMS8yMjIyLzMzMzMH
+parsed 0 0 0 0
+case b3-timeout-then-key 1
+chunk cQ==
+parsed 0 0 0 0
+event cQ==
+case c1-double 1
+chunk G10xMTtyZ2I6MTExMS8xMTExLzExMTEH
+chunk G10xMTtyZ2I6MjIyMi8yMjIyLzIyMjIH
+parsed 1 17 17 17
+event G10xMTtyZ2I6MjIyMi8yMjIyLzIyMjIH
+case c2-two-queries 2
+chunk G10xMTtyZ2I6MzMzMy8zMzMzLzMzMzMH
+chunk G10xMTtyZ2I6NDQ0NC80NDQ0LzQ0NDQH
+parsed 1 51 51 51
+parsed 1 68 68 68
+case c3-unsolicited 0
+chunk G10xMTtyZ2I6NTU1NS81NTU1LzU1NTUH
+event G10xMTtyZ2I6NTU1NS81NTU1LzU1NTUH
+case d1-garbage 1
+chunk G10xMTtub3QtYS1jb2xvcgc=
+parsed 0 0 0 0
+case d2-short 1
+chunk G10xMTtyZ2I6MTEH
+parsed 0 0 0 0
+case d3-not-osc11 1
+chunk G10xMDtyZ2I6MTExMS8yMjIyLzMzMzMH
+parsed 0 0 0 0
+event G10xMDtyZ2I6MTExMS8yMjIyLzMzMzMH

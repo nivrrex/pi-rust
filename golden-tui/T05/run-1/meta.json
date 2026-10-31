@@ -1,0 +1,17 @@
+{
+  "id": "T05",
+  "cols": 100,
+  "rows": 30,
+  "helperExit": 0,
+  "exitCode": 0,
+  "stderr": "",
+  "mockStderr": "",
+  "requestLog": "/tmp/rr/T05/run-1/requests.jsonl",
+  "snapshotOffsets": [
+    {
+      "name": "after-prompt",
+      "offset": 7938
+    }
+  ],
+  "sessionDir": "/tmp/rr/T05/run-1/session"
+}

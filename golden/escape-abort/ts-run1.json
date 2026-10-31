@@ -1,0 +1,5 @@
+{"config": "plain/esc", "ok": 5, "total": 5, "failures": []}
+{"config": "plain/csi-u", "ok": 5, "total": 5, "failures": []}
+{"config": "kitty/esc", "ok": 5, "total": 5, "failures": []}
+{"config": "kitty/csi-u", "ok": 5, "total": 5, "failures": []}
+{"configs": 4, "all_ok": true}

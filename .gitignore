@@ -1,0 +1,12 @@
+ref/
+target/
+vendor/
+node_modules/
+*.save
+
+# 差分器的临时产出（`--out tmp/...`）：绝不入库
+tmp/
+
+# Python 缓存（含本机绝对路径，绝不能入库）
+__pycache__/
+*.pyc

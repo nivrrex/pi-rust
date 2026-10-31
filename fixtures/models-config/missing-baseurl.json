@@ -1,0 +1,12 @@
+{
+  "providers": {
+    "p": {
+      "api": "openai-completions",
+      "models": [
+        {
+          "id": "m"
+        }
+      ]
+    }
+  }
+}

@@ -1,0 +1,171 @@
+{
+  "provider": "openai-completions",
+  "model": "mock-model",
+  "responses": [
+    {
+      "file": "fixtures/sse/openai/markdown-subset.sse"
+    }
+  ],
+  "files": {
+    "AGENTS.md": "# 项目规则\n\n- 项目级：改代码前先跑测试。\n"
+  },
+  "id": "T11",
+  "prompt": "say hi",
+  "description": "P7-5 W1 T11：行编辑——Home(Ctrl+A)/End(Ctrl+E)/Backspace/Ctrl+W/Ctrl+U/Delete 与 Ctrl+K 的逐步快照",
+  "tui": {
+    "cols": 100,
+    "rows": 30,
+    "snapshots": [
+      "typed",
+      "home-insert",
+      "end-backspace",
+      "ctrl-w",
+      "ctrl-u",
+      "delete",
+      "ctrl-k"
+    ],
+    "steps": [
+      {
+        "action": "waitScreen",
+        "contains": "Pi can explain",
+        "timeoutMs": 25000
+      },
+      {
+        "action": "type",
+        "text": "hello world"
+      },
+      {
+        "action": "waitStable",
+        "quietMs": 800,
+        "timeoutMs": 15000
+      },
+      {
+        "action": "snapshot",
+        "name": "typed"
+      },
+      {
+        "action": "type",
+        "text": "\u0001"
+      },
+      {
+        "action": "waitStable",
+        "quietMs": 600,
+        "timeoutMs": 15000
+      },
+      {
+        "action": "type",
+        "text": "X"
+      },
+      {
+        "action": "waitStable",
+        "quietMs": 600,
+        "timeoutMs": 15000
+      },
+      {
+        "action": "snapshot",
+        "name": "home-insert"
+      },
+      {
+        "action": "type",
+        "text": "\u0005"
+      },
+      {
+        "action": "waitStable",
+        "quietMs": 600,
+        "timeoutMs": 15000
+      },
+      {
+        "action": "type",
+        "text": ""
+      },
+      {
+        "action": "waitStable",
+        "quietMs": 600,
+        "timeoutMs": 15000
+      },
+      {
+        "action": "snapshot",
+        "name": "end-backspace"
+      },
+      {
+        "action": "type",
+        "text": "\u0017"
+      },
+      {
+        "action": "waitStable",
+        "quietMs": 600,
+        "timeoutMs": 15000
+      },
+      {
+        "action": "snapshot",
+        "name": "ctrl-w"
+      },
+      {
+        "action": "type",
+        "text": "\u0015"
+      },
+      {
+        "action": "waitStable",
+        "quietMs": 600,
+        "timeoutMs": 15000
+      },
+      {
+        "action": "snapshot",
+        "name": "ctrl-u"
+      },
+      {
+        "action": "type",
+        "text": "abc def"
+      },
+      {
+        "action": "waitStable",
+        "quietMs": 600,
+        "timeoutMs": 15000
+      },
+      {
+        "action": "type",
+        "text": "\u0001"
+      },
+      {
+        "action": "waitStable",
+        "quietMs": 600,
+        "timeoutMs": 15000
+      },
+      {
+        "action": "type",
+        "text": "\u001b[3~"
+      },
+      {
+        "action": "waitStable",
+        "quietMs": 600,
+        "timeoutMs": 15000
+      },
+      {
+        "action": "snapshot",
+        "name": "delete"
+      },
+      {
+        "action": "type",
+        "text": "\u000b"
+      },
+      {
+        "action": "waitStable",
+        "quietMs": 600,
+        "timeoutMs": 15000
+      },
+      {
+        "action": "snapshot",
+        "name": "ctrl-k"
+      },
+      {
+        "action": "type",
+        "text": "\u0004"
+      },
+      {
+        "action": "waitStable",
+        "quietMs": 500,
+        "timeoutMs": 10000
+      }
+    ]
+  }
+}

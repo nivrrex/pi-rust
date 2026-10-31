@@ -1,0 +1,24 @@
+{
+  "provider": "openai-completions",
+  "model": "mock-model",
+  "enableSkills": true,
+  "mode": "print",
+  "prompt": "say hi",
+  "responses": [
+    {
+      "file": "fixtures/sse/openai/text-basic.sse"
+    }
+  ],
+  "files": {
+    "AGENTS.md": "# 项目规则\n\n- 项目级：先跑测试再改代码。\n"
+  },
+  "globalFiles": {
+    "CLAUDE.md": "# 全局规则\n\n- 全局级：回答用中文。\n",
+    "skills/fold-gt/SKILL.md": "---\nname: fold-gt\ndescription: >\n  第一行。\n  第二行。\n---\n\n# fold-gt\n",
+    "skills/fold-gt-strip/SKILL.md": "---\nname: fold-gt-strip\ndescription: >-\n  甲。\n  乙。\n---\n\n# fold-gt-strip\n",
+    "skills/keep-pipe/SKILL.md": "---\nname: keep-pipe\ndescription: |\n  丙。\n  丁。\n---\n\n# keep-pipe\n",
+    "skills/keep-pipe-strip/SKILL.md": "---\nname: keep-pipe-strip\ndescription: |-\n  戊。\n  己。\n---\n\n# keep-pipe-strip\n"
+  },
+  "id": "S47",
+  "description": "description 的四种块标量：> 、>- 、| 、|-（ref frontmatter.ts 用 yaml.parse 展开）"
+}

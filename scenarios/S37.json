@@ -1,0 +1,21 @@
+{
+  "provider": "openai-completions",
+  "model": "mock-model",
+  "enableSkills": true,
+  "mode": "print",
+  "prompt": "say hi",
+  "responses": [
+    {
+      "file": "fixtures/sse/openai/text-basic.sse"
+    }
+  ],
+  "files": {
+    "AGENTS.md": "# 项目规则\n\n- 项目级：先跑测试再改代码。\n",
+    ".pi/skills/proj-helper/SKILL.md": "---\nname: proj-helper\ndescription: 项目内技能。\n---\n\n# proj-helper\n\n- 先跑测试再改代码。\n"
+  },
+  "globalFiles": {
+    "CLAUDE.md": "# 全局规则\n\n- 全局级：回答用中文。\n"
+  },
+  "id": "S37",
+  "description": "项目 skill（<cwd>/.pi/skills/<name>/SKILL.md）注入 system 段"
+}

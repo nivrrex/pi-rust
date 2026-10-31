@@ -1,0 +1,17 @@
+{
+  "id": "T65-tree-already",
+  "cols": 100,
+  "rows": 30,
+  "helperExit": 0,
+  "exitCode": 0,
+  "stderr": "",
+  "mockStderr": "",
+  "requestLog": "/tmp/rr/T65-tree-already/run-2/requests.jsonl",
+  "snapshotOffsets": [
+    {
+      "name": "after-enter-leaf",
+      "offset": 11319
+    }
+  ],
+  "sessionDir": "/tmp/rr/T65-tree-already/run-2/session"
+}

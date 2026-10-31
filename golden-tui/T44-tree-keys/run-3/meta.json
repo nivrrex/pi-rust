@@ -1,0 +1,21 @@
+{
+  "id": "T44-tree-keys",
+  "cols": 100,
+  "rows": 30,
+  "helperExit": 0,
+  "exitCode": 0,
+  "stderr": "",
+  "mockStderr": "",
+  "requestLog": "/tmp/n44-3/requests.jsonl",
+  "snapshotOffsets": [
+    {
+      "name": "after-up",
+      "offset": 9238
+    },
+    {
+      "name": "after-cycle",
+      "offset": 9309
+    }
+  ],
+  "sessionDir": "/tmp/n44-3/session"
+}

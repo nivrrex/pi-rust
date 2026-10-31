@@ -1,0 +1,840 @@
+{
+  "package": "<NODE_MODULES>/.pnpm/diff@8.0.4/node_modules/diff",
+  "records": [
+    {
+      "name": "identical",
+      "kind": "diffLines",
+      "oldText": "a\nb\n",
+      "newText": "a\nb\n",
+      "changes": [
+        {
+          "count": 2,
+          "added": false,
+          "removed": false,
+          "value": "a\nb\n"
+        }
+      ]
+    },
+    {
+      "name": "single_line_change",
+      "kind": "diffLines",
+      "oldText": "a\nb\nc\n",
+      "newText": "a\nB\nc\n",
+      "changes": [
+        {
+          "count": 1,
+          "added": false,
+          "removed": false,
+          "value": "a\n"
+        },
+        {
+          "count": 1,
+          "added": false,
+          "removed": true,
+          "value": "b\n"
+        },
+        {
+          "count": 1,
+          "added": true,
+          "removed": false,
+          "value": "B\n"
+        },
+        {
+          "count": 1,
+          "added": false,
+          "removed": false,
+          "value": "c\n"
+        }
+      ]
+    },
+    {
+      "name": "insert_in_middle",
+      "kind": "diffLines",
+      "oldText": "a\nc\n",
+      "newText": "a\nb\nc\n",
+      "changes": [
+        {
+          "count": 1,
+          "added": false,
+          "removed": false,
+          "value": "a\n"
+        },
+        {
+          "count": 1,
+          "added": true,
+          "removed": false,
+          "value": "b\n"
+        },
+        {
+          "count": 1,
+          "added": false,
+          "removed": false,
+          "value": "c\n"
+        }
+      ]
+    },
+    {
+      "name": "delete_in_middle",
+      "kind": "diffLines",
+      "oldText": "a\nb\nc\n",
+      "newText": "a\nc\n",
+      "changes": [
+        {
+          "count": 1,
+          "added": false,
+          "removed": false,
+          "value": "a\n"
+        },
+        {
+          "count": 1,
+          "added": false,
+          "removed": true,
+          "value": "b\n"
+        },
+        {
+          "count": 1,
+          "added": false,
+          "removed": false,
+          "value": "c\n"
+        }
+      ]
+    },
+    {
+      "name": "whole_block_replace",
+      "kind": "diffLines",
+      "oldText": "a\nb\nc\n",
+      "newText": "x\ny\nz\n",
+      "changes": [
+        {
+          "count": 3,
+          "added": false,
+          "removed": true,
+          "value": "a\nb\nc\n"
+        },
+        {
+          "count": 3,
+          "added": true,
+          "removed": false,
+          "value": "x\ny\nz\n"
+        }
+      ]
+    },
+    {
+      "name": "empty_to_text",
+      "kind": "diffLines",
+      "oldText": "",
+      "newText": "a\n",
+      "changes": [
+        {
+          "count": 1,
+          "added": true,
+          "removed": false,
+          "value": "a\n"
+        }
+      ]
+    },
+    {
+      "name": "text_to_empty",
+      "kind": "diffLines",
+      "oldText": "a\n",
+      "newText": "",
+      "changes": [
+        {
+          "count": 1,
+          "added": false,
+          "removed": true,
+          "value": "a\n"
+        }
+      ]
+    },
+    {
+      "name": "both_empty",
+      "kind": "diffLines",
+      "oldText": "",
+      "newText": "",
+      "changes": []
+    },
+    {
+      "name": "blank_line_inserted",
+      "kind": "diffLines",
+      "oldText": "a\nb\n",
+      "newText": "a\n\nb\n",
+      "changes": [
+        {
+          "count": 1,
+          "added": false,
+          "removed": false,
+          "value": "a\n"
+        },
+        {
+          "count": 1,
+          "added": true,
+          "removed": false,
+          "value": "\n"
+        },
+        {
+          "count": 1,
+          "added": false,
+          "removed": false,
+          "value": "b\n"
+        }
+      ]
+    },
+    {
+      "name": "blank_line_removed",
+      "kind": "diffLines",
+      "oldText": "a\n\nb\n",
+      "newText": "a\nb\n",
+      "changes": [
+        {
+          "count": 1,
+          "added": false,
+          "removed": false,
+          "value": "a\n"
+        },
+        {
+          "count": 1,
+          "added": false,
+          "removed": true,
+          "value": "\n"
+        },
+        {
+          "count": 1,
+          "added": false,
+          "removed": false,
+          "value": "b\n"
+        }
+      ]
+    },
+    {
+      "name": "only_blank_lines",
+      "kind": "diffLines",
+      "oldText": "\n\n\n",
+      "newText": "\n",
+      "changes": [
+        {
+          "count": 1,
+          "added": false,
+          "removed": false,
+          "value": "\n"
+        },
+        {
+          "count": 2,
+          "added": false,
+          "removed": true,
+          "value": "\n\n"
+        }
+      ]
+    },
+    {
+      "name": "no_trailing_newline_change",
+      "kind": "diffLines",
+      "oldText": "a\nb",
+      "newText": "a\nB",
+      "changes": [
+        {
+          "count": 1,
+          "added": false,
+          "removed": false,
+          "value": "a\n"
+        },
+        {
+          "count": 1,
+          "added": false,
+          "removed": true,
+          "value": "b"
+        },
+        {
+          "count": 1,
+          "added": true,
+          "removed": false,
+          "value": "B"
+        }
+      ]
+    },
+    {
+      "name": "trailing_newline_added",
+      "kind": "diffLines",
+      "oldText": "a\nb",
+      "newText": "a\nb\n",
+      "changes": [
+        {
+          "count": 1,
+          "added": false,
+          "removed": false,
+          "value": "a\n"
+        },
+        {
+          "count": 1,
+          "added": false,
+          "removed": true,
+          "value": "b"
+        },
+        {
+          "count": 1,
+          "added": true,
+          "removed": false,
+          "value": "b\n"
+        }
+      ]
+    },
+    {
+      "name": "trailing_newline_removed",
+      "kind": "diffLines",
+      "oldText": "a\nb\n",
+      "newText": "a\nb",
+      "changes": [
+        {
+          "count": 1,
+          "added": false,
+          "removed": false,
+          "value": "a\n"
+        },
+        {
+          "count": 1,
+          "added": false,
+          "removed": true,
+          "value": "b\n"
+        },
+        {
+          "count": 1,
+          "added": true,
+          "removed": false,
+          "value": "b"
+        }
+      ]
+    },
+    {
+      "name": "crlf_same",
+      "kind": "diffLines",
+      "oldText": "a\r\nb\r\n",
+      "newText": "a\r\nb\r\n",
+      "changes": [
+        {
+          "count": 2,
+          "added": false,
+          "removed": false,
+          "value": "a\r\nb\r\n"
+        }
+      ]
+    },
+    {
+      "name": "crlf_change",
+      "kind": "diffLines",
+      "oldText": "a\r\nb\r\n",
+      "newText": "a\r\nB\r\n",
+      "changes": [
+        {
+          "count": 1,
+          "added": false,
+          "removed": false,
+          "value": "a\r\n"
+        },
+        {
+          "count": 1,
+          "added": false,
+          "removed": true,
+          "value": "b\r\n"
+        },
+        {
+          "count": 1,
+          "added": true,
+          "removed": false,
+          "value": "B\r\n"
+        }
+      ]
+    },
+    {
+      "name": "crlf_vs_lf",
+      "kind": "diffLines",
+      "oldText": "a\r\nb\r\n",
+      "newText": "a\nb\n",
+      "changes": [
+        {
+          "count": 2,
+          "added": false,
+          "removed": true,
+          "value": "a\r\nb\r\n"
+        },
+        {
+          "count": 2,
+          "added": true,
+          "removed": false,
+          "value": "a\nb\n"
+        }
+      ]
+    },
+    {
+      "name": "duplicate_lines_keep",
+      "kind": "diffLines",
+      "oldText": "x\nx\nx\n",
+      "newText": "x\nx\nx\n",
+      "changes": [
+        {
+          "count": 3,
+          "added": false,
+          "removed": false,
+          "value": "x\nx\nx\n"
+        }
+      ]
+    },
+    {
+      "name": "duplicate_lines_change_one",
+      "kind": "diffLines",
+      "oldText": "x\nx\nx\n",
+      "newText": "x\ny\nx\n",
+      "changes": [
+        {
+          "count": 1,
+          "added": false,
+          "removed": false,
+          "value": "x\n"
+        },
+        {
+          "count": 1,
+          "added": true,
+          "removed": false,
+          "value": "y\n"
+        },
+        {
+          "count": 1,
+          "added": false,
+          "removed": false,
+          "value": "x\n"
+        },
+        {
+          "count": 1,
+          "added": false,
+          "removed": true,
+          "value": "x\n"
+        }
+      ]
+    },
+    {
+      "name": "duplicate_lines_delete_one",
+      "kind": "diffLines",
+      "oldText": "x\nx\nx\n",
+      "newText": "x\nx\n",
+      "changes": [
+        {
+          "count": 2,
+          "added": false,
+          "removed": false,
+          "value": "x\nx\n"
+        },
+        {
+          "count": 1,
+          "added": false,
+          "removed": true,
+          "value": "x\n"
+        }
+      ]
+    },
+    {
+      "name": "swap_adjacent",
+      "kind": "diffLines",
+      "oldText": "a\nb\n",
+      "newText": "b\na\n",
+      "changes": [
+        {
+          "count": 1,
+          "added": false,
+          "removed": true,
+          "value": "a\n"
+        },
+        {
+          "count": 1,
+          "added": false,
+          "removed": false,
+          "value": "b\n"
+        },
+        {
+          "count": 1,
+          "added": true,
+          "removed": false,
+          "value": "a\n"
+        }
+      ]
+    },
+    {
+      "name": "prepend",
+      "kind": "diffLines",
+      "oldText": "b\nc\n",
+      "newText": "a\nb\nc\n",
+      "changes": [
+        {
+          "count": 1,
+          "added": true,
+          "removed": false,
+          "value": "a\n"
+        },
+        {
+          "count": 2,
+          "added": false,
+          "removed": false,
+          "value": "b\nc\n"
+        }
+      ]
+    },
+    {
+      "name": "append",
+      "kind": "diffLines",
+      "oldText": "a\nb\n",
+      "newText": "a\nb\nc\n",
+      "changes": [
+        {
+          "count": 2,
+          "added": false,
+          "removed": false,
+          "value": "a\nb\n"
+        },
+        {
+          "count": 1,
+          "added": true,
+          "removed": false,
+          "value": "c\n"
+        }
+      ]
+    },
+    {
+      "name": "unicode",
+      "kind": "diffLines",
+      "oldText": "中文\n第二行\n",
+      "newText": "中文\n第三行\n",
+      "changes": [
+        {
+          "count": 1,
+          "added": false,
+          "removed": false,
+          "value": "中文\n"
+        },
+        {
+          "count": 1,
+          "added": false,
+          "removed": true,
+          "value": "第二行\n"
+        },
+        {
+          "count": 1,
+          "added": true,
+          "removed": false,
+          "value": "第三行\n"
+        }
+      ]
+    },
+    {
+      "name": "long_line",
+      "kind": "diffLines",
+      "oldText": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\n",
+      "newText": "yyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyy\n",
+      "changes": [
+        {
+          "count": 1,
+          "added": false,
+          "removed": true,
+          "value": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\n"
+        },
+        {
+          "count": 1,
+          "added": true,
+          "removed": false,
+          "value": "yyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyy\n"
+        }
+      ]
+    },
+    {
+      "name": "many_small_changes",
+      "kind": "diffLines",
+      "oldText": "1\n2\n3\n4\n5\n6\n",
+      "newText": "1\nX\n3\nY\n5\n6\n",
+      "changes": [
+        {
+          "count": 1,
+          "added": false,
+          "removed": false,
+          "value": "1\n"
+        },
+        {
+          "count": 1,
+          "added": false,
+          "removed": true,
+          "value": "2\n"
+        },
+        {
+          "count": 1,
+          "added": true,
+          "removed": false,
+          "value": "X\n"
+        },
+        {
+          "count": 1,
+          "added": false,
+          "removed": false,
+          "value": "3\n"
+        },
+        {
+          "count": 1,
+          "added": false,
+          "removed": true,
+          "value": "4\n"
+        },
+        {
+          "count": 1,
+          "added": true,
+          "removed": false,
+          "value": "Y\n"
+        },
+        {
+          "count": 2,
+          "added": false,
+          "removed": false,
+          "value": "5\n6\n"
+        }
+      ]
+    },
+    {
+      "name": "first_line_change",
+      "kind": "diffLines",
+      "oldText": "a\nb\nc\n",
+      "newText": "A\nb\nc\n",
+      "changes": [
+        {
+          "count": 1,
+          "added": false,
+          "removed": true,
+          "value": "a\n"
+        },
+        {
+          "count": 1,
+          "added": true,
+          "removed": false,
+          "value": "A\n"
+        },
+        {
+          "count": 2,
+          "added": false,
+          "removed": false,
+          "value": "b\nc\n"
+        }
+      ]
+    },
+    {
+      "name": "last_line_change",
+      "kind": "diffLines",
+      "oldText": "a\nb\nc\n",
+      "newText": "a\nb\nC\n",
+      "changes": [
+        {
+          "count": 2,
+          "added": false,
+          "removed": false,
+          "value": "a\nb\n"
+        },
+        {
+          "count": 1,
+          "added": false,
+          "removed": true,
+          "value": "c\n"
+        },
+        {
+          "count": 1,
+          "added": true,
+          "removed": false,
+          "value": "C\n"
+        }
+      ]
+    },
+    {
+      "name": "repeated_block_removed",
+      "kind": "diffLines",
+      "oldText": "a\nb\na\nb\n",
+      "newText": "a\nb\n",
+      "changes": [
+        {
+          "count": 2,
+          "added": false,
+          "removed": false,
+          "value": "a\nb\n"
+        },
+        {
+          "count": 2,
+          "added": false,
+          "removed": true,
+          "value": "a\nb\n"
+        }
+      ]
+    },
+    {
+      "name": "whitespace_only_change",
+      "kind": "diffLines",
+      "oldText": "a\n \n",
+      "newText": "a\n  \n",
+      "changes": [
+        {
+          "count": 1,
+          "added": false,
+          "removed": false,
+          "value": "a\n"
+        },
+        {
+          "count": 1,
+          "added": false,
+          "removed": true,
+          "value": " \n"
+        },
+        {
+          "count": 1,
+          "added": true,
+          "removed": false,
+          "value": "  \n"
+        }
+      ]
+    },
+    {
+      "name": "tab_vs_space",
+      "kind": "diffLines",
+      "oldText": "a\tb\n",
+      "newText": "a b\n",
+      "changes": [
+        {
+          "count": 1,
+          "added": false,
+          "removed": true,
+          "value": "a\tb\n"
+        },
+        {
+          "count": 1,
+          "added": true,
+          "removed": false,
+          "value": "a b\n"
+        }
+      ]
+    },
+    {
+      "name": "empty_string_vs_newline",
+      "kind": "diffLines",
+      "oldText": "",
+      "newText": "\n",
+      "changes": [
+        {
+          "count": 1,
+          "added": true,
+          "removed": false,
+          "value": "\n"
+        }
+      ]
+    },
+    {
+      "name": "newline_vs_empty_string",
+      "kind": "diffLines",
+      "oldText": "\n",
+      "newText": "",
+      "changes": [
+        {
+          "count": 1,
+          "added": false,
+          "removed": true,
+          "value": "\n"
+        }
+      ]
+    },
+    {
+      "name": "single_line",
+      "kind": "createTwoFilesPatch",
+      "oldText": "a\nb\nc\n",
+      "newText": "a\nB\nc\n",
+      "patch": "--- f.txt\n+++ f.txt\n@@ -1,3 +1,3 @@\n a\n-b\n+B\n c\n"
+    },
+    {
+      "name": "insert_in_middle",
+      "kind": "createTwoFilesPatch",
+      "oldText": "a\nc\n",
+      "newText": "a\nb\nc\n",
+      "patch": "--- f.txt\n+++ f.txt\n@@ -1,2 +1,3 @@\n a\n+b\n c\n"
+    },
+    {
+      "name": "no_trailing_newline",
+      "kind": "createTwoFilesPatch",
+      "oldText": "a\nb",
+      "newText": "a\nB",
+      "patch": "--- f.txt\n+++ f.txt\n@@ -1,2 +1,2 @@\n a\n-b\n\\ No newline at end of file\n+B\n\\ No newline at end of file\n"
+    },
+    {
+      "name": "crlf",
+      "kind": "createTwoFilesPatch",
+      "oldText": "a\r\nb\r\n",
+      "newText": "a\r\nB\r\n",
+      "patch": "--- f.txt\n+++ f.txt\n@@ -1,2 +1,2 @@\n a\r\n-b\r\n+B\r\n"
+    },
+    {
+      "name": "whole_block_replace",
+      "kind": "createTwoFilesPatch",
+      "oldText": "a\nb\nc\n",
+      "newText": "x\ny\nz\n",
+      "patch": "--- f.txt\n+++ f.txt\n@@ -1,3 +1,3 @@\n-a\n-b\n-c\n+x\n+y\n+z\n"
+    },
+    {
+      "name": "addition_only_at_end",
+      "kind": "createTwoFilesPatch",
+      "oldText": "a\n",
+      "newText": "a\nb\n",
+      "patch": "--- f.txt\n+++ f.txt\n@@ -1,1 +1,2 @@\n a\n+b\n"
+    },
+    {
+      "name": "deletion_only_at_end",
+      "kind": "createTwoFilesPatch",
+      "oldText": "a\nb\n",
+      "newText": "a\n",
+      "patch": "--- f.txt\n+++ f.txt\n@@ -1,2 +1,1 @@\n a\n-b\n"
+    },
+    {
+      "name": "two_hunks_far_apart",
+      "kind": "createTwoFilesPatch",
+      "oldText": "line0\nline1\nline2\nline3\nline4\nline5\nline6\nline7\nline8\nline9\nline10\nline11\nline12\nline13\nline14\nline15\nline16\nline17\nline18\nline19\n",
+      "newText": "line0\nX1\nline2\nline3\nline4\nline5\nline6\nline7\nline8\nline9\nline10\nline11\nline12\nline13\nline14\nline15\nline16\nline17\nX18\nline19\n",
+      "patch": "--- f.txt\n+++ f.txt\n@@ -1,6 +1,6 @@\n line0\n-line1\n+X1\n line2\n line3\n line4\n line5\n@@ -15,6 +15,6 @@\n line14\n line15\n line16\n line17\n-line18\n+X18\n line19\n"
+    },
+    {
+      "name": "two_changes_within_context",
+      "kind": "createTwoFilesPatch",
+      "oldText": "a\nb\nc\nd\ne\nf\ng\n",
+      "newText": "a\nB\nc\nd\ne\nF\ng\n",
+      "patch": "--- f.txt\n+++ f.txt\n@@ -1,7 +1,7 @@\n a\n-b\n+B\n c\n d\n e\n-f\n+F\n g\n"
+    },
+    {
+      "name": "empty_to_text",
+      "kind": "createTwoFilesPatch",
+      "oldText": "",
+      "newText": "a\n",
+      "patch": "--- f.txt\n+++ f.txt\n@@ -0,0 +1,1 @@\n+a\n"
+    },
+    {
+      "name": "text_to_empty",
+      "kind": "createTwoFilesPatch",
+      "oldText": "a\n",
+      "newText": "",
+      "patch": "--- f.txt\n+++ f.txt\n@@ -1,1 +0,0 @@\n-a\n"
+    },
+    {
+      "name": "only_change_first_line",
+      "kind": "createTwoFilesPatch",
+      "oldText": "a\nb\nc\n",
+      "newText": "A\nb\nc\n",
+      "patch": "--- f.txt\n+++ f.txt\n@@ -1,3 +1,3 @@\n-a\n+A\n b\n c\n"
+    },
+    {
+      "name": "only_change_last_line",
+      "kind": "createTwoFilesPatch",
+      "oldText": "a\nb\nc\n",
+      "newText": "a\nb\nC\n",
+      "patch": "--- f.txt\n+++ f.txt\n@@ -1,3 +1,3 @@\n a\n b\n-c\n+C\n"
+    },
+    {
+      "name": "blank_line_change",
+      "kind": "createTwoFilesPatch",
+      "oldText": "a\n\nb\n",
+      "newText": "a\nX\nb\n",
+      "patch": "--- f.txt\n+++ f.txt\n@@ -1,3 +1,3 @@\n a\n-\n+X\n b\n"
+    }
+  ]
+}

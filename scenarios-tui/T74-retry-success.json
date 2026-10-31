@@ -1,0 +1,87 @@
+{
+  "id": "T74-retry-success",
+  "provider": "openai-completions",
+  "model": "mock-model",
+  "mode": "tui",
+  "prompt": "",
+  "files": {
+    "AGENTS.md": "# 项目规则\n"
+  },
+  "globalFiles": {},
+  "cliArgs": [],
+  "responses": [
+    {
+      "file": "fixtures/sse/openai/text-basic.sse",
+      "chunkByEvent": true,
+      "disconnectAfterChunks": 2
+    },
+    {
+      "file": "fixtures/sse/openai/text-basic.sse"
+    },
+    {
+      "file": "fixtures/sse/openai/text-basic.sse"
+    },
+    {
+      "file": "fixtures/sse/openai/text-basic.sse"
+    }
+  ],
+  "description": "会话级 auto-retry 成功路径（V2）：首轮断流、退避后重跑整轮",
+  "tui": {
+    "cols": 100,
+    "rows": 30,
+    "snapshots": [
+      "after-retry"
+    ],
+    "steps": [
+      {
+        "action": "waitScreen",
+        "contains": "Pi can explain",
+        "timeoutMs": 25000
+      },
+      {
+        "action": "type",
+        "text": "say hi"
+      },
+      {
+        "action": "waitStable",
+        "quietMs": 600,
+        "timeoutMs": 15000
+      },
+      {
+        "action": "type",
+        "text": "\r"
+      },
+      {
+        "action": "delay",
+        "ms": 12000
+      },
+      {
+        "action": "waitStable",
+        "quietMs": 1500,
+        "timeoutMs": 20000
+      },
+      {
+        "action": "snapshot",
+        "name": "after-retry"
+      },
+      {
+        "action": "type",
+        "text": "\u0003"
+      },
+      {
+        "action": "waitStable",
+        "quietMs": 300,
+        "timeoutMs": 5000
+      },
+      {
+        "action": "type",
+        "text": "\u0004"
+      },
+      {
+        "action": "waitStable",
+        "quietMs": 300,
+        "timeoutMs": 5000
+      }
+    ]
+  }
+}

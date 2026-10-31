@@ -1,0 +1,41 @@
+{
+  "id": "T11",
+  "cols": 100,
+  "rows": 30,
+  "helperExit": 0,
+  "exitCode": 0,
+  "stderr": "",
+  "mockStderr": "",
+  "requestLog": "/tmp/rr/T11/run-2/requests.jsonl",
+  "snapshotOffsets": [
+    {
+      "name": "typed",
+      "offset": 3470
+    },
+    {
+      "name": "home-insert",
+      "offset": 3768
+    },
+    {
+      "name": "end-backspace",
+      "offset": 4068
+    },
+    {
+      "name": "ctrl-w",
+      "offset": 4217
+    },
+    {
+      "name": "ctrl-u",
+      "offset": 4366
+    },
+    {
+      "name": "delete",
+      "offset": 4813
+    },
+    {
+      "name": "ctrl-k",
+      "offset": 4962
+    }
+  ],
+  "sessionDir": "/tmp/rr/T11/run-2/session"
+}

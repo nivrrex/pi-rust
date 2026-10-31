@@ -1,0 +1,610 @@
+[
+  {
+    "name": "exact_single_line",
+    "content": "alpha\nbeta\n",
+    "edits": [
+      {
+        "oldText": "beta",
+        "newText": "BETA"
+      }
+    ],
+    "isError": false,
+    "text": "Successfully replaced 1 block(s) in target.txt.",
+    "diff": " 1 alpha\n-2 beta\n+2 BETA",
+    "patch": "--- target.txt\n+++ target.txt\n@@ -1,2 +1,2 @@\n alpha\n-beta\n+BETA\n",
+    "fileAfter": "alpha\nBETA\n"
+  },
+  {
+    "name": "exact_multi_line",
+    "content": "a\nb\nc\n",
+    "edits": [
+      {
+        "oldText": "a\nb",
+        "newText": "a\nB"
+      }
+    ],
+    "isError": false,
+    "text": "Successfully replaced 1 block(s) in target.txt.",
+    "diff": " 1 a\n-2 b\n+2 B\n 3 c",
+    "patch": "--- target.txt\n+++ target.txt\n@@ -1,3 +1,3 @@\n a\n-b\n+B\n c\n",
+    "fileAfter": "a\nB\nc\n"
+  },
+  {
+    "name": "exact_first_line",
+    "content": "one\ntwo\n",
+    "edits": [
+      {
+        "oldText": "one",
+        "newText": "1"
+      }
+    ],
+    "isError": false,
+    "text": "Successfully replaced 1 block(s) in target.txt.",
+    "diff": "-1 one\n+1 1\n 2 two",
+    "patch": "--- target.txt\n+++ target.txt\n@@ -1,2 +1,2 @@\n-one\n+1\n two\n",
+    "fileAfter": "1\ntwo\n"
+  },
+  {
+    "name": "exact_last_line_no_newline",
+    "content": "only",
+    "edits": [
+      {
+        "oldText": "only",
+        "newText": "ONLY"
+      }
+    ],
+    "isError": false,
+    "text": "Successfully replaced 1 block(s) in target.txt.",
+    "diff": "-1 only\n+1 ONLY",
+    "patch": "--- target.txt\n+++ target.txt\n@@ -1,1 +1,1 @@\n-only\n\\ No newline at end of file\n+ONLY\n\\ No newline at end of file\n",
+    "fileAfter": "ONLY"
+  },
+  {
+    "name": "two_disjoint_edits",
+    "content": "a\nb\nc\nd\n",
+    "edits": [
+      {
+        "oldText": "a",
+        "newText": "A"
+      },
+      {
+        "oldText": "d",
+        "newText": "D"
+      }
+    ],
+    "isError": false,
+    "text": "Successfully replaced 2 block(s) in target.txt.",
+    "diff": "-1 a\n+1 A\n 2 b\n 3 c\n-4 d\n+4 D",
+    "patch": "--- target.txt\n+++ target.txt\n@@ -1,4 +1,4 @@\n-a\n+A\n b\n c\n-d\n+D\n",
+    "fileAfter": "A\nb\nc\nD\n"
+  },
+  {
+    "name": "edits_reversed_order",
+    "content": "a\nb\nc\n",
+    "edits": [
+      {
+        "oldText": "c",
+        "newText": "C"
+      },
+      {
+        "oldText": "a",
+        "newText": "A"
+      }
+    ],
+    "isError": false,
+    "text": "Successfully replaced 2 block(s) in target.txt.",
+    "diff": "-1 a\n+1 A\n 2 b\n-3 c\n+3 C",
+    "patch": "--- target.txt\n+++ target.txt\n@@ -1,3 +1,3 @@\n-a\n+A\n b\n-c\n+C\n",
+    "fileAfter": "A\nb\nC\n"
+  },
+  {
+    "name": "two_edits_same_line",
+    "content": "hello world\n",
+    "edits": [
+      {
+        "oldText": "hello",
+        "newText": "HELLO"
+      },
+      {
+        "oldText": "world",
+        "newText": "WORLD"
+      }
+    ],
+    "isError": false,
+    "text": "Successfully replaced 2 block(s) in target.txt.",
+    "diff": "-1 hello world\n+1 HELLO WORLD",
+    "patch": "--- target.txt\n+++ target.txt\n@@ -1,1 +1,1 @@\n-hello world\n+HELLO WORLD\n",
+    "fileAfter": "HELLO WORLD\n"
+  },
+  {
+    "name": "duplicate_old_text",
+    "content": "same\nsame\n",
+    "edits": [
+      {
+        "oldText": "same",
+        "newText": "X"
+      }
+    ],
+    "isError": true,
+    "text": "THREW: Found 2 occurrences of the text in target.txt. The text must be unique. Please provide more context to make it unique.",
+    "fileAfter": null
+  },
+  {
+    "name": "duplicate_only_by_trailing_space",
+    "content": "same\nsame  \n",
+    "edits": [
+      {
+        "oldText": "same",
+        "newText": "X"
+      }
+    ],
+    "isError": true,
+    "text": "THREW: Found 2 occurrences of the text in target.txt. The text must be unique. Please provide more context to make it unique.",
+    "fileAfter": null
+  },
+  {
+    "name": "missing_old_text",
+    "content": "alpha\n",
+    "edits": [
+      {
+        "oldText": "nope",
+        "newText": "x"
+      }
+    ],
+    "isError": true,
+    "text": "THREW: Could not find the exact text in target.txt. The old text must match exactly including all whitespace and newlines.",
+    "fileAfter": null
+  },
+  {
+    "name": "empty_old_text",
+    "content": "alpha\n",
+    "edits": [
+      {
+        "oldText": "",
+        "newText": "x"
+      }
+    ],
+    "isError": true,
+    "text": "THREW: oldText must not be empty in target.txt.",
+    "fileAfter": null
+  },
+  {
+    "name": "no_change",
+    "content": "alpha\n",
+    "edits": [
+      {
+        "oldText": "alpha",
+        "newText": "alpha"
+      }
+    ],
+    "isError": true,
+    "text": "THREW: No changes made to target.txt. The replacement produced identical content. This might indicate an issue with special characters or the text not existing as expected.",
+    "fileAfter": null
+  },
+  {
+    "name": "fuzzy_trailing_ws_in_file",
+    "content": "alpha   \nbeta\n",
+    "edits": [
+      {
+        "oldText": "alpha\nbeta",
+        "newText": "ALPHA\nBETA"
+      }
+    ],
+    "isError": false,
+    "text": "Successfully replaced 1 block(s) in target.txt.",
+    "diff": "-1 alpha   \n-2 beta\n+1 ALPHA\n+2 BETA",
+    "patch": "--- target.txt\n+++ target.txt\n@@ -1,2 +1,2 @@\n-alpha   \n-beta\n+ALPHA\n+BETA\n",
+    "fileAfter": "ALPHA\nBETA\n"
+  },
+  {
+    "name": "fuzzy_trailing_ws_in_old_text",
+    "content": "alpha\nbeta\n",
+    "edits": [
+      {
+        "oldText": "alpha   \nbeta",
+        "newText": "ALPHA\nBETA"
+      }
+    ],
+    "isError": false,
+    "text": "Successfully replaced 1 block(s) in target.txt.",
+    "diff": "-1 alpha\n-2 beta\n+1 ALPHA\n+2 BETA",
+    "patch": "--- target.txt\n+++ target.txt\n@@ -1,2 +1,2 @@\n-alpha\n-beta\n+ALPHA\n+BETA\n",
+    "fileAfter": "ALPHA\nBETA\n"
+  },
+  {
+    "name": "fuzzy_leading_indent_change",
+    "content": "    indented\nnext\n",
+    "edits": [
+      {
+        "oldText": "\tindented\nnext",
+        "newText": "flat\nNEXT"
+      }
+    ],
+    "isError": true,
+    "text": "THREW: Could not find the exact text in target.txt. The old text must match exactly including all whitespace and newlines.",
+    "fileAfter": null
+  },
+  {
+    "name": "fuzzy_untouched_line_keeps_trailing_ws",
+    "content": "alpha   \nbeta\ngamma   \n",
+    "edits": [
+      {
+        "oldText": "alpha\nbeta",
+        "newText": "ALPHA\nBETA"
+      }
+    ],
+    "isError": false,
+    "text": "Successfully replaced 1 block(s) in target.txt.",
+    "diff": "-1 alpha   \n-2 beta\n+1 ALPHA\n+2 BETA\n 3 gamma   ",
+    "patch": "--- target.txt\n+++ target.txt\n@@ -1,3 +1,3 @@\n-alpha   \n-beta\n+ALPHA\n+BETA\n gamma   \n",
+    "fileAfter": "ALPHA\nBETA\ngamma   \n"
+  },
+  {
+    "name": "fuzzy_single_line_trailing_ws",
+    "content": "x   \n",
+    "edits": [
+      {
+        "oldText": "x",
+        "newText": "Y"
+      }
+    ],
+    "isError": false,
+    "text": "Successfully replaced 1 block(s) in target.txt.",
+    "diff": "-1 x   \n+1 Y   ",
+    "patch": "--- target.txt\n+++ target.txt\n@@ -1,1 +1,1 @@\n-x   \n+Y   \n",
+    "fileAfter": "Y   \n"
+  },
+  {
+    "name": "partial_line_prefix_and_suffix",
+    "content": "prefix MIDDLE suffix\n",
+    "edits": [
+      {
+        "oldText": "MIDDLE",
+        "newText": "CENTER"
+      }
+    ],
+    "isError": false,
+    "text": "Successfully replaced 1 block(s) in target.txt.",
+    "diff": "-1 prefix MIDDLE suffix\n+1 prefix CENTER suffix",
+    "patch": "--- target.txt\n+++ target.txt\n@@ -1,1 +1,1 @@\n-prefix MIDDLE suffix\n+prefix CENTER suffix\n",
+    "fileAfter": "prefix CENTER suffix\n"
+  },
+  {
+    "name": "partial_line_with_trailing_ws_on_line",
+    "content": "aa bb cc   \n",
+    "edits": [
+      {
+        "oldText": "bb",
+        "newText": "BB"
+      }
+    ],
+    "isError": false,
+    "text": "Successfully replaced 1 block(s) in target.txt.",
+    "diff": "-1 aa bb cc   \n+1 aa BB cc   ",
+    "patch": "--- target.txt\n+++ target.txt\n@@ -1,1 +1,1 @@\n-aa bb cc   \n+aa BB cc   \n",
+    "fileAfter": "aa BB cc   \n"
+  },
+  {
+    "name": "partial_line_with_case_diff",
+    "content": "alpha BETA gamma\n",
+    "edits": [
+      {
+        "oldText": "beta",
+        "newText": "X"
+      }
+    ],
+    "isError": true,
+    "text": "THREW: Could not find the exact text in target.txt. The old text must match exactly including all whitespace and newlines.",
+    "fileAfter": null
+  },
+  {
+    "name": "crlf_file_lf_old_text",
+    "content": "a\r\nb\r\n",
+    "edits": [
+      {
+        "oldText": "a\nb",
+        "newText": "A\nB"
+      }
+    ],
+    "isError": false,
+    "text": "Successfully replaced 1 block(s) in target.txt.",
+    "diff": "-1 a\n-2 b\n+1 A\n+2 B",
+    "patch": "--- target.txt\n+++ target.txt\n@@ -1,2 +1,2 @@\n-a\n-b\n+A\n+B\n",
+    "fileAfter": "A\r\nB\r\n"
+  },
+  {
+    "name": "crlf_file_crlf_old_text",
+    "content": "a\r\nb\r\n",
+    "edits": [
+      {
+        "oldText": "a\r\nb",
+        "newText": "A\r\nB"
+      }
+    ],
+    "isError": false,
+    "text": "Successfully replaced 1 block(s) in target.txt.",
+    "diff": "-1 a\n-2 b\n+1 A\n+2 B",
+    "patch": "--- target.txt\n+++ target.txt\n@@ -1,2 +1,2 @@\n-a\n-b\n+A\n+B\n",
+    "fileAfter": "A\r\nB\r\n"
+  },
+  {
+    "name": "crlf_fuzzy_keeps_crlf",
+    "content": "a   \r\nb\r\n",
+    "edits": [
+      {
+        "oldText": "a\nb",
+        "newText": "A\nB"
+      }
+    ],
+    "isError": false,
+    "text": "Successfully replaced 1 block(s) in target.txt.",
+    "diff": "-1 a   \n-2 b\n+1 A\n+2 B",
+    "patch": "--- target.txt\n+++ target.txt\n@@ -1,2 +1,2 @@\n-a   \n-b\n+A\n+B\n",
+    "fileAfter": "A\r\nB\r\n"
+  },
+  {
+    "name": "lf_file_old_text_with_crlf",
+    "content": "a\nb\n",
+    "edits": [
+      {
+        "oldText": "a\r\nb",
+        "newText": "A\nB"
+      }
+    ],
+    "isError": false,
+    "text": "Successfully replaced 1 block(s) in target.txt.",
+    "diff": "-1 a\n-2 b\n+1 A\n+2 B",
+    "patch": "--- target.txt\n+++ target.txt\n@@ -1,2 +1,2 @@\n-a\n-b\n+A\n+B\n",
+    "fileAfter": "A\nB\n"
+  },
+  {
+    "name": "trailing_newline_removed",
+    "content": "a\nb\n",
+    "edits": [
+      {
+        "oldText": "a\nb\n",
+        "newText": "a\nb"
+      }
+    ],
+    "isError": false,
+    "text": "Successfully replaced 1 block(s) in target.txt.",
+    "diff": " 1 a\n-2 b\n+2 b",
+    "patch": "--- target.txt\n+++ target.txt\n@@ -1,2 +1,2 @@\n a\n-b\n+b\n\\ No newline at end of file\n",
+    "fileAfter": "a\nb"
+  },
+  {
+    "name": "whole_file",
+    "content": "a\nb\n",
+    "edits": [
+      {
+        "oldText": "a\nb\n",
+        "newText": "c\n"
+      }
+    ],
+    "isError": false,
+    "text": "Successfully replaced 1 block(s) in target.txt.",
+    "diff": "-1 a\n-2 b\n+1 c",
+    "patch": "--- target.txt\n+++ target.txt\n@@ -1,2 +1,1 @@\n-a\n-b\n+c\n",
+    "fileAfter": "c\n"
+  },
+  {
+    "name": "empty_file_edit",
+    "content": "",
+    "edits": [
+      {
+        "oldText": "a",
+        "newText": "b"
+      }
+    ],
+    "isError": true,
+    "text": "THREW: Could not find the exact text in target.txt. The old text must match exactly including all whitespace and newlines.",
+    "fileAfter": null
+  },
+  {
+    "name": "add_lines",
+    "content": "a\nb\n",
+    "edits": [
+      {
+        "oldText": "b",
+        "newText": "b\nc\nd"
+      }
+    ],
+    "isError": false,
+    "text": "Successfully replaced 1 block(s) in target.txt.",
+    "diff": " 1 a\n 2 b\n+3 c\n+4 d",
+    "patch": "--- target.txt\n+++ target.txt\n@@ -1,2 +1,4 @@\n a\n b\n+c\n+d\n",
+    "fileAfter": "a\nb\nc\nd\n"
+  },
+  {
+    "name": "unicode_content",
+    "content": "中文行一\n中文行二\n",
+    "edits": [
+      {
+        "oldText": "中文行二",
+        "newText": "替换"
+      }
+    ],
+    "isError": false,
+    "text": "Successfully replaced 1 block(s) in target.txt.",
+    "diff": " 1 中文行一\n-2 中文行二\n+2 替换",
+    "patch": "--- target.txt\n+++ target.txt\n@@ -1,2 +1,2 @@\n 中文行一\n-中文行二\n+替换\n",
+    "fileAfter": "中文行一\n替换\n"
+  },
+  {
+    "name": "unicode_with_trailing_ws",
+    "content": "中文   \n第二行\n",
+    "edits": [
+      {
+        "oldText": "中文\n第二行",
+        "newText": "X\nY"
+      }
+    ],
+    "isError": false,
+    "text": "Successfully replaced 1 block(s) in target.txt.",
+    "diff": "-1 中文   \n-2 第二行\n+1 X\n+2 Y",
+    "patch": "--- target.txt\n+++ target.txt\n@@ -1,2 +1,2 @@\n-中文   \n-第二行\n+X\n+Y\n",
+    "fileAfter": "X\nY\n"
+  },
+  {
+    "name": "nfkc_fullwidth_vs_halfwidth",
+    "content": "ＡＢＣ\n",
+    "edits": [
+      {
+        "oldText": "ABC",
+        "newText": "X"
+      }
+    ],
+    "isError": false,
+    "text": "Successfully replaced 1 block(s) in target.txt.",
+    "diff": "-1 ＡＢＣ\n+1 X",
+    "patch": "--- target.txt\n+++ target.txt\n@@ -1,1 +1,1 @@\n-ＡＢＣ\n+X\n",
+    "fileAfter": "X\n"
+  },
+  {
+    "name": "nfkc_fullwidth_in_old_text",
+    "content": "ABC\n",
+    "edits": [
+      {
+        "oldText": "ＡＢＣ",
+        "newText": "X"
+      }
+    ],
+    "isError": false,
+    "text": "Successfully replaced 1 block(s) in target.txt.",
+    "diff": "-1 ABC\n+1 X",
+    "patch": "--- target.txt\n+++ target.txt\n@@ -1,1 +1,1 @@\n-ABC\n+X\n",
+    "fileAfter": "X\n"
+  },
+  {
+    "name": "nfkc_fullwidth_with_ws",
+    "content": "ＡＢＣ   \n",
+    "edits": [
+      {
+        "oldText": "ABC\nx",
+        "newText": "X\ny"
+      }
+    ],
+    "isError": true,
+    "text": "THREW: Could not find the exact text in target.txt. The old text must match exactly including all whitespace and newlines.",
+    "fileAfter": null
+  },
+  {
+    "name": "mixed_exact_and_fuzzy",
+    "content": "alpha   \nbeta\ngamma\n",
+    "edits": [
+      {
+        "oldText": "alpha\nbeta",
+        "newText": "A\nB"
+      },
+      {
+        "oldText": "gamma",
+        "newText": "G"
+      }
+    ],
+    "isError": false,
+    "text": "Successfully replaced 2 block(s) in target.txt.",
+    "diff": "-1 alpha   \n-2 beta\n-3 gamma\n+1 A\n+2 B\n+3 G",
+    "patch": "--- target.txt\n+++ target.txt\n@@ -1,3 +1,3 @@\n-alpha   \n-beta\n-gamma\n+A\n+B\n+G\n",
+    "fileAfter": "A\nB\nG\n"
+  },
+  {
+    "name": "three_edits_adjacent_lines",
+    "content": "1\n2\n3\n4\n",
+    "edits": [
+      {
+        "oldText": "1",
+        "newText": "a"
+      },
+      {
+        "oldText": "2",
+        "newText": "b"
+      },
+      {
+        "oldText": "3",
+        "newText": "c"
+      }
+    ],
+    "isError": false,
+    "text": "Successfully replaced 3 block(s) in target.txt.",
+    "diff": "-1 1\n-2 2\n-3 3\n+1 a\n+2 b\n+3 c\n 4 4",
+    "patch": "--- target.txt\n+++ target.txt\n@@ -1,4 +1,4 @@\n-1\n-2\n-3\n+a\n+b\n+c\n 4\n",
+    "fileAfter": "a\nb\nc\n4\n"
+  },
+  {
+    "name": "overlapping_edits",
+    "content": "abcdef\n",
+    "edits": [
+      {
+        "oldText": "abc",
+        "newText": "X"
+      },
+      {
+        "oldText": "cde",
+        "newText": "Y"
+      }
+    ],
+    "isError": true,
+    "text": "THREW: edits[0] and edits[1] overlap in target.txt. Merge them into one edit or target disjoint regions.",
+    "fileAfter": null
+  },
+  {
+    "name": "duplicate_second_edit",
+    "content": "same\nother\nsame\n",
+    "edits": [
+      {
+        "oldText": "other",
+        "newText": "OTHER"
+      },
+      {
+        "oldText": "same",
+        "newText": "X"
+      }
+    ],
+    "isError": true,
+    "text": "THREW: Found 2 occurrences of edits[1] in target.txt. Each oldText must be unique. Please provide more context to make it unique.",
+    "fileAfter": null
+  },
+  {
+    "name": "empty_new_text",
+    "content": "a\nb\nc\n",
+    "edits": [
+      {
+        "oldText": "b\n",
+        "newText": ""
+      }
+    ],
+    "isError": false,
+    "text": "Successfully replaced 1 block(s) in target.txt.",
+    "diff": " 1 a\n-2 b\n 3 c",
+    "patch": "--- target.txt\n+++ target.txt\n@@ -1,3 +1,2 @@\n a\n-b\n c\n",
+    "fileAfter": "a\nc\n"
+  },
+  {
+    "name": "replace_with_whitespace_only",
+    "content": "a\nb\n",
+    "edits": [
+      {
+        "oldText": "b",
+        "newText": "   "
+      }
+    ],
+    "isError": false,
+    "text": "Successfully replaced 1 block(s) in target.txt.",
+    "diff": " 1 a\n-2 b\n+2    ",
+    "patch": "--- target.txt\n+++ target.txt\n@@ -1,2 +1,2 @@\n a\n-b\n+   \n",
+    "fileAfter": "a\n   \n"
+  },
+  {
+    "name": "tab_indentation_fuzzy",
+    "content": "\ta\n\tb\n",
+    "edits": [
+      {
+        "oldText": "    a\n    b",
+        "newText": "A\nB"
+      }
+    ],
+    "isError": true,
+    "text": "THREW: Could not find the exact text in target.txt. The old text must match exactly including all whitespace and newlines.",
+    "fileAfter": null
+  }
+]

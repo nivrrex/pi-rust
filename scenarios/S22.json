@@ -1,0 +1,48 @@
+{
+  "id": "S22",
+  "description": "压缩后续写：S19 之后再来两轮，用请求日志验证压缩后的上下文重建",
+  "provider": "openai-completions",
+  "model": "mock-model",
+  "mode": "print",
+  "contextWindow": 20000,
+  "maxTokens": 1024,
+  "settings": {
+    "compaction": {
+      "enabled": true,
+      "reserveTokens": 1000,
+      "keepRecentTokens": 2000
+    }
+  },
+  "prompt": "说点长内容",
+  "responses": [
+    {
+      "file": "fixtures/sse/openai/big-text-usage.sse"
+    },
+    {
+      "file": "fixtures/sse/openai/summary.sse"
+    },
+    {
+      "file": "fixtures/sse/openai/after-compact.sse"
+    }
+  ],
+  "followUp": [
+    {
+      "cliArgs": [
+        "--continue"
+      ],
+      "prompt": "继续"
+    },
+    {
+      "cliArgs": [
+        "--continue"
+      ],
+      "prompt": "再确认一次"
+    },
+    {
+      "cliArgs": [
+        "--continue"
+      ],
+      "prompt": "最后确认"
+    }
+  ]
+}

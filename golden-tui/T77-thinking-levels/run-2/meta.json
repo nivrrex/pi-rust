@@ -1,0 +1,25 @@
+{
+  "id": "T77-thinking-levels",
+  "cols": 100,
+  "rows": 30,
+  "helperExit": 0,
+  "exitCode": 0,
+  "stderr": "",
+  "mockStderr": "",
+  "requestLog": "/tmp/rr/T77-thinking-levels/run-2/requests.jsonl",
+  "snapshotOffsets": [
+    {
+      "name": "l1",
+      "offset": 4553
+    },
+    {
+      "name": "l2",
+      "offset": 5750
+    },
+    {
+      "name": "l3",
+      "offset": 6947
+    }
+  ],
+  "sessionDir": "/tmp/rr/T77-thinking-levels/run-2/session"
+}

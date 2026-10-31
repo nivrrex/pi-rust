@@ -1,0 +1,67 @@
+{
+  "audit-optimize.md": {
+    "name": "audit-optimize",
+    "description": "对当前工作区/目录下的代码、扩展或 Skill（含 SKILL.md）进行两轮工程化审计与改造。审计请求本身即触发第一轮只读诊断（结构/逻辑/算法/规则/语法/边界/兼容性/性能，逐维度找实际问题+评估优化空间）；只有用户明确说\"开始第二轮\"并逐项确认范围后才允许改动文件。当用户说\"审计这段代码\"\"代码审查\"\"这个Skill有没有问题\"\"看看能不能优化\"\"开始第二轮\"，或要求对当前目录做 P0/P1/P2 分级整改时，主动使用本技能——不需要用户先说\"开始第一轮\"。",
+    "disable": false
+  },
+  "cjk-office.md": {
+    "name": "cjk-office",
+    "description": "docx/pptx/pdf/xlsx 四类办公文档的中文场景陷阱清单（中文字体、中文编码、渲染校验）。 四个格式 skill 之一已加载、且本次处理的文档内容涉及中文时，先读本 skill 再动手； 纯英文/纯数字内容不适用。格式操作本身（解包、工具链、校验流程）仍按对应格式 skill 执行，本文件只补\"内容是中文\"额外引入的问题；公文文种结构与版式规范（GB/T 9704 类） 不在本清单范围内。\n",
+    "disable": false
+  },
+  "docx.md": {
+    "name": "docx",
+    "description": "Use this skill whenever the user wants to create, read, edit, or manipulate Word documents (.docx files) or Word templates (.dotx files). Triggers include: any mention of 'Word doc', 'word document', '.docx', '.dotx', or requests to produce professional documents with formatting like tables of contents, headings, page numbers, or letterheads. Also use when extracting or reorganizing content from .docx or .dotx files, inserting or replacing images in documents, performing find-and-replace in Word files, working with tracked changes or comments, or converting content into a polished Word document. If the user asks for a 'report', 'memo', 'letter', 'template', or similar deliverable as a Word or .docx file, use this skill. Do NOT use for PDFs, spreadsheets, Google Docs, or general coding tasks unrelated to document generation.",
+    "disable": false
+  },
+  "dual-package.md": {
+    "name": "dual-package",
+    "description": "在一次代码/项目修改结束后，将当前项目打包为四个独立压缩包——部署包(deploy，可脱离当前开发环境在另一台满足依赖条件的机器上按DEPLOY.md直接部署运行)、开发包(dev，让没有当前对话上下文的开发者/AI仅凭包内代码与CHANGELOG.md理解现状并继续开发)和评审包(review，开发包去除全部源码后的文档与关键数据集，供另一个AI评审开发流程、代码结构与逻辑)和GitHub包(github，按首次提交GitHub仓库的内容打包：无git历史、仅文档与代码，文档面向公共用户，不含本机信息与未公开的内部程序)。当用户说\"打包\"、\"出个部署包\"、\"生成开发包\"、\"出个评审包\"、\"出个github包\"、\"两个包\"、\"双包\"、\"三个包\"、\"四个包\"，且上下文是完成了一次代码修改/项目变更后，使用本skill；若用户只要求单个包则只做对应那个，其余流程不变；若用户只是要普通压缩包（无部署/开发语义区分），本skill不适用。",
+    "disable": false
+  },
+  "enterprise-ppt-style.md": {
+    "name": "enterprise-ppt-style",
+    "description": "生成政企/企业 PPT 时使用的视觉设计规范与版式组件库（v3.2）。当任务涉及创建 PPT 且能判断出适用主题（常规蓝白汇报/政企国企/风控合规/培训分享）时触发，与 pptx skill 配合使用，在 pptx skill 之前或同时加载。",
+    "disable": false
+  },
+  "excel-analysis.md": {
+    "name": "excel-analysis",
+    "description": "用于规范“Excel 数据 → 分析 → 可视化 → HTML 报告”的通用工作流。报告面向人， 以业务结论、重点发现、核心指标、证据和建议为主体；数据审计是辅助层。\n",
+    "disable": false
+  },
+  "gongwen.md": {
+    "name": "gongwen",
+    "description": "公司公文（通知、请示、报告、批复、函、纪要、通报、决定、意见、签报等）的起草、审核、修改与格式规范化。当用户要求写公文/拟通知/起草请示报告、检查公文格式或语句（文种、标题、结构层次、字体字号、错别字、日期数字、引用文件、名称规范）、公文自查或按单位规范排版Word公文时使用。文件读写本身按 docx skill 执行，中文字体/编码陷阱按 cjk-office 处理，本 skill 只补公文领域规则。格式与文字条目源自本单位规范（见正文来源说明），处理外单位公文时仅作参考、以对方规范为准。不适用于非公文的普通Word文档。",
+    "disable": false
+  },
+  "humanizer.md": {
+    "name": "humanizer",
+    "description": "消除文本中的\"AI写作痕迹\"，让文字读起来像人写的，同时不改变原意。两种任务模式：用户要求\"去AI味/人性化改写/humanize\"时按35种模式清单及中文适配规则主动改写；用户要求判断或检查文本是否存在AI写作痕迹（AI风格特征）时，只标注疑似模式与依据强度，不自动改写，且不能据此确认文本由AI生成。普通润色、校对、纠错不自动启用本skill。35种模式体系以Wikipedia \"Signs of AI writing\" (WikiProject AI Cleanup维护)与blader/humanizer (MIT License)为主要参考，经重新组织、扩展与中文适配形成，中文场景适配与结构性模式为本地新增。",
+    "disable": false
+  },
+  "pdf.md": {
+    "name": "pdf",
+    "description": "Use this skill whenever the user wants to do anything with PDF files. This includes reading or extracting text/tables from PDFs, combining or merging multiple PDFs into one, splitting PDFs apart, rotating pages, adding watermarks, creating new PDFs, filling PDF forms, encrypting/decrypting PDFs, extracting images, and OCR on scanned PDFs to make them searchable. If the user mentions a .pdf file or asks to produce one, use this skill.",
+    "disable": false
+  },
+  "pptx.md": {
+    "name": "pptx",
+    "description": "Use this skill any time a .pptx or .potx file is involved in any way — as input, output, or both. This includes: creating slide decks, pitch decks, or presentations; reading, parsing, or extracting text from any .pptx or .potx file (even if the extracted content will be used elsewhere, like in an email or summary); editing, modifying, or updating existing presentations; combining or splitting slide files; working with templates (.potx), layouts, speaker notes, or comments. Trigger whenever the user mentions \"deck,\" \"slides,\" \"presentation,\" or references a .pptx or .potx filename, regardless of what they plan to do with the content afterward. If a .pptx or .potx file needs to be opened, created, or touched, use this skill.",
+    "disable": false
+  },
+  "show-me.md": {
+    "name": "show-me",
+    "description": "当用户明确要求把当前话题中的某个具体内容、结构、流程、关系、架构、UI 层级、数据流或改动 \"画出来看\"时使用；也可在不使用视觉表达会明显降低理解效率时使用。触发词包括：画图、图解、 可视化、架构图、流程图、时序图、调用关系、数据流、结构图、关系图、对比结构图，以及 visualize / diagram / show me。用户贴出已有的 Mermaid 或 draw.io 源想要重新表达（重画、 画好看点、redraw）时也用本 skill。不用于对整个文档、文件或长对话做视觉总结——本 skill 只针对当前话题中的具体内容点。",
+    "disable": false
+  },
+  "visual-summary.md": {
+    "name": "visual-summary",
+    "description": "把一份完整材料（对话、Word/PDF/PPT/Excel/Markdown/txt）的精华压缩成一张可直接分享的静态海报 PNG。 当用户说\"总结成一张图/一张海报/一页看懂/一眼看懂这份报告/把这份材料做成海报/一图总结/信息图总结/ visual summary/poster summary\"，或想把长文档、会议记录、课程、报告压成单页视觉摘要时使用。 输出为单张 PNG（默认竖版 1200×1600）并保留 HTML 源文件。 边界：本 skill 的产出是单张静态海报文件——多页/可交互报告、幻灯片、对话中的临时示意图、 纯设计海报（传单/邀请函，没有需要总结的材料）均不适用。 本 skill 只做一件事：整份材料 → 一张图。",
+    "disable": false
+  },
+  "xlsx.md": {
+    "name": "xlsx",
+    "description": "Use this skill any time a spreadsheet file is the primary input or output. This means any task where the user wants to: open, read, edit, or fix an existing .xlsx, .xlsm, .xltx, .csv, or .tsv file (e.g., adding columns, computing formulas, formatting, charting, cleaning messy data); create a new spreadsheet from scratch or from other data sources; or convert between tabular file formats. Trigger especially when the user references a spreadsheet file by name or path — even casually (like \"the xlsx in my downloads\") — and wants something done to it or produced from it. Also trigger for cleaning or restructuring messy tabular data files (malformed rows, misplaced headers, junk data) into proper spreadsheets. The deliverable must be a spreadsheet file. Do NOT trigger when the primary deliverable is a Word document, HTML report, standalone Python script, database pipeline, or Google Sheets API integration, even if tabular data is involved.",
+    "disable": false
+  }
+}

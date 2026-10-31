@@ -1,0 +1,42 @@
+{
+  "id": "S09a",
+  "provider": "openai-completions",
+  "model": "mock-model",
+  "mode": "rpc",
+  "exitCode": 0,
+  "runs": 3,
+  "sane": true,
+  "stableLayers": {
+    "A": true,
+    "B": true,
+    "C": true
+  },
+  "stderr": "",
+  "stepTrace": [
+    {
+      "index": 0,
+      "action": "waitEvent",
+      "ms": 39,
+      "result": "matched",
+      "detail": "命中第 1 条事件: {\"type\":\"message_update\",\"usage\":{\"input\":0,\"output\":0,\"cacheRead\":0,\"cacheWrite\":0,\"totalTokens\":0,\"cost\":{\"input\":0,\"o"
+    },
+    {
+      "index": 1,
+      "action": "send",
+      "ms": 10,
+      "result": "ok"
+    },
+    {
+      "index": 2,
+      "action": "releaseGate",
+      "ms": 80,
+      "result": "ok"
+    },
+    {
+      "index": 3,
+      "action": "waitExit",
+      "ms": 0,
+      "result": "ok"
+    }
+  ]
+}

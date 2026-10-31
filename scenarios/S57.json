@@ -1,0 +1,24 @@
+{
+  "provider": "openai-completions",
+  "model": "mock-model",
+  "enableSkills": true,
+  "enablePromptTemplates": true,
+  "mode": "print",
+  "responses": [
+    {
+      "file": "fixtures/sse/openai/text-basic.sse"
+    }
+  ],
+  "files": {
+    "AGENTS.md": "# 项目规则\n\n- 项目级：先跑测试再改代码。\n"
+  },
+  "globalFiles": {
+    "CLAUDE.md": "# 全局规则\n\n- 全局级：回答用中文。\n",
+    "prompts/my-tpl.md": "模板开始。\n参数一是 $1；全部参数是 $ARGUMENTS；\n模板结束。\n",
+    "skills/review-helper/SKILL.md": "---\nname: review-helper\ndescription: 审阅改动时使用。\n---\n\n# review-helper\n\n先展开内部模板：/inner-tpl 甲\n",
+    "prompts/inner-tpl.md": "内部模板：参数 $1 ★\n"
+  },
+  "id": "S57",
+  "description": "钉住：/skill: 展开后，正文里出现的模板样式串 /inner-tpl 甲 **不会**再被展开（与 ref expandPromptTemplate:305-311 的「整串匹配 ^\\/([^\\s]+)(?:\\s+([\\s\\S]*))?$」一致；该场景**不足以判别** /skill: 与模板的先后顺序——两种顺序在此输入上观察等价，先后判别另列待办）",
+  "prompt": "/skill:review-helper 看一下"
+}

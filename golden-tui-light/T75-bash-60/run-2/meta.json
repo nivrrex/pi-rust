@@ -1,0 +1,21 @@
+{
+  "id": "L-T75-bash-60",
+  "cols": 100,
+  "rows": 30,
+  "helperExit": 0,
+  "exitCode": 0,
+  "stderr": "",
+  "mockStderr": "",
+  "requestLog": "/tmp/lg2-T75-bash-60/run-2/requests.jsonl",
+  "snapshotOffsets": [
+    {
+      "name": "collapsed",
+      "offset": 10645
+    },
+    {
+      "name": "expanded",
+      "offset": 26835
+    }
+  ],
+  "sessionDir": "/tmp/lg2-T75-bash-60/run-2/session"
+}

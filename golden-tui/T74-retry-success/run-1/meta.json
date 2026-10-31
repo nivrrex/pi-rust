@@ -1,0 +1,17 @@
+{
+  "id": "T74-retry-success",
+  "cols": 100,
+  "rows": 30,
+  "helperExit": 0,
+  "exitCode": 0,
+  "stderr": "",
+  "mockStderr": "",
+  "requestLog": "/tmp/gold-T74-retry-success/run-1/requests.jsonl",
+  "snapshotOffsets": [
+    {
+      "name": "after-retry",
+      "offset": 16186
+    }
+  ],
+  "sessionDir": "/tmp/gold-T74-retry-success/run-1/session"
+}

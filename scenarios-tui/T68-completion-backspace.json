@@ -1,0 +1,96 @@
+{
+  "provider": "openai-completions",
+  "model": "mock-model",
+  "responses": [
+    {
+      "file": "fixtures/sse/openai/markdown-subset.sse"
+    }
+  ],
+  "files": {
+    "AGENTS.md": "# 项目规则\n\n- 项目级：改代码前先跑测试。\n"
+  },
+  "id": "T68-completion-backspace",
+  "prompt": "say hi",
+  "description": "P7-8a/A：/tree 打全后退格两字符，补全菜单应重新出现",
+  "tui": {
+    "cols": 100,
+    "rows": 30,
+    "snapshots": [
+      "after-tree",
+      "after-backspace"
+    ],
+    "steps": [
+      {
+        "action": "waitScreen",
+        "contains": "Pi can explain",
+        "timeoutMs": 25000
+      },
+      {
+        "action": "type",
+        "text": "/tree"
+      },
+      {
+        "action": "waitStable",
+        "quietMs": 900,
+        "timeoutMs": 15000
+      },
+      {
+        "action": "snapshot",
+        "name": "after-tree"
+      },
+      {
+        "action": "type",
+        "text": ""
+      },
+      {
+        "action": "waitStable",
+        "quietMs": 900,
+        "timeoutMs": 15000
+      },
+      {
+        "action": "type",
+        "text": ""
+      },
+      {
+        "action": "waitStable",
+        "quietMs": 900,
+        "timeoutMs": 15000
+      },
+      {
+        "action": "snapshot",
+        "name": "after-backspace"
+      },
+      {
+        "action": "type",
+        "text": "\t"
+      },
+      {
+        "action": "waitStable",
+        "quietMs": 900,
+        "timeoutMs": 15000
+      },
+      {
+        "action": "snapshot",
+        "name": "after-tab"
+      },
+      {
+        "action": "type",
+        "text": "\u001b"
+      },
+      {
+        "action": "waitStable",
+        "quietMs": 600,
+        "timeoutMs": 10000
+      },
+      {
+        "action": "type",
+        "text": "\u0004"
+      },
+      {
+        "action": "waitStable",
+        "quietMs": 500,
+        "timeoutMs": 10000
+      }
+    ]
+  }
+}

@@ -1,0 +1,21 @@
+{
+  "provider": "openai-completions",
+  "model": "mock-model",
+  "enableSkills": true,
+  "mode": "print",
+  "responses": [
+    {
+      "file": "fixtures/sse/openai/text-basic.sse"
+    }
+  ],
+  "files": {
+    "AGENTS.md": "# 项目规则\n\n- 项目级：先跑测试再改代码。\n"
+  },
+  "globalFiles": {
+    "CLAUDE.md": "# 全局规则\n\n- 全局级：回答用中文。\n",
+    "skills/review-helper/SKILL.md": "---\nname: review-helper\ndescription: 审阅改动时使用。\n---\n\n# review-helper\n\n- 逐条给证据。\n"
+  },
+  "id": "S46",
+  "description": "未知 /skill:xxx 原样放行（agent-session.ts:1805）",
+  "prompt": "/skill:does-not-exist 原样保留"
+}

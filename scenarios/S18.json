@@ -1,0 +1,13 @@
+{
+  "id": "S18",
+  "description": "usage 与 cost 记录：一轮工具往返 + 一轮纯文本；第二条响应的 usage 含 cached_tokens/cache_write_tokens（走 Q7 口径：input = prompt_tokens - cacheRead - cacheWrite）",
+  "provider": "openai-completions",
+  "model": "mock-model",
+  "mode": "print",
+  "cost": { "input": 3, "output": 5, "cacheRead": 1, "cacheWrite": 2 },
+  "files": {},
+  "responses": [
+    { "file": "fixtures/sse/openai/tool-bash.sse" },
+    { "file": "fixtures/sse/openai/usage-cache.sse" }
+  ]
+}

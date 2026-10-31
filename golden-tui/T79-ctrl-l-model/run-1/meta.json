@@ -1,0 +1,17 @@
+{
+  "id": "T79-ctrl-l-model",
+  "cols": 100,
+  "rows": 30,
+  "helperExit": 0,
+  "exitCode": 0,
+  "stderr": "",
+  "mockStderr": "",
+  "requestLog": "/tmp/g79/requests.jsonl",
+  "snapshotOffsets": [
+    {
+      "name": "panel",
+      "offset": 5393
+    }
+  ],
+  "sessionDir": "/tmp/g79/session"
+}

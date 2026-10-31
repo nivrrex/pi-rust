@@ -1,0 +1,97 @@
+{
+  "provider": "openai-completions",
+  "model": "mock-model",
+  "responses": [
+    {
+      "file": "fixtures/sse/openai/markdown-subset.sse"
+    }
+  ],
+  "files": {
+    "AGENTS.md": "# 项目规则\n\n- 项目级：改代码前先跑测试。\n"
+  },
+  "id": "T64-completion-nav",
+  "prompt": "say hi",
+  "description": "P7-7f：/s 后 ↓ 移动补全选中项、Tab 接受选中项",
+  "tui": {
+    "cols": 100,
+    "rows": 30,
+    "snapshots": [
+      "after-slash-s",
+      "after-down",
+      "after-tab"
+    ],
+    "steps": [
+      {
+        "action": "waitScreen",
+        "contains": "Pi can explain",
+        "timeoutMs": 25000
+      },
+      {
+        "action": "type",
+        "text": "/s"
+      },
+      {
+        "action": "waitStable",
+        "quietMs": 900,
+        "timeoutMs": 15000
+      },
+      {
+        "action": "snapshot",
+        "name": "after-slash-s"
+      },
+      {
+        "action": "type",
+        "text": "\u001b[B"
+      },
+      {
+        "action": "waitStable",
+        "quietMs": 900,
+        "timeoutMs": 15000
+      },
+      {
+        "action": "snapshot",
+        "name": "after-down"
+      },
+      {
+        "action": "type",
+        "text": "\u001b[B"
+      },
+      {
+        "action": "waitStable",
+        "quietMs": 900,
+        "timeoutMs": 15000
+      },
+      {
+        "action": "type",
+        "text": "\t"
+      },
+      {
+        "action": "waitStable",
+        "quietMs": 900,
+        "timeoutMs": 15000
+      },
+      {
+        "action": "snapshot",
+        "name": "after-tab"
+      },
+      {
+        "action": "type",
+        "text": "\u001b"
+      },
+      {
+        "action": "waitStable",
+        "quietMs": 600,
+        "timeoutMs": 10000
+      },
+      {
+        "action": "type",
+        "text": "\u0004"
+      },
+      {
+        "action": "waitStable",
+        "quietMs": 500,
+        "timeoutMs": 10000
+      }
+    ]
+  }
+}

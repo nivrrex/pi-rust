@@ -1,0 +1,61 @@
+{
+  "id": "T71-continue-tools",
+  "provider": "openai-completions",
+  "model": "mock-model",
+  "mode": "print",
+  "prompt": "hi",
+  "files": {
+    "AGENTS.md": "# 项目规则\n",
+    "input.txt": "hello-from-fixture\n"
+  },
+  "globalFiles": {},
+  "sessionFiles": {
+    "fileName": "2026-01-01T00-00-00-000Z_01a17100-tools.jsonl",
+    "content": "{\"type\": \"session\", \"version\": 3, \"id\": \"01a17100-tools\", \"timestamp\": \"2026-01-01T00:00:00.000Z\", \"cwd\": \"<CWD>\"}\n{\"type\": \"model_change\", \"id\": \"e1\", \"parentId\": null, \"timestamp\": \"2026-01-01T00:00:00.000Z\", \"provider\": \"openai-completions\", \"modelId\": \"mock-model\"}\n{\"type\": \"thinking_level_change\", \"id\": \"t1\", \"parentId\": \"e1\", \"timestamp\": \"2026-01-01T00:00:00.001Z\", \"thinkingLevel\": \"medium\"}\n{\"type\": \"message\", \"id\": \"m1\", \"parentId\": \"t1\", \"timestamp\": \"2026-01-01T00:00:01.000Z\", \"message\": {\"role\": \"user\", \"content\": [{\"type\": \"text\", \"text\": \"读一下 input.txt\"}], \"timestamp\": 1767225601000}}\n{\"type\": \"message\", \"id\": \"m2\", \"parentId\": \"m1\", \"timestamp\": \"2026-01-01T00:00:02.000Z\", \"message\": {\"role\": \"assistant\", \"content\": [{\"type\": \"thinking\", \"thinking\": \"先看看文件\"}, {\"type\": \"toolCall\", \"id\": \"call_1\", \"name\": \"read\", \"arguments\": {\"path\": \"input.txt\"}}], \"api\": \"openai-completions\", \"provider\": \"openai-completions\", \"model\": \"mock-model\", \"usage\": {\"input\": 12, \"output\": 3, \"cacheRead\": 0, \"cacheWrite\": 0, \"totalTokens\": 15, \"cost\": {\"input\": 0, \"output\": 0, \"cacheRead\": 0, \"cacheWrite\": 0, \"total\": 0}}, \"stopReason\": \"toolUse\", \"timestamp\": 1767225602000}}\n{\"type\": \"message\", \"id\": \"m3\", \"parentId\": \"m2\", \"timestamp\": \"2026-01-01T00:00:03.000Z\", \"message\": {\"role\": \"toolResult\", \"toolCallId\": \"call_1\", \"toolName\": \"read\", \"isError\": false, \"content\": [{\"type\": \"text\", \"text\": \"hello-from-fixture\\n\"}], \"timestamp\": 1767225603000}}\n{\"type\": \"message\", \"id\": \"m4\", \"parentId\": \"m3\", \"timestamp\": \"2026-01-01T00:00:04.000Z\", \"message\": {\"role\": \"assistant\", \"content\": [{\"type\": \"text\", \"text\": \"文件里是 hello-from-fixture\"}], \"api\": \"openai-completions\", \"provider\": \"openai-completions\", \"model\": \"mock-model\", \"usage\": {\"input\": 20, \"output\": 8, \"cacheRead\": 0, \"cacheWrite\": 0, \"totalTokens\": 28, \"cost\": {\"input\": 0, \"output\": 0, \"cacheRead\": 0, \"cacheWrite\": 0, \"total\": 0}}, \"stopReason\": \"stop\", \"timestamp\": 1767225604000}}\n"
+  },
+  "cliArgs": [
+    "-c"
+  ],
+  "responses": [
+    {
+      "file": "fixtures/sse/openai/text-basic.sse"
+    }
+  ],
+  "description": "P7-8c/S：真实会话形态补样（thinking + toolCall + toolResult）",
+  "tui": {
+    "cols": 100,
+    "rows": 30,
+    "snapshots": [
+      "after-continue"
+    ],
+    "steps": [
+      {
+        "action": "waitScreen",
+        "contains": "Pi can explain",
+        "timeoutMs": 25000
+      },
+      {
+        "action": "delay",
+        "ms": 6000
+      },
+      {
+        "action": "waitStable",
+        "quietMs": 1200,
+        "timeoutMs": 20000
+      },
+      {
+        "action": "snapshot",
+        "name": "after-continue"
+      },
+      {
+        "action": "type",
+        "text": "\u0004"
+      },
+      {
+        "action": "waitStable",
+        "quietMs": 500,
+        "timeoutMs": 10000
+      }
+    ]
+  }
+}

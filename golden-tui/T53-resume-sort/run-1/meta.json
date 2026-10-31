@@ -1,0 +1,17 @@
+{
+  "id": "T53-resume-sort",
+  "cols": 100,
+  "rows": 30,
+  "helperExit": 0,
+  "exitCode": 0,
+  "stderr": "",
+  "mockStderr": "",
+  "requestLog": "/tmp/n53-1/requests.jsonl",
+  "snapshotOffsets": [
+    {
+      "name": "sorted",
+      "offset": 6250
+    }
+  ],
+  "sessionDir": "/tmp/n53-1/session"
+}

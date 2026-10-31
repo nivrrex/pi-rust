@@ -1,0 +1,36 @@
+{
+  "id": "S19",
+  "description": "自动压缩：第二次运行 --continue 时上一条 assistant 的 usage 越过阈值",
+  "provider": "openai-completions",
+  "model": "mock-model",
+  "mode": "print",
+  "contextWindow": 20000,
+  "maxTokens": 1024,
+  "settings": {
+    "compaction": {
+      "enabled": true,
+      "reserveTokens": 1000,
+      "keepRecentTokens": 2000
+    }
+  },
+  "prompt": "说点长内容",
+  "responses": [
+    {
+      "file": "fixtures/sse/openai/big-text-usage.sse"
+    },
+    {
+      "file": "fixtures/sse/openai/summary.sse"
+    },
+    {
+      "file": "fixtures/sse/openai/after-compact.sse"
+    }
+  ],
+  "followUp": [
+    {
+      "cliArgs": [
+        "--continue"
+      ],
+      "prompt": "继续"
+    }
+  ]
+}

@@ -1,0 +1,82 @@
+{
+  "fixture": "fixtures/sse/anthropic/ping-only.sse",
+  "costBits": {
+    "input": "0x3eb0c6f7a0b5ed8d",
+    "output": "0x3ec0c6f7a0b5ed8d",
+    "cacheRead": "0x0000000000000000",
+    "cacheWrite": "0x0000000000000000",
+    "total": "0x3ec92a737110e454"
+  },
+  "api": "anthropic-messages",
+  "requestCount": 1,
+  "events": [
+    {
+      "type": "start"
+    },
+    {
+      "type": "text_start",
+      "contentIndex": 0
+    },
+    {
+      "type": "text_delta",
+      "contentIndex": 0,
+      "delta": "ok"
+    },
+    {
+      "type": "text_end",
+      "contentIndex": 0,
+      "content": "ok"
+    },
+    {
+      "type": "done",
+      "reason": "stop",
+      "message": {
+        "role": "assistant",
+        "api": "anthropic-messages",
+        "provider": "mock",
+        "model": "mock-model",
+        "stopReason": "stop",
+        "rawStopReason": "end_turn",
+        "content": [
+          {
+            "type": "text",
+            "text": "ok"
+          }
+        ],
+        "usage": {
+          "input": 1,
+          "output": 1,
+          "cacheRead": 0,
+          "cacheWrite": 0,
+          "totalTokens": 2,
+          "cost": "<COST_BITS>"
+        }
+      }
+    },
+    {
+      "type": "__result",
+      "message": {
+        "role": "assistant",
+        "api": "anthropic-messages",
+        "provider": "mock",
+        "model": "mock-model",
+        "stopReason": "stop",
+        "rawStopReason": "end_turn",
+        "content": [
+          {
+            "type": "text",
+            "text": "ok"
+          }
+        ],
+        "usage": {
+          "input": 1,
+          "output": 1,
+          "cacheRead": 0,
+          "cacheWrite": 0,
+          "totalTokens": 2,
+          "cost": "<COST_BITS>"
+        }
+      }
+    }
+  ]
+}
