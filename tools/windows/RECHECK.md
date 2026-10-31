@@ -9,8 +9,8 @@ pi-rs-windows-amd64.exe --version
 
 | 期望 | 说明 |
 |---|---|
-| sha256 = `2e63874021d1c75d…`（完整值见 Release 附件 `SHA256SUMS`） | 与附件清单不一致即不要继续 |
-| 第二行 `built <UTC> commit <sha>` | 应为 `commit 31e240a`（或发布时更新的 commit），且**不含 `-dirty`** |
+| sha256 = `d3dc7960f2df9526…`（完整值见 Release 附件 `SHA256SUMS`） | 与附件清单不一致即不要继续 |
+| 第二行 `built <UTC> commit <sha>` | 应为 `commit 22a8d39`（或发布时更新的 commit），且**不含 `-dirty`** |
 
 差异说明：Windows 侧自编版本用 MSVC/git-bash 工具链、可能带 `-dirty`；发布用版本是在 Linux 上用
 `x86_64-pc-windows-gnu`（rustc 1.99.0 + mingw-w64 GCC 12-win32）**交叉编译**的干净构建。
@@ -18,7 +18,7 @@ pi-rs-windows-amd64.exe --version
 
 ---
 
-Windows 侧自编参考构建（非发布件，win-fixes 分支）：`commit 31e240a` / sha256 `2e63874021d1c75d…` / `built 2026-10-30T17:21:11Z`（含记账式标记重组，见 `docs/evidence/w-p8e16-accounting-fix.md`）；RECHECK 第 1–11 项在这条线上通过。W-P8e-17 **未改代码**（只加 H1 证据与 `tools/windows/h1/` 探针）；该批实测与字节分析的对象见 `docs/evidence/w-p8e17-h1-4096-boundary.md`（master `653e941` 自编件 sha256 `c2a981606af17dbb…`）。上游发布件值见上表。
+发布件：`commit 22a8d39` / sha256 `d3dc7960f2df9526…` / `built 2026-10-31T03:56:12Z`（Linux 交叉编译）。本批改的是行尾 `;;`/`0m` 的根因：光标标记剥除后 span 偏移未左移，行尾 `ESC[0m ESC]8;;BEL` 被 span 复位切成两半（`docs/evidence/w-p8e17-h1-4096-boundary.md` 记录 H1 否证了 4096 切分；真实机制见 `crates/pi-tui/src/diff.rs` 的 `shift_past_marker`）。真机已确认行尾不再出现残片。H1 的探针仍在 `tools/windows/h1/`（与本案无关，保留作回归）。
 ## 复跑核心用例（沿用 Windows 侧已有的同一套 conhost/ConPTY 脚本）
 
 | # | 用例 | 通过标准 |
