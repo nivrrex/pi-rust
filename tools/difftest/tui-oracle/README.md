@@ -3,8 +3,8 @@
 生成 **TS（pi 0.87.1）真实 `TuiMainScreen` 写出的字节**，供 pi-rs 的 `diff_render` 逐字节对拍。
 
 ## 依赖与来源
-- **TS 版本**：pi **0.87.1**（`ref/pi-0.87.1`，tag `v0.87.1` / commit `f07218c`）。
-- **源码引用方式**：运行时**直接从只读目录 import** `ref/pi-0.87.1/packages/tui/src/{tui.ts,tui-main-screen.ts,utils.ts}`（node ≥22.18 的类型剥离），**不复制上游源码**、**不改 ref**。
+- **TS 版本**：pi **0.87.1**（tag `v0.87.1` / commit `f07218c`）。
+- **源码引用方式**：运行时直接从**本机已安装的 pi 包**里 import `packages/tui/src/{tui.ts,tui-main-screen.ts,utils.ts}`（node ≥22.18 的类型剥离），**不复制、不修改上游源码**；路径由环境变量 `PI_TUI_REF_DIR` 指定（缺省指向开发机上的只读 checkout `ref/pi-0.87.1/packages/tui/src/`）。
 - **裸包名解析**：`get-east-asian-width`、`marked` 由 `resolve-hook.mjs` 映射到**已安装 pi 包自带的** `node_modules`（基线由 `TS_PI_ENTRY` 推导：`<pkg>/dist/bundle/cli.js` ⇒ `<pkg>/node_modules`），**不新增任何 npm 依赖**。
 - **node 版本**：v24.21.0（`node --version`）。
 
@@ -36,7 +36,7 @@ line <base64(utf8)>
 out  <base64(utf8)>
 ```
 
-## 光标夹具（P7-6m/W2，独立文件，v1 不动）
+## 光标夹具（独立文件）
 - `gen-cursor.mjs` → `fixtures-cursor.json`（+ 文本侧车 `fixtures-cursor.lines.txt`，多一列 `show <0|1>`）。
 - 与 v1 的差别：① 行内注入 `CURSOR_MARKER`（`\x1b_pi:c\x07`，`tui.ts:168`）；② 假终端把 `hideCursor/showCursor` 记为**真实字节** `\x1b[?25l` / `\x1b[?25h`（v1 忽略）；③ 覆盖 `showHardwareCursor` 两种取值。
 - 用例：**手写 12**（marker 行首/中/尾、CJK 后、SGR 后、视口内/外、无 marker、marker 行被删、宽度变化、`showHardwareCursor` 两种）+ **随机 100**（在 v1 随机序列基础上每帧随机插 marker，`showHardwareCursor` 交替）。
@@ -48,13 +48,13 @@ node --import ./tools/difftest/tui-oracle/register.mjs \
      tools/difftest/tui-oracle/gen-cursor.mjs tools/difftest/tui-oracle/fixtures-cursor.json
 ```
 
-## 退出序列夹具（P7-6p/W1，独立文件，v1/光标夹具不动）
+## 退出序列夹具（独立文件）
 - `gen-exit.mjs` → `fixtures-exit.json`（+ 文本侧车 `fixtures-exit.lines.txt`，`case` 行末附 base64 的 `stop` 字节）。
 - 做法：沿用光标夹具的帧序列（含 marker 在不同行/无 marker/未满屏/刚好满屏/超屏），**最后一帧之后**调用真实 `TuiMainScreen.beforeTerminalStop({preserveScreen:false})`（`tui-main-screen.ts:168-176`），单独记录它写出的字节。
 - 规模：**112 用例**（手写 12 + 随机 100），全部用例 `stop` 非空（样例 `" \x1b[2B\r\n"`），文件 **527024 字节**（<2 MB）。
 - 稳定性：连续生成 3 次 sha256 全同 `8ddb002f842e558ae7d999dd8ec0d9467cbd9f2e`，`cmp` 逐字节一致。
 
-## 输入夹具（P7-6q/W2，独立文件，其它夹具不动）
+## 输入夹具（独立文件）
 - `gen-keys.mjs` → `fixtures-input.json`：用 ref 的真实 `StdinBuffer` + `keys.ts` 解析函数，喂入**字节分片序列**，记录 `data`/`paste` 事件与 `parseKey`/`isKeyRelease`/`isKeyRepeat` 结果。
 - 用例 **220**（手写 20 + 随机 200），**63.7 KB**；连续生成 3 次 sha256 全同 `23b2cb503eb448c8030cb8855fa8e29a6db315c3`。
 - 超时确定性：对孤立 ESC 等用例在 `process()` 后**手动 `flush()`** 模拟超时（`timeoutEmulated: true`），不使用真实定时器。
