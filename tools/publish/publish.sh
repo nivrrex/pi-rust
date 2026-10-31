@@ -164,10 +164,12 @@ import json, sys
 body = open(sys.argv[1], encoding="utf-8").read()
 print(json.dumps({"body": body}, ensure_ascii=False))
 PYBODY
+  # PATCH 只认 release id（按 tag 取 id），不能直接用 /releases/tags/<tag>
+  release_id=$(python3 -c 'import json,sys;print(json.load(open(sys.argv[1]))["id"])' "$HERE/.release.json")
   printf 'header = "Authorization: token %s"\n' "$GITHUB_TOKEN" \
     | curl -sS -K - -X PATCH -H 'Accept: application/vnd.github+json' \
            -H 'Content-Type: application/json' --data-binary "@$HERE/.release-body.json" \
-           "$API/releases/tags/$TAG" -o "$HERE/.release-patch.json"
+           "$API/releases/$release_id" -o "$HERE/.release-patch.json"
   python3 - "$HERE/.release-patch.json" <<'PYCHECK'
 import json, sys
 data = json.load(open(sys.argv[1]))
