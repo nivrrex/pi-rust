@@ -289,7 +289,9 @@ pub(crate) fn run_shell<'a>(
             cmd.process_group(0);
             #[cfg(windows)]
             {
-                use std::os::windows::process::CommandExt;
+                // `creation_flags` 是 tokio `Command` 的固有方法，无需 `CommandExt` trait；
+                // 之前那行 `use std::os::windows::process::CommandExt` 在 Windows 目标上
+                // 是死导入，会让 `clippy -D warnings` 失败（2026-10-31 实测）。
                 cmd.creation_flags(0x0800_0000); // CREATE_NO_WINDOW
             }
             let mut child = match cmd.spawn() {

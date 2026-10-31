@@ -3540,12 +3540,17 @@ fn draw(
 
 /// 把一帧字节按**行**写给终端（每次 `write_all` 都以 `\n` 结尾）。
 ///
-/// 为什么不能整帧一次写：Windows 控制台/ConPTY 在一次写入的**末尾**遇到不完整转义
-/// 序列时会把它丢掉、把剩下的字节当普通文本显示（真机两轮实测：`\x1b[0m` 漏成 `0m`、
-/// `\x1b]8;;\x07` 漏成 `;;`）。整帧一次写时，控制台可能按任意字节位置**短写**，
-/// 切点落到 `ESC` 与参数之间就会漏字。官方实现一帧一次 `process.stdout.write`、
-/// 且 Node 侧不会在序列中间切开；我们改为**每行一次写入**，切点永远落在 `\n` 之后，
-/// 不完整序列无从产生（行内最长的序列也不到 20 字节，远小于控制台单次写入容量）。
+/// 背景：Windows 上曾出现行尾多出 `;;` / `0m` 的现象，位置总在行尾那组复位序列的尾巴上。
+/// 当时的假设是"std 在控制台句柄上每次最多转换 4096 字节，整帧被切成多次写入、切点落在
+/// 序列内部，控制台丢掉半截、把剩余字节当文本显示"。
+///
+/// **该假设没有复现**（2026-10-31，独立程序 × WezTerm/ConPTY 与经典 conhost × 序列内
+/// 每个字节位置的切点 × 三种写法，72 个用例 0 残留；见
+/// `docs/evidence/w-p8e17-h1-4096-boundary.md`），所以这里不是"已修复"，而是**防御性约束**：
+/// 按行写让切点只能落在 `\n` 之后，序列被切开在这条路径上不可能发生；单行最长也只有
+/// 几百字节，远小于控制台一次写入的容量。
+///
+/// 排查开关：`PI_TUI_OUTPUT_DUMP` 会把每帧实际写出的字节落盘（见 `dump_output`）。
 fn write_frame(out: &mut impl std::io::Write, payload: &str) -> std::io::Result<()> {
     let bytes = payload.as_bytes();
     let mut start = 0_usize;
@@ -3838,9 +3843,15 @@ mod r3_wiring_tests {
             "Windows 启动不应请求括号粘贴（ConPTY 会拆坏标记）：{r3:?}"
         );
         // P7-6ae/S2b：kitty 查询三元组已接线（应答由协商层消费），顺序 2004h → kitty → 25l。
-        let paste_at = r3.find("\x1b[?2004h").expect("缺 2004h");
-        let hide_at = r3.find("\x1b[?25l").expect("缺 hideCursor");
-        assert!(paste_at < hide_at, "启动顺序应为 2004h → 25l：{r3:?}");
+        // Windows 不请求括号粘贴（见上面的平台断言），因此只在该平台校验 hideCursor 存在。
+        #[cfg(not(windows))]
+        {
+            let paste_at = r3.find("\x1b[?2004h").expect("缺 2004h");
+            let hide_at = r3.find("\x1b[?25l").expect("缺 hideCursor");
+            assert!(paste_at < hide_at, "启动顺序应为 2004h → 25l：{r3:?}");
+        }
+        #[cfg(windows)]
+        assert!(r3.contains("\x1b[?25l"), "Windows 启动应隐藏光标：{r3:?}");
         // Windows 不发 kitty 查询（没有协商层消费应答），只在 Unix 断言该三元组。
         #[cfg(not(windows))]
         {
@@ -3848,6 +3859,7 @@ mod r3_wiring_tests {
                 .find("\x1b[>7u\x1b[?u\x1b[c")
                 .expect("缺 kitty 查询三元组");
             let paste_at = r3.find("\x1b[?2004h").expect("缺 2004h");
+            let hide_at = r3.find("\x1b[?25l").expect("缺 hideCursor");
             assert!(
                 paste_at < kitty_at && kitty_at < hide_at,
                 "启动顺序应为 2004h → kitty → 25l：{r3:?}"
@@ -4760,6 +4772,8 @@ fn spawn_r3_input_thread(tx: std::sync::mpsc::Sender<TuiEvent>) {
 /// 把一个 `InputEvent` 依次过协商层与 OSC 11，再映射成 `TuiEvent`。
 ///
 /// 返回 `false` 表示主循环已退出（通道断开）。
+/// 仅 Unix 输入线程使用（Windows 走 crossterm 事件路径），因此在 Windows 目标上不编译。
+#[cfg(not(windows))]
 fn forward_event(
     event: pi_tui::input::InputEvent,
     negotiate: &mut pi_tui::term_negotiate::NegotiateState,
@@ -4774,6 +4788,8 @@ fn forward_event(
 }
 
 /// 单个序列：协商层 ⇒（未消费时）OSC 11 ⇒（未消费时）键名映射。
+/// 仅 Unix 输入线程使用（同上）。
+#[cfg(not(windows))]
 fn forward_sequence(
     seq: &str,
     negotiate: &mut pi_tui::term_negotiate::NegotiateState,
