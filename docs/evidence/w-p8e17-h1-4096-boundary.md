@@ -133,7 +133,31 @@ sha256 前 32 位 `c2a981606af17dbb4b53b7431d4e8ef3`。
 
 即：按行写入后，单次写入最长不到 2 KB，且每块都在换行之后结束 —— 序列不可能被切。
 
-## 七、这次**没有**证明的事
+## 七、顺带发现的既有问题（master `653e941`，**本批未改**）
+
+在 Windows 目标上跑 master 的验证门时碰到三处既有问题，与 H1 无关，留给 Linux 侧决定是否修：
+
+| # | 位置 | 现象 | 建议改法 |
+|---|---|---|---|
+| 1 | `crates/pi-core/src/tools/bash.rs:292` | `clippy -D warnings` 在 Windows 目标失败：`unused import: std::os::windows::process::CommandExt` | 删掉该行（`cmd.creation_flags` 解析到 `tokio::process::Command` 的固有方法，不需要该 trait） |
+| 2 | `crates/pi-cli/src/tui.rs:3841` | `cargo test -p pi-cli` 在 Windows 目标 148/1 失败：`startup_bytes_never_enter_alt_screen_for_r3` 断言 `缺 2004h` | 上方已有 `#[cfg(windows)] assert!(!r3.contains("\x1b[?2004h"))`，因此顺序断言（`paste_at < hide_at`）必须整段放进 `#[cfg(not(windows))]`；Windows 分支改断言 `contains("\x1b[?25l")` |
+| 3 | `crates/pi-cli/src/tui.rs:4763/4777` | `forward_event` / `forward_sequence` 在 Windows 目标报 `never used`（调用点全在 Unix 分支） | 给两个函数加 `#[cfg(not(windows))]`（同一批问题，不影响行为） |
+
+这些不是我改出来的：本批对仓库的改动只有证据文档与本目录的探针（`git diff` 可核）。
+
+## 八、本次验证跑出的实际数字
+
+| 项 | 对象 | 结果 |
+|---|---|---|
+| `cargo test -p pi-cli --lib` | master `653e941` / windows-gnu | **148 通过 / 1 失败**（§七 #2） |
+| `cargo test -p pi-tui --lib` | 同上 | 80 / 0 |
+| `cargo clippy -D warnings` | 同上 | 失败（§七 #1、#3） |
+| `cargo fmt --all --check` | 同上 | 0 |
+| `cargo test -p pi-cli --lib` | 本地 `win-fixes 30c7e41` / windows-gnu | 139 / 0 |
+| `cargo test -p pi-tui --lib` | 同上 | 80 / 0 |
+| `cargo build --release -p pi-cli` | 同上 | 成功；`pi-rs 0.87.1 / built 2026-10-31T02:51:33Z commit 30c7e41`，sha256 前 32 位 `4ba8e9e294df00798d395bd83f0a13bf` |
+
+## 九、这次**没有**证明的事
 
 - 没有证明 `;;` / `0m` **再也不会出现**。本次只否证了"切分切断序列"这一条机制；
   终端侧（WezTerm 对 OSC 8 的处理）、ConPTY 的重序列化、或旧构建的其它缺陷仍可能是来源。
@@ -142,7 +166,7 @@ sha256 前 32 位 `c2a981606af17dbb4b53b7431d4e8ef3`。
 - 若再次出现，必须同时给：`PI_TUI_OUTPUT_DUMP` 落盘文件 + 异常字符在屏幕第几列，
   才能区分"我们发错"还是"终端解析错"。
 
-## 八、复跑
+## 十、复跑
 
 ```bat
 cd tools\windows\h1
