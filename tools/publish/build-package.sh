@@ -30,6 +30,7 @@ git -C "$OUT/repo" checkout --quiet refs/heads/publish
 "$ROOT"/tools/publish/write-manifest.sh "$OUT" "$COMMIT" "$ARTIFACTS"
 
 cp "$ROOT/tools/publish/publish.sh" "$OUT/publish.sh"
+cp "$ROOT/tools/publish/release-body.md" "$OUT/发布正文.md"
 chmod +x "$OUT/publish.sh"
 
 cat > "$OUT/发布说明.md" <<MD

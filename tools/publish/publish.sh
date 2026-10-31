@@ -21,7 +21,7 @@ BACKUP_BUNDLE="${BACKUP_BUNDLE:-${HOME}/archives/pi-rust-remote-backup-20261029.
 die() { printf '✗ %s\n' "$1" >&2; exit 1; }
 step() { printf '\n== %s\n' "$1"; }
 
-step "0/6 前置检查"
+step "0/7 前置检查"
 [ -n "${GITHUB_TOKEN:-}" ] || die "缺少环境变量 GITHUB_TOKEN（只在环境里提供，不要写进脚本）"
 [ -f "$BACKUP_BUNDLE" ] || die "找不到备份 bundle：$BACKUP_BUNDLE（先在远端状态良好时做过 git clone --mirror 才对）"
 [ -f "$HERE/SHA256SUMS" ] || die "缺少 $HERE/SHA256SUMS"
@@ -73,7 +73,7 @@ gh_up() { # upload <upload_url> <file>
            --data-binary "@$2" "$1" -o /dev/null
 }
 
-step "1/6 强推默认分支（发布用单提交）"
+step "1/7 强推默认分支（发布用单提交）"
 if [ "$DRY_RUN" = 1 ]; then
   printf '（DRY_RUN：跳过 git push main）\n'
 else
@@ -86,7 +86,7 @@ else
   printf '✓ main 已更新\n'
 fi
 
-step "2/6 移动 tag $TAG"
+step "2/7 移动 tag $TAG"
 if [ "$DRY_RUN" = 1 ]; then
   printf '（DRY_RUN：跳过 git push tag）\n'
 else
@@ -95,7 +95,7 @@ else
   printf '✓ tag 已指向新提交\n'
 fi
 
-step "3/6 删除 Release 旧附件"
+step "3/7 删除 Release 旧附件"
 gh GET "$API/releases/tags/$TAG" "$HERE/.release.json" || die "查询 Release 失败"
 python3 - "$HERE/.release.json" > "$HERE/.asset-ids" <<'PY'
 import json, sys
@@ -110,7 +110,7 @@ while read -r id name; do
   printf '  - 已删除 %s\n' "$name"
 done < "$HERE/.asset-ids"
 
-step "4/6 上传新附件"
+step "4/7 上传新附件"
 UPLOAD=$(python3 -c 'import json,sys;print(json.load(open(sys.argv[1]))["upload_url"].split("{")[0])' "$HERE/.release.json")
 for f in $ASSETS; do
   gh_up "$UPLOAD?name=$f" "$HERE/$f" || die "上传 $f 失败（可用备份 bundle 回滚 tag 与 main）"
@@ -118,7 +118,7 @@ for f in $ASSETS; do
 done
 gh_up "$UPLOAD?name=SHA256SUMS" "$HERE/SHA256SUMS" || die "上传 SHA256SUMS 失败"
 
-step "5/6 重新下载并逐个核对 sha256"
+step "5/7 重新下载并逐个核对 sha256"
 gh GET "$API/releases/tags/$TAG" "$HERE/.release2.json" || die "查询 Release 失败"
 python3 - "$HERE/.release2.json" > "$HERE/.asset-urls" <<'PY'
 import json, sys
@@ -139,6 +139,28 @@ while read -r name url; do
 done < "$HERE/.asset-urls"
 [ "$fail" = 0 ] || die "附件校验失败（已上传的内容可用备份 bundle 回滚）"
 
-step "6/6 完成"
+step "6/7 更新 Release 说明"
+if [ -f "$HERE/发布正文.md" ]; then
+  python3 - "$HERE/发布正文.md" > "$HERE/.release-body.json" <<'PYBODY'
+import json, sys
+body = open(sys.argv[1], encoding="utf-8").read()
+print(json.dumps({"body": body}, ensure_ascii=False))
+PYBODY
+  printf 'header = "Authorization: token %s"\n' "$GITHUB_TOKEN" \
+    | curl -sS -K - -X PATCH -H 'Accept: application/vnd.github+json' \
+           -H 'Content-Type: application/json' --data-binary "@$HERE/.release-body.json" \
+           "$API/releases/tags/$TAG" -o "$HERE/.release-patch.json"
+  python3 - "$HERE/.release-patch.json" <<'PYCHECK'
+import json, sys
+data = json.load(open(sys.argv[1]))
+if "body" in data:
+    print("  ✓ Release 说明已更新")
+else:
+    print("  ✗ Release 说明更新失败：%s" % data.get("message", data))
+    raise SystemExit(1)
+PYCHECK
+fi
+
+step "7/7 完成"
 printf '✓ 发布完成：https://github.com/%s/releases/tag/%s\n' "$REPO" "$TAG"
 printf '  回滚：用 %s 里的 refs 恢复 main/tag，再重跑本脚本上传旧产物。\n' "$BACKUP_BUNDLE"
