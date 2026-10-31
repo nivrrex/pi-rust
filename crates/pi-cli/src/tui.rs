@@ -3546,9 +3546,10 @@ fn draw(
 ///
 /// **该假设没有复现**（2026-10-31，独立程序 × WezTerm/ConPTY 与经典 conhost × 序列内
 /// 每个字节位置的切点 × 三种写法，72 个用例 0 残留；见
-/// `docs/evidence/w-p8e17-h1-4096-boundary.md`），所以这里不是"已修复"，而是**防御性约束**：
-/// 按行写让切点只能落在 `\n` 之后，序列被切开在这条路径上不可能发生；单行最长也只有
-/// 几百字节，远小于控制台一次写入的容量。
+/// `docs/evidence/w-p8e17-h1-4096-boundary.md`）。真实原因是渲染层把行尾复位序列切开了
+/// （spans 偏移按"带光标标记的行"计算、写前标记被剥掉却没有左移偏移，见 `diff::
+/// shift_past_marker`）。因此按行写入**不是**修复手段，只是防御性约束：切点只落在 `\n` 之后，
+/// 序列被写入层切开在这条路径上不可能发生。
 ///
 /// 排查开关：`PI_TUI_OUTPUT_DUMP` 会把每帧实际写出的字节落盘（见 `dump_output`）。
 fn write_frame(out: &mut impl std::io::Write, payload: &str) -> std::io::Result<()> {

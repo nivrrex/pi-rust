@@ -358,6 +358,20 @@ fn full_render_styled(
 /// 返回 `(位置, 行数组是否被改动)`。
 #[must_use]
 pub fn extract_cursor_position(lines: &mut [String], height: usize) -> Option<(usize, usize)> {
+    extract_cursor_position_with_index(lines, height).map(|(row, col, _index)| (row, col))
+}
+
+/// 同 [`extract_cursor_position`]，额外返回被剥掉的标记在该行内的**字节下标**。
+///
+/// 用途：span 的偏移是在**带标记**的行上算出来的（`header_spans` 在 `marker_apply` 之后跑），
+/// 剥掉 7 字节标记后必须把标记之后的 span 偏移整体左移，否则切片会落进行尾的
+/// `SEGMENT_RESET` 里 —— 真机 `;;` / `0m` 残留就是这个（2026-10-31 由 `PI_TUI_OUTPUT_DUMP`
+/// 取证：`…\e]8` + `\e[0m` + `;;\a`，即 OSC 8 被 span 边界切成两半）。
+#[must_use]
+pub fn extract_cursor_position_with_index(
+    lines: &mut [String],
+    height: usize,
+) -> Option<(usize, usize, usize)> {
     let start = lines.len().saturating_sub(height);
     for (row, line) in lines.iter_mut().enumerate().skip(start) {
         if let Some(index) = line.find(CURSOR_MARKER) {
@@ -367,10 +381,23 @@ pub fn extract_cursor_position(lines: &mut [String], height: usize) -> Option<(u
             stripped.push_str(prefix);
             stripped.push_str(&line[index + CURSOR_MARKER.len()..]);
             *line = stripped;
-            return Some((row, col));
+            return Some((row, col, index));
         }
     }
     None
+}
+
+/// 把"带标记行"上的字节偏移换算到"已剥标记行"上（标记之后的偏移左移标记长度）。
+fn shift_past_marker(offset: usize, marker_index: usize) -> usize {
+    let marker_len = CURSOR_MARKER.len();
+    if offset > marker_index + marker_len {
+        offset - marker_len
+    } else if offset > marker_index {
+        // 落在标记自身范围内的偏移：收敛到标记起点（等价于"该字符已被标记占据"）。
+        marker_index
+    } else {
+        offset
+    }
 }
 
 /// 生成光标定位字节（`tui-main-screen.ts:623-660` `positionHardwareCursor`）。
@@ -446,7 +473,20 @@ pub fn diff_render_with_cursor_styled(
     height: usize,
 ) -> Result<(String, String), DiffRenderError> {
     let mut owned: Vec<String> = lines.to_vec();
-    let cursor_pos = extract_cursor_position(&mut owned, height);
+    let found = extract_cursor_position_with_index(&mut owned, height);
+    let cursor_pos = found.map(|(row, col, _index)| (row, col));
+    // 标记（7 字节）已从该行剥掉，而 span 偏移是按"带标记"的行算的 ⇒ 把标记之后的
+    // 偏移整体减 7，否则行尾 `SEGMENT_RESET` 会被 span 边界切开（`;;` / `0m` 残留）。
+    let shifted_spans: Option<Vec<Vec<crate::style::Span>>> = found.and_then(|(row, _, index)| {
+        let mut copy = spans.to_vec();
+        let row_spans = copy.get_mut(row)?;
+        for span in row_spans.iter_mut() {
+            span.start = shift_past_marker(span.start, index);
+            span.end = shift_past_marker(span.end, index);
+        }
+        Some(copy)
+    });
+    let spans = shifted_spans.as_deref().unwrap_or(spans);
     let out = diff_render_body_styled(state, &owned, styles, spans, width, height)?;
     dump_debug_frame(state, &owned, width, height);
     let cursor_bytes = position_hardware_cursor(state, cursor_pos, owned.len());
@@ -1440,5 +1480,53 @@ mod char_boundary_tests {
             out.push(ch);
         }
         out
+    }
+}
+
+#[cfg(test)]
+mod cursor_marker_span_tests {
+    use super::{diff_render_with_cursor_styled, shift_past_marker, DiffState, CURSOR_MARKER};
+    use crate::style::{LineStyle, Span};
+
+    /// 真机取证的字节形状：行内插入了光标标记（7 字节）与反显转义（8 字节），
+    /// 该行的 span 偏移是按**带标记**的行算出来的。剥掉标记后若不修正，
+    /// 最后一个 span 的 `end` 会越进行尾 `SEGMENT_RESET` 的 OSC 8 里，
+    /// 渲染出 `…\e]8` + `\e[0m` + `;;\a` —— 屏幕上就是多出来的 `;;`。
+    /// 这条用例复刻 `PI_TUI_OUTPUT_DUMP` 里抓到的 frame 11 形状。
+    #[test]
+    fn spans_are_shifted_after_cursor_marker_is_stripped() {
+        let mut line = String::from(" pi v");
+        line.push_str(CURSOR_MARKER);
+        line.push_str("\u{1b}[7m0\u{1b}[0m");
+        line.push_str(".87.1");
+        let with_marker_len = line.len();
+        let spans = vec![
+            Span::new(1, 3, LineStyle::fg((0x8a, 0xbe, 0xb7)).bold()),
+            Span::new(3, with_marker_len, LineStyle::fg((0x80, 0x80, 0x80))),
+        ];
+        let mut state = DiffState::new();
+        let (out, _cursor) =
+            diff_render_with_cursor_styled(&mut state, &[line], &[None], &[spans], 80, 24)
+                .expect("渲染");
+        let opens = out.matches("\u{1b}]8").count();
+        let closes = out.matches("\u{1b}]8;;\u{7}").count();
+        assert_eq!(opens, closes, "OSC 8 被 span 边界切开：{out:?}");
+        assert!(
+            !out.contains("\u{1b}]8\u{1b}[0m"),
+            "OSC 8 被 span 复位切断：{out:?}"
+        );
+        assert!(!out.contains(";;\u{7};;"), "出现重复残片：{out:?}");
+    }
+
+    /// 偏移换算的边界：标记之前不动、标记内部收敛到标记起点、标记之后左移标记长度。
+    #[test]
+    fn shift_past_marker_covers_all_three_zones() {
+        let index = 10;
+        let len = CURSOR_MARKER.len();
+        assert_eq!(shift_past_marker(0, index), 0);
+        assert_eq!(shift_past_marker(index, index), index);
+        assert_eq!(shift_past_marker(index + 1, index), index);
+        assert_eq!(shift_past_marker(index + len, index), index);
+        assert_eq!(shift_past_marker(index + len + 1, index), index + 1);
     }
 }
