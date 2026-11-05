@@ -1,6 +1,6 @@
 # spec/h-rpc.md — rpc 协议
 
-对应 RUNBOOK-1 步骤 A7。来源 `packages/coding-agent/src/modes/rpc/{rpc-types,rpc-mode,jsonl}.ts`
+来源 `packages/coding-agent/src/modes/rpc/{rpc-types,rpc-mode,jsonl}.ts`
 与 `packages/coding-agent/src/modes/json-event.ts`。
 
 ## 1. 传输与帧格式

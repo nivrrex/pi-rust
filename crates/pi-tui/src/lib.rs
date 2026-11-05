@@ -47,6 +47,21 @@ pub const SPINNER_INTERVAL: std::time::Duration = std::time::Duration::from_mill
 /// TUI 的可变状态（纯数据）。
 #[derive(Debug, Clone, PartialEq)]
 pub struct TuiState {
+    /// 扩展通过 `ctx.ui.setStatus` 设置的状态段（key → 文本；ref `interactive-mode.ts:2203`）。
+    pub extension_status: std::collections::BTreeMap<String, String>,
+    /// 扩展自定义面板的行（`None` = 无面板）；键盘由 pi-cli 转发给扩展。
+    pub custom_lines: Option<Vec<String>>,
+    /// overlay 面板的行（`None` = 无 overlay）。与 `custom_lines` 的区别：**合成在主屏之上**、
+    /// 居中显示（ref `interactive-mode.ts:2902-2917` 的 `ui.showOverlay`）。
+    pub overlay_lines: Option<Vec<String>>,
+    /// 待写出的终端标题（`None` = 无待写标题）；`RefCell` 因为写出发生在只读渲染路径上。
+    pub pending_title: std::cell::RefCell<Option<String>>,
+    /// 扩展 `setHeader` 给的替代启动屏行（`None` = 内置头部）。
+    pub header_override: Option<Vec<String>>,
+    /// 扩展 `setFooter` 给的替代页脚（`None` = 内置两行状态区）。
+    pub footer_override: Option<Vec<String>>,
+    /// 扩展 widget（key → (placement, 行文本)），渲染在编辑器上方/下方（ref `types.ts:176`）。
+    pub extension_widgets: std::collections::BTreeMap<String, (String, Vec<String>)>,
     /// 重试退避进行中（见 `TuiEvent::RetryState`）。
     pub retrying: bool,
     /// 工具输出是否全部展开（ref `interactive-mode.ts:475` 默认 `false`；
@@ -72,6 +87,14 @@ pub struct TuiState {
     pub home: Option<String>,
     /// 已加载的项目指令文件路径（`[Context]` 段，按加载顺序）。
     pub context_files: Vec<String>,
+    /// 启动屏 `[Skills]` 段的标签（ref `interactive-mode.ts:1793-1797` 的 `formatCompactList`）。
+    pub skill_labels: Vec<String>,
+    /// 启动屏 `[Extensions]` 段的标签（ref `interactive-mode.ts:1821-1832` 的 compact list）。
+    pub extension_labels: Vec<String>,
+    /// 展开态用的入口路径（显示时去掉 `index.*`）。
+    pub extension_paths: Vec<String>,
+    /// 扩展加载问题（ref `interactive-mode.ts:1874-1894` 的 `[Extension issues]` 段）。
+    pub extension_issues: Vec<String>,
     /// 编辑器当前内容（可含 `\n` ⇒ 多行；`Ctrl+J` 插入换行，实测见 P7-5/W1）。
     pub input: String,
     /// 光标位置（按**字符**计，而不是字节；宽字符因此天然按字符处理）。
@@ -128,6 +151,13 @@ pub struct TuiState {
 pub enum TranscriptItem {
     /// 用户消息（golden 里形如 ` say hi`）。
     User(String),
+    /// `/skill:<name> args` 的技能调用块（ref `components/skill-invocation-message.ts:32-56`）。
+    SkillInvocation {
+        /// 技能名。
+        name: String,
+        /// SKILL.md 正文（折叠态不显示）。
+        content: String,
+    },
     /// 助手回复（markdown 子集，经 [`render_markdown`] 渲染）。
     Assistant(String),
     /// 分支摘要块（ref `components/branch-summary-message.ts:10-63`）：
@@ -164,6 +194,15 @@ pub enum TranscriptItem {
         started_at: Option<std::time::Instant>,
         /// 结束时刻；`Some` 时渲染 `Took <duration>`。
         took: Option<std::time::Duration>,
+        /// 扩展 `renderCall` 的降级结果（行文本，已按宽度裁剪）；`None` = 用内置渲染
+        /// （ref `tool-execution.ts:110-118`：有渲染器时组件进 contentBox，否则用默认文本区）。
+        render_lines: Option<Vec<String>>,
+        /// 扩展 `renderResult` 的降级结果；`None` = 用 `output` 的内置渲染
+        /// （ref `tool-execution.ts:341-366`：结果区是单独一段）。
+        result_render_lines: Option<Vec<String>>,
+        /// 结果载荷（`{content, details}` 的 JSON）：Ctrl+O 切换后据此**重新**请求渲染
+        /// （ref `tool-execution.ts:352`：`expanded` 在渲染时传入）。
+        result_payload: Option<String>,
     },
 }
 
@@ -181,6 +220,13 @@ impl TuiState {
         status: impl Into<String>,
     ) -> Self {
         Self {
+            extension_status: std::collections::BTreeMap::new(),
+            extension_widgets: std::collections::BTreeMap::new(),
+            footer_override: None,
+            header_override: None,
+            pending_title: std::cell::RefCell::new(None),
+            custom_lines: None,
+            overlay_lines: None,
             retrying: false,
             tools_expanded: false,
             agent_dir: std::path::PathBuf::new(),
@@ -200,6 +246,10 @@ impl TuiState {
             cwd: cwd.into(),
             home: std::env::var("HOME").ok(),
             context_files: Vec::new(),
+            skill_labels: Vec::new(),
+            extension_labels: Vec::new(),
+            extension_paths: Vec::new(),
+            extension_issues: Vec::new(),
             input: String::new(),
             cursor: 0,
             history: Vec::new(),
@@ -281,6 +331,53 @@ pub enum TuiEvent {
     HistoryPrev,
     /// 历史：下一条（Down）。
     HistoryNext,
+    /// PageUp（ref `tui.select.pageUp` 默认键 `pageUp`；`session-selector.ts:621`）。
+    PageUp,
+    /// PageDown（ref `tui.select.pageDown` 默认键 `pageDown`；`session-selector.ts:624`）。
+    PageDown,
+    /// 扩展 `ctx.ui.notify`（ref `interactive-mode.ts:2847-2855` → showStatus/showWarning/showError）。
+    ExtensionNotice {
+        /// 文本。
+        message: String,
+        /// 级别：`None`/`info`/`warning`/`error`。
+        kind: Option<String>,
+    },
+    /// 启动屏 `[Extensions]` 的清单（在 `session_start` 派发**完成之后**由 pi-cli 送来；
+    /// ref 的 loaded-resources 也是那时才渲染）。
+    ExtensionLabels(Vec<String>),
+    /// 启动屏 `[Skills]` 段的标签（名字，已排序）。
+    SkillLabels(Vec<String>),
+    /// 启动屏 `[Extensions]` 展开态要显示的入口路径（Ctrl+O 后 `user` + 路径，
+    /// ref `interactive-mode.ts:1821-1832` 的 `expandedBody`）。
+    ExtensionPaths(Vec<String>),
+    /// 扩展加载问题（启动屏 `[Extension issues]` 段）。
+    ExtensionIssues(Vec<String>),
+    /// 扩展 `ctx.ui.setWidget`（ref `types.ts:176`）：`lines=None` 表示清除该键。
+    ExtensionWidget {
+        /// 组件键。
+        key: String,
+        /// 行文本；`None` = 清除。
+        lines: Option<Vec<String>>,
+        /// `aboveEditor` / `belowEditor`。
+        placement: String,
+    },
+    /// 扩展 `ctx.ui.custom` 打开自定义面板（ref `types.ts:201-215`）。
+    CustomOpen(Vec<String>),
+    /// 扩展 `ctx.ui.custom` 的 overlay 变体（ref `interactive-mode.ts:2902-2917`）：`None` = 关闭。
+    OverlayOpen(Option<Vec<String>>),
+    /// 扩展 `ctx.ui.setTitle`（ref `types.ts:199`）：待写出的终端标题（OSC 2）。
+    Title(String),
+    /// 扩展 `ctx.ui.setHeader`（ref `types.ts:196`）：`None` = 恢复内置启动屏。
+    HeaderOverride(Option<Vec<String>>),
+    /// 扩展 `ctx.ui.setFooter`（ref `types.ts:189-193`）：`None` = 恢复内置页脚。
+    FooterOverride(Option<Vec<String>>),
+    /// 扩展 `ctx.ui.setStatus`（ref `:2203-2206` → footer 状态段）。
+    ExtensionStatus {
+        /// 状态键。
+        key: String,
+        /// 文本（`None` = 清除）。
+        text: Option<String>,
+    },
     /// 清空编辑器（Ctrl+C；ref `core/keybindings.ts:94` `"app.clear": ctrl+c`）。
     Clear,
     /// 括号粘贴（`\x1b[200~…\x1b[201~`）：整段文本入编辑器、**不提交**（T12 的 TS 基线）。
@@ -299,6 +396,10 @@ pub enum TuiEvent {
         output: String,
         /// 是否错误态。
         is_error: bool,
+        /// 扩展 `renderResult` 的降级行（`None` = 用 `output` 的内置渲染）。
+        render_lines: Option<Vec<String>>,
+        /// 结果载荷 JSON（Ctrl+O 后重新渲染用）。
+        payload: Option<String>,
     },
     /// **内部**：删掉最后一条状态行（重试结束后，ref 的 `RetryStatusIndicator` 会被移除，
     /// 状态行不会留在会话区）。
@@ -346,6 +447,8 @@ pub enum TuiEvent {
         name: String,
         /// 参数摘要（如 `input.txt`）。
         summary: String,
+        /// 扩展 `renderCall` 的降级行（`None` = 用内置渲染）。
+        render_lines: Option<Vec<String>>,
     },
     /// agent loop：更新 footer 左段（`↑n ↓n x%/Nk (auto)`；照 `footer.ts:132-135`、`:150-155`）。
     Usage {
@@ -492,6 +595,88 @@ pub fn apply(state: &mut TuiState, event: TuiEvent) -> TuiAction {
             });
             TuiAction::Redraw
         }
+        TuiEvent::ExtensionNotice { message, kind } => {
+            // ref `interactive-mode.ts:2847-2855` 的 `showExtensionNotify`：
+            // `error` ⇒ `showError`（`:4463-4467`，`Error: <msg>`，error 色 + 前置 Spacer）、
+            // `warning` ⇒ `showWarning`（`:4469-4473`，`Warning: <msg>`，warning 色 + 前置 Spacer）、
+            // 其余 ⇒ `showStatus`（`:3695-3712`，dim、1 列内边距，连续同一条原地更新）。
+            match kind.as_deref() {
+                Some("error") => state
+                    .transcript
+                    .push(TranscriptItem::Notice(format!("Error: {message}"))),
+                Some("warning") => state
+                    .transcript
+                    .push(TranscriptItem::Notice(format!("Warning: {message}"))),
+                Some(_) | None => match state.transcript.last_mut() {
+                    Some(TranscriptItem::Status(text)) => *text = message,
+                    Some(_) | None => state.transcript.push(TranscriptItem::Status(message)),
+                },
+            }
+            TuiAction::Redraw
+        }
+        TuiEvent::OverlayOpen(lines) => {
+            state.overlay_lines = lines;
+            TuiAction::Redraw
+        }
+        TuiEvent::CustomOpen(lines) => {
+            state.custom_lines = Some(lines.clone());
+            state.open_panel(PanelPlacement::BelowEditor, lines);
+            TuiAction::Redraw
+        }
+        TuiEvent::Title(title) => {
+            *state.pending_title.borrow_mut() = Some(title);
+            TuiAction::Redraw
+        }
+        TuiEvent::HeaderOverride(lines) => {
+            state.header_override = lines;
+            TuiAction::Redraw
+        }
+        TuiEvent::FooterOverride(lines) => {
+            state.footer_override = lines;
+            TuiAction::Redraw
+        }
+        TuiEvent::ExtensionPaths(paths) => {
+            state.extension_paths = paths;
+            TuiAction::Redraw
+        }
+        TuiEvent::ExtensionIssues(issues) => {
+            state.extension_issues = issues;
+            TuiAction::Redraw
+        }
+        TuiEvent::ExtensionWidget {
+            key,
+            lines,
+            placement,
+        } => {
+            match lines {
+                Some(lines) => {
+                    state.extension_widgets.insert(key, (placement, lines));
+                }
+                None => {
+                    state.extension_widgets.remove(&key);
+                }
+            }
+            TuiAction::Redraw
+        }
+        TuiEvent::SkillLabels(labels) => {
+            state.skill_labels = labels;
+            TuiAction::Redraw
+        }
+        TuiEvent::ExtensionLabels(labels) => {
+            state.extension_labels = labels;
+            TuiAction::Redraw
+        }
+        TuiEvent::ExtensionStatus { key, text } => {
+            match text {
+                Some(text) => {
+                    state.extension_status.insert(key, text);
+                }
+                None => {
+                    state.extension_status.remove(&key);
+                }
+            }
+            TuiAction::Redraw
+        }
         TuiEvent::Status(message) => {
             // ref `showStatus`（`:3695-3703`）：最后一条已是状态行时**原地更新**。
             match state.transcript.last_mut() {
@@ -508,6 +693,7 @@ pub fn apply(state: &mut TuiState, event: TuiEvent) -> TuiAction {
             match state.transcript.last_mut() {
                 Some(TranscriptItem::Thinking(text)) => text.push_str(&delta),
                 Some(TranscriptItem::User(_))
+                | Some(TranscriptItem::SkillInvocation { .. })
                 | Some(TranscriptItem::Assistant(_))
                 | Some(TranscriptItem::BranchSummary { .. })
                 | Some(TranscriptItem::Status(_))
@@ -552,6 +738,8 @@ pub fn apply(state: &mut TuiState, event: TuiEvent) -> TuiAction {
             id,
             output,
             is_error,
+            render_lines,
+            payload,
         } => {
             // 按 `id` 找目标条目（ref `tool-execution` 组件一一对应）；找不到才回退最后一条。
             let target_index = state
@@ -572,10 +760,14 @@ pub fn apply(state: &mut TuiState, event: TuiEvent) -> TuiAction {
                 is_error: flag,
                 started_at,
                 took,
+                result_render_lines,
+                result_payload,
                 ..
             }) = target
             {
                 *slot = Some(output);
+                *result_render_lines = render_lines;
+                *result_payload = payload;
                 *flag = is_error;
                 *took = started_at.map(|start| start.elapsed());
             }
@@ -612,6 +804,7 @@ pub fn apply(state: &mut TuiState, event: TuiEvent) -> TuiAction {
             match state.transcript.last_mut() {
                 Some(TranscriptItem::Assistant(text)) => text.push_str(&delta),
                 Some(TranscriptItem::User(_))
+                | Some(TranscriptItem::SkillInvocation { .. })
                 | Some(TranscriptItem::BranchSummary { .. })
                 | Some(TranscriptItem::Status(_))
                 | Some(TranscriptItem::Thinking(_))
@@ -621,7 +814,12 @@ pub fn apply(state: &mut TuiState, event: TuiEvent) -> TuiAction {
             }
             TuiAction::Redraw
         }
-        TuiEvent::ToolCall { id, name, summary } => {
+        TuiEvent::ToolCall {
+            id,
+            name,
+            summary,
+            render_lines,
+        } => {
             state.transcript.push(TranscriptItem::ToolCall {
                 id,
                 name,
@@ -629,6 +827,9 @@ pub fn apply(state: &mut TuiState, event: TuiEvent) -> TuiAction {
                 output: None,
                 is_error: false,
                 started_at: Some(std::time::Instant::now()),
+                render_lines,
+                result_render_lines: None,
+                result_payload: None,
                 took: None,
             });
             TuiAction::Redraw
@@ -657,11 +858,13 @@ pub fn apply(state: &mut TuiState, event: TuiEvent) -> TuiAction {
                 Some(format!("${:.3}", state.usage_cost))
             };
             let mut parts: Vec<String> = Vec::new();
+            // ref `footer.ts:133-136`：`↑${formatTokens(input)} ↓${formatTokens(output)}`。
+            // 直接打印原始数字会在长会话里变成 `↑89138380 ↓10461099`（真机报的就是这个）。
             if state.usage_input > 0 {
-                parts.push(format!("↑{}", state.usage_input));
+                parts.push(format!("↑{}", format_tokens(state.usage_input)));
             }
             if state.usage_output > 0 {
-                parts.push(format!("↓{}", state.usage_output));
+                parts.push(format!("↓{}", format_tokens(state.usage_output)));
             }
             // 照 `footer.ts:132-135/150-155`：`↑n ↓n x%/Nk (auto)`；无用量时只有百分比段。
             let percent_text = match percent {
@@ -692,10 +895,10 @@ pub fn apply(state: &mut TuiState, event: TuiEvent) -> TuiAction {
             };
             let mut parts: Vec<String> = Vec::new();
             if state.usage_input > 0 {
-                parts.push(format!("↑{}", state.usage_input));
+                parts.push(format!("↑{}", format_tokens(state.usage_input)));
             }
             if state.usage_output > 0 {
-                parts.push(format!("↓{}", state.usage_output));
+                parts.push(format!("↓{}", format_tokens(state.usage_output)));
             }
             if state.usage_cost != 0.0 {
                 parts.push(format!("${:.3}", state.usage_cost));
@@ -929,6 +1132,20 @@ pub fn apply(state: &mut TuiState, event: TuiEvent) -> TuiAction {
             state.cursor = char_count(&state.input);
             TuiAction::Redraw
         }
+        TuiEvent::PageUp | TuiEvent::PageDown => {
+            // 面板打开时按整页移动（ref 各选择器的 pageUp/pageDown 都是 `± maxVisible`；
+            // `/resume` 的窗口上限是 10，这里按 10 步进）。没有面板时不动编辑器。
+            if state.panel.is_some() {
+                let step = 10;
+                if matches!(event, TuiEvent::PageUp) {
+                    state.panel_selection = state.panel_selection.saturating_sub(step);
+                } else {
+                    state.panel_selection = state.panel_selection.saturating_add(step);
+                }
+                return TuiAction::Redraw;
+            }
+            TuiAction::Redraw
+        }
         TuiEvent::Clear => {
             state.input.clear();
             state.cursor = 0;
@@ -1120,7 +1337,22 @@ pub fn clamp_to_width(text: &str, width: usize) -> String {
 #[derive(Debug, Default, Clone)]
 pub struct RenderCache {
     width: usize,
-    entries: Vec<(String, Vec<String>, Vec<Option<style::LineStyle>>)>,
+    entries: Vec<CacheEntry>,
+}
+
+/// 一条聊天条目的渲染缓存。
+///
+/// `spans` 必须一起缓存：工具头的多色分段（`style_out.spans.tool_header`）是渲染时
+/// 顺带记录的，命中缓存时不再跑渲染循环 —— 若不缓存，第二帧起这些行**没有 span**，
+/// 差分层就把"第一处工具调用行"判成变化（大会话里那一行在视口之上）⇒ 每帧整屏重绘
+/// （真机 `/resume`、`Ctrl+P` 的"全局刷新"就是这个）。
+#[derive(Debug, Clone)]
+struct CacheEntry {
+    key: String,
+    rendered: Vec<String>,
+    md_styles: Vec<Option<style::LineStyle>>,
+    /// 条目内行偏移 → 行内分段。
+    spans: Vec<(usize, Vec<style::Span>)>,
 }
 
 impl RenderCache {
@@ -1129,6 +1361,42 @@ impl RenderCache {
     pub fn new() -> Self {
         Self::default()
     }
+}
+
+/// ref `components/footer.ts:13-19` 的 `sanitizeStatusText`：换行/制表/回车→空格，
+/// 压缩连续空格，去首尾空白。
+fn sanitize_status_text(text: &str) -> String {
+    let mut out = String::with_capacity(text.len());
+    for ch in text.chars() {
+        match ch {
+            '\r' | '\n' | '\t' => out.push(' '),
+            other => out.push(other),
+        }
+    }
+    out.split(' ')
+        .filter(|part| !part.is_empty())
+        .collect::<Vec<_>>()
+        .join(" ")
+}
+
+/// 按显示宽度截断；超出时保留前 `cols-3` 列并追加 `...`（ref 的 `truncateToWidth(…, "...")`）。
+fn truncate_with_ellipsis(text: &str, cols: usize) -> String {
+    if UnicodeWidthStr::width(text) <= cols {
+        return text.to_string();
+    }
+    let keep = cols.saturating_sub(3);
+    let mut out = String::new();
+    let mut width = 0usize;
+    for ch in text.chars() {
+        let w = UnicodeWidthStr::width(ch.to_string().as_str());
+        if width + w > keep {
+            break;
+        }
+        out.push(ch);
+        width += w;
+    }
+    out.push_str("...");
+    out
 }
 
 /// `formatTokens`（ref `components/footer.ts:24-30`）：<1000 原样，<10000 一位小数 `k`，
@@ -1247,6 +1515,47 @@ pub fn wrap_to_width(text: &str, width: usize) -> Vec<String> {
     out
 }
 
+/// 启动屏紧凑列表（ref `:1710-1716` 的 `formatCompactList` + `Text` 折行）：
+/// 先 trim/过滤空项、按名字排序，再拼成 `  a, b, c` 并在 `cols` 处**折行**（续行不加缩进）。
+fn push_compact_list(lines: &mut Vec<String>, items: &[String], cols: usize) {
+    let mut labels: Vec<&str> = items
+        .iter()
+        .map(|item| item.trim())
+        .filter(|item| !item.is_empty())
+        .collect();
+    labels.sort_unstable();
+    if labels.is_empty() {
+        return;
+    }
+    let joined = format!("  {}", labels.join(", "));
+    for wrapped in wrap_to_width(&joined, cols) {
+        lines.push(wrapped);
+    }
+}
+
+/// `[Context]` 段的路径显示（ref `interactive-mode.ts:1340-1349` 的 `formatContextPath`）：
+/// 在 cwd 下 ⇒ 相对路径；否则用 `formatDisplayPath`（`~` 缩写家目录）。
+fn context_display_path(path: &str, cwd: &str, home: Option<&str>) -> String {
+    let path_buf = std::path::Path::new(path);
+    let cwd_buf = std::path::Path::new(cwd);
+    if let Ok(relative) = path_buf.strip_prefix(cwd_buf) {
+        let shown = relative.display().to_string();
+        if !shown.is_empty() {
+            return shown;
+        }
+    }
+    if let Some(home) = home {
+        if let Ok(relative) = path_buf.strip_prefix(std::path::Path::new(home)) {
+            let rest = relative.display().to_string();
+            if rest.is_empty() {
+                return "~".to_string();
+            }
+            return format!("~/{rest}");
+        }
+    }
+    path.to_string()
+}
+
 /// 给"框架"行补样式（P8d/C4）：启动提示、footer、边框、运行中的状态行。
 ///
 /// 这些行不是在 transcript 循环里生成的，所以单独按内容识别。键取自 ref
@@ -1259,6 +1568,18 @@ fn apply_chrome_styles(
     palette: &theme::Palette,
 ) {
     use style::LineStyle;
+    // 编辑器框的上下边框：布局末尾那两条整宽 `─` 行（ref 里由 `DynamicBorder` 画、颜色随思考档位）。
+    let full_width_borders: Vec<usize> = lines
+        .iter()
+        .enumerate()
+        .filter(|(_, line)| {
+            let trimmed = line.trim();
+            !trimmed.is_empty() && trimmed.chars().all(|ch| ch == '─')
+        })
+        .map(|(index, _)| index)
+        .collect();
+    let editor_border_lines: Vec<usize> =
+        full_width_borders.iter().rev().take(2).copied().collect();
     for (index, line) in lines.iter().enumerate() {
         // 先算，再写：避免 `get_mut` 的借用与读取上一行冲突。
         if styles.get(index).is_some_and(Option::is_some) {
@@ -1293,12 +1614,17 @@ fn apply_chrome_styles(
         // 注意：空串上 `all()` 恒为 true（vacuously）——必须先排除空行，
         // 否则**每个空行**都会被当成边框染色（T05 上就是 200+ 格的假差异）。
         if !trimmed.is_empty() && trimmed.chars().all(|ch| ch == '─') {
-            // ref `interactive-mode.ts:4356-4363`：编辑框边框色 = 当前思考档位的颜色
-            // （`theme.ts:371-395` 的 `getThinkingBorderColor`）。
-            *slot = Some(LineStyle::fg(thinking_border_color(
-                thinking_level,
-                palette,
-            )));
+            // 只有**编辑器框**的上下边框用当前思考档位的颜色（ref `interactive-mode.ts:4356-4363`
+            // 的 `updateEditorBorderColor`，`theme.ts:371-395`）：它是布局里最后两条整宽边框。
+            // 历史里的整宽边框（工具块分隔线等）必须用普通 `border` 色 —— 否则切换思考档位
+            // （Ctrl+P / Shift+Tab）会让**几万条历史边框**一起变色，diff 便判定"视口之上的行变了"
+            // 而整屏重绘（真机：35 万行缓冲下每帧 38 MB、整屏刷新）。
+            let is_editor_border = editor_border_lines.contains(&index);
+            *slot = Some(if is_editor_border {
+                LineStyle::fg(thinking_border_color(thinking_level, palette))
+            } else {
+                LineStyle::fg(palette.border)
+            });
             continue;
         }
         // 启动键位提示与 `Press ctrl+o …`：`dim`（ref `:985-994` 走 muted/dim 口径）。
@@ -1374,11 +1700,16 @@ fn item_style(
         // 用户消息：TS 是整块底色 + 默认前景（`user-message.ts:40,48`）。
         // 用户消息：整块底色 + `userMessageText`（= theme `text`，实测 256 色 188），
         // 不是"仅底色+默认前景"（T01 实测 TS 的文字 cell 有前景色）。
-        TranscriptItem::User(_) => {
+        TranscriptItem::User(_) | TranscriptItem::SkillInvocation { .. } => {
             Some(LineStyle::fg(palette.text).with_bg(palette.user_message_bg))
         }
         TranscriptItem::Thinking(_) => Some(LineStyle::fg(palette.muted).italic()),
         // ref `assistant-message.ts:185-198`：错误/截断/中止提示用 `error` 色。
+        // ref：`showWarning` 用 `theme.fg("warning", …)`，`showError` 用 `error`
+        // （`interactive-mode.ts:4463-4473`）。
+        TranscriptItem::Notice(text) if text.starts_with("Warning: ") => {
+            Some(LineStyle::fg(palette.warning))
+        }
         TranscriptItem::Notice(_) => Some(LineStyle::fg(palette.error)),
         // 助手正文：TS 实测是**终端默认色**（fg=null），不要强加 text 色。
         TranscriptItem::Assistant(_) => None,
@@ -1480,38 +1811,78 @@ fn render_all_cached_styled_inner(
         ));
     }
     lines.push(String::new());
-    // ref `:958`：`pi v<version>`（头部件内边距 → 一个前导空格）
-    // golden-tui 的启动屏显示的是**上游 pi 的版本**（0.87.1，见 tag/`ref/`），不是本 crate 的包版本。
-    let _ = &state.version;
-    lines.push(clamp_to_width(&format!(" pi v{}", DISPLAY_VERSION), cols));
-    // ref `:985-990`：键位提示行（默认绑定见 `core/keybindings.ts:93-95` 等）
-    // 该行与欢迎语同为可换行 Text（`paddingX = 1` ⇒ 排版宽 `width - 2`）：
-    // 窄终端（80 列）下 TS 会把尾部 `more` 折到下一行且保留 1 列缩进，
-    // 而 `clamp_to_width(cols)` 会把它塞进同一行（T81-80 实测暴露）。
-    for wrapped in wrap_to_width(
-        "escape interrupt · ctrl+c/ctrl+d clear/exit · / commands · ! bash · ctrl+o more",
-        cols.saturating_sub(2),
-    ) {
-        lines.push(format!(" {wrapped}"));
+    // 扩展 `setHeader` 接管启动屏（ref `types.ts:196`）：直接画它的行，跳过内置头部。
+    if let Some(header) = &state.header_override {
+        for line in header {
+            lines.push(clamp_to_width(line, cols));
+        }
+        lines.push(String::new());
+    } else {
+        // ref `:958`：`pi v<version>`（头部件内边距 → 一个前导空格）
+        // golden-tui 的启动屏显示的是**上游 pi 的版本**（0.87.1，见 tag/`ref/`），不是本 crate 的包版本。
+        let _ = &state.version;
+        lines.push(clamp_to_width(&format!(" pi v{}", DISPLAY_VERSION), cols));
+        // ref `:985-990`：键位提示行（默认绑定见 `core/keybindings.ts:93-95` 等）
+        // 该行与欢迎语同为可换行 Text（`paddingX = 1` ⇒ 排版宽 `width - 2`）：
+        // 窄终端（80 列）下 TS 会把尾部 `more` 折到下一行且保留 1 列缩进，
+        // 而 `clamp_to_width(cols)` 会把它塞进同一行（T81-80 实测暴露）。
+        // ref `:996-1010` 的 `ExpandableText`：折叠态是 1 行紧凑提示 + “Press ctrl+o …”，
+        // 展开态（Ctrl+O，`toolsExpanded`）换成完整指令清单（`:960-983`，键位默认值见
+        // `core/keybindings.ts` 与 `packages/tui/src/keybindings.ts`）。
+        if state.tools_expanded {
+            for line in [
+                "escape to interrupt",
+                "ctrl+c to clear",
+                "ctrl+c twice to exit",
+                "ctrl+d to exit (empty)",
+                "ctrl+z to suspend",
+                "ctrl+k to delete to end",
+                "shift+tab to cycle thinking level",
+                "ctrl+p/shift+ctrl+p to cycle models",
+                "ctrl+l to select model",
+                "ctrl+o to expand tools",
+                "ctrl+t to expand thinking",
+                "ctrl+g for external editor",
+                "/ for commands",
+                "! to run bash",
+                "!! to run bash (no context)",
+                "alt+enter to queue follow-up",
+                "alt+up to edit all queued messages",
+                "ctrl+v to paste image (with text fallback)",
+                "drop files to attach",
+            ] {
+                for wrapped in wrap_to_width(line, cols.saturating_sub(2)) {
+                    lines.push(format!(" {wrapped}"));
+                }
+            }
+            lines.push(String::new());
+        } else {
+            for wrapped in wrap_to_width(
+                "escape interrupt · ctrl+c/ctrl+d clear/exit · / commands · ! bash · ctrl+o more",
+                cols.saturating_sub(2),
+            ) {
+                lines.push(format!(" {wrapped}"));
+            }
+            // ref `:991-994`
+            lines.push(clamp_to_width(
+                " Press ctrl+o to show full startup help and loaded resources.",
+                cols,
+            ));
+            lines.push(String::new());
+        }
+        // ref `:995-998`
+        // ref 该段是可换行的 Text（`paddingX = 1` ⇒ 排版宽 `width - 2`）；
+        // 此前用 `clamp_to_width(cols)` 直接截断，窄终端（80 列）会丢掉尾巴而原版是折行。
+        // 折行后**每段都保留 1 列左内边距**（ref 的 Text padding 对每个视觉行都生效，
+        // 实测 TS 续行是 ` extend Pi.`，不是顶格）。
+        for wrapped in wrap_to_width(
+            "Pi can explain its own features and look up its docs. Ask it how to use or extend Pi.",
+            cols.saturating_sub(2),
+        ) {
+            lines.push(format!(" {wrapped}"));
+        }
+        lines.push(String::new());
     }
-    // ref `:991-994`
-    lines.push(clamp_to_width(
-        " Press ctrl+o to show full startup help and loaded resources.",
-        cols,
-    ));
-    lines.push(String::new());
-    // ref `:995-998`
-    // ref 该段是可换行的 Text（`paddingX = 1` ⇒ 排版宽 `width - 2`）；
-    // 此前用 `clamp_to_width(cols)` 直接截断，窄终端（80 列）会丢掉尾巴而原版是折行。
-    // 折行后**每段都保留 1 列左内边距**（ref 的 Text padding 对每个视觉行都生效，
-    // 实测 TS 续行是 ` extend Pi.`，不是顶格）。
-    for wrapped in wrap_to_width(
-        "Pi can explain its own features and look up its docs. Ask it how to use or extend Pi.",
-        cols.saturating_sub(2),
-    ) {
-        lines.push(format!(" {wrapped}"));
-    }
-    lines.push(String::new());
     // ref `:1770-1784`：`[Context]` 段（只显示路径）
     if !state.context_files.is_empty() {
         // P7-6o(续4)/W0：`[Context]` 段前的段落空行。ref `interactive-mode.ts:1776`
@@ -1519,17 +1890,71 @@ fn render_all_cached_styled_inner(
         lines.push(String::new());
         lines.push("[Context]".to_string());
         for path in &state.context_files {
-            // golden 只显示 basename（P7-3 W3 实测：golden 行为 `  AGENTS.md`）。
-            let name = std::path::Path::new(path)
-                .file_name()
-                .map(|n| n.to_string_lossy().to_string())
-                .unwrap_or_else(|| path.clone());
-            lines.push(clamp_to_width(&format!("  {name}"), cols));
+            // ref `:1340-1349` 的 `formatContextPath`：**cwd 下 ⇒ 相对路径**（`AGENTS.md`），
+            // 否则 `:1322-1332` 的 `formatDisplayPath` 把家目录缩成 `~`
+            // （全局文件因此是 `~/.pi/agent/AGENTS.md`，而不是 basename）。
+            let shown = context_display_path(path, &state.cwd, state.home.as_deref());
+            lines.push(clamp_to_width(&format!("  {shown}"), cols));
         }
         lines.push(String::new());
         if state.transcript.is_empty() && state.panel.is_none() {
             // r3 专属：`[Context]` 段末到编辑器上边框之间在 golden 中有 **2** 个空行
             // （T02/T16 实测：`  AGENTS.md` / 空 / 空 / 边框），pi-rs 目前只 1 个。
+            lines.push(String::new());
+        }
+    }
+    // ref `interactive-mode.ts:1821-1832`：`[Extensions]` 段（紧凑列表，按名字排序、逗号+空格连接）。
+    // 加载问题即使没有任何已加载扩展也要显示（全挂时恰恰是最需要提示的场景）。
+    if !state.extension_issues.is_empty() && state.extension_labels.is_empty() {
+        lines.push("[Extension issues]".to_string());
+        for issue in &state.extension_issues {
+            // ref `interactive-mode.ts:1874-1894`：整段是一个 `Text` 组件，**按容器宽度折行**
+            // （不是截断）；续行从 0 列开始（`Text(...,0,0)` 无缩进）。
+            lines.extend(wrap_to_width(&format!("  {issue}"), cols));
+        }
+        lines.push(String::new());
+    }
+    // ref `:1793-1797`：`[Skills]` 段位于 `[Context]` 与 `[Extensions]` 之间（用户真机实测顺序）。
+    if !state.skill_labels.is_empty() {
+        lines.push("[Skills]".to_string());
+        push_compact_list(&mut lines, &state.skill_labels, cols);
+        lines.push(String::new());
+    }
+    if !state.extension_labels.is_empty() {
+        // 展开态下头部本身已带尾部空行（ref 的 header Text 与 loaded-resources 容器只隔一个
+        // Spacer），再补一个会让整屏比 TS 多 1 行（实测 T90 `after-expand`：我们 viewport_top=21、
+        // TS=20）。
+        // TS 录制：`[Extensions]` 段前**不补**空行（头部已带一个），段末补**两个**。
+        // 见 notes/progress.md 的 E4h：TS 前 1 后 2、我们原本前 2 后 1（总数相同）。
+        let _ = &state.tools_expanded;
+        // 扩展加载失败/被跳过必须在屏幕上可见（ref `interactive-mode.ts:1874-1894`：
+        // `[Extension issues]` + 每条 `  <原因> (<路径>)`）。只写 stderr 的话，TUI 一进 raw
+        // 就被重绘盖掉，用户只看到"扩展没生效"却没有任何提示（真机反馈）。
+        if !state.extension_issues.is_empty() {
+            lines.push("[Extension issues]".to_string());
+            for issue in &state.extension_issues {
+                lines.extend(wrap_to_width(&format!("  {issue}"), cols));
+            }
+            lines.push(String::new());
+        }
+        lines.push("[Extensions]".to_string());
+        if state.tools_expanded && !state.extension_paths.is_empty() {
+            // 展开态（Ctrl+O）：`  user` + 每个扩展一行 `    <目录>`（去掉 `index.*`），
+            // ref `interactive-mode.ts:1821-1832` 的 `expandedBody`。
+            lines.push("  user".to_string());
+            for path in &state.extension_paths {
+                let shown = std::path::Path::new(path)
+                    .parent()
+                    .map(|parent| parent.display().to_string())
+                    .unwrap_or_else(|| path.clone());
+                lines.push(clamp_to_width(&format!("    {shown}"), cols));
+            }
+        } else {
+            push_compact_list(&mut lines, &state.extension_labels, cols);
+        }
+        // 折叠态：段末两个空行（TS 录制 T90/T95 快照）；展开态：一个（展开态的头部自己带了一行）。
+        lines.push(String::new());
+        if !state.tools_expanded {
             lines.push(String::new());
         }
     }
@@ -1547,6 +1972,9 @@ fn render_all_cached_styled_inner(
     for (item_index, item) in state.transcript.iter().enumerate() {
         let cache_key = match item {
             TranscriptItem::User(text) => format!("u\u{1}{text}"),
+            TranscriptItem::SkillInvocation { name, content } => {
+                format!("s\u{1}{name}\u{1}{content}")
+            }
             TranscriptItem::Assistant(text) => format!("a\u{1}{text}"),
             TranscriptItem::BranchSummary { summary, expanded } => {
                 format!("b\u{1}{expanded}\u{1}{summary}")
@@ -1571,8 +1999,10 @@ fn render_all_cached_styled_inner(
             ),
         };
         if let Some(cache) = cache.as_deref_mut() {
-            if let Some((key, rendered, cached_md_styles)) = cache.entries.get(item_index) {
-                if key == &cache_key {
+            if let Some(entry) = cache.entries.get(item_index) {
+                if entry.key == cache_key {
+                    let rendered = &entry.rendered;
+                    let cached_md_styles = &entry.md_styles;
                     // 命中缓存也要补样式：样式不参与缓存（每帧重算）。
                     lines.push(String::new());
                     let first_content = lines.len();
@@ -1593,29 +2023,14 @@ fn render_all_cached_styled_inner(
                                 )
                             });
                     }
-                    // 命中缓存时 span 不走缓存，按同一条目重算一遍（行数一致才用，
-                    // 折行行不在 md_lines 里 1:1 对应，直接跳过）。
-                    if let TranscriptItem::Assistant(text) = item {
-                        let (md_lines, _, md_spans) =
-                            render_markdown_styled_with(text, style_out.palette);
-                        // 缓存里可能多一条尾部空行，因此按**行文本相等**逐条对齐，
-                        // 不要求两侧长度完全一致。
-                        for (md_index, line_spans) in md_spans {
-                            let Some(md_line) = md_lines.get(md_index) else {
-                                continue;
-                            };
-                            let Some(cached_line) = rendered.get(md_index) else {
-                                continue;
-                            };
-                            if md_line != cached_line {
-                                continue;
-                            }
-                            if line_spans.iter().all(|span| span.end <= cached_line.len()) {
-                                style_out
-                                    .spans
-                                    .markdown
-                                    .push((first_content + md_index, line_spans));
-                            }
+                    // 行内分段（工具头、markdown 行内代码）随缓存复用：缓存里存的是
+                    // **条目内偏移**，这里换算成帧内绝对行号。
+                    for (offset, line_spans) in &entry.spans {
+                        if *offset < rendered.len() {
+                            style_out
+                                .spans
+                                .tool_header
+                                .push((first_content + *offset, line_spans.clone()));
                         }
                     }
                     continue;
@@ -1623,10 +2038,31 @@ fn render_all_cached_styled_inner(
             }
         }
         let before = lines.len();
+        let spans_mark = (
+            style_out.spans.tool_header.len(),
+            style_out.spans.markdown.len(),
+        );
         // P7-6o(续4)/W0：每条聊天条目前的段落空行（`Hint` 例外：ref 直接 addChild 紧贴前一条）。ref `chatContainer` 级
         // `addChild(new Spacer(1))`（如 `interactive-mode.ts:3678/3768/3775/3787/3800/3964/3979/4021`）。
         lines.push(String::new());
         match item {
+            TranscriptItem::SkillInvocation { name, content } => {
+                // ref `skill-invocation-message.ts:48-56`：折叠态一行
+                // `[skill] <name> (ctrl+o to expand)`；展开态 `[skill]` + 名称 + 正文。
+                if state.tools_expanded {
+                    lines.push(" [skill]".to_string());
+                    lines.push(clamp_to_width(&format!(" {name}"), cols));
+                    for line in content.split('\n') {
+                        lines.push(clamp_to_width(&format!(" {line}"), cols));
+                    }
+                } else {
+                    lines.push(clamp_to_width(
+                        &format!(" [skill] {name} (ctrl+o to expand)"),
+                        cols,
+                    ));
+                }
+                lines.push(String::new());
+            }
             TranscriptItem::User(text) => {
                 // 多行用户消息（T09 after-submit 的 golden 实测）：**每行都带一个前导空格**。
                 for line in text.split('\n') {
@@ -1713,8 +2149,30 @@ fn render_all_cached_styled_inner(
                 output,
                 is_error,
                 took,
+                render_lines,
+                result_render_lines,
                 ..
             } => {
+                // 扩展 `renderCall` 给了降级行 ⇒ 用它们替代默认的 ` name summary` 行
+                // （ref `tool-execution.ts:110-118`：有渲染器时用组件的 contentBox）。
+                if let Some(extension_lines) = render_lines {
+                    lines.push(String::new());
+                    for line in extension_lines {
+                        // 工具块的 contentBox 自带 1 列左边距（ref `tool-execution.ts:98-108`
+                        // 的 `Box(1, 1, …)`），扩展的 `Text` 行在此基础上再叠加自己的 paddingX。
+                        lines.push(clamp_to_width(&format!(" {line}"), cols));
+                    }
+                    if let Some(extension_result) = result_render_lines {
+                        for line in extension_result {
+                            lines.push(clamp_to_width(&format!(" {line}"), cols));
+                        }
+                    } else if let Some(body) = output {
+                        for line in body.lines() {
+                            lines.push(clamp_to_width(&format!(" {line}"), cols));
+                        }
+                    }
+                    continue;
+                }
                 let text = if summary.is_empty() {
                     format!(" {name}")
                 } else {
@@ -1760,7 +2218,13 @@ fn render_all_cached_styled_inner(
                 // - `ls`：头部 20 行（`renderers/ls.ts:37`）；其余按 fallback 前 10 行
                 //   （`tool-execution.ts:40,166-170`）。
                 let hide_collapsed = name == "read" && !is_error && !state.tools_expanded;
-                if let Some(body) = output.as_deref().filter(|_| !hide_collapsed) {
+                if let Some(extension_result) =
+                    result_render_lines.as_ref().filter(|_| !hide_collapsed)
+                {
+                    for line in extension_result {
+                        lines.push(clamp_to_width(&format!(" {line}"), cols));
+                    }
+                } else if let Some(body) = output.as_deref().filter(|_| !hide_collapsed) {
                     let body = body.trim_end_matches('\n');
                     if !body.is_empty() {
                         lines.push(String::new());
@@ -1824,11 +2288,36 @@ fn render_all_cached_styled_inner(
             let rendered: Vec<String> = lines[before + 1..].to_vec();
             let mut cached_md_styles: Vec<Option<style::LineStyle>> = vec![None; rendered.len()];
             for (index, md_style) in style_out.markdown_styles.iter() {
-                if let Some(slot) = cached_md_styles.get_mut(index - (before + 1)) {
-                    *slot = *md_style;
+                // `markdown_styles` 的键是**本条目 lines 内的偏移**；条目没有内容段时
+                // （`before + 1 == lines.len()`）或上限前的条目遗留了更小的键，减法会下溢：
+                // debug 直接 panic（真机：`-c` 续写 69 MB 会话首帧就崩，屏幕上只剩崩溃报告），
+                // release 则绕回一个大数、`get_mut` 取不到而已。用 `checked_sub` 两者都安全。
+                let Some(slot) = index
+                    .checked_sub(before + 1)
+                    .and_then(|offset| cached_md_styles.get_mut(offset))
+                else {
+                    continue;
+                };
+                *slot = *md_style;
+            }
+            // 本条目新产生的行内分段（工具头 + markdown），转成条目内偏移一起缓存。
+            let mut cached_spans: Vec<(usize, Vec<style::Span>)> = Vec::new();
+            for (index, line_spans) in style_out.spans.tool_header[spans_mark.0..]
+                .iter()
+                .chain(style_out.spans.markdown[spans_mark.1..].iter())
+            {
+                if let Some(offset) = index.checked_sub(before + 1) {
+                    if offset < rendered.len() {
+                        cached_spans.push((offset, line_spans.clone()));
+                    }
                 }
             }
-            let slot = (cache_key, rendered, cached_md_styles);
+            let slot = CacheEntry {
+                key: cache_key,
+                rendered,
+                md_styles: cached_md_styles,
+                spans: cached_spans,
+            };
             if cache.entries.len() > item_index {
                 cache.entries[item_index] = slot;
             } else {
@@ -1936,6 +2425,21 @@ fn render_all_cached_styled_inner(
         }
     }
     lines.push(border);
+    // 扩展 widget（ref `types.ts:176` 的 `aboveEditor` / `belowEditor`）：
+    // 按 key 升序，逐行左对齐（扩展自己负责颜色，本实现只画文本）。
+    {
+        let mut widgets: Vec<(&String, &(String, Vec<String>))> =
+            state.extension_widgets.iter().collect();
+        widgets.sort_by(|a, b| a.0.cmp(b.0));
+        for (_, (placement, widget_lines)) in widgets {
+            if placement != "belowEditor" {
+                continue;
+            }
+            for line in widget_lines {
+                lines.push(clamp_to_width(line, cols));
+            }
+        }
+    }
     // `/` 的命令补全弹层（T14 实测）：渲染在编辑器下边框**之下**、状态区**之上**，
     // 首项带 `→ ` 标记，名称列宽 15，末行为 `(1/N)` 计数。条目取自 TS 的 built-in 命令表
     // （该表在 pi-tui 内联 bundle 里，非 ref 源码）⇒ 这里按 golden 逐字对齐前 5 项与计数。
@@ -1962,6 +2466,13 @@ fn render_all_cached_styled_inner(
     }
     // 状态区是**两行**（golden 实测）：第一行 cwd；第二行左边 `status`、右边模型名。
     // ref `footer.ts:115-121`：cwd 做家目录缩写，仓库内再追加 ` (<branch>)`
+    if let Some(override_footer) = &state.footer_override {
+        // 扩展接管页脚（ref `types.ts:189-193`）：用它的行替代内置的两行状态区。
+        for line in override_footer {
+            lines.push(clamp_to_width(line, cols));
+        }
+        return lines;
+    }
     let cwd_line = crate::gitinfo::footer_cwd_line(&state.cwd, state.home.as_deref());
     lines.push(clamp_to_width(&cwd_line, cols));
     // ref `footer.ts:184-190`：推理模型在右侧模型名后追加思考档位
@@ -1999,6 +2510,19 @@ fn render_all_cached_styled_inner(
             + UnicodeWidthStr::width(status_right.as_str()),
     );
     lines.push(format!("{status_left}{}{status_right}", " ".repeat(pad)));
+    // ref `components/footer.ts:235-246`：扩展状态**单独一行**，按 key 升序、空格连接、
+    // 先做 `sanitizeStatusText`（换行/制表/回车→空格、压缩空格、trim），再按宽度截断
+    // （超出用 dim 的 `...`）。
+    if !state.extension_status.is_empty() {
+        let mut entries: Vec<(&String, &String)> = state.extension_status.iter().collect();
+        entries.sort_by(|a, b| a.0.cmp(b.0));
+        let joined = entries
+            .into_iter()
+            .map(|(_, text)| sanitize_status_text(text))
+            .collect::<Vec<_>>()
+            .join(" ");
+        lines.push(truncate_with_ellipsis(&joined, cols));
+    }
     // 聊天区视口（P7-4h/W1）：TS 的聊天区在内容超出容量时**整屏上滚**（丢最上面一行）。实测证据：
     // T05 的 TS 末帧有效行数 27、pi-rs 28，错位一行比较差异=0 ⇒ 只差一个前导空行，原因是 TS 溢出一行后
     // 上滚过（首行直接是 ` pi v0.87.1`）；T01/T06 不溢出 ⇒ 両侧一致。容量取 `rows − 7`
@@ -2014,10 +2538,12 @@ fn render_all_cached_styled_inner(
 ///
 /// R2（`PI_TUI_RENDERER=r2`）走的是 `render_all` + 行级 diff，**不做这里的裁剪**。
 pub fn render(state: &TuiState, cols: usize, rows: usize) -> Vec<String> {
-    const CHROME_LINES: usize = 5; // 编辑器框（上/内容/下）+ 状态区（cwd/用量）
+    // 编辑器框（上/内容/下）+ 状态区（cwd/用量）；扩展状态行存在时再多 1 行
+    // （ref `footer.ts:235-246`）。
+    let chrome_lines: usize = 5 + usize::from(!state.extension_status.is_empty());
     let mut lines = render_all(state, cols, rows);
-    let capacity = rows.saturating_sub(CHROME_LINES + 4);
-    let chat_len = lines.len().saturating_sub(CHROME_LINES);
+    let capacity = rows.saturating_sub(chrome_lines + 4);
+    let chat_len = lines.len().saturating_sub(chrome_lines);
     if chat_len > capacity {
         lines.drain(0..chat_len - capacity);
     }
@@ -2525,6 +3051,53 @@ mod theme_wiring_tests {
 }
 
 #[cfg(test)]
+mod render_cache_span_tests {
+    use super::{render_all_marker_cached_styled, RenderCache, TranscriptItem, TuiState};
+
+    fn state_with_tool_call() -> TuiState {
+        let mut state = TuiState::new("0.87.1", "/tmp/work", "0.0%/128k (auto)");
+        state
+            .transcript
+            .push(TranscriptItem::User("跑个命令".to_string()));
+        state.transcript.push(TranscriptItem::ToolCall {
+            id: "c1".to_string(),
+            name: "bash".to_string(),
+            summary: "ls -la /tmp".to_string(),
+            output: Some("a\n".to_string()),
+            is_error: false,
+            started_at: None,
+            took: None,
+            render_lines: None,
+            result_render_lines: None,
+            result_payload: None,
+        });
+        state
+    }
+
+    /// **缓存命中必须产出与首帧完全相同的 spans**。
+    ///
+    /// 工具头的多色分段是渲染时记录的；早先只缓存行文本与整行样式，命中缓存后这些行
+    /// 没有 span ⇒ 差分层把第一处工具调用行判成"变化"，在大会话里那一行位于视口之上，
+    /// 于是**每一帧都整屏重绘**（真机 `/resume`、`Ctrl+P` 的"全局刷新"）。
+    #[test]
+    fn cached_frame_keeps_tool_header_spans() {
+        let state = state_with_tool_call();
+        let mut cache = RenderCache::new();
+        let first = render_all_marker_cached_styled(&state, 80, 24, &mut cache);
+        // 第二帧：命中缓存。
+        let second = render_all_marker_cached_styled(&state, 80, 24, &mut cache);
+        assert_eq!(first.lines, second.lines);
+        assert_eq!(first.styles, second.styles);
+        assert_eq!(
+            first.spans, second.spans,
+            "缓存命中后 spans 必须一致（否则差分层每帧整屏重绘）"
+        );
+        let has_multi_segment = second.spans.iter().any(|spans| spans.len() > 1);
+        assert!(has_multi_segment, "工具头应有多段 span");
+    }
+}
+
+#[cfg(test)]
 mod tool_block_style_tests {
     use super::{item_style, TranscriptItem};
     use crate::style;
@@ -2537,7 +3110,10 @@ mod tool_block_style_tests {
             output: output.map(str::to_string),
             is_error: false,
             started_at: None,
+            result_render_lines: None,
+            result_payload: None,
             took: None,
+            render_lines: None,
         }
     }
 
@@ -2727,6 +3303,9 @@ mod markdown_tests {
             is_error: false,
             started_at: None,
             took: None,
+            render_lines: None,
+            result_render_lines: None,
+            result_payload: None,
         });
         let lines = super::render(&state, 100, 30);
         let text = lines.join("\n");
@@ -2908,6 +3487,29 @@ impl TuiState {
     pub fn close_panel(&mut self) {
         self.panel = None;
     }
+}
+
+/// 选择器可视窗口：最多 `max_visible` 项，窗口以选中项为中心并夹在两端之间。
+///
+/// 与上游选择器一致（`modes/interactive/components/oauth-selector.ts:115-124`、
+/// `model-selector.ts:308-314`、`session-selector.ts:450-456`）：
+/// `start = clamp(index - floor(max/2), 0, total - max)`，`end = min(start + max, total)`。
+#[must_use]
+pub fn selector_window(total: usize, index: usize, max_visible: usize) -> (usize, usize) {
+    if total == 0 || max_visible == 0 {
+        return (0, 0);
+    }
+    let max_visible = max_visible.min(total);
+    let start = index
+        .saturating_sub(max_visible / 2)
+        .min(total - max_visible);
+    (start, (start + max_visible).min(total))
+}
+
+/// 选择器的滚动提示行（`  (n/total)`，muted 底色由样式层处理）：窗口被裁剪时追加。
+#[must_use]
+pub fn selector_scroll_hint(index: usize, total: usize) -> String {
+    format!("  ({}/{})", index + 1, total)
 }
 
 /// 已知内建命令表（P7-6/W1 取证：`core/slash-commands.ts:20-43` 的 24 条，去掉本批后移/排除的 8 条
@@ -4040,9 +4642,17 @@ fn render_all_marker_impl(
 
 /// 往编辑器那一行插入软件光标标记（ref `editor.ts:575-600`）。与缓存/样式无关。
 fn marker_apply(state: &TuiState, cols: usize, lines: &mut [String]) {
-    // `Working` 指示器是**嵌入编辑器内容行**的：ref 那一行字节里没有反显光标
-    // （`T05` 实测 TS 为 `38;5;239m ── [39m …`），我们若在这行插光标，
-    // 首字符会被染成"黄底反显方块"（真机反馈的"Working 行前小黄方块"）。
+    // 面板打开时编辑器输入行**不画**（面板替换编辑器），光标没有落脚点：
+    // 此时按下标算出来的行是面板的某一行（`/login` 出现在最后一个 provider 上、
+    // 多行输入时更是算到启动区里）。直接不插标记。
+    if matches!(state.panel, Some((PanelPlacement::BelowEditor, _))) {
+        return;
+    }
+    // `Working` 指示器**占用**编辑器内容行（输入行同样不画），也不应插光标
+    // （ref 那一行字节里没有反显光标；插了会变成"Working 行前小黄方块"）。
+    if state.working {
+        return;
+    }
     let border = "─".repeat(cols);
     // 下边框 = 从末尾往前第一个整宽边框；它之上是输入行（多行输入时取最后一行）。
     let Some(bottom) = lines.iter().rposition(|line| line == &border) else {
@@ -4938,5 +5548,470 @@ mod tab_paste_tests {
         let _ = apply(&mut s, TuiEvent::Paste("\tA\n\t\tB\r\nC".to_string()));
         assert_eq!(s.input, "    A\n        B\nC");
         assert_eq!(s.input.split('\n').count(), 3);
+    }
+}
+
+#[cfg(test)]
+mod selector_window_tests {
+    use super::{selector_scroll_hint, selector_window};
+
+    /// 窗口以选中项为中心并夹在两端（ref `oauth-selector.ts:115-124` 的同一公式）。
+    #[test]
+    fn window_follows_selection_and_clamps_at_edges() {
+        assert_eq!(selector_window(0, 0, 8), (0, 0));
+        assert_eq!(selector_window(3, 0, 8), (0, 3), "条目少于窗口时全显示");
+        assert_eq!(selector_window(20, 0, 8), (0, 8), "首项");
+        assert_eq!(selector_window(20, 3, 8), (0, 8), "靠近顶部时窗口贴顶");
+        assert_eq!(selector_window(20, 10, 8), (6, 14), "居中");
+        assert_eq!(selector_window(20, 19, 8), (12, 20), "末项贴底");
+        assert!(selector_window(20, 19, 8).1 <= 20);
+    }
+
+    /// 滚动提示行格式与 ref 一致（`  (n/total)`，n 为 1 起）。
+    #[test]
+    fn scroll_hint_format_matches_ref() {
+        assert_eq!(selector_scroll_hint(0, 20), "  (1/20)");
+        assert_eq!(selector_scroll_hint(19, 20), "  (20/20)");
+    }
+}
+
+#[cfg(test)]
+mod cursor_row_tests {
+    use super::{render_all_marker_cached, RenderCache, TuiState};
+    use crate::diff::CURSOR_MARKER;
+
+    fn marker_row(lines: &[String]) -> Option<usize> {
+        lines.iter().position(|line| line.contains(CURSOR_MARKER))
+    }
+
+    /// 空输入时光标必须落在"下边框正上方的那一行"（编辑器输入行）。
+    #[test]
+    fn empty_input_keeps_the_cursor_on_the_editor_row() {
+        let mut state = TuiState::new("0.87.1", "/tmp/work", "0.0%/128k (auto)");
+        state.input = String::new();
+        state.cursor = 0;
+        let cols = 100;
+        let mut cache = RenderCache::new();
+        let lines = render_all_marker_cached(&state, cols, 30, &mut cache);
+        let row = marker_row(&lines).expect("应有光标标记");
+        let border = "─".repeat(cols);
+        let bottom = lines
+            .iter()
+            .rposition(|line| line == &border)
+            .expect("应有下边框");
+        assert_eq!(row, bottom - 1, "光标行应为下边框上一行：{lines:?}");
+    }
+
+    /// 面板打开时（`/login`、`/settings`、`/model`）编辑器输入行不画，
+    /// 光标不能落在面板行上——否则看起来"焦点停在最后一个条目"。
+    #[test]
+    fn open_panel_suppresses_the_editor_cursor() {
+        let mut state = TuiState::new("0.87.1", "/tmp/work", "0.0%/128k (auto)");
+        state.open_panel(
+            super::PanelPlacement::BelowEditor,
+            vec![
+                " Select authentication method:".to_string(),
+                " → provider".to_string(),
+            ],
+        );
+        let mut cache = RenderCache::new();
+        let lines = render_all_marker_cached(&state, 100, 30, &mut cache);
+        assert!(
+            marker_row(&lines).is_none(),
+            "面板打开时不应插入光标标记：{lines:?}"
+        );
+    }
+
+    /// `Working` 指示器占用编辑器内容行时同样不插光标（否则会变成黄色反显方块）。
+    #[test]
+    fn working_indicator_suppresses_the_editor_cursor() {
+        let mut state = TuiState::new("0.87.1", "/tmp/work", "0.0%/128k (auto)");
+        state.working = true;
+        let mut cache = RenderCache::new();
+        let lines = render_all_marker_cached(&state, 100, 30, &mut cache);
+        assert!(
+            marker_row(&lines).is_none(),
+            "Working 行不应插光标标记：{lines:?}"
+        );
+    }
+
+    /// 多行输入 + 光标在最后一行：同样应落在输入区最后一行。
+    #[test]
+    fn multiline_input_cursor_stays_inside_the_box() {
+        let mut state = TuiState::new("0.87.1", "/tmp/work", "0.0%/128k (auto)");
+        state.input = "line1\nline2\nline3".to_string();
+        state.cursor = state.input.chars().count();
+        let cols = 100;
+        let mut cache = RenderCache::new();
+        let lines = render_all_marker_cached(&state, cols, 30, &mut cache);
+        let row = marker_row(&lines).expect("应有光标标记");
+        let border = "─".repeat(cols);
+        let bottom = lines
+            .iter()
+            .rposition(|line| line == &border)
+            .expect("应有下边框");
+        assert_eq!(row, bottom - 1, "多行输入时光标应在输入区最后一行");
+    }
+}
+
+#[cfg(test)]
+mod footer_units_tests {
+    use super::{apply, format_tokens, TuiEvent, TuiState};
+
+    /// ref `footer.ts:23-32 formatTokens`：1k 以下原样、1w 以下一位小数 k、1e6 以下取整 k、
+    /// 1e7 以下一位小数 M、再往上取整 M。真机报的 `↑89138380 ↓10461099` 就是没走这个函数。
+    #[test]
+    fn token_units_follow_upstream_format() {
+        assert_eq!(format_tokens(999), "999");
+        assert_eq!(format_tokens(1_536), "1.5k");
+        assert_eq!(format_tokens(89_138), "89k");
+        assert_eq!(format_tokens(200_000), "200k");
+        assert_eq!(format_tokens(1_048_576), "1.0M");
+        assert_eq!(format_tokens(9_461_099), "9.5M");
+        assert_eq!(format_tokens(10_461_099), "10M");
+        assert_eq!(format_tokens(89_138_380), "89M");
+    }
+
+    /// footer 里的 ↑/↓ 必须用同一套单位（不是原始数字）。
+    #[test]
+    fn footer_status_uses_compact_units() {
+        let mut state = TuiState::new("0.87.1", "/tmp/work", "0.0%/200k (auto)");
+        let _ = apply(
+            &mut state,
+            TuiEvent::UsageTotals {
+                input: 89_138_380,
+                output: 10_461_099,
+                cost: 80.799,
+                percent: Some(0.1),
+                window: "200k".to_string(),
+            },
+        );
+        assert!(state.status.contains("↑89M"), "{}", state.status);
+        assert!(state.status.contains("↓10M"), "{}", state.status);
+        assert!(state.status.contains("$80.799"), "{}", state.status);
+        assert!(
+            state.status.contains("0.1%/200k (auto)"),
+            "{}",
+            state.status
+        );
+    }
+}
+
+#[cfg(test)]
+mod border_color_tests {
+    use super::apply_chrome_styles;
+    use crate::style::LineStyle;
+    use crate::theme::Theme;
+
+    /// 历史里的整宽边框必须用普通 `border` 色；只有编辑器框最后两条用思考档位色。
+    /// 否则切换思考档位（Ctrl+P / Shift+Tab）会让几万条历史边框一起变色 ⇒ 整屏重绘。
+    #[test]
+    fn only_editor_borders_follow_the_thinking_level() {
+        let palette = crate::theme::Palette::of(&Theme::builtin("dark"));
+        let border = "─".repeat(20);
+        let lines = vec![
+            " 历史工具块".to_string(),
+            border.clone(),
+            " 输出".to_string(),
+            border.clone(), // 编辑器上边框
+            " 输入".to_string(),
+            border.clone(), // 编辑器下边框
+        ];
+        let mut medium = vec![None; lines.len()];
+        apply_chrome_styles(&lines, &mut medium, "medium", &palette);
+        let mut high = vec![None; lines.len()];
+        apply_chrome_styles(&lines, &mut high, "high", &palette);
+
+        let historical = LineStyle::fg(palette.border);
+        assert_eq!(medium[1], Some(historical), "历史边框应为普通 border 色");
+        assert_eq!(
+            historical,
+            high[1].expect("历史边框"),
+            "改档位不应影响历史边框"
+        );
+        assert_ne!(medium[3], high[3], "编辑器上边框应随档位变色");
+        assert_ne!(medium[5], high[5], "编辑器下边框应随档位变色");
+    }
+}
+
+#[cfg(test)]
+mod extension_ui_tests {
+    use super::{apply, render, TuiEvent, TuiState};
+    use unicode_width::UnicodeWidthStr;
+
+    /// `notify` ⇒ 会话区一条状态行（ref `interactive-mode.ts:2847-2855` 走 `showStatus`）；
+    /// 连续两条会覆盖上一条（与 `showStatus` 的"最后一条状态原地更新"一致）。
+    #[test]
+    fn extension_notice_becomes_status_line() {
+        let mut state = TuiState::new("0.87.1", "/tmp/work", "0.0%/128k (auto)");
+        let _ = apply(
+            &mut state,
+            TuiEvent::ExtensionNotice {
+                message: "hello".to_string(),
+                kind: None,
+            },
+        );
+        let _ = apply(
+            &mut state,
+            TuiEvent::ExtensionNotice {
+                message: "hi again".to_string(),
+                kind: None,
+            },
+        );
+        let statuses: Vec<String> = state
+            .transcript
+            .iter()
+            .filter_map(|item| match item {
+                super::TranscriptItem::Status(text) => Some(text.clone()),
+                _other => None,
+            })
+            .collect();
+        assert_eq!(statuses, vec!["hi again".to_string()]);
+    }
+
+    /// `setStatus` 的多 key、排序、清洗与截断（ref `footer.ts:235-246`）。
+    #[test]
+    fn extension_status_line_sorts_sanitizes_and_truncates() {
+        let mut state = TuiState::new("0.87.1", "/tmp/work", "0.0%/128k (auto)");
+        let _ = apply(
+            &mut state,
+            TuiEvent::ExtensionStatus {
+                key: "b".to_string(),
+                text: Some("second".to_string()),
+            },
+        );
+        let _ = apply(
+            &mut state,
+            TuiEvent::ExtensionStatus {
+                key: "a".to_string(),
+                text: Some("first\nline".to_string()),
+            },
+        );
+        let screen = render(&state, 80, 30);
+        let line = screen
+            .iter()
+            .find(|line| line.contains("first line"))
+            .unwrap_or_else(|| panic!("应有扩展状态行：{screen:?}"));
+        // key 升序 ⇒ `a` 在前；`\n` 被替换成空格。
+        assert_eq!(line.trim_end(), "first line second");
+        // 窄终端：截断并补 `...`。
+        let screen = render(&state, 10, 30);
+        let line = screen
+            .iter()
+            .find(|line| line.trim_end().ends_with("..."))
+            .unwrap_or_else(|| panic!("应截断：{screen:?}"));
+        assert_eq!(UnicodeWidthStr::width(line.trim_end()), 10);
+    }
+
+    /// `setStatus` ⇒ 记录 key→text；`None` 清除（ref `interactive-mode.ts:2203-2206`）。
+    #[test]
+    fn extension_status_is_keyed() {
+        let mut state = TuiState::new("0.87.1", "/tmp/work", "0.0%/128k (auto)");
+        let _ = apply(
+            &mut state,
+            TuiEvent::ExtensionStatus {
+                key: "demo".to_string(),
+                text: Some("status-1".to_string()),
+            },
+        );
+        assert_eq!(
+            state.extension_status.get("demo").map(String::as_str),
+            Some("status-1")
+        );
+        let _ = apply(
+            &mut state,
+            TuiEvent::ExtensionStatus {
+                key: "demo".to_string(),
+                text: None,
+            },
+        );
+        assert!(!state.extension_status.contains_key("demo"));
+    }
+}
+
+#[cfg(test)]
+mod extension_widget_tests {
+    use super::{apply, render, TuiEvent, TuiState};
+
+    /// `setWidget(key, lines, "belowEditor")` 画在编辑器下边框之后、状态区之前；
+    /// `None` 清除（ref `types.ts:176`）。
+    #[test]
+    fn widget_renders_below_editor_and_can_be_cleared() {
+        let mut state = TuiState::new("0.87.1", "/tmp/work", "0.0%/128k (auto)");
+        let _ = apply(
+            &mut state,
+            TuiEvent::ExtensionWidget {
+                key: "remote".to_string(),
+                lines: Some(vec![
+                    "widget-line-1".to_string(),
+                    "widget-line-2".to_string(),
+                ]),
+                placement: "belowEditor".to_string(),
+            },
+        );
+        let screen = render(&state, 80, 30);
+        let first = screen
+            .iter()
+            .position(|line| line.contains("widget-line-1"))
+            .expect("应渲染 widget");
+        let status = screen
+            .iter()
+            .position(|line| line.contains("%/"))
+            .expect("有状态行");
+        assert!(first < status, "widget 应在状态行之前");
+        assert!(screen.iter().any(|line| line.contains("widget-line-2")));
+
+        let _ = apply(
+            &mut state,
+            TuiEvent::ExtensionWidget {
+                key: "remote".to_string(),
+                lines: None,
+                placement: "belowEditor".to_string(),
+            },
+        );
+        let screen = render(&state, 80, 30);
+        assert!(!screen.iter().any(|line| line.contains("widget-line-1")));
+    }
+}
+
+#[cfg(test)]
+mod render_hook_tests {
+    use super::{render, TranscriptItem, TuiState};
+
+    /// overlay 事件只记录到 `TuiState.overlay_lines`（**渲染暂未生效**：合成要放在 pi-cli 侧，
+    /// 放进 pi-tui 内核会破坏 T90，见 `notes/progress.md` 的 E4h 记录）。
+    #[test]
+    fn overlay_event_records_lines() {
+        let mut state = TuiState::new("0.87.1", "/tmp/work", "0.0%/128k (auto)");
+        let _ = crate::apply(
+            &mut state,
+            crate::TuiEvent::OverlayOpen(Some(vec!["OVL".to_string()])),
+        );
+        assert_eq!(
+            state.overlay_lines.as_deref(),
+            Some(&["OVL".to_string()][..])
+        );
+        let _ = crate::apply(&mut state, crate::TuiEvent::OverlayOpen(None));
+        assert!(state.overlay_lines.is_none());
+    }
+
+    /// `ctx.ui.setTitle` 只记录待写的 OSC 2 标题（ref `types.ts:199`）。
+    #[test]
+    fn title_event_queues_the_osc_sequence() {
+        let mut state = TuiState::new("0.87.1", "/tmp/work", "0.0%/128k (auto)");
+        assert!(state.pending_title.borrow().is_none());
+        let _ = crate::apply(&mut state, crate::TuiEvent::Title("pi - demo".to_string()));
+        assert_eq!(state.pending_title.borrow().as_deref(), Some("pi - demo"));
+    }
+
+    /// 扩展 `setHeader` 的行替代内置启动屏（`None` 恢复）。
+    #[test]
+    fn header_override_replaces_builtin_startup_block() {
+        let mut state = TuiState::new("0.87.1", "/tmp/work", "0.0%/128k (auto)");
+        let before = render(&state, 80, 30);
+        assert!(before.iter().any(|line| line.contains("pi v0.87.1")));
+
+        state.header_override = Some(vec!["custom-header".to_string()]);
+        let after = render(&state, 80, 30);
+        assert!(after.iter().any(|line| line.contains("custom-header")));
+        assert!(
+            !after.iter().any(|line| line.contains("pi v0.87.1")),
+            "接管启动屏后不应再画内置头部"
+        );
+
+        state.header_override = None;
+        let restored = render(&state, 80, 30);
+        assert!(restored.iter().any(|line| line.contains("pi v0.87.1")));
+    }
+
+    /// 扩展 `setFooter` 的行替代内置两行状态区（`None` 恢复）。
+    #[test]
+    fn footer_override_replaces_builtin_status_lines() {
+        let mut state = TuiState::new("0.87.1", "/tmp/work", "0.0%/128k (auto)");
+        state.model = "mock-model".to_string();
+        let before = render(&state, 80, 30);
+        assert!(before.iter().any(|line| line.contains("mock-model")));
+
+        state.footer_override = Some(vec!["custom-footer".to_string()]);
+        let after = render(&state, 80, 30);
+        assert!(after.iter().any(|line| line.contains("custom-footer")));
+        assert!(
+            !after.iter().any(|line| line.contains("mock-model")),
+            "接管页脚后不应再画内置状态区"
+        );
+
+        state.footer_override = None;
+        let restored = render(&state, 80, 30);
+        assert!(restored.iter().any(|line| line.contains("mock-model")));
+    }
+
+    /// 扩展 `renderResult` 的降级行替代结果正文（ref `tool-execution.ts:341-366`）。
+    #[test]
+    fn tool_result_uses_extension_render_lines() {
+        let mut state = TuiState::new("0.87.1", "/tmp/work", "0.0%/128k (auto)");
+        state.transcript.push(TranscriptItem::ToolCall {
+            id: "1".to_string(),
+            name: "ext_render_ok".to_string(),
+            summary: "args".to_string(),
+            output: Some("raw-output-should-hide".to_string()),
+            is_error: false,
+            started_at: None,
+            took: None,
+            render_lines: None,
+            result_render_lines: Some(vec!["rendered-result".to_string()]),
+            result_payload: None,
+        });
+        let screen = render(&state, 80, 30);
+        assert!(screen.iter().any(|line| line.contains("rendered-result")));
+        assert!(
+            !screen
+                .iter()
+                .any(|line| line.contains("raw-output-should-hide")),
+            "有 renderResult 时不应再画内置结果正文"
+        );
+    }
+
+    /// 扩展 `renderCall` 的降级行替代默认的 ` name summary` 行（ref
+    /// `tool-execution.ts:110-118`：有渲染器时用组件的 contentBox）。
+    #[test]
+    fn tool_call_uses_extension_render_lines() {
+        let mut state = TuiState::new("0.87.1", "/tmp/work", "0.0%/128k (auto)");
+        state.transcript.push(TranscriptItem::ToolCall {
+            id: "1".to_string(),
+            name: "ext_echo".to_string(),
+            summary: "SECRET-summary".to_string(),
+            output: None,
+            is_error: false,
+            started_at: None,
+            result_render_lines: None,
+            took: None,
+            render_lines: Some(vec!["rendered-by-extension".to_string()]),
+            result_payload: None,
+        });
+        let screen = render(&state, 80, 30);
+        assert!(screen
+            .iter()
+            .any(|line| line.contains("rendered-by-extension")));
+        assert!(
+            !screen.iter().any(|line| line.contains("SECRET-summary")),
+            "有渲染器时不应再画默认摘要行"
+        );
+
+        // 没有渲染结果时保持内置渲染。
+        state.transcript.clear();
+        state.transcript.push(TranscriptItem::ToolCall {
+            id: "2".to_string(),
+            name: "read".to_string(),
+            summary: "input.txt".to_string(),
+            output: None,
+            is_error: false,
+            started_at: None,
+            took: None,
+            render_lines: None,
+            result_render_lines: None,
+            result_payload: None,
+        });
+        let screen = render(&state, 80, 30);
+        assert!(screen.iter().any(|line| line.contains("read input.txt")));
     }
 }

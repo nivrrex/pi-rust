@@ -263,6 +263,12 @@ fn complete_len(buffer: &str) -> Option<usize> {
 /// 解析单个序列为键名（`keys.ts:1251` `parseKey` 的子集，按夹具覆盖范围实现）。
 #[must_use]
 pub fn parse_key(sequence: &str, kitty_active: bool) -> Option<String> {
+    // kitty 协议开了 flag 2 时，**每个**按键都带事件类型后缀（`:1` 按下、`:2` 重复、`:3` 抬起），
+    // 连方向键也不例外（`\x1b[1;1:2B`）。ref 只丢弃 release（`tui.ts:1074`），重复事件按普通按键处理；
+    // 此前这里直接拿原串去查 legacy 表 ⇒ 方向键的重复事件全部解析失败（粘着按住 ↓ 只走一格）。
+    let normalized = normalize_event_type_suffix(sequence);
+    let sequence = normalized.as_str();
+
     // **精确匹配表**（顺序与内容逐条对齐 `keys.ts:1278-1291`）：
     //   `\r` / `\x1bOM` ⇒ enter；`\x00` ⇒ ctrl+space；`" "` ⇒ space；
     //   `\x7f` ⇒ backspace；`\x08` ⇒ backspace（ref 在 Windows Terminal 下为 ctrl+backspace，本实现取非 WT 分支）；
@@ -360,6 +366,35 @@ pub fn parse_key(sequence: &str, kitty_active: bool) -> Option<String> {
         return Some(first.to_string());
     }
     None // 多字节可打印字符 ⇒ 夹具期望 None
+}
+
+/// 去掉 CSI 参数里的 kitty 事件类型（`:` 后跟 1/2/3，且紧挨终止字节或 `;`）。
+///
+/// 例：`\x1b[1;1:2B` → `\x1b[1;1B`；`\x1b[97;5:2u` → `\x1b[97;5u`；`\x1b[27;5;97~` 不变。
+fn normalize_event_type_suffix(sequence: &str) -> String {
+    if !sequence.starts_with("\u{1b}[") {
+        return sequence.to_string();
+    }
+    let bytes = sequence.as_bytes();
+    let mut out = String::with_capacity(sequence.len());
+    let mut index = 0_usize;
+    while index < bytes.len() {
+        let byte = bytes[index];
+        if byte == b':'
+            && index + 1 < bytes.len()
+            && matches!(bytes[index + 1], b'1' | b'2' | b'3')
+            && (index + 2 == bytes.len()
+                || bytes[index + 2].is_ascii_alphabetic()
+                || bytes[index + 2] == b'~'
+                || bytes[index + 2] == b';')
+        {
+            index += 2;
+            continue;
+        }
+        out.push(byte as char);
+        index += 1;
+    }
+    out
 }
 
 /// kitty CSI u（`keys.ts:587` `parseKittySequence` + `:1333` 正则）。
@@ -532,4 +567,69 @@ pub fn is_release(sequence: &str) -> bool {
 pub fn is_repeat(sequence: &str) -> bool {
     const SUFFIXES: [&str; 2] = [":2u", ":2~"];
     SUFFIXES.iter().any(|suffix| sequence.contains(suffix))
+}
+
+#[cfg(test)]
+mod flush_contract_tests {
+    use super::{InputEvent, InputState};
+
+    fn payload(events: &[InputEvent]) -> String {
+        let mut out = String::new();
+        for event in events {
+            let text = match event {
+                InputEvent::Data(text) => text,
+                InputEvent::Paste(text) => text,
+            };
+            out.push_str(text);
+        }
+        out
+    }
+
+    /// 契约（B6b）：超时 flush **不得丢字节**——缓冲里剩下的原始字节必须原样发出。
+    #[test]
+    fn flush_returns_every_buffered_byte() {
+        let mut state = InputState::new(false);
+        let (_events, wake) = state.process(b"\x1b[1;2", 1000);
+        assert!(wake.is_some(), "不完整序列应要求超时唤醒");
+        let events = state.flush();
+        assert_eq!(payload(&events), "\u{1b}[1;2", "flush 必须原样交回缓冲内容");
+        assert!(state.flush().is_empty(), "再次 flush 不应重复发出");
+    }
+
+    /// 契约：闭合的粘贴整段发出，粘贴之后的普通文本在 flush 时原样交回。
+    #[test]
+    fn flush_after_paste_keeps_later_input_intact() {
+        let mut state = InputState::new(false);
+        let (events, _wake) = state.process(b"\x1b[200~hello\x1b[201~x", 1000);
+        let mut all = payload(&events);
+        all.push_str(&payload(&state.flush()));
+        assert_eq!(all, "hellox", "粘贴与其后的字节都不能丢：{events:?}");
+    }
+}
+
+#[cfg(test)]
+mod event_type_tests {
+    use super::parse_key;
+
+    /// 按住方向键时终端发的是带 `:2`（repeat）的序列；ref 只丢 release，重复事件按普通按键处理。
+    /// 此前 `\x1b[1;1:2B` 解析为 None ⇒ 粘着按住 ↓ 只移动一格。
+    #[test]
+    fn repeat_sequences_parse_like_press() {
+        assert_eq!(parse_key("\u{1b}[B", false).as_deref(), Some("down"));
+        assert_eq!(parse_key("\u{1b}[1;1:2B", false).as_deref(), Some("down"));
+        assert_eq!(parse_key("\u{1b}[1;1:3B", false).as_deref(), Some("down"));
+        assert_eq!(parse_key("\u{1b}[1;1:2A", false).as_deref(), Some("up"));
+        assert_eq!(parse_key("\u{1b}[1;1:2C", false).as_deref(), Some("right"));
+        assert_eq!(parse_key("\u{1b}[1;1:2D", false).as_deref(), Some("left"));
+        // kitty CSI-u 的 `:` 原本已能解析，归一化后仍是同一个键。
+        assert_eq!(
+            parse_key("\u{1b}[97;5:2u", false).as_deref(),
+            Some("ctrl+a")
+        );
+        // modifyOtherKeys 的三段式不能被误伤。
+        assert_eq!(
+            parse_key("\u{1b}[27;5;97~", false).as_deref(),
+            Some("ctrl+a")
+        );
+    }
 }

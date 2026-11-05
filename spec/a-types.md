@@ -1,6 +1,6 @@
 # spec/a-types.md — 消息、内容、StopReason、Usage、Tool 类型
 
-对应 RUNBOOK-1 步骤 A1。来源以 `packages/*/src` 为准，路径相对 `ref/pi-0.87.1/`。
+来源以上游 `packages/*/src` 为准。
 本卡只抽"类型形状"，不含 agent loop（见 `spec/b-agent-loop.md`）与 session 落盘格式（见 `spec/c-session.md`）。
 
 ## 1. 消息

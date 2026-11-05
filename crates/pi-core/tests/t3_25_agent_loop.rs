@@ -319,6 +319,7 @@ async fn abort_before_the_turn_makes_no_request_and_runs_no_tools() {
             | Message::System { .. }
             | Message::ToolResult { .. }
             | Message::Custom { .. }
+            | Message::BashExecution { .. }
             | Message::BranchSummary { .. }
             | Message::CompactionSummary { .. } => None,
         })

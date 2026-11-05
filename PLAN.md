@@ -1,0 +1,60 @@
+
+## F8：`user_bash` 事件（两种返回值）
+
+- `{result}` 直接采用：扩展给 `output/exitCode/cancelled/truncated/fullOutputPath`，宿主不执行本地 bash；
+- `{operations}` 替换执行：用扩展给的 operations 跑完，再按 `recordBashResult` 落盘；
+- 扩展抛错时**不回退**本地执行（ref `interactive-mode.ts:6735-6745`）；
+- 依赖 F7 的 `BashExecution` 消息类型（已完成）。
+
+## F9：TUI 的 `!` / `!!`
+
+- 输入分流（`:3225-3240`）与 bash 模式边框色；`BashExecutionComponent` 渲染（`:3739-3745`）；
+- 取消（Esc）、流式期间的 pending 队列（`agent-session.ts:3509-3515`）；
+- `/tree` 的命令摘要（`tree-selector.ts:577/808/910`）；
+- TS 录制 golden：dark/light 各四类（成功、`!!` 不进上下文、失败退出码、取消），逐帧 same；
+- （F7b 遗留项 ④ 已在 F7c 完成，见 `crates/pi-cli/tests/p9_f7c_resume_bash.rs`）
+
+## F10：已关闭（真因：TUI/rpc 入口未登记会话路径；见 notes/decisions.md「F10 复盘」）
+
+遗留：rpc 入口的 appendEntry（懒创建会话 ⇒ 启动期路径未知），见 LIMITATIONS。
+**F12 更正**：todo 的持久化载体是 toolResult.details.state（不是 appendEntry），判据见 decisions「F12」。
+
+## F10（历史记录，已关闭）：`p9_e3b_append` 偶发（退出时动作帧排空）
+
+- 现象：workspace 全量并行时偶发整条 `custom` 条目丢失（assistant 已落盘）。
+- 方向：收尾前把宿主动作帧排空（与 E4h 的 `in_flight`/`drain_pending` 同类），不加延迟、不放宽断言。
+- 前置：先找到能稳定放大的复现手段（并发 8 份 + 循环 200 次量级）。
+
+## F13：`/new` 与 `/resume` 的 pty 用例
+
+- `/new` 的 ref 语义（`agent-session-runtime.ts:226-252`）：`session_before_switch("new")` →
+  新 SessionManager → `teardownCurrent` → `session_start{reason:"new", previousSessionFile}`；
+  UI 侧 `interactive-mode.ts:6657-6670` 追加 `✓ New session started`。
+- 待做：实现 `/new`（writer 重建 + 清屏 + 事件顺序）、`/resume` 与 `/new` 各一条 pty 用例、
+  TS 录制 dark/light 对拍。
+- 另：`transcript_from_messages` 的 `ToolCall.id` 用 `replay-N`、`ToolResult` 分支为空，
+  在有"折叠态有可视结果行"的 golden 之前不改（当前 T71 逐帧 same）。
+
+## F17：`/new` 的 TS 对拍 golden + `/resume` 的 pty 用例（部分完成）
+
+已完成：`/new` 的 dark/light golden（T97，逐帧 same，10/10×2）、`session_shutdown` 派发。
+待做：`/resume` 的 pty 用例与 session_start/session_shutdown 的 reason 断言；退出矩阵（暂停）。
+
+- `/new`：dark/light 各录一个场景（输入 `/new` 回车，快照切换后的屏幕），逐帧 same + 10 次稳定性。
+- `/resume`：pty 用例断言切换后扩展 `appendEntry` 落到被 resume 的文件、`session_start` reason 为 `resume`。
+- 已做：`/new` 的实现与 pty 用例（`p9_f16_new_session`）。
+
+## F28（自述）
+- S1 `92cb1a5a`：`ctx.sessionManager.getSessionId/getBranch/getLeafId/getSessionDir`、`ui.getToolsExpanded`；
+  `session_start` 延后到会话登记后派发；`p9_f28_session_id`。
+- S2 `ba312269`：jiti 纯函数模块 + pnpm 多 hash 布局；扩展标签去 `/./`；`tools/difftest/test/jiti.test.mjs`（8 条）。
+- S3+S4 `5953dc6e`：`[Extension issues]` 折行（`p9_f28_issue_wrap` 80/120 列）；shim `ToolExecutionComponent.updateDisplay`。
+- 未做：底栏 `?/0` 取证、`[Extension issues]` pty 截图、`custom_input` 用例的并行超时治理。
+
+## F29（自述）
+- S4d `6ca5f3b8`：`session_start` 之前就填好 `ctx.getContextUsage()`（tokens=system 估算、window=模型
+  `contextWindow`、percent=tokens/window*100），真机底栏 `?/0 (auto)` 的根因是扩展读到 `undefined`。
+  新测 `p9_f29_ctx_usage`（断言 window=200000、percent 为数字、tokens>0）。
+- S5 `4ed85f8d`：`custom_input` 的 5s 超时是竞态——invoke 在队列里时按键 Cmd 排在它后面（actor 单线程），
+  或走直连时 actor 恰好空闲没人读帧。修法：`active_invokes` 计数决定走直连 + 直连后补发 `Cmd::Drain`
+  让 actor 读一轮。复测：并行 12 轮 0 失败（修前约 25% 失败）。

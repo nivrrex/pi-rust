@@ -50,18 +50,29 @@ def set_win_size(fd: int, cols: int, rows: int) -> None:
 
 # 终端查询的**可选应答**（P7-2 W3）：TS 的 TUI 会发 `\x1b[c`（设备属性）、`\x1b[>7u`（kitty 键盘）、
 # `\x1b[?u`（kitty 支持查询）、`\x1b]11;?`（背景色）等并等待回复；不答可能导致渲染时序/内容异常。
+# `DIFTEST_KITTY_FLAGS` 可把 kitty 查询的应答改成"支持"（例如 `7`），用于复现/回归
+# "kitty 抬起事件在退出后到达"（F3）。
+KITTY_FLAGS = os.environ.get("DIFTEST_KITTY_FLAGS")
+
 QUERY_REPLIES = [
     (b"\x1b[c", b"\x1b[?62;c"),
     (b"\x1b[>7u", b"\x1b[>7;1u"),
-    (b"\x1b[?u", b"\x1b[?0u"),
+    (b"\x1b[?u", (f"\x1b[?{KITTY_FLAGS}u".encode() if KITTY_FLAGS else b"\x1b[?0u")),
     (b"\x1b]11;?\x07", b"\x1b]11;rgb:0000/0000/0000\x07"),
     (b"\x1b]10;?\x07", b"\x1b]10;rgb:ffff/ffff/ffff\x07"),
 ]
 
 
+# 可选：把"终端对查询的应答"延后若干毫秒（F1/S3）。真机（SSH/Armbian）上应答可能晚到，
+# 用来复现"进程已退出、应答才进 tty 队列 ⇒ 被 shell 当成命令"的乱码。
+REPLY_DELAY_MS = float(os.environ.get("DIFTEST_REPLY_DELAY_MS", "0")) / 1000.0
+
+
 def answer_queries(fd: int, chunk: bytes) -> None:
     for query, reply in QUERY_REPLIES:
         if query in chunk:
+            if REPLY_DELAY_MS > 0:
+                time.sleep(REPLY_DELAY_MS)
             try:
                 os.write(fd, reply)
             except OSError:
@@ -79,7 +90,7 @@ def main() -> int:
     ap.add_argument("--snapshot-dir", help="（P7-3）每步后把当前原始流写 <dir>/<n>.bin，便于实证二分")
     ap.add_argument("--termios-after", help="（P7-3/W4）子进程退出后把 master 的 termios 关键标志写此文件（JSON）")
     ap.add_argument("--signal-after-ms", type=int, help="（P7-3/W4）启动后延时多少毫秒向子进程发信号（配合 --signal）")
-    ap.add_argument("--signal", default="INT", help="（P7-3/W4）信号名：INT 或 TERM")
+    ap.add_argument("--signal", default="INT", help="（P7-3/W4）信号名：INT / TERM / HUP（F2 追加 HUP）")
     ap.add_argument("--diag", help="（P7-3/W4）诊断日志：写入返回值/errno、master 状态、子进程 isatty")
     ap.add_argument("cmd", nargs=argparse.REMAINDER, help="-- 之后的被测命令")
     args = ap.parse_args()
@@ -159,7 +170,13 @@ def main() -> int:
     # 否则会打乱循环内的块结构（P7-3 实测：写块被吞掉、按键从未发出）。
     if args.signal_after_ms is not None:
         time.sleep(args.signal_after_ms / 1000.0)
-        sig = signal.SIGINT if args.signal.upper().startswith("INT") else signal.SIGTERM
+        name = args.signal.upper()
+        if name.startswith("INT"):
+            sig = signal.SIGINT
+        elif name.startswith("HUP"):
+            sig = signal.SIGHUP
+        else:
+            sig = signal.SIGTERM
         try:
             os.kill(pid, sig)
         except OSError:
@@ -252,6 +269,30 @@ def main() -> int:
             code = -9
             break
     drain(0.2)
+
+    # F1/S3：**退出后残留**观测。子进程已退出、raw mode 已还原，此时 master 上仍读得到的字节
+    # 就是 shell 会看到的东西（未消费的 DA1/kitty 应答、Ctrl+D 的抬起事件、多余的恢复序列）。
+    # 默认 0（关闭），不影响既有场景的时序。
+    leftover = bytearray()
+    after_ms = int(os.environ.get("DIFTEST_AFTER_MS", "0"))
+    if after_ms > 0:
+        end = time.monotonic() + after_ms / 1000.0
+        while True:
+            remaining = end - time.monotonic()
+            if remaining <= 0:
+                break
+            ready, _, _ = select.select([fd], [], [], remaining)
+            if not ready:
+                break
+            try:
+                chunk = os.read(fd, 65536)
+            except OSError:
+                break
+            if not chunk:
+                break
+            leftover.extend(chunk)
+    with open(args.out + ".leftover", "wb") as handle:
+        handle.write(bytes(leftover))
 
     # W4：回读 master 的 termios 关键标志（断言"退出后回到 cooked/echo"）。
     if args.termios_after:

@@ -180,6 +180,11 @@ impl AgentLoop {
         self.config.retry_attempt = value;
     }
 
+    /// 覆盖系统提示（扩展 `before_agent_start` 的 `systemPrompt`，ref `runner.ts:1345-1347`）。
+    pub fn set_system_prompt(&mut self, system: Option<String>) {
+        self.config.system = system;
+    }
+
     pub fn set_announce_from(&mut self, value: usize) {
         self.config.announce_from = value;
     }
@@ -427,6 +432,7 @@ impl AgentLoop {
             | Message::System { .. }
             | Message::ToolResult { .. }
             | Message::Custom { .. }
+            | Message::BashExecution { .. }
             | Message::BranchSummary { .. }
             | Message::CompactionSummary { .. } => false,
         });

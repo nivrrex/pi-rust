@@ -1187,6 +1187,10 @@ pub struct ResumeSelector {
     pub sessions: Vec<SessionRow>,
     /// 当前会话的 `cwd`（`Current Folder` 过滤依据）。
     pub current_cwd: String,
+    /// 是否按 `current_cwd` 过滤（ref `session-manager.ts:1904-1906` 的 `filterCwd`）：
+    /// 只有**自定义会话目录**才过滤；默认分区目录里列出目录内全部会话
+    /// （目录改名后 header 里的旧 cwd 不会让会话消失）。
+    pub filter_cwd: bool,
     /// `HOME`（`shorten_path` 用）。
     pub home: String,
     /// 选中下标（过滤后列表）。
@@ -1206,6 +1210,7 @@ impl ResumeSelector {
             confirming_delete: false,
             sessions: Vec::new(),
             current_cwd: String::new(),
+            filter_cwd: false,
             home: String::new(),
             selected: 0,
         }
@@ -1219,15 +1224,51 @@ impl ResumeSelector {
         self.sessions
             .iter()
             .enumerate()
-            .filter(|(_, row)| self.all_scopes || row.cwd == self.current_cwd)
+            .filter(|(_, row)| self.all_scopes || !self.filter_cwd || row.cwd == self.current_cwd)
             .filter(|(_, row)| !self.named_only || row.name.is_some())
             .map(|(i, _)| i)
             .collect()
     }
 
+    /// 可见窗口上限（ref `session-selector.ts:311`：`maxVisible = 10`）。
+    pub const MAX_VISIBLE: usize = 10;
+
+    /// 可见条数变化后把选中项夹回合法范围（ref `session-selector.ts:394`）。
+    fn clamp_selection(&mut self) {
+        let len = self.visible_indices().len();
+        self.selected = self.selected.min(len.saturating_sub(1));
+    }
+
+    /// 上移选中项（ref `session-selector.ts:614`：`max(0, selectedIndex - 1)`，**到头夹住**不环绕）。
+    pub fn move_up(&mut self) {
+        self.selected = self.selected.saturating_sub(1);
+    }
+
+    /// 下移选中项（ref `session-selector.ts:618`：`min(len - 1, selectedIndex + 1)`）。
+    pub fn move_down(&mut self) {
+        let len = self.visible_indices().len();
+        if len > 0 {
+            self.selected = (self.selected + 1).min(len - 1);
+        }
+    }
+
+    /// 翻页（ref `:622-626`：`selectedIndex ∓ maxVisible`）。
+    pub fn page_up(&mut self, page: usize) {
+        self.selected = self.selected.saturating_sub(page.max(1));
+    }
+
+    /// 翻页（向下）。
+    pub fn page_down(&mut self, page: usize) {
+        let len = self.visible_indices().len();
+        if len > 0 {
+            self.selected = (self.selected + page.max(1)).min(len - 1);
+        }
+    }
+
     /// 切换排序模式（`ctrl+s`，ref `app.session.toggleSort`）。
     pub fn toggle_sort(&mut self) {
         self.sort_recent = !self.sort_recent;
+        self.clamp_selection();
     }
 
     /// 进入删除确认态（`ctrl+d`，ref `:543-557`）。
@@ -1282,11 +1323,13 @@ impl ResumeSelector {
     /// 切换"只看命名会话"（`ctrl+n`，ref `app.session.toggleNamedFilter`）。
     pub fn toggle_named(&mut self) {
         self.named_only = !self.named_only;
+        self.clamp_selection();
     }
 
     /// 切换作用域（ref `tui.input.tab`）。
     pub fn toggle_scope(&mut self) {
         self.all_scopes = !self.all_scopes;
+        self.clamp_selection();
     }
 
     /// 面板行（**不含**上下边框；边框由 `render_all` 画）。
@@ -1371,15 +1414,29 @@ impl ResumeSelector {
                 lines.push("  No sessions in current folder. Press Tab to view all.".to_string());
             }
         } else {
+            // ref `session-selector.ts:450-454`：可见窗口 10 条，选中项尽量居中
+            // （`max(0, min(selected - maxVisible/2, total - maxVisible))`）。
+            let selected = self.selected.min(visible.len().saturating_sub(1));
+            let (start, end) = pi_tui::selector_window(visible.len(), selected, Self::MAX_VISIBLE);
             for (pos, index) in visible.iter().enumerate() {
+                if pos < start || pos >= end {
+                    continue;
+                }
                 let row = &self.sessions[*index];
-                let cursor = if pos == self.selected { "› " } else { "  " };
+                let cursor = if pos == selected { "› " } else { "  " };
                 // ref `:468-470`：有名字显示名字，否则显示首条消息。
+                // ref `session-selector.ts:469-471`：名字优先，其次首条消息；
+                // 两种来源都做"控制字符 → 空格 + trim"（多行首消息否则会把换行带进列表行）。
                 let summary = row
                     .name
                     .clone()
                     .or_else(|| row.summary.clone())
-                    .unwrap_or_else(|| "(no messages)".to_string());
+                    .unwrap_or_else(|| "(no messages)".to_string())
+                    .chars()
+                    .map(|ch| if ch.is_control() { ' ' } else { ch })
+                    .collect::<String>()
+                    .trim()
+                    .to_string();
                 let age = format_session_age(now_ms, row.modified_ms);
                 let mut right = format!("{} {age}", row.message_count);
                 if self.all_scopes && !row.cwd.is_empty() {
@@ -1392,6 +1449,11 @@ impl ResumeSelector {
                     &format!("{cursor}{summary}{}{right}", " ".repeat(spacing)),
                     width,
                 ));
+            }
+            // ref `:519-525`：**仅当**窗口被裁剪（`start > 0 || end < total`）才追加
+            // `  (n/total)`；不裁剪时不加，保证单会话/少量会话的面板与旧 golden 一致。
+            if start > 0 || end < visible.len() {
+                lines.push(pi_tui::selector_scroll_hint(selected, visible.len()));
             }
         }
         lines.push(String::new());
@@ -1455,6 +1517,27 @@ mod resume_tests {
     }
 }
 
+/// 消息文本（ref `session-manager.ts:774-783` 的 `extractTextContent`）：
+/// `content` 是字符串就用它；是分块数组就把所有 `type == "text"` 的块用空格拼起来。
+/// 会话文件里的 content **几乎总是数组**，早先只认字符串 ⇒ `/resume` 列表一律
+/// `(no messages)`（真机：有内容也显示无内容）。
+fn message_text(message: &serde_json::Value) -> Option<String> {
+    let content = message.get("content")?;
+    if let Some(text) = content.as_str() {
+        return Some(text.trim().to_string());
+    }
+    let parts: Vec<&str> = content
+        .as_array()?
+        .iter()
+        .filter(|block| block.get("type").and_then(|v| v.as_str()) == Some("text"))
+        .filter_map(|block| block.get("text").and_then(|v| v.as_str()))
+        .collect();
+    if parts.is_empty() {
+        return None;
+    }
+    Some(parts.join(" ").trim().to_string())
+}
+
 /// 扫描会话目录（`*.jsonl`），产出行数据（`/resume` 用）。
 ///
 /// 每条会话：首行的 `cwd`/`timestamp` 决定工作目录与时间；`"type":"message"` 行数决定消息数；
@@ -1476,46 +1559,75 @@ pub fn scan_sessions(dir: &std::path::Path) -> Vec<SessionRow> {
             continue;
         };
         let mut cwd = String::new();
-        let mut modified_ms = 0u128;
+        let mut header_ms: Option<u128> = None;
+        let mut last_activity_ms: Option<u128> = None;
         let mut message_count = 0usize;
         let mut summary: Option<String> = None;
         let mut name: Option<String> = None;
-        for (index, line) in text.lines().enumerate() {
+        let mut header_seen = false;
+        for line in text.lines() {
             let Ok(record) = serde_json::from_str::<serde_json::Value>(line) else {
                 continue;
             };
-            if index == 0 {
+            // ref `session-manager.ts:809-813`：**第一条可解析条目必须是 `session`**，
+            // 否则这个文件不算会话（返回 null，不列出来）。
+            if !header_seen {
+                if record.get("type").and_then(|v| v.as_str()) != Some("session") {
+                    break;
+                }
+                header_seen = true;
                 cwd = record
                     .get("cwd")
                     .and_then(|v| v.as_str())
                     .unwrap_or_default()
                     .to_string();
-                if let Some(stamp) = record.get("timestamp").and_then(|v| v.as_str()) {
-                    modified_ms = parse_rfc3339_ms(stamp).unwrap_or(0);
-                }
+                header_ms = record
+                    .get("timestamp")
+                    .and_then(|v| v.as_str())
+                    .and_then(parse_rfc3339_ms);
+                continue;
             }
-            if record.get("type").and_then(|v| v.as_str()) == Some("session_info") {
+            let kind = record.get("type").and_then(|v| v.as_str());
+            if kind == Some("session_info") {
                 name = record
                     .get("name")
                     .and_then(|v| v.as_str())
-                    .filter(|text| !text.trim().is_empty())
+                    .map(str::trim)
+                    .filter(|text| !text.is_empty())
                     .map(str::to_string);
             }
-            if record.get("type").and_then(|v| v.as_str()) == Some("message") {
+            if kind.is_some_and(|kind| kind == "message") {
                 message_count += 1;
+                // ref `getMessageActivityTime`：条目时间戳参与"最后活动时间"，
+                // 列表排序与 `3d`/`2h` 相对时间都按它算（此前只取了首行时间）。
+                if let Some(stamp) = record.get("timestamp").and_then(|v| v.as_str()) {
+                    if let Some(ms) = parse_rfc3339_ms(stamp) {
+                        last_activity_ms = Some(last_activity_ms.map_or(ms, |prev| prev.max(ms)));
+                    }
+                }
                 if summary.is_none() {
                     let message = record.get("message");
                     if message.and_then(|m| m.get("role")).and_then(|r| r.as_str()) == Some("user")
                     {
-                        summary = message
-                            .and_then(|m| m.get("content"))
-                            .and_then(|c| c.as_str())
-                            .map(|s| s.trim().to_string())
-                            .filter(|s| !s.is_empty());
+                        summary = message.and_then(message_text).filter(|s| !s.is_empty());
                     }
                 }
             }
         }
+        if !header_seen {
+            continue;
+        }
+        // ref `session-manager.ts:860-868`：最后活动时间 → 首行时间 → 文件 mtime。
+        let modified_ms = last_activity_ms
+            .or(header_ms)
+            .or_else(|| {
+                std::fs::metadata(&path)
+                    .ok()
+                    .and_then(|meta| meta.modified().ok())
+                    .and_then(|time| time.duration_since(std::time::UNIX_EPOCH).ok())
+                    .map(|since| since.as_millis())
+            })
+            .unwrap_or(0);
         rows.push(SessionRow {
             path: path.clone(),
             name,
@@ -1571,7 +1683,7 @@ pub fn parse_rfc3339_ms(text: &str) -> Option<u128> {
 
 #[cfg(test)]
 mod resume_list_tests {
-    use super::{format_session_age, shorten_path, ResumeSelector, SessionRow};
+    use super::{format_session_age, scan_sessions, shorten_path, ResumeSelector, SessionRow};
 
     /// `10mo` 对应的毫秒数（`format_session_age` 用 `days / 30` 算月）。
     const AGE_10_MONTHS_MS: u128 = 300 * 86_400_000;
@@ -1581,6 +1693,79 @@ mod resume_list_tests {
             .duration_since(std::time::UNIX_EPOCH)
             .map(|value| value.as_millis())
             .unwrap_or(0)
+    }
+
+    /// 会话文件里的 `content` 是**分块数组**（真机全是这种）：`/resume` 必须取出文本，
+    /// 不能显示 `(no messages)`（P8e-19 真机缺陷）。字符串 content 也兼容。
+    #[test]
+    fn scan_sessions_reads_text_from_content_blocks() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let path = dir.path().join("a.jsonl");
+        let body = [
+            r#"{"type":"session","version":3,"id":"s1","timestamp":"2026-10-01T00:00:00.000Z","cwd":"/w"}"#,
+            r#"{"type":"message","timestamp":"2026-10-01T00:00:01.000Z","message":{"role":"user","content":[{"type":"text","text":"先 ls"},{"type":"text","text":"再读 AGENTS.md"}]}}"#,
+            r#"{"type":"message","timestamp":"2026-10-01T00:00:02.000Z","message":{"role":"user","content":"第二句"}}"#,
+        ]
+        .join("\n");
+        std::fs::write(&path, body).expect("写会话");
+
+        let rows = scan_sessions(dir.path());
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0].summary.as_deref(), Some("先 ls 再读 AGENTS.md"));
+        assert_eq!(rows[0].message_count, 2);
+    }
+
+    /// `modified` 取**最后一条消息**的时间（ref `getMessageActivityTime`），不是首行时间。
+    #[test]
+    fn scan_sessions_uses_last_message_time() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let path = dir.path().join("b.jsonl");
+        let body = [
+            r#"{"type":"session","version":3,"id":"s2","timestamp":"2026-10-01T00:00:00.000Z","cwd":"/w"}"#,
+            r#"{"type":"message","timestamp":"2026-10-02T00:00:00.000Z","message":{"role":"assistant","content":[{"type":"text","text":"x"}]}}"#,
+        ]
+        .join("\n");
+        std::fs::write(&path, body).expect("写会话");
+
+        let rows = scan_sessions(dir.path());
+        assert_eq!(rows.len(), 1);
+        let header_ms = super::parse_rfc3339_ms("2026-10-01T00:00:00.000Z").expect("时间可解析");
+        let last_ms = super::parse_rfc3339_ms("2026-10-02T00:00:00.000Z").expect("时间可解析");
+        assert_eq!(rows[0].modified_ms, last_ms);
+        assert!(rows[0].modified_ms > header_ms);
+    }
+
+    /// 首行不是 `session` 的文件不算会话（ref `session-manager.ts:809-813` 返回 null）。
+    #[test]
+    fn scan_sessions_skips_files_without_session_header() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        std::fs::write(
+            dir.path().join("c.jsonl"),
+            r#"{"type":"message","timestamp":"2026-10-01T00:00:00.000Z","message":{"role":"user","content":"x"}}"#,
+        )
+        .expect("写会话");
+        assert!(scan_sessions(dir.path()).is_empty());
+    }
+
+    /// 多行首条消息在列表行里必须压成一行（ref 把控制字符替换成空格）。
+    #[test]
+    fn row_normalizes_newlines_in_summary() {
+        let mut selector = ResumeSelector::new();
+        selector.sessions = vec![SessionRow {
+            path: std::path::PathBuf::from("/a.jsonl"),
+            name: None,
+            summary: Some("第一行\n第二行".to_string()),
+            cwd: String::new(),
+            message_count: 1,
+            modified_ms: now_millis_for_test(),
+        }];
+        let lines = selector.lines(60);
+        let row = lines
+            .iter()
+            .find(|l| l.starts_with("› "))
+            .expect("应有选中行");
+        assert!(!row.contains('\n'), "{row:?}");
+        assert!(row.starts_with("› 第一行 第二行"), "{row:?}");
     }
 
     /// T38 golden：`All` 作用域下列出一行（`› (no messages) … <cwd> 1 9mo`）。
@@ -1638,6 +1823,9 @@ mod resume_list_tests {
     fn current_folder_filters_by_cwd() {
         let mut selector = ResumeSelector::new();
         selector.current_cwd = "/w1".to_string();
+        // ref `session-manager.ts:1904-1906`：只有**自定义**会话目录才按 header cwd 过滤；
+        // 默认分区目录里列出全部（目录改名后旧 header 的 cwd 不同也照样出现）。
+        selector.filter_cwd = true;
         selector.sessions = vec![
             SessionRow {
                 path: std::path::PathBuf::from("/a.jsonl"),
@@ -1659,6 +1847,82 @@ mod resume_list_tests {
         assert_eq!(selector.visible_indices(), vec![0]);
         selector.all_scopes = true;
         assert_eq!(selector.visible_indices(), vec![0, 1]);
+    }
+
+    /// 上下键必须能在 `/resume` 列表里移动选中项（真机：多个会话时按上下键没反应）。
+    /// ref `session-selector.ts:614-626`：到头**夹住**、不环绕。
+    #[test]
+    fn resume_selection_moves_with_arrow_keys() {
+        let mut selector = ResumeSelector::new();
+        selector.filter_cwd = false;
+        selector.sessions = (0..3)
+            .map(|i| SessionRow {
+                path: std::path::PathBuf::from(format!("/s{i}.jsonl")),
+                name: None,
+                summary: Some(format!("会话 {i}")),
+                cwd: "/w".into(),
+                message_count: 1,
+                modified_ms: 10 - i as u128,
+            })
+            .collect();
+
+        let cursor_row = |sel: &ResumeSelector| {
+            sel.lines(80)
+                .into_iter()
+                .find(|line| line.starts_with("› "))
+                .unwrap_or_default()
+        };
+        assert!(
+            cursor_row(&selector).starts_with("› 会话 0"),
+            "初始选中第 1 条"
+        );
+
+        selector.move_down();
+        assert!(
+            cursor_row(&selector).starts_with("› 会话 1"),
+            "下键到第 2 条"
+        );
+        selector.move_down();
+        selector.move_down();
+        assert!(cursor_row(&selector).starts_with("› 会话 2"), "到底后夹住");
+        selector.move_up();
+        assert!(
+            cursor_row(&selector).starts_with("› 会话 1"),
+            "上键回第 2 条"
+        );
+        selector.move_up();
+        selector.move_up();
+        assert!(cursor_row(&selector).starts_with("› 会话 0"), "到顶后夹住");
+    }
+
+    /// 空列表时上下键不 panic、`selected` 保持 0。
+    #[test]
+    fn resume_selection_on_empty_list_is_safe() {
+        let mut selector = ResumeSelector::new();
+        selector.move_down();
+        selector.move_up();
+        selector.page_down(10);
+        assert_eq!(selector.selected, 0);
+        assert!(selector.selected_path().is_none());
+    }
+
+    /// 默认会话目录（`filter_cwd = false`）：**不**按 header cwd 过滤。
+    /// 真机缺陷（OI-2）：`~/Desktop/Colibrì` 改名成 `colibri` 后，旧会话 header 里还是
+    /// 老路径，`/resume` 里整个消失。ref 的行为是照列（`list()` 在默认目录下不过滤）。
+    #[test]
+    fn default_session_dir_does_not_filter_by_header_cwd() {
+        let mut selector = ResumeSelector::new();
+        selector.current_cwd = "/work/colibri".to_string();
+        selector.filter_cwd = false;
+        selector.sessions = vec![SessionRow {
+            path: std::path::PathBuf::from("/a.jsonl"),
+            name: None,
+            summary: Some("old".into()),
+            cwd: "/work/Colibrì".into(),
+            message_count: 7,
+            modified_ms: 2,
+        }];
+        assert_eq!(selector.visible_indices(), vec![0]);
     }
 }
 

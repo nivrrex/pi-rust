@@ -81,16 +81,42 @@ async function main() {
   // 内容里可写 `<CWD>` 占位符，由运行器替换成真实临时工作目录）。
   // 为什么需要：`/resume` 的列表渲染在本环境拿不到 TS golden —— harness 运行期本来没有会话文件
   // （会话在退出时才落盘，TS 在 All 作用域也只显示 `No sessions found`）。
+  // P9-1-E1c/S6：场景可带 `extensions`（`{ "目录/文件": "<内容>" }`），写进
+  // `<agentDir>/extensions`。TS 与 pi-rs 都从该目录发现扩展，两侧喂的是同一份内容。
+  if (scenario.extensions && typeof scenario.extensions === "object") {
+    for (const [rel, content] of Object.entries(scenario.extensions)) {
+      const target = path.join(tmp, "cfg", "extensions", rel);
+      await fs.promises.mkdir(path.dirname(target), { recursive: true });
+      await fs.promises.writeFile(target, String(content));
+    }
+  }
   if (scenario.sessionFiles) {
     // 兼容两种形状：`{fileName, content}`（与 run.mjs 一致）与**数组**（一次预置多个会话，
     // 用于 `/resume` 的排序/列表等多会话场景）。
     const entries = Array.isArray(scenario.sessionFiles) ? scenario.sessionFiles : [scenario.sessionFiles];
     for (const entry of entries) {
       // `<SESS>` = 会话目录（绝对路径），用于构造 `parentSessionPath` 指向另一个预置会话。
+      // `<NOW_MINUS:n>` = 现在减 n 秒的 ISO 时间戳。**为什么需要**：`/resume` 行尾显示
+      // `3d`/`10mo` 这类相对时间，若夹具写死日期，golden 会随时间漂移；用相对 now 写死
+      // 时间戳后，"写入时 now - n" 与"运行期 now - n" 只差启动那几秒 ⇒ 分档稳定
+      // （例如 n=60 ⇒ 永远落 `1m`），且排序（按最后活动时间降序）确定。
       const seeded = entry.content
         .replaceAll("<CWD>", path.join(tmp, "work"))
-        .replaceAll("<SESS>", path.join(tmp, "sess"));
+        .replaceAll("<SESS>", path.join(tmp, "sess"))
+        .replace(/<NOW_MINUS:(\d+)>/g, (_, seconds) =>
+          new Date(Date.now() - Number(seconds) * 1000).toISOString(),
+        );
       await fs.promises.writeFile(path.join(tmp, "sess", entry.fileName), seeded);
+    }
+  }
+  // F23：**新键 `agentFiles`**（不要用 `globalFiles`：既有场景里它有值但 run-tui 一直忽略，
+  // 改语义会让 45 个 golden 变 different）。写进 `<tmp>/cfg`（agent 目录），用于在默认路径下
+  // 造 skills（`<agentDir>/skills/<name>/SKILL.md`）或全局 AGENTS.md。
+  if (scenario.agentFiles && typeof scenario.agentFiles === "object") {
+    for (const [rel, content] of Object.entries(scenario.agentFiles)) {
+      const target = path.join(tmp, "cfg", rel);
+      await fs.promises.mkdir(path.dirname(target), { recursive: true });
+      await fs.promises.writeFile(target, content);
     }
   }
   // 注意：helper 的 cwd 在临时目录 ⇒ 输出/退出码路径必须是**绝对路径**（否则 ENOENT）。

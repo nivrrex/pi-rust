@@ -143,7 +143,9 @@ fn tool_switches_and_session_flags_set_booleans() {
 #[test]
 fn recognized_but_unimplemented_flags_are_listed_for_the_caller_to_reject() {
     let args = parse(&argv(&["--no-extensions", "--theme", "dark", "hi"]));
-    assert_eq!(args.unsupported, vec!["--no-extensions", "--theme"]);
+    // F2/S4：`--no-extensions` 已实现（只跳过发现，ref `args.ts:179-180`），不再属于"未实现"。
+    assert!(args.no_extensions, "--no-extensions 应已实现");
+    assert_eq!(args.unsupported, vec!["--theme"]);
     assert_eq!(args.messages, vec!["hi"], "--theme 的值不能被当成位置参数");
 }
 

@@ -1,0 +1,29 @@
+{
+  "id": "T86-resume-window",
+  "cols": 100,
+  "rows": 44,
+  "helperExit": 0,
+  "exitCode": 0,
+  "stderr": "",
+  "mockStderr": "",
+  "requestLog": "/tmp/t86-light/requests.jsonl",
+  "snapshotOffsets": [
+    {
+      "name": "resume-window",
+      "offset": 10915
+    },
+    {
+      "name": "after-pagedown",
+      "offset": 12652
+    },
+    {
+      "name": "after-pagedown-clamp",
+      "offset": 13094
+    },
+    {
+      "name": "after-pageup",
+      "offset": 14830
+    }
+  ],
+  "sessionDir": "/tmp/t86-light/session"
+}

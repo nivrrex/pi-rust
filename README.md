@@ -75,6 +75,11 @@ pi-rs -c              # 续写最近的会话
 - apiKey 支持字面量、`$VAR`/`${VAR}` 与 `!command`；
 - 工具结果按 `tool_call_id` 绑定；`grep`/`find` 委托 `rg`/`fd`；
 - 自动压缩、`/tree`、`/resume`、`/fork`、`/copy` 等会话命令。
+- **扩展（需要本机有 `node`）**：`<配置目录>/extensions/*/index.mjs|index.js` 直接加载，
+  `registerTool` 注册的工具会并入工具表（`--list-tools` 可见、模型可调用）；
+  `.ts` 扩展需要 jiti（`PI_JITI` 指向其包目录）。找不到 node/jiti 时跳过扩展并提示，
+  其余功能不受影响。用法、发现规则、已支持/未支持清单见 **`docs/extensions.md`**，
+  已知差异见 `LIMITATIONS.md` 的"扩展"一节。
 
 ## 测试
 

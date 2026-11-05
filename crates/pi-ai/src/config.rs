@@ -113,7 +113,6 @@ impl ModelsConfig {
     ) -> Result<ResolvedModel, ConfigError> {
         // `models.json` 里没有这个 provider 时，允许**只靠内置目录**解析（ref 的 provider
         // registry 本来就含内置 provider：`/login` 成功后无需手写 models.json 也能跑）。
-        let synthesized;
         let raw: &Value = match self.providers.get(provider_name) {
             Some(raw) => raw,
             None => {
@@ -124,12 +123,18 @@ impl ModelsConfig {
                             .and_then(|catalog| catalog.defaults_for(provider_name, model_id, None))
                     })
                     .ok_or_else(|| ConfigError::UnknownProvider(provider_name.to_string()))?;
-                synthesized = serde_json::json!({
-                    "api": builtin.api,
-                    "baseUrl": builtin.base_url,
-                    "models": [{ "id": model_id }],
-                });
-                &synthesized
+                // **只有目录、没有 models.json**（只放 `auth.json` 的机器）：直接用目录里的
+                // 模型定义。此前这里合成 `"models": [{ "id": … }]` 走"用户声明"分支，
+                // 目录字段被丢掉 ⇒ `contextWindow` 退回 128000（真机 footer 里 262k 的
+                // 模型显示成 128k，`/model` 切到 1M 的模型也还是 128k）。
+                // ref 等价路径是"provider 目录内置、models.json 不覆盖"（`applyModelsJson`
+                // 的 `config === undefined` 分支），模型定义原样保留。
+                let provider = ProviderConfig {
+                    api: Some(builtin.api.clone()),
+                    base_url: builtin.base_url.clone(),
+                    ..ProviderConfig::default()
+                };
+                return Self::resolve_builtin(provider_name, &provider, builtin);
             }
         };
         let provider: ProviderConfig = serde_json::from_value(raw.clone())
@@ -456,6 +461,22 @@ impl BuiltInCatalog {
         Ok(Self { providers })
     }
 
+    /// 把另一份目录叠到自己上面（`models-store.json` 的语义）。
+    ///
+    /// ref `core/remote-catalog-provider.ts:12-21` 的 `mergeModels`：**按模型 id 逐个覆盖**，
+    /// 目录里没有的 id 追加在后面。store 是"动态刷新后的缓存"，优先级高于编译期内置目录。
+    pub fn overlay(&mut self, other: &Self) {
+        for (provider, models) in &other.providers {
+            let target = self.providers.entry(provider.clone()).or_default();
+            for model in models {
+                match target.iter().position(|existing| existing.id == model.id) {
+                    Some(index) => target[index] = model.clone(),
+                    None => target.push(model.clone()),
+                }
+            }
+        }
+    }
+
     /// provider 数量。
     pub fn provider_count(&self) -> usize {
         self.providers.len()
@@ -468,6 +489,16 @@ impl BuiltInCatalog {
     }
 
     /// 某 provider 的第一个内置模型 id（供 `/login` 成功后选默认模型）。
+    /// 遍历全部 `(provider, model)`（顺序：provider 名字典序、模型按目录顺序）。
+    ///
+    /// `--list-models` 要把内置目录与 `models.json` 并起来列出来（ref `cli/list-models.ts`
+    /// 取的是运行时 registry），这里给出只读迭代器。
+    pub fn entries(&self) -> impl Iterator<Item = (&str, &BuiltInModel)> {
+        self.providers.iter().flat_map(|(provider, models)| {
+            models.iter().map(move |model| (provider.as_str(), model))
+        })
+    }
+
     #[must_use]
     pub fn first_model(&self, provider: &str) -> Option<&str> {
         self.providers

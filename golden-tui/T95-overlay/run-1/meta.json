@@ -1,0 +1,15 @@
+{
+  "id": "T95-overlay",
+  "cols": 100,
+  "rows": 30,
+  "helperExit": 0,
+  "exitCode": -9,
+  "stderr": "",
+  "mockStderr": "",
+  "snapshotOffsets": [
+    {
+      "name": "overlay",
+      "offset": 3568
+    }
+  ]
+}

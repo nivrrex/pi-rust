@@ -74,6 +74,7 @@ impl PendingQueue {
                         | Message::System { .. }
                         | Message::ToolResult { .. }
                         | Message::Custom { .. }
+                        | Message::BashExecution { .. }
                         | Message::BranchSummary { .. }
                         | Message::CompactionSummary { .. } => None,
                     })

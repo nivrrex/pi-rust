@@ -57,6 +57,7 @@ pub fn resolve_paths(
     env: &dyn Fn(&str) -> Option<String>,
     home: &str,
     session_dir_flag: Option<&str>,
+    cwd: &std::path::Path,
 ) -> Paths {
     let agent_dir = match env("PI_CODING_AGENT_DIR") {
         Some(value) if !value.trim().is_empty() => expand_tilde(value.trim(), home),
@@ -66,7 +67,13 @@ pub fn resolve_paths(
         Some(flag) if !flag.trim().is_empty() => expand_tilde(flag.trim(), home),
         Some(_) | None => match env("PI_CODING_AGENT_SESSION_DIR") {
             Some(value) if !value.trim().is_empty() => expand_tilde(value.trim(), home),
-            Some(_) | None => agent_dir.join("sessions"),
+            // 默认目录按 **cwd** 分区（ref `session-manager.ts:589-594`）：
+            // `<agentDir>/sessions/--<cwd 编码>--`。此前所有会话都平铺在 `sessions/`
+            // 根下，于是 `-c` 会跨项目取到"最近的一条"（用户报的 = 根目录里最后一个）。
+            Some(_) | None => pi_core::session_path::default_session_dir(
+                &cwd.to_string_lossy(),
+                &agent_dir.to_string_lossy(),
+            ),
         },
     };
     Paths {
@@ -214,9 +221,30 @@ fn stored_api_key(provider: &str) -> Option<String> {
     // 于是 `auth.json` 永远读不到 ⇒ 真机报"Provider \"openrouter\" 没有可用的 API key"
     // （B-e 只替换了 5 处调用点，**漏了这一处**）。
     let home = home_from(&|key| std::env::var(key).ok());
-    let paths = resolve_paths(&|name| std::env::var(name).ok(), &home, None);
+    let cwd = std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("."));
+    let paths = resolve_paths(&|name| std::env::var(name).ok(), &home, None, &cwd);
     let text = std::fs::read_to_string(paths.agent_dir.join("auth.json")).ok()?;
     auth_json_api_key(&text, provider)
+}
+
+/// `/login` 的 provider 候选：`models.json` 里配置过的 ∪ 内置目录里的（去重、按名排序）。
+///
+/// ref 遍历的是**运行时 registry**（含内置 provider），所以零配置的新机器也能 `/login`。
+/// 这两个调用点（启动时写进 `TuiState` 与 `AgentParts`）必须用同一份，
+/// 否则会出现"无模型启动能登录、有模型启动 `/login openrouter` 却说没有该 provider"。
+#[must_use]
+pub fn login_provider_ids(agent_dir: &std::path::Path) -> Vec<String> {
+    let mut ids: Vec<String> = std::fs::read_to_string(agent_dir.join("models.json"))
+        .ok()
+        .and_then(|text| serde_json::from_str::<pi_ai::config::ModelsConfig>(&text).ok())
+        .map(|config| config.providers.keys().cloned().collect())
+        .unwrap_or_default();
+    if let Some(catalog) = load_builtin_catalog(agent_dir) {
+        ids.extend(catalog.provider_ids().into_iter().map(str::to_string));
+    }
+    ids.sort();
+    ids.dedup();
+    ids
 }
 
 /// 加载内置模型目录（P7-6am/M 的实现，P7-7f 从 `main.rs` 挪来以便 TUI 侧也能用）。
@@ -232,21 +260,24 @@ pub const EMBEDDED_CATALOG: &str =
 pub fn load_builtin_catalog(agent_dir: &std::path::Path) -> Option<pi_ai::config::BuiltInCatalog> {
     // 编译期内置目录：零配置机器（没有 models-store.json）也要能 `/login` 并跑起来，
     // 与 ref 的"运行时 provider registry 含内置 provider"对齐。
-    if let Ok(catalog) = pi_ai::config::BuiltInCatalog::from_json(crate::runtime::EMBEDDED_CATALOG)
-    {
-        return Some(catalog);
-    }
+    let mut catalog =
+        pi_ai::config::BuiltInCatalog::from_json(crate::runtime::EMBEDDED_CATALOG).ok();
+    // `models-store.json` 是**动态刷新后的缓存**（ref `core/models-store.ts`），按模型 id
+    // 覆盖编译期内置目录（`remote-catalog-provider.ts:12-21` 的 `mergeModels`）。
+    // 我们从不写这个文件（不联网刷新），但读到就用，保证与 TS 版共用一个配置目录时行为一致。
     for name in ["models-store.json", "pi-official-catalog.json"] {
         let path = agent_dir.join(name);
         let Ok(text) = std::fs::read_to_string(&path) else {
             continue;
         };
-        match pi_ai::config::BuiltInCatalog::from_json(&text) {
-            Ok(catalog) => return Some(catalog),
-            Err(_) => continue,
+        if let Ok(overlay) = pi_ai::config::BuiltInCatalog::from_json(&text) {
+            match catalog.as_mut() {
+                Some(base) => base.overlay(&overlay),
+                None => catalog = Some(overlay),
+            }
         }
     }
-    None
+    catalog
 }
 
 #[cfg(test)]
@@ -268,12 +299,48 @@ mod tests {
 
     #[test]
     fn defaults_to_dot_pi_agent_under_home() {
-        let paths = resolve_paths(&env_from(&[]), "/home/u", None);
+        let cwd = PathBuf::from("/home/u/work");
+        let paths = resolve_paths(&env_from(&[]), "/home/u", None, &cwd);
         assert_eq!(paths.agent_dir, PathBuf::from("/home/u/.pi/agent"));
+        // 默认会话目录按 cwd 分区（ref `session-manager.ts:589-594`）。
         assert_eq!(
             paths.session_dir,
-            PathBuf::from("/home/u/.pi/agent/sessions")
+            PathBuf::from("/home/u/.pi/agent/sessions/--home-u-work--")
         );
+    }
+
+    /// 不同 cwd 落在不同目录，`-c` 因此只会看到当前项目的会话。
+    #[test]
+    fn session_dir_is_partitioned_per_cwd() {
+        let env = env_from(&[]);
+        let a = resolve_paths(&env, "/home/u", None, &PathBuf::from("/home/u/a"));
+        let b = resolve_paths(&env, "/home/u", None, &PathBuf::from("/home/u/b"));
+        assert_ne!(a.session_dir, b.session_dir);
+        assert_eq!(
+            a.session_dir,
+            PathBuf::from("/home/u/.pi/agent/sessions/--home-u-a--")
+        );
+    }
+
+    /// 编码规则：去首斜杠，`/`、`\\`、`:` 一律换 `-`，两端各两个横线。
+    /// 覆盖空格、中文、Windows 盘符（与 ref `session-manager.ts:592` 逐字一致）。
+    #[test]
+    fn session_dir_encoding_matches_ref() {
+        let env = env_from(&[("PI_CODING_AGENT_DIR", "/a")]);
+        for (cwd, want) in [
+            ("/work/pi-rust", "--work-pi-rust--"),
+            ("/home/u/my project", "--home-u-my project--"),
+            ("/home/u/中文目录", "--home-u-中文目录--"),
+            ("C:\\Users\\Admin\\Desktop", "--C--Users-Admin-Desktop--"),
+            ("\\\\server\\share\\x", "---server-share-x--"),
+        ] {
+            let paths = resolve_paths(&env, "/home/u", None, &PathBuf::from(cwd));
+            assert_eq!(
+                paths.session_dir.file_name().and_then(|n| n.to_str()),
+                Some(want),
+                "cwd={cwd}"
+            );
+        }
     }
 
     /// 主目录解析（B-e）：Windows 上 `HOME` 通常不存在，必须回落到 `USERPROFILE`，
@@ -306,12 +373,18 @@ mod tests {
     fn windows_home_builds_standard_agent_dir() {
         let env = env_from(&[("USERPROFILE", r"C:\\Users\\Admin")]);
         let home = super::home_from(&env);
-        let paths = resolve_paths(&env, &home, None);
+        let paths = resolve_paths(&env, &home, None, &PathBuf::from("C:\\Users\\Admin\\proj"));
         assert_eq!(
             paths.agent_dir,
             PathBuf::from(r"C:\\Users\\Admin").join(".pi").join("agent")
         );
-        assert_eq!(paths.session_dir, paths.agent_dir.join("sessions"));
+        assert_eq!(
+            paths.session_dir,
+            paths
+                .agent_dir
+                .join("sessions")
+                .join("--C--Users-Admin-proj--")
+        );
     }
 
     #[test]
@@ -320,6 +393,7 @@ mod tests {
             &env_from(&[("PI_CODING_AGENT_DIR", "~/cfg")]),
             "/home/u",
             None,
+            &PathBuf::from("/w"),
         );
         assert_eq!(paths.agent_dir, PathBuf::from("/home/u/cfg"));
     }
@@ -330,9 +404,10 @@ mod tests {
             ("PI_CODING_AGENT_DIR", "/a"),
             ("PI_CODING_AGENT_SESSION_DIR", "/from-env"),
         ]);
-        let paths = resolve_paths(&env, "/home/u", Some("/from-flag"));
+        let cwd = PathBuf::from("/w");
+        let paths = resolve_paths(&env, "/home/u", Some("/from-flag"), &cwd);
         assert_eq!(paths.session_dir, PathBuf::from("/from-flag"));
-        let without_flag = resolve_paths(&env, "/home/u", None);
+        let without_flag = resolve_paths(&env, "/home/u", None, &cwd);
         assert_eq!(without_flag.session_dir, PathBuf::from("/from-env"));
     }
 
@@ -345,11 +420,12 @@ mod tests {
             ]),
             "/home/u",
             None,
+            &PathBuf::from("/w"),
         );
         assert_eq!(paths.agent_dir, PathBuf::from("/home/u/.pi/agent"));
         assert_eq!(
             paths.session_dir,
-            PathBuf::from("/home/u/.pi/agent/sessions")
+            PathBuf::from("/home/u/.pi/agent/sessions/--w--")
         );
     }
 }

@@ -1,0 +1,63 @@
+{
+ "id": "T103-skill-cmd",
+ "description": "F23/S1b：/skill:<name> args 在 TUI 里的展开（用户消息体与 TS 一致）",
+ "provider": "openai-completions",
+ "model": "mock-model",
+ "mode": "print",
+ "prompt": "hi",
+ "files": {},
+ "responses": [
+  {
+   "file": "fixtures/sse/openai/text-basic.sse"
+  }
+ ],
+ "tui": {
+  "cols": 100,
+  "rows": 30,
+  "steps": [
+   {
+    "action": "delay",
+    "ms": 2000
+   },
+   {
+    "action": "waitStable",
+    "quietMs": 800,
+    "timeoutMs": 15000
+   },
+   {
+    "action": "type",
+    "text": "/skill:alpha-skill 请按技能执行"
+   },
+   {
+    "action": "type",
+    "text": "\r"
+   },
+   {
+    "action": "waitStable",
+    "quietMs": 1200,
+    "timeoutMs": 20000
+   },
+   {
+    "action": "snapshot",
+    "name": "after"
+   },
+   {
+    "action": "type",
+    "text": "\u0004"
+   },
+   {
+    "action": "waitStable",
+    "quietMs": 500,
+    "timeoutMs": 10000
+   }
+  ],
+  "snapshots": [
+   "after"
+  ]
+ },
+ "agentFiles": {
+  "skills/alpha/SKILL.md": "---\nname: alpha-skill\ndescription: alpha desc\n---\nBody\n",
+  "skills/beta/SKILL.md": "---\nname: beta-skill\ndescription: beta desc\n---\nBody\n",
+  "skills/hidden/SKILL.md": "---\nname: hidden-skill\ndescription: hidden desc\ndisable-model-invocation: true\n---\nBody\n"
+ }
+}

@@ -1,6 +1,6 @@
 # spec/b-agent-loop.md — agent loop 与事件序
 
-对应 RUNBOOK-1 步骤 A2。核心循环在 `packages/agent/src/agent-loop.ts`（低层，无状态）与
+核心循环在 `packages/agent/src/agent-loop.ts`（低层，无状态）与
 `packages/agent/src/agent.ts`（有状态包装，持队列与 abort）+ `packages/coding-agent/src/core/agent-session.ts`（产品层，接 compaction/重试/扩展边界）。
 
 ## 1. 双层循环结构

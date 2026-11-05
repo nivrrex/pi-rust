@@ -1,6 +1,6 @@
 # spec/e-tools.md — read / write / edit / bash
 
-对应 RUNBOOK-1 步骤 A5。来源 `packages/coding-agent/src/core/tools/{read,write,edit,bash,edit-diff,truncate,output-accumulator}.ts`。
+来源 `packages/coding-agent/src/core/tools/{read,write,edit,bash,edit-diff,truncate,output-accumulator}.ts`。
 四个工具都是 typebox schema + `ToolDefinition`，并通过 `wrapToolDefinition` 包成运行时 `AgentTool`。
 
 ## 0. 公共约定
@@ -30,7 +30,7 @@
 - 图片成功时返回两条内容：先文本 `Read image file [${processed.mimeType}]`（可附 hints 与非视觉模型提示），再 image 块。〔packages/coding-agent/src/core/tools/read.ts:123-131〕
 - 已验证（Anthropic provider 场景）：`toolResult` 的 content 确实是 `['text','image']`，文本为 `Read image file [image/png]`，图片块带 base64 数据。〔golden/S25-anthropic/session.jsonl:7-7〕
 - 已验证（大文件 read 的证据，对应 Q4）：**S21** 让模型读一个约 36 KB / 1200 行的大文件（夹具 `fixtures/sse/openai/tool-read-big.sse`），会话里**有** `toolResult` 条目，实测 42640 字节、`toolName` 为 `read`。此前"大文件 read 不产生 toolResult"的观察是我生成夹具时的缺陷（tool-call 行被当作原始字符串传给 `extend`，被逐字符拆开），**该结论已撤回**；因此"read 截断只有小文件证据"的说法不再成立。〔golden/S21/session.jsonl:7-7〕
-- 已验证：OpenAI provider 场景下同样产生含 `image` 块的 toolResult（此前观察到的"没有 toolResult"是我生成夹具时的缺陷，见 `notes/decisions.md` 的 A1 小节）。〔golden/S25-openai/session.jsonl:7-7〕
+- 已验证：OpenAI provider 场景下同样产生含 `image` 块的 toolResult。〔golden/S25-openai/session.jsonl:7-7〕
 - 非视觉模型提示文案是 `[Current model does not support images. The image will be omitted from this request.]`，仅当 `ctx.model` 存在且 `model.input` 不含 `"image"` 时追加。〔packages/coding-agent/src/core/tools/read.ts:59-64〕
 - 文本分支先按 `\n` 切成行数组，`offset` 从 1 基转 0 基：`startLine = offset ? Math.max(0, offset - 1) : 0`。〔packages/coding-agent/src/core/tools/read.ts:136-140〕
 - `offset` 越界的错误文本：`Offset ${offset} is beyond end of file (${allLines.length} lines total)`。〔packages/coding-agent/src/core/tools/read.ts:141-144〕

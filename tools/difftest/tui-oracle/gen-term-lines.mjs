@@ -62,7 +62,11 @@ async function runCase(id, steps) {
 	Object.defineProperty(process, "stdout", { value: fakeOut, configurable: true });
 	Object.defineProperty(process, "stdin", { value: fakeIn, configurable: true });
 	const phases = [];
-	const mark = (name) => phases.push({ name, bytes: written.splice(0).join("") });
+	// 与 `gen-term.mjs` 同一条**已知偏离**映射：pi-rs 把 push 的 kitty flags 从 ref 的 7 改成 5
+	// （关掉位2=上报事件类型，见 `notes/decisions.md`「F4/S4 改」）。这里同样映射，否则侧车会与
+	// 已重录的 `fixtures-term.json` 不一致。
+	const mark = (name) =>
+		phases.push({ name, bytes: written.splice(0).join("").split("\u001b[>7u").join("\u001b[>5u") });
 	try {
 		const term = new ProcessTerminal();
 		term.start((data) => { events.push(data); kittyTimeline.push({ at: `event:${data.length}`, kitty: keys.isKittyProtocolActive() }); }, () => {});

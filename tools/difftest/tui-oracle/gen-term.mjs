@@ -15,6 +15,14 @@ const keys = await import(path.join(REF, "keys.ts"));
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
+// pi-rs **已知偏离**：我们把要 push 的 kitty flags 从 ref 的 7 改成 5（关掉位2=上报事件类型），
+// 见 `crates/pi-tui/src/term_negotiate.rs` 的 `DESIRED_KITTY_FLAGS` 与
+// `notes/decisions.md`「F4/S4 改」。ref 录到的 "start" 阶段字节因此要按偏离映射一次，
+// 否则夹具会要求我们发 `>7u`。这是**记录偏离**，不是为了让测试通过而改期望值。
+function applyKnownDeviation(bytes) {
+	return bytes.split("\u001b[>7u").join("\u001b[>5u");
+}
+
 async function runCase(id, steps) {
 	const written = [];
 	const events = [];
@@ -34,7 +42,8 @@ async function runCase(id, steps) {
 	Object.defineProperty(process, "stdout", { value: fakeOut, configurable: true });
 	Object.defineProperty(process, "stdin", { value: fakeIn, configurable: true });
 	const phases = [];
-	const mark = (name) => phases.push({ name, bytes: written.splice(0).join("") });
+	const mark = (name) =>
+		phases.push({ name, bytes: applyKnownDeviation(written.splice(0).join("")) });
 	try {
 		const term = new ProcessTerminal();
 		term.start((data) => { events.push(data); kittyTimeline.push({ at: `event:${data.length}`, kitty: keys.isKittyProtocolActive() }); }, () => {});

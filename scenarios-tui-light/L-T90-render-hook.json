@@ -1,0 +1,90 @@
+{
+ "provider": "openai-completions",
+ "model": "mock-model",
+ "mode": "print",
+ "prompt": "call ext_echo",
+ "files": {},
+ "extensions": {
+  "render/package.json": "{\n  \"type\": \"module\",\n  \"name\": \"pi-rs-render-fixture\"\n}",
+  "render/index.js": "// TUI 渲染钩子夹具（P9-1-E4a / S5）：只用 Text/Spacer/Container。\nimport { Container, Spacer, Text } from \"@earendil-works/pi-tui\";\n\nexport default function renderTuiExtension(pi) {\n  pi.registerTool({\n    name: \"ext_echo\",\n    description: \"回显文本（渲染钩子夹具）\",\n    parameters: { type: \"object\", properties: { text: { type: \"string\" } }, required: [\"text\"] },\n    renderCall(args, theme) {\n      const box = new Container();\n      box.addChild(new Text(theme.fg(\"accent\", `echo-extension:${String(args?.text ?? \"\")}`), 1, 0));\n      box.addChild(new Spacer(1));\n      box.addChild(new Text(theme.fg(\"dim\", \"second-rendered-line\"), 1, 0));\n      return box;\n    },\n    renderResult(result, options, theme) {\n      const box = new Container();\n      box.addChild(new Text(theme.fg(\"success\", `result-extension:${result?.content?.[0]?.text ?? \"\"}`), 1, 0));\n      box.addChild(new Spacer(1));\n      box.addChild(new Text(theme.fg(\"dim\", `expanded=${String(options?.expanded)}`), 1, 0));\n      return box;\n    },\n    async execute(_id, args) {\n      return { content: [{ type: \"text\", text: `echo:${String(args?.text ?? \"\")}` }] };\n    },\n  });\n}\n"
+ },
+ "responses": [
+  {
+   "file": "fixtures/sse/openai/tool-ext-echo.sse"
+  },
+  {
+   "file": "fixtures/sse/openai/text-basic.sse"
+  }
+ ],
+ "tui": {
+  "cols": 100,
+  "rows": 30,
+  "steps": [
+   {
+    "action": "waitScreen",
+    "contains": "Pi can explain",
+    "timeoutMs": 40000
+   },
+   {
+    "action": "type",
+    "text": "call ext_echo"
+   },
+   {
+    "action": "waitStable",
+    "quietMs": 500,
+    "timeoutMs": 15000
+   },
+   {
+    "action": "type",
+    "text": "\r"
+   },
+   {
+    "action": "waitScreen",
+    "contains": "result-extension:",
+    "timeoutMs": 60000
+   },
+   {
+    "action": "waitStable",
+    "quietMs": 800,
+    "timeoutMs": 20000
+   },
+   {
+    "action": "snapshot",
+    "name": "after-render"
+   },
+   {
+    "action": "type",
+    "text": "\u000f"
+   },
+   {
+    "action": "waitScreen",
+    "contains": "expanded=true",
+    "timeoutMs": 30000
+   },
+   {
+    "action": "waitStable",
+    "quietMs": 800,
+    "timeoutMs": 20000
+   },
+   {
+    "action": "snapshot",
+    "name": "after-expand"
+   },
+   {
+    "action": "type",
+    "text": "\u0004"
+   },
+   {
+    "action": "waitStable",
+    "quietMs": 500,
+    "timeoutMs": 10000
+   }
+  ],
+  "snapshots": [
+   "after-render",
+   "after-expand"
+  ]
+ },
+ "id": "L-T90-render-hook",
+ "theme": "light"
+}

@@ -1,6 +1,6 @@
 # spec/d-compaction.md — compaction
 
-对应 RUNBOOK-1 步骤 A4。来源 `packages/coding-agent/src/core/compaction/{compaction,utils}.ts`
+来源 `packages/coding-agent/src/core/compaction/{compaction,utils}.ts`
 与 `packages/coding-agent/src/core/settings-manager.ts`（per-model 覆盖）。
 `CompactionEntry` 的字段已在 `spec/c-session.md` 第 2 节列出，本卡不重复。
 

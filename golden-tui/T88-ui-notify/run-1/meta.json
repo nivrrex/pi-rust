@@ -1,0 +1,15 @@
+{
+  "id": "T88-ui-notify",
+  "cols": 100,
+  "rows": 30,
+  "helperExit": 0,
+  "exitCode": 0,
+  "stderr": "",
+  "mockStderr": "",
+  "snapshotOffsets": [
+    {
+      "name": "after-notify",
+      "offset": 3834
+    }
+  ]
+}

@@ -328,6 +328,35 @@ impl Context {
                         "content": user_blocks_for_openai(content),
                     }));
                 }
+                // 正常情况下 `to_llm_messages` 已把 `bashExecution` 折成 user 且 `!!` 的被丢弃；
+                // 这里给出等价渲染以便本函数单独使用时行为正确（ref `messages.ts:150-163`）。
+                Message::BashExecution {
+                    command,
+                    output,
+                    exit_code,
+                    cancelled,
+                    truncated,
+                    full_output_path,
+                    exclude_from_context,
+                    ..
+                } => {
+                    if !exclude_from_context.unwrap_or(false) {
+                        out.push(json!({
+                            "role": "user",
+                            "content": [{
+                                "type": "text",
+                                "text": crate::message::bash_execution_to_text(
+                                    command,
+                                    output,
+                                    *exit_code,
+                                    *cancelled,
+                                    *truncated,
+                                    full_output_path.as_deref(),
+                                ),
+                            }],
+                        }));
+                    }
+                }
                 Message::BranchSummary { summary, .. } => {
                     out.push(json!({
                         "role": "user",
@@ -435,6 +464,35 @@ fn message_to_anthropic(message: &crate::message::Message) -> Option<(&'static s
         // 三个 agent 层角色（同上：`to_llm_messages` 之后通常不会走到这里，但必须有分支且不得静默丢弃）。
         Message::Custom { content, .. } => {
             Some(("user", user_content_to_anthropic(content, false)))
+        }
+        Message::BashExecution {
+            command,
+            output,
+            exit_code,
+            cancelled,
+            truncated,
+            full_output_path,
+            exclude_from_context,
+            ..
+        } => {
+            if exclude_from_context.unwrap_or(false) {
+                None
+            } else {
+                Some((
+                    "user",
+                    vec![json!({
+                        "type": "text",
+                        "text": crate::message::bash_execution_to_text(
+                            command,
+                            output,
+                            *exit_code,
+                            *cancelled,
+                            *truncated,
+                            full_output_path.as_deref(),
+                        ),
+                    })],
+                ))
+            }
         }
         Message::BranchSummary { summary, .. } => Some((
             "user",

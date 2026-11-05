@@ -103,6 +103,15 @@ impl RpcShared {
     ///
     /// 抽出它是为了让 `set_thinking_level`/`set_model` 也能写条目——
     /// 这两条命令可能在**第一次运行之前**就被调用（golden/S16 就是先切换再 prompt）。
+    /// 启动期就建好 writer（只建内存里的 header/前置条目，不落盘），让
+    /// `set_session_file` 在 `session_start` 派发**之前**生效。
+    ///
+    /// F25：rpc 的 `session_start` 是启动期派发的，而 writer 原本懒创建 ⇒ 扩展在这个事件里
+    /// `appendEntry` 拿不到路径（`p9_f11_entry_paths::rpc_entry_writes_append_entry` 一直 `#[ignore]`）。
+    pub fn materialize_writer(&self) {
+        let _ = self.with_writer(|_| ());
+    }
+
     fn with_writer<R>(
         &self,
         f: impl FnOnce(&mut crate::session_writer::SessionWriter) -> R,
@@ -111,7 +120,7 @@ impl RpcShared {
         let mut guard = self.session.lock().ok()?;
         if guard.is_none() {
             let thinking = if self.reasoning { "medium" } else { "off" };
-            let writer = match &self.precomputed_session {
+            let mut writer = match &self.precomputed_session {
                 Some((iso, id, path)) => crate::session_writer::SessionWriter::create_precomputed(
                     dir,
                     &self.cwd,
@@ -134,6 +143,12 @@ impl RpcShared {
             };
             // **不在这里写 system 条目**：命令期只建会话；system 由首次运行时
             // `write_new_messages` 写（golden/S16 的顺序是 …切换条目、system、user…）。
+            // F10：rpc 入口同样登记会话路径，否则 `pi.appendEntry` 的 sink 线程等不到路径。
+            writer.set_chain(crate::ext_tools::session_chain());
+            crate::ext_tools::set_session_file(writer.path());
+            crate::ext_tools::set_session_id(writer.session_id());
+            // F28/S1：rpc 没有 system 条目，登记完会话即可派发 `session_start`。
+            crate::ext_tools::flush_pending_session_start();
             *guard = Some(writer);
         }
         guard.as_mut().map(f)
@@ -577,6 +592,16 @@ impl SharedSink {
 
 impl EventSink for SharedSink {
     fn emit(&self, event: AgentEvent) {
+        // P9-1-D：`agent_end` 向扩展派发（ref `agent-session.ts:1061-1062`）。
+        if let AgentEvent::AgentEnd { messages, .. } = &event {
+            crate::ext_tools::emit_event(
+                "agent_end",
+                serde_json::json!({
+                    "type": "agent_end",
+                    "messages": serde_json::to_value(messages).unwrap_or(serde_json::Value::Null),
+                }),
+            );
+        }
         self.write_event(event);
         // 本线程的下一条事件写完 → 原子段结束（P4-15 步骤 1）；没开段时是空操作。
         self.0.section.end_if_owner();
@@ -821,6 +846,16 @@ impl RpcRuntime for RuntimeBridge {
             &message,
             &self.shared.prompt_templates,
         );
+        // P9 E3：扩展命令优先（ref `agent-session.ts:1615-1625`）。
+        if crate::ext_tools::try_run_command(&message) {
+            return Ok(());
+        }
+        // P9 E2：`input` 钩子（ref `agent-session.ts:1553-1572`，rpc 的 source 是 `"rpc"`）。
+        let message = match crate::ext_tools::run_input_hooks(&message, "rpc") {
+            crate::ext_tools::InputOutcome::Handled => return Ok(()),
+            crate::ext_tools::InputOutcome::Transform(text) => text,
+            crate::ext_tools::InputOutcome::Continue => message,
+        };
         let message = message.as_str();
         if self.shared.busy.load(Ordering::SeqCst) {
             // **文案逐字照 TS**（`agent-session.ts:1655-1657`）：
@@ -1018,6 +1053,10 @@ impl RpcRuntime for RuntimeBridge {
             .map_err(|error| format!("Failed to write forked session: {error}"))?;
         // 切为当前会话：写器、已写条数、上下文消息；新文件里没有 system，所以要重置标记。
         let mut writer = crate::session_writer::SessionWriter::open(&file)?;
+        // F11：分叉出的会话也要登记路径。
+        writer.set_chain(crate::ext_tools::session_chain());
+        crate::ext_tools::set_session_file(writer.path());
+        crate::ext_tools::set_session_id(writer.session_id());
         // 分叉出的会话也要补启动条目（与 `--continue` 启动时同样的规则：ref `sdk.ts:196`）。
         // golden/S28 实测：分叉后新会话是 `…, thinking_level_change, system, user, assistant`，
         // 且第二条 `get_tree` 的 `leafId` 就是它。
@@ -1203,6 +1242,10 @@ impl RpcRuntime for RuntimeBridge {
             .any(|entry| entry.kind() == "thinking_level_change");
         let mut writer = crate::session_writer::SessionWriter::open(&path)
             .map_err(|error| format!("Failed to open session file: {error}"))?;
+        // F11：rpc 的 resume/switch 同样要登记路径。
+        writer.set_chain(crate::ext_tools::session_chain());
+        crate::ext_tools::set_session_file(writer.path());
+        crate::ext_tools::set_session_id(writer.session_id());
         // 与 `--continue` 同规则：缺 `thinking_level_change` 才补（`sdk.ts:196`）。
         if !has_thinking_level {
             let level = if self.shared.reasoning {

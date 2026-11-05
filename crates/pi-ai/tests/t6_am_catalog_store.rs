@@ -51,3 +51,65 @@ fn without_catalog_it_still_errors_on_missing_base_url() {
         "错误信息应指出 baseUrl：{error}"
     );
 }
+
+/// `models-store.json` 是**叠加**在编译期内置目录上的（ref `remote-catalog-provider.ts:12-21`）：
+/// 同 id 覆盖、新 id 追加。只放 `auth.json` 的机器读到别处拷来的 store 时应生效。
+#[test]
+fn store_overlays_builtin_catalog_by_model_id() {
+    let builtin_json = r#"{
+      "openrouter": [
+        { "id": "a", "api": "openai-completions", "contextWindow": 1000 },
+        { "id": "b", "api": "openai-completions", "contextWindow": 2000 }
+      ]
+    }"#;
+    let store_json = r#"{
+      "openrouter": { "models": [
+        { "id": "b", "api": "openai-completions", "contextWindow": 9999 },
+        { "id": "c", "api": "openai-completions", "contextWindow": 3000 }
+      ] }
+    }"#;
+    let mut base = BuiltInCatalog::from_json(builtin_json).expect("内置目录可解析");
+    let overlay = BuiltInCatalog::from_json(store_json).expect("store 可解析");
+    base.overlay(&overlay);
+
+    assert_eq!(
+        base.find("openrouter", "a").map(|m| m.context_window),
+        Some(Some(1000))
+    );
+    assert_eq!(
+        base.find("openrouter", "b").map(|m| m.context_window),
+        Some(Some(9999)),
+        "同 id 应被 store 覆盖"
+    );
+    assert_eq!(
+        base.find("openrouter", "c").map(|m| m.context_window),
+        Some(Some(3000)),
+        "store 独有的模型应追加"
+    );
+    let ids: Vec<&str> = base
+        .entries()
+        .filter(|(provider, _)| *provider == "openrouter")
+        .map(|(_, model)| model.id.as_str())
+        .collect();
+    assert_eq!(ids, vec!["a", "b", "c"], "覆盖后不应重复");
+}
+
+/// 只有内置目录（没有 `models.json`，例如只放 `auth.json` 的机器）：解析出的 `contextWindow`
+/// 必须是目录里的值，不能退回 128000 的缺省（真机 footer 的 `x%/Nk` 直接受影响）。
+#[test]
+fn catalog_only_resolution_keeps_context_window() {
+    let builtin_json = r#"{
+      "openrouter": [
+        { "id": "big", "api": "openai-completions",
+          "baseUrl": "https://openrouter.ai/api/v1",
+          "contextWindow": 262144, "maxTokens": 235929 }
+      ]
+    }"#;
+    let catalog = BuiltInCatalog::from_json(builtin_json).expect("目录可解析");
+    let resolved = ModelsConfig::default()
+        .resolve_with_catalog("openrouter", "big", Some(&catalog))
+        .expect("空 models.json 也能解析目录模型");
+    assert_eq!(resolved.context_window, 262144);
+    assert_eq!(resolved.max_tokens, 235929);
+    assert_eq!(resolved.base_url, "https://openrouter.ai/api/v1");
+}

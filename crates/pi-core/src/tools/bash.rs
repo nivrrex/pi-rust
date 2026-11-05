@@ -179,10 +179,27 @@ impl BashTool {
 /// `The powershell tool is only available on Windows.`），这里保持同一文案。
 fn shell_command(spec: &ShellSpec, command: &str) -> Result<(String, Vec<String>), String> {
     if spec.name == "bash" {
-        return Ok((
-            "bash".to_string(),
-            vec!["-c".to_string(), command.to_string()],
-        ));
+        // F20：按 ref `utils/shell.ts:63-118` 解析（settings 的 `shellPath` → Windows 的 Git Bash
+        // 默认路径 → PATH → Unix 的 /bin/bash → sh）。找不到时把**已尝试路径**列进报错。
+        match crate::tools::shell_resolve::resolve_current() {
+            crate::tools::shell_resolve::ShellChoice::Found { shell, args } => {
+                let mut argv = args;
+                argv.push(command.to_string());
+                return Ok((shell, argv));
+            }
+            crate::tools::shell_resolve::ShellChoice::CustomPathMissing { path } => {
+                return Err(format!("Custom shell path not found: {path}"));
+            }
+            crate::tools::shell_resolve::ShellChoice::NotFound { tried } => {
+                let mut message = String::from(
+                    "No bash shell found. Options:\n  1. Install Git for Windows: https://git-scm.com/download/win\n  2. Add your bash to PATH (Cygwin, MSYS2, etc.)\n  3. Set shellPath in settings.json\n\nSearched Git Bash in:\n",
+                );
+                for path in tried {
+                    message.push_str(&format!("  {path}\n"));
+                }
+                return Err(message);
+            }
+        }
     }
     let program = resolve_powershell()?;
     let mut args: Vec<String> = [
@@ -398,8 +415,11 @@ pub(crate) fn run_shell<'a>(
 
 #[cfg(test)]
 mod p8b_powershell_tests {
-    use super::{shell_command, ShellSpec};
+    use super::shell_command;
+    #[cfg(not(windows))]
+    use super::ShellSpec;
 
+    #[cfg(not(windows))]
     const PS_SPEC: ShellSpec = ShellSpec {
         name: "powershell",
         shell_name: "PowerShell",
@@ -414,11 +434,18 @@ mod p8b_powershell_tests {
         assert_eq!(error, "The powershell tool is only available on Windows.");
     }
 
-    /// bash 分支不受影响（`bash -c <命令>`）。
+    /// bash 分支的形状：`<解析出的 shell> -c <命令>`。
+    ///
+    /// F20 起 shell **不再是字面量 `bash`**，而是按 ref `utils/shell.ts:63-118` 解析出来的路径
+    /// （Unix 命中 `/bin/bash`、Windows 命中 Git Bash 的全路径）。命令本身仍作为一个**独立参数**
+    /// 传递（不拼接字符串）。
     #[test]
     fn bash_command_shape_is_unchanged() {
         let (program, args) = shell_command(&super::BASH_SPEC, "echo hi").expect("bash 恒可用");
-        assert_eq!(program, "bash");
+        assert!(
+            program.ends_with("bash") || program == "sh",
+            "应解析到 bash/sh：{program}"
+        );
         assert_eq!(args, vec!["-c".to_string(), "echo hi".to_string()]);
     }
 }

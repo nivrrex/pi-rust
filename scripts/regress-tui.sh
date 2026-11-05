@@ -1,16 +1,24 @@
 #!/bin/sh
 # TUI 全场景回归（严格逐帧）：默认并行 4，**LLM 流式场景串行**。
 #
-# 背景（P8c/S）：`T10`（两轮 18s 固定 delay）与 `T52-tree-summarize`（/tree 摘要需要
-# 第二次 LLM 调用）都靠**固定时长 + waitStable** 定位快照点；并行跑 4 个时机器负载升高，
-# 快照会落到回合还没结束的帧上，footer 上下文百分比就停在 `1.1%` 而不是稳定的 `1.2%`。
-# 这不是渲染差异，是**场景对负载敏感**：串行跑两场景各 20 次全部 same（见 notes/evidence）。
-# 因此这里把"含 LLM 回合 + 固定 delay"的场景放进 SERIAL 列表按顺序跑，其余照旧并行。
+# 背景（P9-F5 更正）：`T10`（两轮 18s 固定 delay）与 `T52-tree-summarize`（/tree 摘要）曾被记为
+# "对负载敏感、footer 停在 1.1%"。**实测否定**：各连跑 30 次结果完全一致（不是偶发），
+# 真正的变量是 **`TS_PI_ENTRY`（→ `PI_PACKAGE_DIR`）有没有设置**——它决定 system prompt 的 docs 段，
+# 少 213 字符 ⇒ 上下文百分比从 `1.2%` 掉到 `1.1%`（见 `notes/p9-f5/flaky.md`）。
+# 设置后 `--jobs 4` 连跑两次均为 80 same / 0 different。故本脚本现在**缺该变量直接报错退出**，
+# 不再产出"看起来像偶发差异"的结果；SERIAL 列表保留（仍可减少固定 delay 场景的排队抖动）。
 #
 # 用法：
 #   scripts/regress-tui.sh [--runs N] [--jobs N] [--bin <pi-rs 路径>]
 # 判据不放宽：每个场景与 `golden-tui/<名>/run-1` 严格逐帧比较。
 set -u
+# 缺 `TS_PI_ENTRY`（或 `PI_TS_PACKAGE_DIR`）时，system prompt 的 docs 段会少 213 字符，
+# T10/T52 的 footer 上下文百分比因此差 0.1pp——与渲染无关，纯属环境缺失。直接失败，避免误判为偶发。
+if [ -z "${TS_PI_ENTRY:-}" ] && [ -z "${PI_TS_PACKAGE_DIR:-}" ]; then
+  echo "regress-tui: 需要 TS_PI_ENTRY 或 PI_TS_PACKAGE_DIR（否则 docs 段少 213 字符，T10/T52 会出现 0.1pp 假差异）" >&2
+  echo "  export TS_PI_ENTRY=/path/to/pi-package/dist/bundle/cli.js" >&2
+  exit 2
+fi
 REPO=$(cd "$(dirname "$0")/.." && pwd)
 RUNS=3
 JOBS=4

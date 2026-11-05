@@ -68,7 +68,40 @@ pub fn exit_code_for(messages: &[Message]) -> (u8, Vec<String>) {
 }
 
 /// 按命令行开关准备工具集。〔args.ts:141-156 的开关语义〕
+/// 配置目录（`PI_CODING_AGENT_DIR` → `$HOME/.pi/agent`）：与 `runtime::resolve_paths` 同口径。
+fn default_agent_dir() -> std::path::PathBuf {
+    let env = |key: &str| std::env::var(key).ok();
+    let home = crate::runtime::home_from(&env);
+    let paths = crate::runtime::resolve_paths(&env, &home, None, std::path::Path::new("."));
+    paths.agent_dir
+}
+
+/// 按命令行开关准备工具集（内置 + 扩展）。
+///
+/// P9-1-B：扩展工具追加在内置之后；没有扩展目录 / 没有 node / 握手失败 ⇒ 只返回内置，
+/// 并在 stderr 给一条警告（`ext_tools::extension_tools` 内部处理）。
 pub fn default_tools(parsed: &crate::args::Args) -> Vec<Arc<dyn pi_core::tools::tool::Tool>> {
+    let mut tools = default_tools_without_extensions(parsed);
+    if parsed.no_tools {
+        return tools;
+    }
+    let cwd = std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("."));
+    tools.extend(crate::ext_tools::extension_tools(
+        &default_agent_dir(),
+        &cwd,
+    ));
+    crate::ext_tools::wrap_with_hooks(tools)
+}
+
+/// 只取内置工具（`--list-tools` 要把扩展工具排在内置之后，且不能因扩展失败而丢内置）。
+#[must_use]
+pub fn builtin_tools(parsed: &crate::args::Args) -> Vec<Arc<dyn pi_core::tools::tool::Tool>> {
+    default_tools_without_extensions(parsed)
+}
+
+fn default_tools_without_extensions(
+    parsed: &crate::args::Args,
+) -> Vec<Arc<dyn pi_core::tools::tool::Tool>> {
     if parsed.no_tools {
         return Vec::new();
     }
@@ -139,6 +172,9 @@ pub struct PrintRun {
     pub compaction: Option<crate::auto_compaction::CompactionConfig>,
 }
 
+/// `agent_before_settle` 允许的额外回合上限（ref 无显式上限，这里防扩展死循环）。
+const SETTLE_ROUND_LIMIT: usize = 10;
+
 impl PrintRun {
     /// 返回 `(stdout 文本, stderr 行, 退出码, 本次运行的消息)`。
     ///
@@ -147,6 +183,8 @@ impl PrintRun {
         let cancel = tokio_util::sync::CancellationToken::new();
         let retry_max = LoopConfig::default().max_retries;
         let retry_delay_ms = LoopConfig::default().retry_delay_ms;
+        // 供 `before_agent_start` 用的系统提示副本（`self.system` 随后会被移进 LoopConfig）。
+        let system_prompt_for_hooks = self.system.clone().unwrap_or_default();
         let mut agent_loop = AgentLoop::new(
             // 循环拿一份 Arc（压缩阶段还要用同一个 provider 发摘要请求）。
             std::sync::Arc::clone(&self.provider),
@@ -189,9 +227,49 @@ impl PrintRun {
         // （`context_edit` 的 `replacement: null` 就是这个语义）。
         // `--continue` 时这里先放**已有会话的消息**（按文件顺序），再追加本轮的用户消息。
         // 非继续时 `initial_messages` 为空，行为与以前一致。
+        // P9 E3：扩展命令优先于 prompt（ref `agent-session.ts:1615-1625`）。
+        if crate::ext_tools::try_run_command(&self.prompt) {
+            return (String::new(), Vec::new(), 0, Vec::new());
+        }
+        // P9 E2：`input` 钩子（ref `agent-session.ts:1553-1572`）：可改写文本，
+        // 也可直接接管（`handled` ⇒ 不跑 agent，退出码 0、无正文）。
+        let prompt = match crate::ext_tools::run_input_hooks(&self.prompt, "interactive") {
+            crate::ext_tools::InputOutcome::Handled => {
+                return (String::new(), Vec::new(), 0, Vec::new());
+            }
+            crate::ext_tools::InputOutcome::Transform(text) => text,
+            crate::ext_tools::InputOutcome::Continue => self.prompt.clone(),
+        };
+        // `before_agent_start`（ref `agent-session.ts:1703`、`runner.ts:1312-1365`）：
+        // 返回值里的 `message` 按 `role:"custom"` 插到用户消息**之前**；`systemPrompt` 覆盖生效。
+        let before_start =
+            crate::ext_tools::emit_before_agent_start(&prompt, &system_prompt_for_hooks);
+        if let Some(system) = before_start.system_prompt.clone() {
+            agent_loop.set_system_prompt(Some(system));
+        }
         let mut transcript = self.initial_messages.clone();
+        for message in &before_start.messages {
+            let custom_type = message
+                .get("customType")
+                .and_then(|value| value.as_str())
+                .unwrap_or("extension")
+                .to_string();
+            let text = match message.get("content") {
+                Some(serde_json::Value::String(text)) => text.clone(),
+                Some(other) => other.to_string(),
+                None => String::new(),
+            };
+            transcript.push(Message::Custom {
+                custom_type,
+                content: pi_ai::UserContent::Text(text),
+                display: false,
+                details: serde_json::Value::Null,
+                timestamp: 0,
+                extra: serde_json::Map::new(),
+            });
+        }
         transcript.push(Message::User {
-            content: pi_ai::UserContent::Text(self.prompt.clone()),
+            content: pi_ai::UserContent::Text(prompt),
             timestamp: 0,
             extra: serde_json::Map::new(),
         });
@@ -199,6 +277,8 @@ impl PrintRun {
         // 压缩后要**重跑该回合**，golden/S13e 的事件序列里 `compaction_end` 之后有第二个
         // `agent_start`）。`overflow_recovered` 就是 ref 的 `_overflowRecoveryAttempted`。
         let mut overflow_recovered = false;
+        // `agent_before_settle` 触发的额外回合数（上限见 `SETTLE_ROUND_LIMIT`）。
+        let mut settle_rounds: usize = 0;
         // 外层循环每轮都会重新产生 `messages`；收尾代码（退出码/正文/返回）用它。
         // 循环体至少执行一次、且**跳出前**一定赋值 ⇒ 这里只声明不初始化（否则 clippy 报 never-read）。
         let final_messages: Vec<Message>;
@@ -258,6 +338,7 @@ impl PrintRun {
                     | Some(Message::System { .. })
                     | Some(Message::ToolResult { .. })
                     | Some(Message::Custom { .. })
+                    | Some(Message::BashExecution { .. })
                     | Some(Message::BranchSummary { .. })
                     | Some(Message::CompactionSummary { .. })
                     | None => None,
@@ -273,6 +354,7 @@ impl PrintRun {
                     | Message::System { .. }
                     | Message::ToolResult { .. }
                     | Message::Custom { .. }
+                    | Message::BashExecution { .. }
                     | Message::BranchSummary { .. }
                     | Message::CompactionSummary { .. } => false,
                 });
@@ -451,6 +533,70 @@ impl PrintRun {
             }
             if retry_overflow && !overflow_recovered {
                 overflow_recovered = true;
+                continue;
+            }
+            // `agent_before_settle`（ref `agent-session.ts:1532-1550`）：扩展可要求"再跑一轮"。
+            // ref 没有显式上限；这里加一个上限保护，避免扩展把主循环拖死。
+            // `agent_end`（ref `agent-session.ts:1061-1062`）：**每轮结束都派发**，且必须在
+            // settle 之前——否则扩展在 `agent_end` 里排的消息（`pi.sendUserMessage`）赶不上本轮。
+            crate::ext_tools::emit_event(
+                "agent_end",
+                serde_json::json!({
+                    "type": "agent_end",
+                    "messages": serde_json::to_value(&messages).unwrap_or(serde_json::Value::Null),
+                }),
+            );
+            // `pi.sendUserMessage`：扩展排入的用户消息在下一轮注入（ref 的 pendingNextTurn）。
+            // `agent_end` 是异步派发的，扩展可能刚收到事件 ⇒ 短暂等一下再判定。
+            let mut pending = crate::ext_tools::take_pending_user_messages();
+            if pending.is_empty() && crate::ext_tools::has_event("agent_end") {
+                // 负载高时派发线程可能更慢：给足 2s（只在有 `agent_end` 处理器时等待）。
+                for _ in 0..80 {
+                    std::thread::sleep(std::time::Duration::from_millis(25));
+                    pending = crate::ext_tools::take_pending_user_messages();
+                    if !pending.is_empty() {
+                        break;
+                    }
+                }
+            }
+            if !pending.is_empty() && settle_rounds < SETTLE_ROUND_LIMIT {
+                settle_rounds += 1;
+                transcript = messages.clone();
+                self.initial_messages = messages.clone();
+                for text in pending {
+                    transcript.push(Message::User {
+                        content: pi_ai::UserContent::Text(text),
+                        timestamp: 0,
+                        extra: serde_json::Map::new(),
+                    });
+                }
+                continue;
+            }
+            let settle = crate::ext_tools::emit_agent_before_settle("completed");
+            if settle_rounds < SETTLE_ROUND_LIMIT && settle.should_continue {
+                settle_rounds += 1;
+                // 下一轮的输入 = 本轮产出；同时更新 announce 基准，避免重发已有消息的事件。
+                transcript = messages.clone();
+                self.initial_messages = messages.clone();
+                // settle handler 给的 `entries` 以 `role:"custom"` 消息落盘（ref 写会话条目）。
+                for entry in &settle.entries {
+                    transcript.push(Message::Custom {
+                        custom_type: entry
+                            .get("customType")
+                            .and_then(|value| value.as_str())
+                            .unwrap_or("settle")
+                            .to_string(),
+                        content: pi_ai::UserContent::Text(match entry.get("data") {
+                            Some(serde_json::Value::String(text)) => text.clone(),
+                            Some(other) => other.to_string(),
+                            None => String::new(),
+                        }),
+                        display: false,
+                        details: serde_json::Value::Null,
+                        timestamp: 0,
+                        extra: serde_json::Map::new(),
+                    });
+                }
                 continue;
             }
             // 只有确定要跳出时才记（否则这一轮的赋值会被下一轮覆盖 ⇒ clippy 的 never-read）。

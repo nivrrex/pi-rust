@@ -1,0 +1,105 @@
+{
+  "generatedBy": "gen-text-wrap.mjs",
+  "cases": [
+    {
+      "name": "plain-short",
+      "width": 20,
+      "text": "hello",
+      "paddingX": 1,
+      "paddingY": 0,
+      "lines": [
+        " hello              "
+      ]
+    },
+    {
+      "name": "plain-long-20",
+      "width": 20,
+      "text": "the quick brown fox jumps over the lazy dog",
+      "paddingX": 1,
+      "paddingY": 0,
+      "lines": [
+        " the quick brown    ",
+        " fox jumps over the ",
+        " lazy dog           "
+      ]
+    },
+    {
+      "name": "plain-long-40",
+      "width": 40,
+      "text": "the quick brown fox jumps over the lazy dog",
+      "paddingX": 1,
+      "paddingY": 0,
+      "lines": [
+        " the quick brown fox jumps over the     ",
+        " lazy dog                               "
+      ]
+    },
+    {
+      "name": "wide-cjk-20",
+      "width": 20,
+      "text": "中文宽字符测试中文宽字符测试",
+      "paddingX": 1,
+      "paddingY": 0,
+      "lines": [
+        " 中文宽字符测试中文 ",
+        " 宽字符测试         "
+      ]
+    },
+    {
+      "name": "ansi-color-20",
+      "width": 20,
+      "text": "\u001b[31mred part\u001b[0m and normal",
+      "paddingX": 1,
+      "paddingY": 0,
+      "lines": [
+        " \u001b[31mred part\u001b[0m and       ",
+        " normal             "
+      ]
+    },
+    {
+      "name": "tabs",
+      "width": 40,
+      "text": "a\tb\tc",
+      "paddingX": 1,
+      "paddingY": 0,
+      "lines": [
+        " a   b   c                              "
+      ]
+    },
+    {
+      "name": "padding-y",
+      "width": 40,
+      "text": "padded",
+      "paddingX": 1,
+      "paddingY": 1,
+      "lines": [
+        "                                        ",
+        " padded                                 ",
+        "                                        "
+      ]
+    },
+    {
+      "name": "padding-x2-narrow",
+      "width": 5,
+      "text": "abcdef",
+      "paddingX": 2,
+      "paddingY": 0,
+      "lines": [
+        "  a  ",
+        "  b  ",
+        "  c  ",
+        "  d  ",
+        "  e  ",
+        "  f  "
+      ]
+    },
+    {
+      "name": "empty",
+      "width": 20,
+      "text": "",
+      "paddingX": 1,
+      "paddingY": 1,
+      "lines": []
+    }
+  ]
+}

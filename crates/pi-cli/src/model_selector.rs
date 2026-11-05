@@ -139,8 +139,15 @@ impl ModelSelector {
             String::new(),
         ];
         let indices = self.filtered_indices();
-        // 列表：ref 一次最多显示 10 行（`:307`）；这里单 provider 场景下同效。
-        for index in indices.iter().take(10) {
+        // 列表：ref `model-selector.ts:308-337` —— 最多 10 项，窗口以选中项为中心，
+        // 被裁剪时补 `  (n/total)`。取前 10 项（旧实现）会让选中项滚出可视区。
+        let position = if self.query.trim().is_empty() {
+            self.selected.min(indices.len().saturating_sub(1))
+        } else {
+            0
+        };
+        let (start, end) = pi_tui::selector_window(indices.len(), position, 10);
+        for index in &indices[start..end] {
             let item = &self.models[*index];
             let cursor = if Some(item) == self.selected_model() {
                 "→ "
@@ -156,9 +163,14 @@ impl ModelSelector {
         }
         if indices.is_empty() {
             lines.push("  No matching models".to_string());
-        } else if let Some(selected) = self.selected_model() {
-            lines.push(String::new());
-            lines.push(format!("  Model Name: {}", selected.name));
+        } else {
+            if start > 0 || end < indices.len() {
+                lines.push(pi_tui::selector_scroll_hint(position, indices.len()));
+            }
+            if let Some(selected) = self.selected_model() {
+                lines.push(String::new());
+                lines.push(format!("  Model Name: {}", selected.name));
+            }
         }
         if let Some(status) = &self.refresh_status {
             lines.push(String::new());
@@ -246,5 +258,43 @@ mod tests {
         assert_eq!(selector.filtered_indices(), vec![0]);
         selector.query = "nomatch".to_string();
         assert!(selector.filtered_indices().is_empty());
+    }
+}
+
+#[cfg(test)]
+mod window_tests {
+    use super::{ModelEntry, ModelSelector};
+
+    fn models(n: usize, current: usize) -> Vec<ModelEntry> {
+        (0..n)
+            .map(|i| ModelEntry {
+                id: format!("model-{i:02}"),
+                provider: "openrouter".to_string(),
+                name: format!("model {i:02}"),
+                current: i == current,
+                default: false,
+            })
+            .collect()
+    }
+
+    /// 选中项滚出窗口的问题回归：25 个模型、选中第 18 个时，窗口必须包含它并给出 `(19/25)`。
+    #[test]
+    fn window_follows_selected_model() {
+        let mut selector = ModelSelector::new(models(25, 0), None);
+        selector.selected = 17;
+        let lines = selector.lines();
+        assert!(
+            lines.iter().any(|line| line.contains("model-17")),
+            "选中项必须在窗口内：{lines:?}"
+        );
+        assert!(
+            lines.iter().any(|line| line.contains("(18/25)")),
+            "需要滚动提示：{lines:?}"
+        );
+        assert_eq!(
+            lines.iter().filter(|line| line.contains("model-")).count(),
+            10,
+            "窗口最多 10 项：{lines:?}"
+        );
     }
 }

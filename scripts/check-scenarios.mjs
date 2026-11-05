@@ -34,6 +34,7 @@ const TOP_LEVEL = new Set([
   "script",
   "files",
   "globalFiles",
+  "agentFiles",
   "sessionFiles",
   "extraModels",
   "cliArgs",
@@ -45,6 +46,8 @@ const TOP_LEVEL = new Set([
   "theme",
   // P8e-10/F：额外的 provider（写进 models.json），用于对拍 footer 的 `(provider)` 前缀。
   "extraProviders",
+  // P9-1-E1c/S6：把夹具扩展写进 `<agentDir>/extensions`（两侧同一份），用于对拍扩展 UI。
+  "extensions",
 ]);
 
 /** 每个响应条目允许的键（与 `Step` 结构体一致）。 */

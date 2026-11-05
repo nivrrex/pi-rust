@@ -49,6 +49,11 @@ fn absent_setting_is_none() {
 #[test]
 fn powershell_tool_is_selectable_but_not_default() {
     use pi_cli::args::Args;
+    // F28/S2：扩展宿主现在能加载用户扩展（jiti 探测更全），本用例只关心内置工具集，
+    // 必须指向空的 agent 目录，否则会带上 `~/.pi/agent/extensions` 里的工具。
+    let agent = tempfile::tempdir().expect("agent");
+    std::env::set_var("PI_CODING_AGENT_DIR", agent.path());
+    std::env::set_var("PI_NODE", "");
     let defaults = pi_cli::print_mode::default_tools(&Args::default());
     let names: Vec<String> = defaults
         .iter()
@@ -79,6 +84,9 @@ fn powershell_tool_is_selectable_but_not_default() {
 #[test]
 fn ls_tool_is_selectable_but_not_default() {
     use pi_cli::args::Args;
+    let agent = tempfile::tempdir().expect("agent");
+    std::env::set_var("PI_CODING_AGENT_DIR", agent.path());
+    std::env::set_var("PI_NODE", "");
     let parsed = Args {
         tools: vec!["ls".to_string()],
         ..Args::default()

@@ -92,18 +92,19 @@ fn missing_file_reports_an_io_error_with_the_path() {
     }
 }
 
+/// 坏行**跳过而不整份失败**（ref `session-manager.ts:616-624`）：解析失败的行返回 null，
+/// 其余行照常加载。此前任一坏行都会让整个会话打不开（真机 `-c` 报"第 6147 行解析失败"）。
 #[test]
-fn bad_line_reports_the_line_number() {
+fn bad_line_is_skipped_and_the_rest_loads() {
     let text = concat!(
         "{\"type\":\"session\",\"version\":3,\"id\":\"a\",\"timestamp\":\"t\"}\n",
         "{\"type\":\"model_change\",\"id\":\"e1\",\"parentId\":null,\"timestamp\":\"t\",\"provider\":\"p\",\"modelId\":\"m\"}\n",
-        "not json at all\n"
+        "not json at all\n",
+        "\n",
+        "{\"type\":\"model_change\",\"id\":\"e2\",\"parentId\":\"e1\",\"timestamp\":\"t\",\"provider\":\"p\",\"modelId\":\"m\"}\n"
     );
-    let error = SessionFile::parse(Path::new("x.jsonl"), text).expect_err("应报错");
-    match error {
-        SessionIoError::Parse { line, .. } => assert_eq!(line, 3, "行号应是 1 基的"),
-        other => panic!("应为 Parse 错误，实际 {other}"),
-    }
+    let file = SessionFile::parse(Path::new("x.jsonl"), text).expect("坏行不应让整份失败");
+    assert_eq!(file.entries.len(), 2, "两条合法 entry 都要读出来");
 }
 
 #[test]

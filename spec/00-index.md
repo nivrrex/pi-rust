@@ -1,6 +1,6 @@
 # spec/00-index.md — 规格抽取索引
 
-对应任务卡：**T0.2**（建立 `ref/` 与本索引）。本文件只列"从哪里抽"，抽什么在 T0.3 的 a–i 各卡。
+本索引只列"从上游哪些文件抽规格"，具体条目见 a–i 各文件。
 
 ## 基线（已验证）
 
@@ -54,7 +54,7 @@
 ## 抽规格时的硬规则
 
 1. 每条规格带 `文件:行号`，行号以本 checkout 为准（`ref/pi-0.87.1` 只读，不随上游更新）。
-2. 抽不出来的写"待验证"并记入 `notes/questions.md`，不猜。
+2. 抽不出来的标"待验证"，不猜。
 3. 系统提示（卡 g）必须逐字复制，不重写、不"整理"。
 
 ## 下一步
@@ -62,20 +62,3 @@
 T0.3 的 a–i 逐卡抽取；卡与卡之间不合并，一次一张。
 ---
 
-## P0/P1 执行结果（2026-10-03，由 RUNBOOK-1 推进）
-
-| 步骤 | 产出 | 状态 |
-|---|---|---|
-| A0 | `scripts/check-spec-cites.py`（含 3 个错误样例自检） | 完成 |
-| A1–A8 | `spec/{a-types,b-agent-loop,c-session,d-compaction,e-tools,f-config,h-rpc,i-cli}.md` | 完成，共 426 条引用全部通过校验，68 条标【待验证】 |
-| B1 | `rust-toolchain.toml`、`Cargo.toml`、`crates/{pi-ai,pi-core,pi-cli}`、`scripts/lint-banned.sh` | 完成 |
-| B2 | `fixtures/sse/**`（10 个夹具）、`fixtures/expected/**`（10 份 oracle 期望）、`tools/oracle/{run-oracle.mjs,manifest.json,run.sh}` | 完成 |
-| B3/B4 | `crates/pi-ai/{types,sse,decoder}.rs`、`crates/pi-ai/tests/g0.rs`、`notes/g0-*.md` | 完成，7 轮内通过 G0 |
-| C1 | `tools/mock-provider/`、`scenarios/SCHEMA.md` | 完成 |
-| C2 | `tools/difftest/{run.mjs,run.sh}`（`unshare` 隔离包装，无绕过选项） | 完成 |
-| C3 | `scenarios/{S01,S02,S03,S05,S07,S08}.json` 与对应 `golden/` | **部分**：S04、S06、S09–S25、X01–X03 未做 |
-| C4 | `spec/g-system-prompt.md`、`spec/system-prompt-sections.md`、`scripts/{extract,verify}-system-prompt.mjs` | 完成（S23 未录，`project_instructions` 未进模板） |
-
-`tools/mock-provider` 是第 4 个 workspace member（RUNBOOK B1 只列了三个 crate，C1 需要一个可执行工具）。
-
-未跑通的场景与原因见 `notes/progress.md` 与 `notes/questions.md`。

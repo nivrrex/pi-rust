@@ -28,6 +28,31 @@ pub struct TerminalGuard {
     restored: bool,
 }
 
+/// kitty 键盘协议是否被激活过（`\x1b[?<flags>u` 应答为正）。
+///
+/// 只有 kitty 协议才会给**抬起**事件（`\x1b[100;5:3u`）；退出时若它在飞，落地时进程已死，
+/// 就会被 shell 读走并回显成 `0;5:3u`（F3 复现：抬起事件晚 ≥60 ms 时必现）。
+static KITTY_ACTIVE: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+fn kitty_was_active() -> bool {
+    KITTY_ACTIVE.load(std::sync::atomic::Ordering::SeqCst)
+}
+
+/// 退出前把输入读空并丢弃（ref `terminal.ts:384-421` `drainInput(maxMs, idleMs)`）。
+///
+/// 仅在 kitty 协议激活过时调用：非 kitty 终端没有抬起事件，不会出现"退出后残留"，
+/// 不必为此多等一个 idle 窗口。
+fn drain_pending_input(max_ms: u64, idle_ms: u64) {
+    use crossterm::event;
+    let deadline = std::time::Instant::now() + std::time::Duration::from_millis(max_ms);
+    while std::time::Instant::now() < deadline {
+        if !event::poll(std::time::Duration::from_millis(idle_ms)).unwrap_or(false) {
+            break;
+        }
+        let _ = event::read();
+    }
+}
+
 impl TerminalGuard {
     /// 进入 raw mode（含隐藏光标与 bracketed paste）。
     ///
@@ -67,7 +92,21 @@ impl TerminalGuard {
         // 退出前给输入线程一个**短宽限期**（30 ms），让它把终端对我们查询的应答
         // （kitty `\x1b[?...u`、DA1 `\x1b[...c`）读走。否则这些字节留在 tty 输入队列里，
         // 退出后会被 shell 读走 ⇒ 真机上出现 `bash: 1:3ua7: 未找到命令` 这类报错。
-        std::thread::sleep(std::time::Duration::from_millis(30));
+        //
+        // F2 复核：无条件 drain 因**当时无法复现**而撤销（`notes/decisions.md`「F2/S3」）。
+        // F3 复现后改为**按需 drain**：仅 kitty 协议激活过时排空（抬起事件只在 kitty 下存在）。
+        // 复现：按下 `\x1b[100;5u` 后把抬起 `\x1b[100;5:3u` 推迟 ≥60 ms ⇒ 退出后 shell 必回显
+        // `0;5;3u`；用户现场的 `0;5:3u` 即此。
+        //
+        // 兜底（F4 定案）：不再靠窗口"赌延迟"——方案 B 已从源头去掉抬起事件
+        // （`startup_bytes` 里 push flags=5，位2 关闭），这里保留 F3 的 drain 作为**兜底**：
+        // 若终端仍上报事件（非合规终端，或不理 flags 的终端），150 ms 后仍会照原路径退出。
+        // 取舍与偏离登记见 `notes/decisions.md`「F4/S4 改：选方案 B」。
+        if kitty_was_active() {
+            drain_pending_input(1000, 150);
+        } else {
+            std::thread::sleep(std::time::Duration::from_millis(30));
+        }
         let _ = terminal::disable_raw_mode();
     }
 }
@@ -186,6 +225,9 @@ fn transcript_from_messages(messages: &[pi_ai::message::Message]) -> Vec<pi_tui:
                                 is_error: false,
                                 started_at: None,
                                 took: None,
+                                render_lines: None,
+                                result_render_lines: None,
+                                result_payload: None,
                                 name: name.clone(),
                                 summary: {
                                     let value = serde_json::Value::Object(arguments.clone());
@@ -204,9 +246,12 @@ fn transcript_from_messages(messages: &[pi_ai::message::Message]) -> Vec<pi_tui:
                 push_text(&mut text, &mut out_items);
                 out.extend(out_items);
             }
+            // `bashExecution`（`!` 命令记录）：TUI 的 bash 渲染组件尚未实现（F9 批次），
+            // `-c` 重放时暂不显示；会话读写与上下文投影已按 ref 处理。
             pi_ai::message::Message::System { .. }
             | pi_ai::message::Message::ToolResult { .. }
             | pi_ai::message::Message::Custom { .. }
+            | pi_ai::message::Message::BashExecution { .. }
             | pi_ai::message::Message::BranchSummary { .. }
             | pi_ai::message::Message::CompactionSummary { .. } => {}
         }
@@ -300,9 +345,21 @@ pub fn watch_signals(flag: Arc<AtomicBool>) {
                     Ok(stream) => stream,
                     Err(_) => return,
                 };
+            // **SIGHUP 必须一起监听**（F2 追加）：ref 的交互模式在非 Windows 上把
+            // `SIGHUP` 与 `SIGTERM` 并列为优雅关停信号
+            // （`interactive-mode.ts:4233-4252`：`signals.push("SIGHUP")`，处理器里先
+            // `killTrackedDetachedChildren()` 再 `shutdown({fromSignal:true})`）。
+            // 不监听时 SSH/终端断开（SIGHUP）会按默认动作直接杀进程 ⇒ 终端停在 raw、
+            // 队列里的按键被 shell 读走，表现为退出后打印 `0;5:3u` 这类残片。
+            let mut sighup =
+                match tokio::signal::unix::signal(tokio::signal::unix::SignalKind::hangup()) {
+                    Ok(stream) => stream,
+                    Err(_) => return,
+                };
             tokio::select! {
                 _ = sigint.recv() => flag.store(true, Ordering::SeqCst),
                 _ = sigterm.recv() => flag.store(true, Ordering::SeqCst),
+                _ = sighup.recv() => flag.store(true, Ordering::SeqCst),
             }
         });
     });
@@ -334,22 +391,87 @@ pub fn base64_encode(bytes: &[u8]) -> String {
     out
 }
 
+/// 切换模型后刷新 footer 的 `x%/Nk`：`window` 跟着**当前**模型走（ref `footer.ts:151-158`
+/// 每次渲染都取当前模型），百分比按同口径重算（有 usage 用 input，否则用 system 估算）。
+fn refresh_model_window(
+    state: &mut pi_tui::TuiState,
+    parts: &AgentParts,
+    history: &std::sync::Mutex<Vec<pi_ai::message::Message>>,
+) {
+    let window_tokens = context_window_of(parts);
+    // 基数取**最后一条 assistant 的 usage**（ref `agent-session.ts:3858-3902` 的
+    // `calculateContextTokens(usage)`），**不是** footer 上那个 `↑88M` 的累计值：
+    // 真机上拿累计值一除就变成 `33416.0%/262k`。
+    let last_input = history
+        .lock()
+        .ok()
+        .and_then(|messages| {
+            messages.iter().rev().find_map(|message| {
+                if let pi_ai::message::Message::Assistant(assistant) = message {
+                    let tokens = pi_ai::calculate_context_tokens(&assistant.usage);
+                    (tokens > 0).then_some(tokens)
+                } else {
+                    None
+                }
+            })
+        })
+        .unwrap_or(0);
+    let percent = if window_tokens == 0 {
+        None
+    } else if last_input > 0 {
+        Some(last_input as f64 / window_tokens as f64 * 100.0)
+    } else {
+        let system_tokens = pi_core::agent::compaction::estimate_tokens(&parts.system_message);
+        Some(system_tokens as f64 / window_tokens as f64 * 100.0)
+    };
+    let _ = apply(
+        state,
+        TuiEvent::Usage {
+            input: state.usage_input,
+            output: state.usage_output,
+            percent,
+            window: pi_tui::format_tokens(window_tokens),
+            auto: true,
+            cost: if state.usage_cost > 0.0 {
+                Some(state.usage_cost)
+            } else {
+                None
+            },
+        },
+    );
+}
+
+/// 切换模型时重建的结果：provider 实例 + 该模型的上下文窗口。
+pub struct BuiltModel {
+    pub provider: std::sync::Arc<dyn pi_ai::Provider>,
+    pub context_window: u64,
+}
+
 /// 用 `models.json` + 内置目录重新解析并构造指定模型的 provider（`Ctrl+P` 用）。
 fn rebuild_provider(
     parts: &AgentParts,
     provider: &str,
     model_id: &str,
-) -> Result<std::sync::Arc<dyn pi_ai::Provider>, String> {
+) -> Result<BuiltModel, String> {
     let path = parts.agent_dir.join("models.json");
-    let text = std::fs::read_to_string(&path)
-        .map_err(|error| format!("{} 读取失败：{error}", path.display()))?;
-    let config = serde_json::from_str::<pi_ai::config::ModelsConfig>(&text)
-        .map_err(|error| format!("models.json 解析失败：{error}"))?;
+    // 没有 `models.json` 是正常状态（只放 `auth.json` 的机器）：按空配置走内置目录。
+    let config = match std::fs::read_to_string(&path) {
+        Ok(text) => serde_json::from_str::<pi_ai::config::ModelsConfig>(&text)
+            .map_err(|error| format!("models.json 解析失败：{error}"))?,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+            pi_ai::config::ModelsConfig::default()
+        }
+        Err(error) => return Err(format!("{} 读取失败：{error}", path.display())),
+    };
     let catalog = crate::runtime::load_builtin_catalog(&parts.agent_dir);
     let resolved = config
         .resolve_with_catalog(provider, model_id, catalog.as_ref())
         .map_err(|error| format!("{provider}/{model_id} 解析失败：{error}"))?;
-    crate::runtime::build_provider(&resolved, None)
+    let built = crate::runtime::build_provider(&resolved, None)?;
+    Ok(BuiltModel {
+        provider: built,
+        context_window: resolved.context_window,
+    })
 }
 
 /// 把 `/settings` 的一次改值落到界面状态上（ref 里由 `onChange` 回调改 settings 并重绘）。
@@ -422,9 +544,81 @@ pub struct CurrentModelState {
     pub provider_name: String,
     /// 已构造的 provider 实例。
     pub provider: std::sync::Arc<dyn pi_ai::Provider>,
+    /// 该模型的上下文窗口 token 数（切换模型时跟着换；footer 的 `x%/Nk` 与
+    /// 无 usage 时的百分比估算都读它，ref `footer.ts:151-158` 用的是**当前**模型）。
+    pub context_window: u64,
+}
+
+/// 当前生效模型的上下文窗口：优先取 `model_state`（切换后已更新），
+/// 退化到装配时的值（`context_window` 与 `model_state` 不一致只可能发生在测试桩里）。
+pub fn context_window_of(parts: &AgentParts) -> u64 {
+    parts
+        .model_state
+        .lock()
+        .map(|state| state.context_window)
+        .ok()
+        .filter(|window| *window > 0)
+        .unwrap_or(parts.context_window)
 }
 
 /// 打开中的选择器（P7-7）。两者共用一套按键拦截：字符进搜索框、Enter/Esc 关闭。
+/// 扩展发起的阻塞式 UI 询问（`ctx.ui.select/confirm/input`）。
+///
+/// 版式照 ref `components/extension-selector.ts:38-100`：选择器**替换编辑器**
+/// （`interactive-mode.ts:2624-2628` 的 `editorContainer.clear(); addChild(selector)`），
+/// 我们复用 `BelowEditor` 面板（它本来就替换编辑器输入行、夹在上下边框之间）。
+struct ExtAsk {
+    /// `select` / `confirm` / `input`。
+    kind: String,
+    /// 标题。
+    title: String,
+    /// `select` 的候选。
+    options: Vec<String>,
+    /// 当前高亮项。
+    selected: usize,
+    /// `input` 已输入的文本。
+    buffer: String,
+    /// 回填答案。
+    reply: Option<tokio::sync::oneshot::Sender<serde_json::Value>>,
+}
+
+impl ExtAsk {
+    /// 面板内容（不含编辑器上下边框）。
+    fn lines(&self) -> Vec<String> {
+        let mut lines = vec![String::new(), format!(" {}", self.title), String::new()];
+        match self.kind.as_str() {
+            "select" => {
+                for (index, option) in self.options.iter().enumerate() {
+                    if index == self.selected {
+                        lines.push(format!(" → {option}"));
+                    } else {
+                        lines.push(format!("   {option}"));
+                    }
+                }
+                lines.push(String::new());
+                lines.push(" ↑↓ navigate  enter select  escape/ctrl+c cancel".to_string());
+            }
+            "confirm" => {
+                lines.push(String::new());
+                lines.push(" enter yes  escape/ctrl+c cancel".to_string());
+            }
+            _other => {
+                lines.push(format!("> {}", self.buffer));
+                lines.push(String::new());
+                lines.push(" enter submit  escape/ctrl+c cancel".to_string());
+            }
+        }
+        lines.push(String::new());
+        lines
+    }
+
+    fn answer(&mut self, value: serde_json::Value) {
+        if let Some(reply) = self.reply.take() {
+            let _ = reply.send(value);
+        }
+    }
+}
+
 enum SelectorUi {
     /// `/model`（P7-7a）。
     Model(crate::model_selector::ModelSelector),
@@ -483,7 +677,7 @@ impl SelectorUi {
             SelectorUi::Theme(sel) => sel.move_up(),
             SelectorUi::Warnings(_) => {}
             SelectorUi::ModelThinking(sel) => sel.move_up(),
-            SelectorUi::Resume(_, _) => {}
+            SelectorUi::Resume(sel, _) => sel.move_up(),
             SelectorUi::Tree(sel, _) => sel.move_up(),
             SelectorUi::Summarize(sel) => sel.move_up(),
             SelectorUi::Label(_, _) => {}
@@ -499,7 +693,7 @@ impl SelectorUi {
             SelectorUi::Theme(sel) => sel.move_down(),
             SelectorUi::Warnings(_) => {}
             SelectorUi::ModelThinking(sel) => sel.move_down(),
-            SelectorUi::Resume(_, _) => {}
+            SelectorUi::Resume(sel, _) => sel.move_down(),
             SelectorUi::Tree(sel, _) => sel.move_down(),
             SelectorUi::Summarize(sel) => sel.move_down(),
             SelectorUi::Label(_, _) => {}
@@ -613,6 +807,8 @@ pub struct AgentParts {
     pub provider: std::sync::Arc<dyn pi_ai::Provider>,
     /// 已解析的工具集（`print_mode::default_tools` 等）。
     pub tools: Vec<std::sync::Arc<dyn pi_core::tools::tool::Tool>>,
+    /// 已加载的 skills（`/skill:<name> args` 展开用，ref `agent-session.ts:1797-1821`）。
+    pub skills: Vec<pi_core::skills::Skill>,
     /// 循环配置（模型/系统提示/上限等）。
     pub config: pi_core::agent::LoopConfig,
     /// 上下文窗口 token 数（footer 的 `x%/Nk` 用它换算）。
@@ -672,7 +868,9 @@ pub fn startup_bytes() -> &'static [u8] {
     }
     #[cfg(not(windows))]
     {
-        b"\x1b[?2004h\x1b[>7u\x1b[?u\x1b[c\x1b[?2031h\x1b[?996n\x1b[?25l"
+        // kitty flags **5 而不是 ref 的 7**（关掉位2=上报事件类型）：抬起事件是退出残片的唯一来源，
+        // 不请求它就从机制上杜绝 `0;5:3u` 一类回显。偏离登记见 `notes/decisions.md`「F4/S4 改」。
+        b"\x1b[?2004h\x1b[>5u\x1b[?u\x1b[c\x1b[?2031h\x1b[?996n\x1b[?25l"
     }
 }
 
@@ -819,9 +1017,16 @@ fn login_render(state: &mut pi_tui::TuiState, items: &[LoginItem], index: usize)
         lines.truncate(1);
         lines.push(String::new());
     }
-    for (position, item) in items.iter().enumerate() {
+    // ref `oauth-selector.ts:115-150`：最多 8 项，窗口以选中项为中心，
+    // 被裁剪时补一行 `  (n/total)`。此前把全部 provider 一次铺出来，条目多于屏幕高度
+    // 时视口会滚到底部 —— 选中的那项被顶出视图（用户报的"焦点停在最后一个供应商"）。
+    let (start, end) = pi_tui::selector_window(items.len(), index, 8);
+    for (position, item) in items.iter().enumerate().take(end).skip(start) {
         let marker = if position == index { " → " } else { "   " };
         lines.push(format!("{marker}{}", item.label));
+    }
+    if start > 0 || end < items.len() {
+        lines.push(pi_tui::selector_scroll_hint(index, items.len()));
     }
     lines.push(String::new());
     lines.push(" ↑↓ navigate  enter select  escape/ctrl+c cancel".to_string());
@@ -867,6 +1072,8 @@ pub fn run(
     mut state: TuiState,
     mut parts: Option<std::sync::Arc<AgentParts>>,
     rebuild: Option<RebuildParts>,
+    ui_events: Option<std::sync::mpsc::Receiver<TuiEvent>>,
+    ui_asks: Option<std::sync::mpsc::Receiver<pi_ext_host::UiAsk>>,
 ) -> std::io::Result<i32> {
     install_panic_hook();
     let mut guard = TerminalGuard::new()?;
@@ -913,7 +1120,7 @@ pub fn run(
         };
         state.status = format!(
             "0.0%/{} (auto)",
-            pi_tui::format_tokens(parts_ref.context_window)
+            pi_tui::format_tokens(context_window_of(parts_ref))
         );
     }
     if let Some(parts_ref) = parts.as_ref() {
@@ -956,12 +1163,14 @@ pub fn run(
         let path = parts.resumed_path.as_ref()?;
         crate::settings_selector::session_usage(path).ok()
     });
-    // 最近一条 assistant 的 `usage.input`（ref 的上下文占用基数用它，**不是**历史累加）。
+    // 最近一条 assistant 的 `calculateContextTokens(usage)`（含 cache；**不是**历史累加）。
     let last_assistant_input = initial
         .iter()
         .rev()
         .find_map(|message| match message {
-            pi_ai::message::Message::Assistant(assistant) => Some(assistant.usage.input),
+            pi_ai::message::Message::Assistant(assistant) => {
+                Some(pi_ai::calculate_context_tokens(&assistant.usage))
+            }
             other => {
                 let _ = other;
                 None
@@ -1010,6 +1219,10 @@ pub fn run(
     // （实测 turn20 击键延迟 10.0 s，TS 同场景 114 ms）。
     let min_render_interval = Duration::from_millis(16);
     let mut last_draw: Option<std::time::Instant> = None;
+    // Ctrl+O 之后需要按新的展开态重跑扩展的 renderResult。
+    let mut needs_expanded_rerender = false;
+    // 当前挂起的扩展 UI 询问（`ctx.ui.select/confirm/input`）。
+    let mut ext_ask: Option<ExtAsk> = None;
     // P7-7a：`/model` 选择器的状态（`None` = 未打开）。
     let mut selector: Option<SelectorUi> = None;
     // `/settings` → 子菜单时保存父列表状态，Esc 时原样回去（ref `closeSubmenu` 恢复到原选中项）。
@@ -1029,19 +1242,32 @@ pub fn run(
     let agent_dir = agent_dir.as_deref();
     if let Some(totals) = resumed_usage {
         if let Some(parts_ref) = parts.as_ref() {
-            let window = pi_tui::format_tokens(parts_ref.context_window);
+            let window = pi_tui::format_tokens(context_window_of(parts_ref));
             // ref `agent-session.ts:3858-3902` 的 `estimateContextTokens`：**有 assistant 的 usage 时**
             // 直接用 `calculateContextTokens(usage)`（≈ input，不含 output）当基数；
             // 只有在没有可用 usage 时才退化为逐条估算。
-            let percent = if parts_ref.context_window == 0 {
+            let window_tokens = context_window_of(parts_ref);
+            let percent = if window_tokens == 0 {
                 None
             } else if last_assistant_input > 0 {
-                Some(last_assistant_input as f64 / parts_ref.context_window as f64 * 100.0)
+                Some(last_assistant_input as f64 / window_tokens as f64 * 100.0)
             } else {
                 let system_tokens =
                     pi_core::agent::compaction::estimate_tokens(&parts_ref.system_message);
-                Some(system_tokens as f64 / parts_ref.context_window as f64 * 100.0)
+                Some(system_tokens as f64 / window_tokens as f64 * 100.0)
             };
+            // 把用量同步进扩展 ctx（`ctx.getContextUsage()`，ref `types.ts:294-300`）：
+            // `tokens` 用百分比 × 窗口的估算（ref 在没有新响应时也是估算值）。
+            if let (Some(percent_value), Ok(window_tokens)) =
+                (percent, window.trim_end_matches('k').parse::<f64>())
+            {
+                let tokens = (percent_value / 100.0 * window_tokens * 1000.0).round() as u64;
+                crate::ext_tools::update_ctx_usage(
+                    Some(tokens),
+                    (window_tokens * 1000.0) as u64,
+                    percent,
+                );
+            }
             let _ = apply(
                 &mut state,
                 TuiEvent::Usage {
@@ -1079,6 +1305,36 @@ pub fn run(
         // 直接让下面的 `recv_timeout` 等剩余时间，到点后由本循环再画一帧。
         // （真机反馈"快速输入会卡"的成因之一就是这里原来用 `sleep` 补齐间隔：
         //  每次击键都被强行拖满 16 ms，连打时延迟线性叠加。）
+        // Ctrl+O 切换展开态后，按新状态**重新请求**扩展的 renderResult
+        // （ref `tool-execution.ts:352`：`expanded` 是渲染时传进去的）。
+        if needs_expanded_rerender {
+            needs_expanded_rerender = false;
+            let expanded = state.tools_expanded;
+            for item in state.transcript.iter_mut() {
+                let pi_tui::TranscriptItem::ToolCall {
+                    name,
+                    result_payload: Some(payload),
+                    result_render_lines,
+                    ..
+                } = item
+                else {
+                    continue;
+                };
+                let Ok(value) = serde_json::from_str::<serde_json::Value>(payload) else {
+                    continue;
+                };
+                *result_render_lines = crate::ext_tools::render_tool_block(
+                    name,
+                    "result",
+                    serde_json::json!({
+                        "result": value,
+                        "options": { "expanded": expanded, "isPartial": false },
+                    }),
+                    4096,
+                );
+            }
+            dirty = true;
+        }
         let render_ready = last_draw.is_none_or(|last| last.elapsed() >= min_render_interval);
         if dirty && render_ready {
             last_draw = Some(std::time::Instant::now());
@@ -1124,7 +1380,10 @@ pub fn run(
         let first_event = match rx.recv_timeout(wait) {
             Ok(event) => Some(event),
             Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {
-                if state.working {
+                // 面板打开时（等用户作答）不推进 spinner：那里没有"正在工作"可展示，
+                // 而 spinner 每 16ms 一帧会把静止画面刷成几百帧（实测 T89 偶发 250 KB、
+                // 与 golden 假不同）。ref 的扩展选择器接管编辑器后也没有 spinner。
+                if state.working && ext_ask.is_none() {
                     state.tick_spinner();
                     dirty = true;
                 }
@@ -1133,6 +1392,29 @@ pub fn run(
             Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => break,
         };
         let mut batch: Vec<TuiEvent> = first_event.into_iter().collect();
+        // 扩展的阻塞式 UI 询问：最多挂一个（同一时刻只可能有一个面板）。
+        if let Some(asks) = ui_asks.as_ref() {
+            if let Ok(ask) = asks.try_recv() {
+                let pending = ExtAsk {
+                    kind: ask.kind,
+                    title: ask.title,
+                    options: ask.options,
+                    selected: 0,
+                    buffer: String::new(),
+                    reply: Some(ask.reply),
+                };
+                state.open_panel(pi_tui::PanelPlacement::BelowEditor, pending.lines());
+                ext_ask = Some(pending);
+                // 面板是新画的：必须请求一次重绘（本循环按 `dirty` 决定是否输出）。
+                dirty = true;
+            }
+        }
+        // 扩展 UI 上行（notify / setStatus）：与输入事件同批处理。
+        if let Some(ui_rx) = ui_events.as_ref() {
+            while let Ok(extra) = ui_rx.try_recv() {
+                batch.push(extra);
+            }
+        }
         while let Ok(extra) = rx.try_recv() {
             batch.push(extra);
         }
@@ -1143,6 +1425,100 @@ pub fn run(
             // 让循环顶部立刻满足 `render_ready`、先画一帧再继续处理本批事件。
             if matches!(event, TuiEvent::Working(true)) {
                 last_draw = None;
+            }
+            if matches!(event, TuiEvent::CtrlO) {
+                needs_expanded_rerender = true;
+            }
+            // 扩展 UI 询问挂起时，按键只服务于面板（ref `extension-selector.ts:96-112`）。
+            // 扩展自定义面板（`ctx.ui.custom`）：按键原样转发给扩展组件，
+            // 由组件决定重绘/关闭（ref `types.ts:201-215`、`interactive-mode.ts:2858-2900`）。
+            if state.custom_lines.is_some() {
+                if let Some(key) = key_bytes(&event) {
+                    if let Some(response) = crate::ext_tools::custom_input(&key, cols) {
+                        if response
+                            .get("closed")
+                            .and_then(serde_json::Value::as_bool)
+                            .unwrap_or(false)
+                        {
+                            state.custom_lines = None;
+                            state.close_panel();
+                        } else if let Some(lines) = response.get("lines").and_then(|v| v.as_array())
+                        {
+                            let lines: Vec<String> = lines
+                                .iter()
+                                .map(|line| line.as_str().unwrap_or_default().to_string())
+                                .collect();
+                            state.custom_lines = Some(lines.clone());
+                            state.open_panel(pi_tui::PanelPlacement::BelowEditor, lines);
+                        }
+                        dirty = true;
+                    }
+                    continue;
+                }
+            }
+            if let Some(ask) = ext_ask.as_mut() {
+                let mut answered = false;
+                let mut changed = false;
+                match &event {
+                    TuiEvent::HistoryPrev | TuiEvent::Char('k') if ask.kind == "select" => {
+                        ask.selected = ask.selected.saturating_sub(1);
+                        changed = true;
+                    }
+                    TuiEvent::HistoryNext | TuiEvent::Char('j') if ask.kind == "select" => {
+                        if ask.selected + 1 < ask.options.len() {
+                            ask.selected += 1;
+                        }
+                        changed = true;
+                    }
+                    TuiEvent::Enter => {
+                        let value = match ask.kind.as_str() {
+                            "select" => ask
+                                .options
+                                .get(ask.selected)
+                                .map(|option| serde_json::json!(option))
+                                .unwrap_or(serde_json::Value::Null),
+                            "confirm" => serde_json::json!(true),
+                            _other => serde_json::json!(ask.buffer),
+                        };
+                        ask.answer(value);
+                        answered = true;
+                    }
+                    TuiEvent::Escape | TuiEvent::Quit => {
+                        let value = if ask.kind == "confirm" {
+                            serde_json::json!(false)
+                        } else {
+                            serde_json::Value::Null
+                        };
+                        ask.answer(value);
+                        answered = true;
+                    }
+                    TuiEvent::Char(ch) if ask.kind == "input" => {
+                        ask.buffer.push(*ch);
+                        changed = true;
+                    }
+                    TuiEvent::Backspace if ask.kind == "input" => {
+                        ask.buffer.pop();
+                        changed = true;
+                    }
+                    _other => {}
+                }
+                let ask_consumed = answered || changed;
+                // **其余事件不能吞掉**：例如 `Working(false)` 若在这里被 `continue` 掉，
+                // `state.working` 会一直为真、spinner 永久空转（实测 T89 偶发 128 KB 假不同）。
+                if answered {
+                    ext_ask = None;
+                    state.close_panel();
+                    dirty = true;
+                } else if changed {
+                    // 只有面板内容变化才重绘：无关事件也重绘会造成"输出风暴"
+                    // （实测：同场景某次跑了 249 KB、末帧被截断 ⇒ 与 golden 假不同）。
+                    let lines = ask.lines();
+                    state.open_panel(pi_tui::PanelPlacement::BelowEditor, lines);
+                    dirty = true;
+                }
+                if ask_consumed {
+                    continue;
+                }
             }
             // `/thinking` 选择器里的 `ctrl+s` = "设为默认"（ref 选择器提示行
             // `Enter to select · Ctrl+S to set as default`；`interactive-mode.ts:5012-5030`
@@ -1188,7 +1564,19 @@ pub fn run(
                         dirty = true;
                         continue;
                     }
-                    TuiEvent::AssistantNotice(_)
+                    TuiEvent::ExtensionNotice { .. }
+                    | TuiEvent::ExtensionStatus { .. }
+                    | TuiEvent::ExtensionLabels(_)
+                    | TuiEvent::SkillLabels(_)
+                    | TuiEvent::ExtensionPaths(_)
+                    | TuiEvent::ExtensionIssues(_)
+                    | TuiEvent::FooterOverride(_)
+                    | TuiEvent::HeaderOverride(_)
+                    | TuiEvent::Title(_)
+                    | TuiEvent::CustomOpen(_)
+                    | TuiEvent::OverlayOpen(_)
+                    | TuiEvent::ExtensionWidget { .. }
+                    | TuiEvent::AssistantNotice(_)
                     | TuiEvent::ThemeName(_)
                     | TuiEvent::ClearStatus
                     | TuiEvent::CtrlZ
@@ -1203,6 +1591,22 @@ pub fn run(
                     | TuiEvent::BranchSummary(_)
                     | TuiEvent::Working(_) => {
                         let _ = apply(&mut state, event.clone());
+                        dirty = true;
+                        continue;
+                    }
+                    TuiEvent::PageUp | TuiEvent::PageDown => {
+                        // `/resume`：整页跳（ref `session-selector.ts:621-626`，
+                        // `tui.select.pageUp/pageDown` 默认键 = pageUp/pageDown）。
+                        if let SelectorUi::Resume(sel, cols) = open_selector {
+                            if matches!(event, TuiEvent::PageUp) {
+                                sel.page_up(crate::settings_selector::ResumeSelector::MAX_VISIBLE);
+                            } else {
+                                sel.page_down(
+                                    crate::settings_selector::ResumeSelector::MAX_VISIBLE,
+                                );
+                            }
+                            state.open_panel(pi_tui::PanelPlacement::BelowEditor, sel.lines(*cols));
+                        }
                         dirty = true;
                         continue;
                     }
@@ -1290,6 +1694,20 @@ pub fn run(
                                 | TuiEvent::Newline
                                 | TuiEvent::HistoryPrev
                                 | TuiEvent::HistoryNext
+                                | TuiEvent::PageUp
+                                | TuiEvent::PageDown
+                                | TuiEvent::ExtensionNotice { .. }
+                                | TuiEvent::ExtensionStatus { .. }
+                                | TuiEvent::ExtensionLabels(_)
+                                | TuiEvent::SkillLabels(_)
+                                | TuiEvent::ExtensionPaths(_)
+                                | TuiEvent::ExtensionIssues(_)
+                                | TuiEvent::FooterOverride(_)
+                                | TuiEvent::HeaderOverride(_)
+                                | TuiEvent::Title(_)
+                                | TuiEvent::CustomOpen(_)
+                                | TuiEvent::OverlayOpen(_)
+                                | TuiEvent::ExtensionWidget { .. }
                                 | TuiEvent::Clear
                                 | TuiEvent::Paste(_)
                                 | TuiEvent::Quit
@@ -1711,7 +2129,7 @@ pub fn run(
                                         let tx2 = tx.clone();
                                         let system = parts_ref.config.system.clone();
                                         let max_tokens = parts_ref.config.max_completion_tokens;
-                                        let window = parts_ref.context_window;
+                                        let window = context_window_of(parts_ref);
                                         let system_message_for_percent =
                                             parts_ref.system_message.clone();
                                         let writer_for_summary =
@@ -1954,17 +2372,18 @@ pub fn run(
                                                     extra: serde_json::Map::new(),
                                                 },
                                             );
-                                        let window = if parts.context_window >= 1000 {
-                                            format!("{}k", parts.context_window / 1000)
+                                        let window_tokens = context_window_of(parts);
+                                        let window = if window_tokens >= 1000 {
+                                            format!("{}k", window_tokens / 1000)
                                         } else {
-                                            parts.context_window.to_string()
+                                            window_tokens.to_string()
                                         };
-                                        let percent = if parts.context_window == 0 {
+                                        let percent = if window_tokens == 0 {
                                             None
                                         } else {
                                             Some(
                                                 (system_tokens + message_tokens) as f64
-                                                    / parts.context_window as f64
+                                                    / window_tokens as f64
                                                     * 100.0,
                                             )
                                         };
@@ -2009,6 +2428,20 @@ pub fn run(
                                                         &path,
                                                     )
                                                 {
+                                                    // F11：`/resume` 切换后必须重新登记路径，
+                                                    // 否则后续 appendEntry 仍写向旧会话文件。
+                                                    // ref `teardownCurrent("resume", target)`：
+                                                    // 切换前派发 session_shutdown（带 targetSessionFile）。
+                                                    crate::ext_tools::emit_session_shutdown(
+                                                        "resume",
+                                                        Some(opened.path()),
+                                                    );
+                                                    crate::ext_tools::set_session_file(
+                                                        opened.path(),
+                                                    );
+                                                    crate::ext_tools::set_session_id(
+                                                        opened.session_id(),
+                                                    );
                                                     if let Ok(mut guard) = writer.lock() {
                                                         *guard = opened;
                                                     }
@@ -2018,6 +2451,7 @@ pub fn run(
                                         // 从被 resume 的会话累加 usage（ref 的 footer 会显示
                                         // `↑10 ↓2 $0.000 …`：输入/输出/费用都来自会话里的 assistant 消息）。
                                         if let Some(parts) = parts.as_ref() {
+                                            let window_tokens = context_window_of(parts);
                                             if let Ok(totals) =
                                                 crate::settings_selector::session_usage(&path)
                                             {
@@ -2029,7 +2463,7 @@ pub fn run(
                                                         percent: Some(0.0),
                                                         window: format!(
                                                             "{}k",
-                                                            parts.context_window / 1000
+                                                            window_tokens / 1000
                                                         ),
                                                         auto: true,
                                                         cost: if totals.cost == 0.0 {
@@ -2041,6 +2475,17 @@ pub fn run(
                                                 );
                                             }
                                         }
+                                        // P9-1-E1b/S3：`/resume` 之后按 ref 的 reason 派发
+                                        // `session_start{reason:"resume"}`（`agent-session.ts:430`
+                                        // 的 `sessionStartEvent`；reason 取值见
+                                        // `agent-session-runtime.ts:218`）。
+                                        crate::ext_tools::emit_event(
+                                            "session_start",
+                                            crate::ext_tools::session_start_payload(
+                                                "resume",
+                                                Some(path.as_path()),
+                                            ),
+                                        );
                                         let _ = apply(
                                             &mut state,
                                             TuiEvent::Status("Resumed session".to_string()),
@@ -2221,13 +2666,15 @@ pub fn run(
                             (picked, parts.as_ref())
                         {
                             match rebuild_provider(parts_ref, &pick_provider, &model_id) {
-                                Ok(provider) => {
+                                Ok(built) => {
                                     let provider_name = pick_provider.clone();
                                     if let Ok(mut guard) = parts_ref.model_state.lock() {
                                         guard.model_id.clone_from(&model_id);
                                         guard.provider_name.clone_from(&pick_provider);
-                                        guard.provider = provider;
+                                        guard.provider = built.provider;
+                                        guard.context_window = built.context_window;
                                     }
+                                    refresh_model_window(&mut state, parts_ref, &history);
                                     if let Some(writer) = parts_ref.writer.as_ref() {
                                         if let Ok(mut guard) = writer.lock() {
                                             let _ = guard
@@ -2236,6 +2683,9 @@ pub fn run(
                                     }
                                     state.model = model_id.clone();
                                     state.model_provider = provider_name.clone();
+                                    // P9-1-E1/S4：扩展 ctx 的 model/thinkingLevel 跟随切换
+                                    // （ref `types.ts:325-334`：ctx.model 是**当前**模型）。
+                                    crate::ext_tools::update_ctx_model(Some(&model_id), None);
                                     let _ = apply(
                                         &mut state,
                                         TuiEvent::Status(format!("Model: {model_id}")),
@@ -2390,6 +2840,7 @@ pub fn run(
                 let last = state.transcript.iter().rev().find_map(|item| match item {
                     pi_tui::TranscriptItem::Assistant(text) => Some(text.clone()),
                     pi_tui::TranscriptItem::User(_)
+                    | pi_tui::TranscriptItem::SkillInvocation { .. }
                     | pi_tui::TranscriptItem::Thinking(_)
                     | pi_tui::TranscriptItem::Notice(_)
                     | pi_tui::TranscriptItem::Status(_)
@@ -2446,7 +2897,14 @@ pub fn run(
                         NextModel::OnlyOne => {
                             let _ = apply(
                                 &mut state,
-                                TuiEvent::Status("Only one model available".to_string()),
+                                TuiEvent::Status(
+                                    if parts_ref.scoped_models_configured {
+                                        "Only one model in scope"
+                                    } else {
+                                        "Only one model available"
+                                    }
+                                    .to_string(),
+                                ),
                             );
                         }
                         NextModel::NoneSwitchable(error) => {
@@ -2455,12 +2913,14 @@ pub fn run(
                                 TuiEvent::Status(format!("无法切换模型：{error}")),
                             );
                         }
-                        NextModel::Chosen(next_id, provider) => {
+                        NextModel::Chosen(next_id, built) => {
                             if let Ok(mut guard) = parts_ref.model_state.lock() {
                                 guard.model_id.clone_from(&next_id.id);
                                 guard.provider_name.clone_from(&next_id.provider);
-                                guard.provider = provider;
+                                guard.provider = built.provider;
+                                guard.context_window = built.context_window;
                             }
+                            refresh_model_window(&mut state, parts_ref, &history);
                             if let Some(writer) = parts_ref.writer.as_ref() {
                                 if let Ok(mut guard) = writer.lock() {
                                     let _ =
@@ -2469,9 +2929,36 @@ pub fn run(
                             }
                             state.model = next_id.id.clone();
                             state.model_provider = next_id.provider.clone();
+                            // P9-1-E1/S4：Ctrl+P 切换后扩展 ctx 立即反映新模型
+                            //（思考档位在下面几行算出来后一起推）。
+                            let mut pending_model = Some(next_id.id.clone());
+                            // ref `interactive-mode.ts:4387-4389`：切换后按新模型重置思考档位
+                            // （推理模型默认 medium、其余 off），并在提示里带上档位。
+                            let reasoning = crate::list_models::model_is_reasoning(
+                                &state.agent_dir,
+                                &next_id.provider,
+                                &next_id.id,
+                            );
+                            state.thinking_level = if reasoning {
+                                "medium".to_string()
+                            } else {
+                                "off".to_string()
+                            };
+                            crate::ext_tools::update_ctx_model(
+                                pending_model.take().as_deref(),
+                                Some(state.thinking_level.as_str()),
+                            );
+                            let thinking_str = if reasoning && state.thinking_level != "off" {
+                                format!(" (thinking: {})", state.thinking_level)
+                            } else {
+                                String::new()
+                            };
                             let _ = apply(
                                 &mut state,
-                                TuiEvent::Status(format!("Switched to {}", next_id.id)),
+                                TuiEvent::Status(format!(
+                                    "Switched to {}{thinking_str}",
+                                    next_id.id
+                                )),
                             );
                         }
                     }
@@ -2664,12 +3151,15 @@ pub fn run(
                                         {
                                             state.model = model;
                                         }
-                                        // 无模型启动时 agent 部件没建过；登录后立刻重建，
-                                        // 让当次会话就能对话（无需重启）。
-                                        if parts.is_none() {
-                                            if let Some(build) = rebuild.as_ref() {
-                                                if let Some((built, model)) = build() {
-                                                    parts = Some(built);
+                                        // 登录后**总是**重建部件：`available_models`（`/model` 与
+                                        // `Ctrl+P` 的数据源）是在装配时算的，只在 parts 为 None 时重建会导致
+                                        // "已有模型时登录新 provider，`/model` 里看不到它的模型"（真机反馈）。
+                                        if let Some(build) = rebuild.as_ref() {
+                                            if let Some((built, model)) = build() {
+                                                state.login_providers =
+                                                    built.login_providers.clone();
+                                                parts = Some(built);
+                                                if !model.is_empty() {
                                                     state.model = model;
                                                 }
                                             }
@@ -2690,6 +3180,55 @@ pub fn run(
                     // 快速连发时会并发跑 N 个 agent 回合（各自持有完整上下文），
                     // 实测 30 轮快速输入 RSS 冲到 396 MB 并被 OOM 杀（退出码 137），
                     // 且多个回合的增量会交错写进同一 transcript（表现为内容错乱）。
+                    // P9 E3：扩展命令优先（ref `agent-session.ts:1615-1625`：先命令、后 `input` 钩子）。
+                    if crate::ext_tools::try_run_command(&text) {
+                        state.input.clear();
+                        dirty = true;
+                        continue;
+                    }
+                    // F23/S1：`/skill:<name> args` 展开（ref `agent-session.ts:1797-1821`）：
+                    // 命中就把整条消息替换成 SKILL.md 的内容 + 参数，再走后续流程。
+                    // 同时记下技能名：ref 在会话区渲染 `[skill] <name>` 组件
+                    // （`skill-invocation-message.ts:32-56`），而不是把展开正文当用户消息显示。
+                    let mut skill_invocation: Option<(String, String, String)> = None;
+                    let text = match parts
+                        .as_ref()
+                        .map(|parts| pi_core::skills::expand_skill_command(&text, &parts.skills))
+                    {
+                        Some(Ok(Some(expanded))) => {
+                            let name = text
+                                .trim_start_matches("/skill:")
+                                .split_whitespace()
+                                .next()
+                                .unwrap_or_default()
+                                .to_string();
+                            // 参数部分单独作为用户消息显示（golden：`[skill] …` 之后另起一行参数）。
+                            let args = text
+                                .trim_start_matches("/skill:")
+                                .split_once(' ')
+                                .map(|(_, rest)| rest.trim().to_string())
+                                .unwrap_or_default();
+                            skill_invocation = Some((name, args, expanded.clone()));
+                            expanded
+                        }
+                        Some(Err((path, message))) => {
+                            // ref `:1812-1819`：读失败 ⇒ 报错并原样放行。
+                            eprintln!("Error: {message} ({path})");
+                            text
+                        }
+                        Some(Ok(None)) | None => text,
+                    };
+                    // P9 E2：`input` 钩子（ref `agent-session.ts:1553-1572`）。`handled`
+                    // 表示扩展已接管 —— 不进会话区、不排队、不跑 agent。
+                    let text = match crate::ext_tools::run_input_hooks(&text, "interactive") {
+                        crate::ext_tools::InputOutcome::Handled => {
+                            state.input.clear();
+                            dirty = true;
+                            continue;
+                        }
+                        crate::ext_tools::InputOutcome::Transform(text) => text,
+                        crate::ext_tools::InputOutcome::Continue => text,
+                    };
                     if busy {
                         queued_inputs.push_back(text);
                         dirty = true;
@@ -2698,7 +3237,17 @@ pub fn run(
                     busy = true;
                     // W3-2：用户消息进会话区（golden 形如 ` say hi`）；随后起一轮 agent run，
                     // 助手增量/工具调用/Working 由 `TuiEventSink` 经同一个 `tx` 送回本循环。
-                    state.transcript.push(TranscriptItem::User(text.clone()));
+                    match skill_invocation {
+                        Some((name, args, content)) => {
+                            state
+                                .transcript
+                                .push(TranscriptItem::SkillInvocation { name, content });
+                            if !args.is_empty() {
+                                state.transcript.push(TranscriptItem::User(args));
+                            }
+                        }
+                        None => state.transcript.push(TranscriptItem::User(text.clone())),
+                    }
                     if let Some(parts) = parts.as_ref() {
                         let parts = std::sync::Arc::clone(parts);
                         let tx = tx.clone();
@@ -2708,7 +3257,7 @@ pub fn run(
                         std::thread::spawn(move || {
                             let concrete_sink = std::sync::Arc::new(TuiEventSink::new(
                                 tx.clone(),
-                                parts.context_window,
+                                context_window_of(&parts),
                                 parts.system_message.clone(),
                             ));
                             let sink: std::sync::Arc<dyn pi_core::agent::EventSink> =
@@ -2757,6 +3306,19 @@ pub fn run(
                                 .map(|guard| guard.clone())
                                 .unwrap_or_default();
                             messages.push(user);
+                            // footer 百分比的口径：ref `compaction.ts:218-246 estimateContextTokens`
+                            // 在没有 usage 时按**整个投影**估算（系统提示 + 历史 + 本轮输入）。
+                            // 只算最后一条 assistant 会偏小（T10：我们 1.1% vs TS 1.2%）。
+                            {
+                                let mut projected = pi_core::agent::compaction::estimate_tokens(
+                                    &parts.system_message,
+                                );
+                                for message in &messages {
+                                    projected +=
+                                        pi_core::agent::compaction::estimate_tokens(message);
+                                }
+                                concrete_sink.set_context_tokens(projected);
+                            }
                             // 取消令牌随线程结束丢弃：TUI 退出时不阻塞在已无人接收的事件上。
                             let cancel = tokio_util::sync::CancellationToken::new();
                             if let Ok(mut slot) = turn_cancel_slot.lock() {
@@ -2934,15 +3496,16 @@ pub fn run(
                                     }
                                 })
                                 .unwrap_or((0, 0));
-                            let window = if parts.context_window >= 1000 {
-                                format!("{}k", parts.context_window / 1000)
+                            let window_tokens = context_window_of(&parts);
+                            let window = if window_tokens >= 1000 {
+                                format!("{}k", window_tokens / 1000)
                             } else {
-                                parts.context_window.to_string()
+                                window_tokens.to_string()
                             };
-                            let percent = if parts.context_window == 0 {
+                            let percent = if window_tokens == 0 {
                                 None
                             } else {
-                                Some(estimate.tokens as f64 / parts.context_window as f64 * 100.0)
+                                Some(estimate.tokens as f64 / window_tokens as f64 * 100.0)
                             };
                             // 回合结束时只更新**百分比**（`estimate` 是整段上下文的投影口径，
                             // ref `footer.ts:150-155`）；累计用量已由本轮 `message_end` 累加，
@@ -3146,18 +3709,21 @@ pub fn run(
                             // 刷新状态文案按 ref `:210` 成功分支。
                             // 列表来自 `models.json` 里该 provider 的全部模型；
                             // 当前模型打 `✓`，其余可上下移动后回车切换（ref `model-selector.ts:316-330`）。
+                            // 一条模型都没有（既没 `models.json` 也没可用的内置目录）：
+                            // ref `core/model-resolver.ts:422-427` 只报错、不造条目；
+                            // 早先这里塞了硬编码的 `mock-model`，真机上会显示成
+                            // "✓ mock-model [openai-completions] · default"（假模型）。
+                            if parts.is_none() {
+                                state.transcript.push(pi_tui::TranscriptItem::Status(
+                                    "No models available. Check your installation or add models to models.json."
+                                        .to_string(),
+                                ));
+                                dirty = true;
+                                continue;
+                            }
                             let (choices, current_id, current_provider) =
                                 parts.as_ref().map_or_else(
-                                    || {
-                                        (
-                                            vec![ModelChoice {
-                                                provider: "openai-completions".to_string(),
-                                                id: "mock-model".to_string(),
-                                            }],
-                                            "mock-model".to_string(),
-                                            "openai-completions".to_string(),
-                                        )
-                                    },
+                                    || (Vec::new(), String::new(), String::new()),
                                     |parts| {
                                         (
                                             parts.available_models.clone(),
@@ -3212,6 +3778,96 @@ pub fn run(
                             state.open_panel(pi_tui::PanelPlacement::BelowEditor, sel.lines(cols));
                             selector = Some(SelectorUi::Tree(sel, cols));
                         }
+                        "new" => {
+                            // ref：`/new`（`interactive-mode.ts:3182-3186`）→ `handleClearCommand`
+                            // （`:6657-6670`）→ `runtimeHost.newSession()`（`agent-session-runtime.ts:226-252`）：
+                            // ① `session_before_switch{reason:"new"}`（扩展可取消）
+                            // ② 建新会话（新文件）
+                            // ③ teardown 旧会话 → `session_start{reason:"new", previousSessionFile}`
+                            // ④ 清屏重绘 + `✓ New session started`
+                            let previous = parts
+                                .as_ref()
+                                .and_then(|parts| parts.writer.as_ref())
+                                .and_then(|writer| {
+                                    writer.lock().ok().map(|guard| guard.path().to_path_buf())
+                                });
+                            if crate::ext_tools::emit_session_before_switch(
+                                "new",
+                                previous.as_deref(),
+                            ) {
+                                let _ = apply(
+                                    &mut state,
+                                    TuiEvent::Status("Session switch cancelled".to_string()),
+                                );
+                                dirty = true;
+                                continue;
+                            }
+                            let created = parts.as_ref().and_then(|parts| {
+                                let thinking = state.thinking_level.clone();
+                                // provider/model 取**当前生效**的那份（`/model` 可能已切换）。
+                                let (provider_name, model_id) = parts
+                                    .model_state
+                                    .lock()
+                                    .map(|guard| {
+                                        (guard.provider_name.clone(), guard.model_id.clone())
+                                    })
+                                    .unwrap_or_else(|_| {
+                                        ("openai-completions".to_string(), "unknown".to_string())
+                                    });
+                                crate::session_writer::SessionWriter::create(
+                                    &parts.session_dir,
+                                    std::path::Path::new(&parts.cwd),
+                                    &provider_name,
+                                    &model_id,
+                                    &thinking,
+                                )
+                                .ok()
+                                .map(|writer| (parts, writer))
+                            });
+                            match created {
+                                Some((parts, writer)) => {
+                                    let path = writer.path().to_path_buf();
+                                    // ref `teardownCurrent(reason, targetSessionFile)`：
+                                    // 旧会话收尾时派发 `session_shutdown{reason:"new", targetSessionFile}`。
+                                    crate::ext_tools::emit_session_shutdown("new", Some(&path));
+                                    crate::ext_tools::set_session_file(&path);
+                                    crate::ext_tools::set_session_id(writer.session_id());
+                                    if let Some(slot) = parts.writer.as_ref() {
+                                        if let Ok(mut guard) = slot.lock() {
+                                            *guard = writer;
+                                        }
+                                    }
+                                    crate::ext_tools::emit_event(
+                                        "session_start",
+                                        crate::ext_tools::session_start_payload(
+                                            "new",
+                                            Some(path.as_path()),
+                                        ),
+                                    );
+                                    // 清屏：把转录区、工具块、用量与状态都清掉（ref 的 chatContainer.clear()）。
+                                    state.transcript.clear();
+                                    state.extension_status.clear();
+                                    state.extension_widgets.clear();
+                                    state.custom_lines = None;
+                                    let _ = apply(
+                                        &mut state,
+                                        TuiEvent::Status("✓ New session started".to_string()),
+                                    );
+                                    selector = None;
+                                    state.close_panel();
+                                    dirty = true;
+                                    continue;
+                                }
+                                None => {
+                                    let _ = apply(
+                                        &mut state,
+                                        TuiEvent::Status("Failed to create session".to_string()),
+                                    );
+                                    dirty = true;
+                                    continue;
+                                }
+                            }
+                        }
                         "resume" => {
                             // P7-7d1/d3：会话选择器（布局 ref `session-selector.ts:742-755`）。
                             // 会话来自配置目录旁的 session 目录；`Current Folder` 按 cwd 过滤。
@@ -3220,6 +3876,13 @@ pub fn run(
                                 sel.sessions =
                                     crate::settings_selector::scan_sessions(&parts.session_dir);
                                 sel.current_cwd = parts.cwd.clone();
+                                // ref `session-manager.ts:1904-1906`：默认分区目录里**不**按
+                                // header cwd 过滤（目录改名后旧会话仍要能选）；自定义目录才过滤。
+                                sel.filter_cwd = crate::session_writer::should_filter_by_cwd(
+                                    &parts.session_dir,
+                                    std::path::Path::new(&parts.cwd),
+                                    &parts.agent_dir,
+                                );
                             }
                             sel.home = crate::runtime::home_from(&|key| std::env::var(key).ok());
                             state.open_panel(pi_tui::PanelPlacement::BelowEditor, sel.lines(cols));
@@ -3286,6 +3949,9 @@ pub fn run(
         let _ = out.write_all(stop.as_bytes());
         let _ = out.flush();
     }
+    // ref `dispose()`（`agent-session-runtime.ts:404-411`）：退出前派发
+    // `session_shutdown{reason:"quit"}`，扩展的清理逻辑（脱敏缓存、后台任务）才跑得到。
+    crate::ext_tools::emit_session_shutdown("quit", None);
     guard.restore();
     // 退出后打印**恢复会话**提示（ref 退出路径同款文案，见 T01 golden 尾部）：
     // `\x1b[2mTo resume this session:\x1b[22m pi --session-dir <dir> --session <id>`。
@@ -3465,6 +4131,10 @@ fn draw(
 ) -> std::io::Result<()> {
     let mut out = std::io::stdout();
     let mut buffer = String::new();
+    // P8e-18：帧内耗时（`PI_TUI_TIMING=<path>`，仅排查大帧用）。
+    let timing = std::env::var_os("PI_TUI_TIMING");
+    let started = std::time::Instant::now();
+    let build_ms = std::cell::Cell::new(0_u128);
     {
         {
             // P7-6n：主屏差分渲染（`TuiMainScreen.doRender` 移植）。`render_all` 给**全量**行，
@@ -3500,9 +4170,15 @@ fn draw(
                     }
                 }
             }
-            let lines = frame.lines;
+            build_ms.set(started.elapsed().as_millis());
+            let mut lines = frame.lines;
             let styles = frame.styles;
             let spans = frame.spans;
+            // overlay 合成（ref `interactive-mode.ts:2902-2917`）：在**帧内容**上覆盖，
+            // 不参与 pi-tui 的 header/滚动计算（放内核里会破坏 T90，见 notes/decisions.md）。
+            if let Some(overlay) = state.overlay_lines.as_ref() {
+                compose_overlay(&mut lines, overlay, cols, rows);
+            }
             // W1：诊断转储（feature 关闭时这段不参与编译）。
             #[cfg(feature = "diag-frame-dump")]
             {
@@ -3531,34 +4207,165 @@ fn draw(
     // W3：与 TS 一致，把整屏重绘包在**同步更新**序列里（`\x1b[?2026h` … `\x1b[?2026l`）。
     // 作用：① 终端不会显示半张画面；② 录制的原始流因此有**帧边界**，比较时才能把截断点
     // 回退到完整帧的结尾（见 notes/reports/P7-4c-trim-diag.md 与 notes/decisions.md）。
+    // 扩展 `ctx.ui.setTitle`（ref `types.ts:199`）：在帧内写 OSC 2 设置终端标题。
+    if let Some(title) = state.pending_title.borrow_mut().take() {
+        buffer.push_str(&title_osc(&title));
+    }
     let payload = buffer; // r3：`diff_render` 已自带同步区，不能再包一层
+    let build_ms = build_ms.get();
+    let diff_ms = started.elapsed().as_millis();
     if let Some(path) = output_dump_path() {
         dump_output(&path, cols, rows, diff_state, &payload);
     }
-    write_frame(&mut out, &payload)
+    let result = write_frame(&mut out, &payload);
+    if let Some(path) = timing {
+        use std::io::Write as _;
+        if let Ok(mut file) = std::fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(&path)
+        {
+            let _ = writeln!(
+                file,
+                "frame lines={} bytes={} build={build_ms}ms diff={}ms write={}ms",
+                payload.lines().count(),
+                payload.len(),
+                diff_ms as i128 - build_ms as i128,
+                started.elapsed().as_millis() as i128 - diff_ms as i128
+            );
+        }
+    }
+    result
 }
 
-/// 把一帧字节按**行**写给终端（每次 `write_all` 都以 `\n` 结尾）。
+/// 把一帧字节按**行边界**分块写给终端（切点只在 `\n` 之后）。
 ///
-/// 背景：Windows 上曾出现行尾多出 `;;` / `0m` 的现象，位置总在行尾那组复位序列的尾巴上。
-/// 当时的假设是"std 在控制台句柄上每次最多转换 4096 字节，整帧被切成多次写入、切点落在
-/// 序列内部，控制台丢掉半截、把剩余字节当文本显示"。
+/// 约束：
+/// 1. 切点只落在 `\n` 之后 —— 单条转义序列不会被写入层切开（行尾序列被打坏的真实原因在
+///    渲染层，见 `diff::shift_past_marker`）。
+/// 2. 分块上限 64 KiB：Windows 控制台句柄单次写入有长度上限，超过会被截断；
+///    Linux 侧顺带把"每行一次 `write_all`"降成每 64 KiB 一次。
 ///
-/// **该假设没有复现**（2026-10-31，独立程序 × WezTerm/ConPTY 与经典 conhost × 序列内
-/// 每个字节位置的切点 × 三种写法，72 个用例 0 残留；见
-/// `docs/evidence/w-p8e17-h1-4096-boundary.md`）。真实原因是渲染层把行尾复位序列切开了
-/// （spans 偏移按"带光标标记的行"计算、写前标记被剥掉却没有左移偏移，见 `diff::
-/// shift_past_marker`）。因此按行写入**不是**修复手段，只是防御性约束：切点只落在 `\n` 之后，
-/// 序列被写入层切开在这条路径上不可能发生。
+/// 为什么改成分块：69 MB / 34.5 万行的会话整屏重绘一次是 35 MB 输出，逐行写等于
+/// 36.5 万次 `write` 系统调用（`/proc/<pid>/io` 的 `syscw` 实测就是这个数），
+/// `Ctrl+P` 一次要 7 秒；分块后同样字节量只需要几百次写入。字节内容与原实现**逐字节相同**。
 ///
 /// 排查开关：`PI_TUI_OUTPUT_DUMP` 会把每帧实际写出的字节落盘（见 `dump_output`）。
+const WRITE_CHUNK: usize = 64 * 1024;
+
+/// 终端标题的 OSC 2 序列（ref `types.ts:199` 的 `setTitle`）。
+///
+/// 过滤 `ESC`/`BEL`/控制字符：标题来自扩展，直接拼进去可以被用来注入转义序列。
+#[must_use]
+/// 把 TUI 事件映射成发给扩展组件的按键字节（`ctx.ui.custom` 的 `handleInput(data)` 口径）。
+fn key_bytes(event: &pi_tui::TuiEvent) -> Option<String> {
+    use pi_tui::TuiEvent;
+    Some(match event {
+        TuiEvent::Char(ch) => ch.to_string(),
+        TuiEvent::Enter => "\r".to_string(),
+        TuiEvent::Newline => "\n".to_string(),
+        TuiEvent::Escape => "\u{1b}".to_string(),
+        TuiEvent::Backspace => "\u{7f}".to_string(),
+        TuiEvent::Tab => "\t".to_string(),
+        TuiEvent::BackTab => "\u{1b}[Z".to_string(),
+        TuiEvent::HistoryPrev => "\u{1b}[A".to_string(),
+        TuiEvent::HistoryNext => "\u{1b}[B".to_string(),
+        TuiEvent::CursorLeft => "\u{1b}[D".to_string(),
+        TuiEvent::CursorRight => "\u{1b}[C".to_string(),
+        _other => return None,
+    })
+}
+
+/// 去掉 ANSI CSI 序列（`ESC [ … 终止字节`），只用于量宽度。
+fn strip_ansi(text: &str) -> String {
+    let mut out = String::with_capacity(text.len());
+    let mut chars = text.chars();
+    while let Some(ch) = chars.next() {
+        if ch == '\u{1b}' {
+            // CSI：`ESC [` 之后的第一个 `@`..`~` 才是终止字节（`[` 本身不是终止）。
+            if chars.clone().next() == Some('[') {
+                let _ = chars.next();
+                for next in chars.by_ref() {
+                    if ('@'..='~').contains(&next) {
+                        break;
+                    }
+                }
+            } else {
+                let _ = chars.next();
+            }
+            continue;
+        }
+        out.push(ch);
+    }
+    out
+}
+
+/// 把 overlay 行按"居中、盒宽 80 列、盒内清空、盒外保留"覆盖到帧内容上。
+///
+/// 位置依据 TS 录制（30×100 终端、3 行组件）：rows 13..15、第 10 列起；行 13 覆盖后
+/// 右侧仍有 `────`（盒外保留）。见 `notes/progress.md` 的 E4h 记录。
+fn compose_overlay(lines: &mut Vec<String>, overlay: &[String], cols: usize, rows: usize) {
+    if overlay.is_empty() || cols == 0 || rows == 0 {
+        return;
+    }
+    let box_width = 80.min(cols);
+    let left = cols.saturating_sub(box_width) / 2;
+    let height = overlay.len().min(rows);
+    let top = rows.saturating_sub(height) / 2;
+    for (offset, text) in overlay.iter().take(height).enumerate() {
+        let row = top + offset;
+        while lines.len() <= row {
+            lines.push(String::new());
+        }
+        let base = lines[row].clone();
+        let head = pi_tui::clamp_to_width(&base, left);
+        let head_width = pi_tui::display_width(&head);
+        let head = format!("{head}{}", " ".repeat(left.saturating_sub(head_width)));
+        // 单一路径：用**剥掉 ANSI 的纯文本**量宽度，输出时保留原带色文本。
+        // （混用 `clamp_to_width` 与 `display_width` 会把转义字节算进宽度，实测右侧差 24 列。）
+        let plain = strip_ansi(text);
+        let plain_width = pi_tui::display_width(&plain).min(box_width);
+        let body = format!(
+            "{text}{}",
+            " ".repeat(box_width.saturating_sub(plain_width))
+        );
+        // 盒外右侧：跳过 base 的前 `left + box_width` 列。
+        let mut tail = String::new();
+        let mut skipped = 0usize;
+        for ch in base.chars() {
+            let w = pi_tui::display_width(&ch.to_string());
+            if skipped + w <= left + box_width {
+                skipped += w;
+                continue;
+            }
+            tail.push(ch);
+        }
+        // 三段都已按显示宽度裁好，**不再整体 clamp**：整体按字符数裁会把带 ANSI 的
+        // body 之后的 tail 截掉（实测右侧 `─` 整段消失）。
+        lines[row] = format!("{head}{body}{tail}");
+    }
+}
+
+fn title_osc(title: &str) -> String {
+    let safe: String = title
+        .chars()
+        .filter(|ch| !matches!(ch, '\u{7}' | '\u{1b}') && !ch.is_control())
+        .collect();
+    format!("\u{1b}]2;{safe}\u{7}")
+}
+
 fn write_frame(out: &mut impl std::io::Write, payload: &str) -> std::io::Result<()> {
     let bytes = payload.as_bytes();
     let mut start = 0_usize;
+    // 当前块内最后一个换行之后的位置（切点候选）。
+    let mut cut = 0_usize;
     for (index, byte) in bytes.iter().enumerate() {
         if *byte == b'\n' {
-            out.write_all(&bytes[start..=index])?;
-            start = index + 1;
+            cut = index + 1;
+        }
+        if index + 1 - start >= WRITE_CHUNK && cut > start {
+            out.write_all(&bytes[start..cut])?;
+            start = cut;
         }
     }
     if start < bytes.len() {
@@ -3587,6 +4394,11 @@ pub struct TuiEventSink {
     /// 当前是第几次重试（0 = 首次尝试）。>0 时**不宣告中间失败**——
     /// ref 只在最终放弃时才把错误留在会话区，否则每次重试都会多一个 `Error:` 块。
     retry_attempt: std::sync::Arc<std::sync::atomic::AtomicU32>,
+    /// 本轮投影的 token 估算（系统提示 + 全部消息）；0 = 未设置。
+    ///
+    /// ref `compaction.ts:218-246` 的 `estimateContextTokens`：没有 usage 时百分比按**整个投影**算，
+    /// 只算最后一条 assistant 会偏小（T10 实测 1.1% vs TS 1.2%）。
+    context_tokens: std::sync::Arc<std::sync::atomic::AtomicU64>,
 }
 
 impl TuiEventSink {
@@ -3608,7 +4420,14 @@ impl TuiEventSink {
             context_window,
             system_message,
             retry_attempt: std::sync::Arc::new(std::sync::atomic::AtomicU32::new(0)),
+            context_tokens: std::sync::Arc::new(std::sync::atomic::AtomicU64::new(0)),
         }
+    }
+
+    /// 记下本轮投影的 token 估算（系统提示 + 历史 + 本轮输入），供 footer 百分比使用。
+    pub fn set_context_tokens(&self, tokens: u64) {
+        self.context_tokens
+            .store(tokens, std::sync::atomic::Ordering::Relaxed);
     }
 }
 
@@ -3626,6 +4445,7 @@ fn stamp_timestamp(message: &mut pi_ai::message::Message) {
         | pi_ai::message::Message::User { timestamp, .. } => *timestamp = now_ms,
         pi_ai::message::Message::Assistant(assistant) => assistant.timestamp = now_ms,
         pi_ai::message::Message::ToolResult { timestamp, .. }
+        | pi_ai::message::Message::BashExecution { timestamp, .. }
         | pi_ai::message::Message::Custom { timestamp, .. }
         | pi_ai::message::Message::BranchSummary { timestamp, .. }
         | pi_ai::message::Message::CompactionSummary { timestamp, .. } => *timestamp = now_ms,
@@ -3672,10 +4492,12 @@ impl pi_core::agent::EventSink for TuiEventSink {
                     };
                     let percent = if self.context_window == 0 {
                         None
-                    } else if assistant.usage.input + assistant.usage.output > 0 {
+                    } else if pi_ai::calculate_context_tokens(&assistant.usage) > 0 {
                         // 有 usage（T01 的 `↑10 ↓2`）：用量口径 ⇒ 12/128000 = 0.0%。
+                        // 基数用 ref `utils/estimate.ts:18-20` 的 `calculateContextTokens`：
+                        // `totalTokens || input+output+cacheRead+cacheWrite`（**含 cache**）。
                         Some(
-                            (assistant.usage.input + assistant.usage.output) as f64
+                            pi_ai::calculate_context_tokens(&assistant.usage) as f64
                                 / self.context_window as f64
                                 * 100.0,
                         )
@@ -3687,10 +4509,22 @@ impl pi_core::agent::EventSink for TuiEventSink {
                         );
                         let system_tokens =
                             pi_core::agent::compaction::estimate_tokens(&self.system_message);
-                        Some(
-                            (system_tokens + text_tokens) as f64 / self.context_window as f64
-                                * 100.0,
-                        )
+                        // 与 ref `compaction.ts:218-246 estimateContextTokens` 同口径：
+                        // 没有 usage 时百分比按**整个投影**（系统提示 + 会话里全部消息）估算，
+                        // 而不是只算最后一条 assistant（旧实现少算 user/toolResult ⇒ 1.1% 而 TS 1.2%）。
+                        // 投影在提交本轮输入时算好并放进 sink（`set_context_tokens`）。
+                        let projected = self
+                            .context_tokens
+                            .load(std::sync::atomic::Ordering::Relaxed);
+                        let tokens = if projected > 0 {
+                            projected
+                        } else {
+                            system_tokens + text_tokens
+                        };
+                        if projected == 0 {
+                            let _ = text_tokens;
+                        }
+                        Some(tokens as f64 / self.context_window as f64 * 100.0)
                     };
                     // 有错误/截断提示时优先把它送进会话区（否则用户看不到任何反馈）。
                     if std::env::var_os("PI_TUI_DUMP_TRANSCRIPT").is_some() {
@@ -3763,12 +4597,20 @@ impl pi_core::agent::EventSink for TuiEventSink {
                 args,
             } => Some(TuiEvent::ToolCall {
                 id: tool_call_id,
-                name: tool_name,
+                name: tool_name.clone(),
                 summary: tool_summary(&args),
+                // 扩展 `renderCall` 的降级行（无渲染器/不支持时 `None` ⇒ 内置渲染）。
+                // 宽度在渲染层再裁剪，这里给一个足够大的值，避免提前截断丢失内容。
+                render_lines: crate::ext_tools::render_tool_block(
+                    &tool_name,
+                    "call",
+                    serde_json::json!({ "args": args }),
+                    4096,
+                ),
             }),
             AgentEvent::ToolExecutionEnd {
                 tool_call_id,
-                tool_name: _,
+                tool_name,
                 result,
                 is_error,
             } => {
@@ -3790,16 +4632,44 @@ impl pi_core::agent::EventSink for TuiEventSink {
                         }
                     }
                 }
+                // 扩展 `renderResult` 的降级行（ref `tool-execution.ts:341-366`）：
+                // 结果区单独一段；无渲染器/不支持时 `None`，仍用内置文本。
+                let render_lines = crate::ext_tools::render_tool_block(
+                    &tool_name,
+                    "result",
+                    serde_json::json!({
+                        "result": result,
+                        "options": { "expanded": false, "isPartial": false },
+                    }),
+                    4096,
+                );
                 Some(TuiEvent::ToolResult {
                     id: tool_call_id,
                     output: parts.join("\n"),
                     is_error,
+                    render_lines,
+                    payload: Some(serde_json::json!({
+                        "content": result.get("content").cloned().unwrap_or(serde_json::Value::Null),
+                        "details": result.get("details").cloned().unwrap_or(serde_json::Value::Null),
+                    })
+                    .to_string()),
                 })
             }
             AgentEvent::AgentStart => Some(TuiEvent::Working(true)),
             AgentEvent::AgentSettled => Some(TuiEvent::Working(false)),
-            AgentEvent::AgentEnd { .. }
-            | AgentEvent::EntryAppended { .. }
+            AgentEvent::AgentEnd { messages, .. } => {
+                // P9-1-D：`agent_end` 向扩展派发（ref `agent-session.ts:1061-1062`
+                // `_emitExtensionEvent` 的 agent_end 分支，载荷 `{type, messages}`）。
+                crate::ext_tools::emit_event(
+                    "agent_end",
+                    serde_json::json!({
+                        "type": "agent_end",
+                        "messages": serde_json::to_value(messages).unwrap_or(serde_json::Value::Null),
+                    }),
+                );
+                None
+            }
+            AgentEvent::EntryAppended { .. }
             | AgentEvent::CompactionStart { .. }
             | AgentEvent::CompactionEnd { .. }
             | AgentEvent::SummarizationRetryScheduled { .. }
@@ -3857,7 +4727,7 @@ mod r3_wiring_tests {
         #[cfg(not(windows))]
         {
             let kitty_at = r3
-                .find("\x1b[>7u\x1b[?u\x1b[c")
+                .find("\x1b[>5u\x1b[?u\x1b[c")
                 .expect("缺 kitty 查询三元组");
             let paste_at = r3.find("\x1b[?2004h").expect("缺 2004h");
             let hide_at = r3.find("\x1b[?25l").expect("缺 hideCursor");
@@ -3977,7 +4847,7 @@ mod p76ab_tests {
 
         let bytes = std::str::from_utf8(startup_bytes()).expect("不是 UTF-8");
         assert!(
-            bytes.contains("\x1b[>7u\x1b[?u\x1b[c"),
+            bytes.contains("\x1b[>5u\x1b[?u\x1b[c"),
             "缺 kitty 查询三元组：{bytes:?}"
         );
         assert!(
@@ -4043,6 +4913,8 @@ fn map_windows_key(key: crossterm::event::KeyEvent) -> Option<TuiEvent> {
         KeyCode::Right => Some(TuiEvent::CursorRight),
         KeyCode::Up => Some(TuiEvent::HistoryPrev),
         KeyCode::Down => Some(TuiEvent::HistoryNext),
+        KeyCode::PageUp => Some(TuiEvent::PageUp),
+        KeyCode::PageDown => Some(TuiEvent::PageDown),
         KeyCode::BackTab => Some(TuiEvent::BackTab),
         KeyCode::Tab if key.modifiers.contains(KeyModifiers::SHIFT) => Some(TuiEvent::BackTab),
         KeyCode::Tab => Some(TuiEvent::Tab),
@@ -4807,6 +5679,9 @@ fn forward_sequence(
     use pi_tui::term_negotiate::Action;
 
     let (actions, _wake) = negotiate.on_sequence(seq, 0);
+    if negotiate.kitty_active() {
+        KITTY_ACTIVE.store(true, std::sync::atomic::Ordering::SeqCst);
+    }
     for action in actions {
         match action {
             Action::Consume => return true, // 协商应答被消费，不产生键事件
@@ -4900,6 +5775,10 @@ pub fn map_key_sequence(seq: &str) -> Option<TuiEvent> {
         "right" | "ctrl+f" => TuiEvent::CursorRight,
         "up" => TuiEvent::HistoryPrev,
         "down" => TuiEvent::HistoryNext,
+        // ref `packages/tui/src/keybindings.ts:149/151`：`tui.select.pageUp/pageDown`
+        // 的默认键就是 `pageUp`/`pageDown`（`session-selector.ts:621-626` 按整页跳）。
+        "pageup" | "pageUp" => TuiEvent::PageUp,
+        "pagedown" | "pageDown" => TuiEvent::PageDown,
         "delete" => TuiEvent::Delete,
         other => {
             // 单字符（含空格）⇒ Char；其余（f1..f12 / pageUp / insert / alt+* / shift+*）按 ref 忽略
@@ -4945,7 +5824,10 @@ mod p76ae_tests {
             ("\x1b[3~", Some(TuiEvent::Delete)),
             // ref 未绑定或本批未接线 ⇒ 忽略
             ("\t", Some(TuiEvent::Tab)), // P7-6an/C：Tab 现在映射为补全应用
-            ("\x1b[5~", None),
+            // P9-1-A：`tui.select.pageUp` 的默认键就是 pageUp
+            // （`packages/tui/src/keybindings.ts:149`），原先按"未绑定"忽略是错的。
+            ("\x1b[5~", Some(TuiEvent::PageUp)),
+            ("\x1b[6~", Some(TuiEvent::PageDown)),
             ("\x1bOP", None),
             ("\x1b[2~", None),
             ("\x1bb", None),
@@ -5845,24 +6727,46 @@ mod write_frame_tests {
         }
     }
 
-    /// 不变量：**除最后一次外，每次写入都必须以 `\n` 结尾**。
-    /// 真机上 ConPTY 会把“写入末尾的不完整转义序列”丢掉、把尾巴当文本显示
-    ///（`\x1b[0m` → `0m`、`\x1b]8;;\x07` → `;;`），所以切点不能落在行内。
+    /// 不变量（P8e-18 起）：**除最后一次外，每次写入都必须以 `\n` 结尾，且不超过 64 KiB**。
+    /// 真机上 ConPTY 会把"写入末尾的不完整转义序列"丢掉、把尾巴当文本显示
+    ///（`\x1b[0m` → `0m`、`\x1b]8;;\x07` → `;;`），所以切点不能落在行内；
+    /// 分块上限来自 Windows 控制台句柄的单次写入长度限制。
     #[test]
-    fn frame_is_written_line_by_line() {
-        let payload = "\u{1b}[?2026h\u{1b}[2K pi v0.87.1\u{1b}[0m\u{1b}]8;;\u{7}\r\n\u{1b}[2Kmore\u{1b}[0m\r\n\u{1b}[?2026l\u{1b}[3B";
+    fn frame_writes_split_only_after_newlines() {
+        // 3 万行 × 5 字节 ≈ 150 KiB ⇒ 必须落成多块，且每块都 ≤ 64 KiB。
+        let mut payload = String::new();
+        for index in 0..30_000 {
+            payload.push_str(&format!("L{index}\r\n"));
+        }
         let mut out = Recorder::default();
-        write_frame(&mut out, payload).expect("写入");
+        write_frame(&mut out, &payload).expect("写入");
         assert!(out.flushed, "必须 flush");
-        assert!(
-            out.calls.len() >= 3,
-            "应按行拆分，实际 {} 次",
-            out.calls.len()
-        );
+        assert!(out.calls.len() > 1, "大帧必须分块");
         for call in &out.calls[..out.calls.len() - 1] {
-            assert!(call.ends_with('\n'), "非末次写入未以换行结尾：{call:?}");
+            assert!(call.ends_with('\n'), "非末次写入未以换行结尾");
+            assert!(
+                call.len() <= super::WRITE_CHUNK,
+                "块超过上限：{} 字节",
+                call.len()
+            );
         }
         assert_eq!(out.calls.concat(), payload, "拼回的字节必须与输入一致");
+    }
+
+    /// 行边界优先于块上限：单行超过 64 KiB 时只能在行尾切（不允许从行中间切开）。
+    #[test]
+    fn single_long_line_is_not_split() {
+        let long = format!("{}\r\n", "x".repeat(super::WRITE_CHUNK + 100));
+        let payload = format!("{long}{long}");
+        let mut out = Recorder::default();
+        write_frame(&mut out, &payload).expect("写入");
+        assert_eq!(
+            out.calls.len(),
+            2,
+            "应按行切开，实际 {} 次",
+            out.calls.len()
+        );
+        assert_eq!(out.calls.concat(), payload);
     }
 
     /// 没有换行的短帧（首帧之外的纯光标定位字节）也要原样写出并 flush。
@@ -6279,5 +7183,111 @@ mod crlf_paste_tests {
     fn lone_lf_is_a_newline() {
         let text = burst_text(&[('a', 0, false), ('\r', 2, true), ('b', 10, false)]);
         assert_eq!(text, "a\nb", "{text:?}");
+    }
+}
+
+#[cfg(test)]
+mod login_panel_window_tests {
+    use super::{login_render, LoginItem, TuiState};
+
+    fn items(n: usize) -> Vec<LoginItem> {
+        (0..n)
+            .map(|i| LoginItem {
+                label: format!("provider-{i:02} (api_key)"),
+                id: Some(format!("p{i}")),
+                auth_type: crate::login_options::AuthType::ApiKey,
+            })
+            .collect()
+    }
+
+    fn panel_lines(state: &TuiState) -> Vec<String> {
+        let (_, lines) = state.panel.as_ref().expect("面板应已打开");
+        lines.clone()
+    }
+
+    /// 选中项必须出现在可视窗口内，并附带 `  (n/total)`；
+    /// 此前把全部 provider 一次铺出来，条目多于屏幕高度时选中项被顶出视图。
+    #[test]
+    fn selected_item_stays_visible_with_scroll_hint() {
+        let mut state = TuiState::new("0.87.1", "/tmp/work", "0.0%/128k (auto)");
+        let list = items(25);
+        login_render(&mut state, &list, 17);
+        let lines = panel_lines(&state);
+        assert!(
+            lines.iter().any(|line| line.contains("provider-17")),
+            "选中项必须在窗口内：{lines:?}"
+        );
+        assert!(
+            lines.iter().any(|line| line.contains("(18/25)")),
+            "需要滚动提示：{lines:?}"
+        );
+        assert!(
+            !lines.iter().any(|line| line.contains("provider-00")),
+            "窗口应上移，首项不应出现：{lines:?}"
+        );
+        assert!(
+            lines
+                .iter()
+                .filter(|line| line.contains("provider-"))
+                .count()
+                == 8,
+            "窗口最多 8 项：{lines:?}"
+        );
+    }
+
+    /// 条目不超过 8 条时不显示滚动提示（ref 同条件）。
+    #[test]
+    fn short_list_has_no_scroll_hint() {
+        let mut state = TuiState::new("0.87.1", "/tmp/work", "0.0%/128k (auto)");
+        let list = items(3);
+        login_render(&mut state, &list, 1);
+        let lines = panel_lines(&state);
+        assert_eq!(lines.iter().filter(|l| l.contains("provider-")).count(), 3);
+        assert!(
+            !lines.iter().any(|line| line.contains("(2/3)")),
+            "不应出现滚动提示：{lines:?}"
+        );
+    }
+}
+
+#[cfg(test)]
+mod title_osc_tests {
+    use super::title_osc;
+
+    /// ref `types.ts:199` 的 `setTitle`：`ESC ]2;<title>BEL`，并过滤 ESC/BEL 防注入。
+    #[test]
+    fn title_osc_bytes_and_filtering() {
+        assert_eq!(title_osc("pi - demo"), "\u{1b}]2;pi - demo\u{7}");
+        assert_eq!(title_osc("a\u{1b}]0;evil\u{7}b"), "\u{1b}]2;a]0;evilb\u{7}");
+        assert_eq!(title_osc("x\u{9}y"), "\u{1b}]2;xy\u{7}");
+    }
+}
+
+#[cfg(test)]
+mod compose_overlay_tests {
+    use super::compose_overlay;
+
+    /// overlay 盒按 80 列居中：`left=10`，盒内清空写文字，盒外（90..100）保留原内容。
+    #[test]
+    fn overlay_box_is_centered_with_80_columns() {
+        let mut lines = vec!["─".repeat(100); 30];
+        compose_overlay(&mut lines, &["OVL-A".to_string()], 100, 30);
+        // overlay 垂直居中：30 行、1 行组件 ⇒ 落在第 14 行。
+        let line = &lines[14];
+        assert_eq!(line.chars().count(), 100, "行宽应保持 100");
+        let chars: Vec<char> = line.chars().collect();
+        assert!(
+            chars[10..15].iter().collect::<String>().eq("OVL-A"),
+            "文字应从第 10 列开始"
+        );
+        assert!(
+            chars[90..100].iter().all(|c| *c == '─'),
+            "盒外右侧应保留原内容：{:?}",
+            &line[85..]
+        );
+        assert!(
+            chars[15..90].iter().all(|c| *c == ' '),
+            "盒内未写满的部分应是空格"
+        );
     }
 }

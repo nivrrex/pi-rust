@@ -1,6 +1,6 @@
 # spec/c-session.md — session 文件格式与上下文构建
 
-对应 RUNBOOK-1 步骤 A3。来源 `packages/coding-agent/src/core/session-manager.ts`（格式与投影）、
+来源 `packages/coding-agent/src/core/session-manager.ts`（格式与投影）、
 `packages/coding-agent/src/migrations.ts`（启动期一次性迁移，与 session 版本迁移是两回事）。
 
 ## 1. 文件与 header

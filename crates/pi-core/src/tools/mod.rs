@@ -17,5 +17,6 @@ pub mod read;
 pub mod read_text;
 pub mod schema;
 pub mod schema_order;
+pub mod shell_resolve;
 pub mod tool;
 pub mod write;

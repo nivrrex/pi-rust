@@ -114,6 +114,7 @@ fn tool_result_becomes_a_user_block_and_not_a_standalone_role() {
             | pi_ai::Message::User { .. }
             | pi_ai::Message::ToolResult { .. }
             | pi_ai::Message::Custom { .. }
+            | pi_ai::Message::BashExecution { .. }
             | pi_ai::Message::BranchSummary { .. }
             | pi_ai::Message::CompactionSummary { .. } => true,
         }),

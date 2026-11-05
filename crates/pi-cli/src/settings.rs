@@ -21,6 +21,9 @@ pub struct Settings {
     pub default_provider: Option<String>,
     #[serde(default, rename = "defaultModel")]
     pub default_model: Option<String>,
+    /// settings.json 的 `shellPath`（ref `settings-manager.ts:1010` 的 `getShellPath()`）。
+    #[serde(default, rename = "shellPath")]
+    pub shell_path: Option<String>,
     /// settings.json 的 `compaction` 段（ref settings-manager：`{enabled, reserveTokens, keepRecentTokens}`）。
     /// 三个键都可缺省，缺省项由 `compaction_settings()` 用默认值补。
     #[serde(default)]
@@ -440,6 +443,7 @@ mod resolve_initial_model_tests {
         Settings {
             default_provider: default_provider.map(str::to_string),
             default_model: default_model.map(str::to_string),
+            shell_path: None,
             ..Settings::default()
         }
     }

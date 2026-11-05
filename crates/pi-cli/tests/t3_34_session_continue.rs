@@ -152,24 +152,47 @@ fn reading_an_empty_session_file_fails() {
     let _ = std::fs::remove_dir_all(&dir);
 }
 
-/// `newest_session_file` 按**文件名**取最大（ISO 时间戳定长），不依赖 mtime。
+/// `newest_session_file`：按 **mtime** 取最近（ref `session-manager.ts:749-767`），
+/// 并可要求 header 里的 `cwd` 匹配（`sessionCwdMatches`）。此前按文件名字典序取最大，
+/// 与"最近"不是一回事。
 #[test]
-fn newest_session_file_picks_the_latest_name() {
+fn newest_session_file_uses_mtime_and_matches_cwd() {
+    use std::time::{Duration, SystemTime};
+
     let dir = temp_dir("newest");
-    for name in [
-        "2026-01-01T00-00-00.000Z_aaaa.jsonl",
-        "2026-03-01T00-00-00.000Z_bbbb.jsonl",
-        "2026-02-01T00-00-00.000Z_cccc.jsonl",
-    ] {
-        std::fs::write(dir.join(name), "{}\n").expect("写文件");
+    let older = dir.join("2026-01-01T00-00-00.000Z_aaaa.jsonl");
+    let newer = dir.join("2026-03-01T00-00-00.000Z_bbbb.jsonl");
+    for (path, cwd) in [(&older, "/work/a"), (&newer, "/work/b")] {
+        std::fs::write(
+            path,
+            format!("{{\"type\":\"session\",\"version\":3,\"id\":\"x\",\"cwd\":\"{cwd}\"}}\n"),
+        )
+        .expect("写文件");
     }
-    // 非 jsonl 的不应被选中
+    // 文件名顺序与 mtime 顺序相反：判定必须跟着 mtime 走。
+    let base = SystemTime::now();
+    for (path, offset) in [(&older, 20u64), (&newer, 10u64)] {
+        let file = std::fs::File::options()
+            .write(true)
+            .open(path)
+            .expect("打开");
+        let times = std::fs::FileTimes::new().set_modified(base - Duration::from_secs(offset));
+        file.set_times(times).expect("设置 mtime");
+    }
+    // 非 jsonl 的不参与。
     std::fs::write(dir.join("zzz.txt"), "x").expect("写文件");
-    let newest = pi_cli::session_writer::newest_session_file(&dir).expect("有最新会话");
+
+    let newest = pi_cli::session_writer::newest_session_file(&dir, None).expect("有最近会话");
+    assert_eq!(newest, newer, "无 cwd 过滤时按 mtime 取最近");
+
+    let for_a =
+        pi_cli::session_writer::newest_session_file(&dir, Some(std::path::Path::new("/work/a")))
+            .expect("cwd 匹配");
+    assert_eq!(for_a, older, "cwd 过滤后只能拿到本项目那条");
     assert!(
-        newest.to_string_lossy().contains("2026-03-01"),
-        "应取文件名最大者，实际：{}",
-        newest.display()
+        pi_cli::session_writer::newest_session_file(&dir, Some(std::path::Path::new("/work/zzz")))
+            .is_none(),
+        "没有匹配 cwd 时应为 None"
     );
     let _ = std::fs::remove_dir_all(&dir);
 }
@@ -179,7 +202,7 @@ fn newest_session_file_picks_the_latest_name() {
 fn newest_session_file_returns_none_for_a_missing_dir() {
     let missing = std::env::temp_dir().join("pi-rs-t34-does-not-exist");
     let _ = std::fs::remove_dir_all(&missing);
-    assert!(pi_cli::session_writer::newest_session_file(&missing).is_none());
+    assert!(pi_cli::session_writer::newest_session_file(&missing, None).is_none());
 }
 
 /// `SessionWriter::open`：**不写** header / `model_change` / `thinking_level_change`，
@@ -366,4 +389,57 @@ fn message_missing_usage_cost_is_tolerated_like_ts() {
         "assistant 必须保留：{transcript:#?}"
     );
     let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// `-c` 的 cwd 过滤规则（ref `session-manager.ts:1791-1796`）：
+/// **默认分区目录不过滤**（目录改名后旧会话还能续写），自定义目录才按 header `cwd` 过滤。
+#[test]
+fn continue_filters_by_cwd_only_for_custom_session_dirs() {
+    let agent = tempfile::tempdir().expect("agent dir");
+    let cwd = std::path::Path::new("/work/colibri");
+    let default_dir = pi_core::session_path::default_session_dir(
+        &cwd.to_string_lossy(),
+        &agent.path().to_string_lossy(),
+    );
+    assert!(
+        !pi_cli::session_writer::should_filter_by_cwd(&default_dir, cwd, agent.path()),
+        "默认分区目录不应按 header cwd 过滤"
+    );
+    let custom = agent.path().join("sessions").join("shared");
+    assert!(
+        pi_cli::session_writer::should_filter_by_cwd(&custom, cwd, agent.path()),
+        "自定义会话目录应按 header cwd 过滤"
+    );
+}
+
+/// 真机场景（OI-2）：目录改名后，分区目录里唯一一份会话的 header `cwd` 是旧路径，
+/// `-c` 仍必须选中它（调用方按上面的规则传 `None`）。
+#[test]
+fn continue_picks_newest_in_default_dir_even_if_header_cwd_is_stale() {
+    let agent = tempfile::tempdir().expect("agent dir");
+    let cwd = "/work/colibri";
+    let dir = pi_core::session_path::default_session_dir(cwd, &agent.path().to_string_lossy());
+    std::fs::create_dir_all(&dir).expect("建分区目录");
+    let path = dir.join("2026-09-26T08-51-54-437Z_01a0dce9-f1c5-71d6-82fa-73a0662d8e78.jsonl");
+    std::fs::write(
+        &path,
+        concat!(
+            r#"{"type":"session","version":3,"id":"s","timestamp":"2026-09-26T08:51:54.437Z","cwd":"/work/Colibrì"}"#,
+            "\n",
+            r#"{"type":"message","timestamp":"2026-09-26T08:52:00.000Z","message":{"role":"user","content":[{"type":"text","text":"hi"}]}}"#,
+            "\n"
+        ),
+    )
+    .expect("写会话");
+
+    // 默认目录：不过滤 ⇒ 选中它。
+    assert_eq!(
+        pi_cli::session_writer::newest_session_file(&dir, None).as_deref(),
+        Some(path.as_path())
+    );
+    // 若（错误地）按旧 cwd 过滤，就一份都找不到 —— 这正是修复前的行为。
+    assert!(
+        pi_cli::session_writer::newest_session_file(&dir, Some(std::path::Path::new(cwd)))
+            .is_none()
+    );
 }

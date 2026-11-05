@@ -17,7 +17,19 @@
 pub const FRAGMENT_TIMEOUT_MS: u64 = 150;
 
 /// 期望的 kitty 协议标志位（`terminal.ts:12` `DESIRED_KITTY_KEYBOARD_PROTOCOL_FLAGS = 7`）。
-pub const DESIRED_KITTY_FLAGS: u32 = 7;
+/// 我们要终端开启的 kitty 键盘协议 flags。
+///
+/// **偏离 ref**：ref 是 7（`terminal.ts:12` `DESIRED_KITTY_KEYBOARD_PROTOCOL_FLAGS = 7`），
+/// 我们取 **5 = 位1(disambiguate) | 位4(alternate keys)**，**故意不要位2（上报事件类型）**。
+/// kitty 协议的 flags 位含义：1 = disambiguate escape codes，2 = report event types
+/// （按下/重复/抬起），4 = report alternate keys，8 = report all keys as escape codes，
+/// 16 = report associated text。
+///
+/// 动机（`notes/decisions.md`「F4/S4 改：选方案 B」）：开了位 2 后每个键都会多发一个**抬起**
+/// 事件；Ctrl+D 退出时那个抬起若晚于进程终止落地，就被 shell 读走并回显成 `0;5:3u`。
+/// 关掉位 2 后终端根本不产生抬起事件 ⇒ 该缺陷从机制上消失，与机器/链路延迟无关。
+/// 我们用不到抬起事件（`tui.ts:1073-1076` 语义：release 一律丢弃）。
+pub const DESIRED_KITTY_FLAGS: u32 = 5;
 
 const SYNC_START: &str = "\u{1b}[?2004h";
 const SYNC_STOP: &str = "\u{1b}[?2004l";

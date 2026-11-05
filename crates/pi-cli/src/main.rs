@@ -24,17 +24,22 @@ use std::sync::Arc;
 /// `{provider: {models:[…], checkedAt, etag}}`）；也兼容 oracle 导出的 `{provider:[…]}` 形状
 /// （如 `pi-official-catalog.json`）。缺失或解析失败都**不致命**：退回"无目录"（即原来的行为）。
 fn load_builtin_catalog(agent_dir: &std::path::Path) -> Option<pi_ai::config::BuiltInCatalog> {
-    for name in ["models-store.json", "pi-official-catalog.json"] {
-        let path = agent_dir.join(name);
-        let Ok(text) = std::fs::read_to_string(&path) else {
-            continue;
-        };
-        match pi_ai::config::BuiltInCatalog::from_json(&text) {
-            Ok(catalog) => return Some(catalog),
-            Err(error) => eprintln!("pi-rs: {} 忽略（{error}）", path.display()),
-        }
-    }
-    None
+    // **必须走 `runtime::load_builtin_catalog`**：它先试编译期内嵌目录，再回落
+    // `<agentDir>/models-store.json` / `pi-official-catalog.json`。
+    // 此前这里只读文件、**不含内嵌目录** ⇒ 只放 `auth.json` 的机器（pi 盒子）上
+    // 目录为空：`resolve_with_catalog` 报 "models.json 中没有名为 openrouter 的 provider"，
+    // 交互模式还会因为"无模型"把 `/model` 退化成硬编码的 mock-model。
+    pi_cli::runtime::load_builtin_catalog(agent_dir)
+}
+
+/// `-c`/`--resume` 的 cwd 过滤（ref `session-manager.ts:1791-1796`）：
+/// 只有自定义会话目录才按 header `cwd` 过滤；默认分区目录里取最新一份，不看 header。
+fn continue_cwd_filter<'a>(
+    paths: &pi_cli::runtime::Paths,
+    cwd: &'a std::path::Path,
+) -> Option<&'a std::path::Path> {
+    pi_cli::session_writer::should_filter_by_cwd(&paths.session_dir, cwd, &paths.agent_dir)
+        .then_some(cwd)
 }
 
 /// 构建时刻（UTC，`YYYY-MM-DDTHH:MM:SSZ`）——由 `build.rs` 注入的 epoch 换算。
@@ -61,9 +66,28 @@ fn build_stamp() -> String {
     )
 }
 
+/// 退出前把扩展的会话 sink 排空并 join（F23/S3 的 R2）。
+///
+/// 用 `Drop` 覆盖所有退出路径（print/TUI/rpc/`--list-tools` 等），上限 2s：
+/// sink 卡住或磁盘很慢时不拖死进程，只打一条告警。
+struct SessionSinkFlush;
+
+impl Drop for SessionSinkFlush {
+    fn drop(&mut self) {
+        pi_cli::ext_tools::shutdown_session_sink(std::time::Duration::from_secs(2));
+    }
+}
+
 fn main() -> ExitCode {
+    let _session_sink_flush = SessionSinkFlush;
     let argv: Vec<String> = std::env::args().skip(1).collect();
     let parsed = args::parse(&argv);
+    // `-e/--extension`：**任何** `default_tools`（含 `--list-tools`）之前登记。
+    pi_cli::ext_tools::set_extra_extensions(&parsed.extension_paths);
+    // `--no-extensions/-ne`：只跳过发现，`-e` 仍生效（ref `resource-loader.ts:452-454`）。
+    pi_cli::ext_tools::set_no_extensions(parsed.no_extensions);
+    // 未知 `--flag` 先暂存，等扩展 `registerFlag` 之后再校验（ref 两阶段解析）。
+    pi_cli::ext_tools::set_unknown_flags(parsed.unknown_flags.clone());
 
     if parsed.has_errors() {
         // 解析期诊断的打印格式照 `main.ts:608-615`：`Error: <message>` / `Warning: <message>`
@@ -100,11 +124,43 @@ fn main() -> ExitCode {
     if let Some(code) = reject_unsupported(&parsed) {
         return code;
     }
+    // 没有任何扩展时，未知 flag 无处认领 ⇒ 按 ref 报 `Unknown option(s)` 并退出 1。
+    {
+        let home = pi_cli::runtime::home_from(&|key| std::env::var(key).ok());
+        let cwd = std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("."));
+        let paths = pi_cli::runtime::resolve_paths(
+            &|key| std::env::var(key).ok(),
+            &home,
+            parsed.session_dir.as_deref(),
+            &cwd,
+        );
+        if let Some(message) = pi_cli::ext_tools::flags_without_extensions(&paths.agent_dir, &cwd) {
+            eprintln!("Error: {message}");
+            return ExitCode::from(1);
+        }
+    }
+    // `--list-models [search]`：列出可用模型后退出（ref `cli/list-models.ts`）。
+    if parsed.list_tools {
+        return run_list_tools(&parsed);
+    }
+    if let Some(search) = parsed.list_models.clone() {
+        return run_list_models(&parsed, &search);
+    }
 
     let mode = parsed.app_mode(
         std::io::stdin().is_terminal(),
         std::io::stdout().is_terminal(),
     );
+    // P9-1-D：扩展 ctx 快照（mode/hasUI/cwd）。必须在任何 `default_tools` 之前配置。
+    {
+        let cwd = std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("."));
+        let (mode_name, has_ui) = match mode {
+            pi_cli::args::AppMode::Interactive => ("tui", true),
+            pi_cli::args::AppMode::Rpc => ("rpc", true),
+            pi_cli::args::AppMode::PrintJson | pi_cli::args::AppMode::PrintText => ("print", false),
+        };
+        pi_cli::ext_tools::configure_ctx(&cwd, mode_name, has_ui);
+    }
     match mode {
         AppMode::PrintText => run_print(&parsed, false),
         AppMode::PrintJson => run_print(&parsed, true),
@@ -120,12 +176,13 @@ fn main() -> ExitCode {
                 return ExitCode::from(1);
             }
             let home = pi_cli::runtime::home_from(&|key| std::env::var(key).ok());
+            let cwd = std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("."));
             let paths = pi_cli::runtime::resolve_paths(
                 &|key| std::env::var(key).ok(),
                 &home,
                 parsed.session_dir.as_deref(),
+                &cwd,
             );
-            let cwd = std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("."));
             // 启动屏的 `[Context]` 段：复用 P6-1 的发现规则，只显示路径。
             let discovered =
                 pi_core::project_context::load_project_context_files(&cwd, &paths.agent_dir);
@@ -139,28 +196,7 @@ fn main() -> ExitCode {
             state.agent_dir = paths.agent_dir.clone();
             // `/login` 候选 = `models.json` 的 provider ∪ 内置目录的 provider（ref 遍历的
             // 是含内置的运行时 registry；零配置的新机器也要能用 `/login`）。
-            state.login_providers = {
-                let configured: Vec<String> =
-                    std::fs::read_to_string(paths.agent_dir.join("models.json"))
-                        .ok()
-                        .and_then(|text| {
-                            serde_json::from_str::<pi_ai::config::ModelsConfig>(&text).ok()
-                        })
-                        .map(|config| config.providers.keys().cloned().collect())
-                        .unwrap_or_default();
-                let catalog_ids: Vec<String> =
-                    pi_cli::runtime::load_builtin_catalog(&paths.agent_dir)
-                        .map(|catalog| {
-                            catalog
-                                .provider_ids()
-                                .into_iter()
-                                .map(str::to_string)
-                                .collect()
-                        })
-                        .unwrap_or_default();
-                let catalog_refs: Vec<&str> = catalog_ids.iter().map(String::as_str).collect();
-                pi_cli::login_options::merged_provider_ids(&configured, &catalog_refs)
-            };
+            state.login_providers = pi_cli::runtime::login_provider_ids(&paths.agent_dir);
             state.context_files = discovered
                 .files
                 .iter()
@@ -183,6 +219,9 @@ fn main() -> ExitCode {
                 .unwrap_or_else(|| "unknown".to_string());
             // W3-2：为 TUI 装配 agent 部件（与 print 路径同一批函数：settings 解析模型 →
             // models.json 校验/resolve → provider → 系统提示 → LoopConfig）。
+            // 扩展 UI 上行通道必须在装配工具（会启动扩展宿主）之前注册。
+            let ui_events = pi_cli::ext_tools::register_ui_channel();
+            let ui_asks = pi_cli::ext_tools::register_ui_asks();
             let agent_parts = match build_tui_agent_parts(&parsed, &paths, &cwd, &mut state) {
                 Ok(parts) => parts,
                 Err(code) => return code,
@@ -197,9 +236,11 @@ fn main() -> ExitCode {
                     return ExitCode::from(1);
                 }
             };
-            // 无模型启动时 `agent_parts` 为 None；`/login` 成功后用它重建部件，
-            // 使当次会话就能对话（ref `completeProviderAuthentication` 重建会话）。
-            let rebuild: Option<pi_cli::tui::RebuildParts> = if agent_parts.is_none() {
+            // `/login` 成功后用它重建部件（ref `completeProviderAuthentication` 重建会话）：
+            // 既让"无模型启动"的当次会话能对话，也刷新 `available_models` —— `/model` 与 `Ctrl+P`
+            // 的候选取自这里；此前只在 `agent_parts.is_none()` 时才给 rebuild，于是**已有模型**时
+            // 登录新 provider 后 `/model` 里看不到它的模型（真机反馈）。
+            let rebuild: Option<pi_cli::tui::RebuildParts> = {
                 let parsed_clone = parsed.clone();
                 let paths_clone = paths.clone();
                 let cwd_clone = cwd.clone();
@@ -220,10 +261,10 @@ fn main() -> ExitCode {
                         Ok(None) | Err(_) => None,
                     }
                 }))
-            } else {
-                None
             };
-            match runtime.block_on(async { pi_cli::tui::run(state, agent_parts, rebuild) }) {
+            match runtime.block_on(async {
+                pi_cli::tui::run(state, agent_parts, rebuild, Some(ui_events), Some(ui_asks))
+            }) {
                 Ok(code) => ExitCode::from(u8::try_from(code).unwrap_or(1)),
                 Err(error) => {
                     eprintln!("pi-rs: TUI 运行失败：{error}");
@@ -278,6 +319,20 @@ fn resolve_startup_model(
                         });
                     }
                 }
+            }
+        }
+    }
+
+    // 没有 models.json（只放 auth.json 的机器，例如 pi 盒子）时，候选来自**内置目录**：
+    // 只加已认证 provider 的模型（未认证的选了也起不来）。
+    if let Some(catalog) = pi_cli::runtime::load_builtin_catalog(&paths.agent_dir) {
+        let authenticated = pi_cli::list_models::authenticated_providers(&paths.agent_dir, None);
+        for (provider, model) in catalog.entries() {
+            if authenticated.contains(provider) {
+                available.push(ModelRef {
+                    provider: provider.to_string(),
+                    id: model.id.clone(),
+                });
             }
         }
     }
@@ -338,10 +393,12 @@ fn run_rpc(parsed: &Args) -> ExitCode {
     use std::io::BufRead;
 
     let home = pi_cli::runtime::home_from(&|key| std::env::var(key).ok());
+    let cwd_for_paths = std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("."));
     let paths = pi_cli::runtime::resolve_paths(
         &|key| std::env::var(key).ok(),
         &home,
         parsed.session_dir.as_deref(),
+        &cwd_for_paths,
     );
     let settings = match load_settings(&paths) {
         Ok(settings) => settings,
@@ -356,13 +413,19 @@ fn run_rpc(parsed: &Args) -> ExitCode {
     };
     let (provider_name, model_id) = (provider_name.as_str(), model_id.as_str());
     let models_path = paths.agent_dir.join("models.json");
-    let config = match std::fs::read_to_string(&models_path)
-        .map_err(|error| error.to_string())
-        .and_then(|text| {
-            serde_json::from_str::<pi_ai::config::ModelsConfig>(&text)
-                .map_err(|error| error.to_string())
-        }) {
-        Ok(config) => config,
+    // 没有 models.json 是**正常状态**（只放 auth.json 的机器，例如 pi 盒子）：
+    // 按空配置处理，模型从内置目录解析（`resolve_with_catalog` 支持只靠目录）。
+    let config = match std::fs::read_to_string(&models_path) {
+        Ok(text) => match serde_json::from_str::<pi_ai::config::ModelsConfig>(&text) {
+            Ok(config) => config,
+            Err(error) => {
+                eprintln!("pi-rs: {} 不可用：{error}", models_path.display());
+                return ExitCode::from(1);
+            }
+        },
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+            pi_ai::config::ModelsConfig::default()
+        }
         Err(error) => {
             eprintln!("pi-rs: {} 不可用：{error}", models_path.display());
             return ExitCode::from(1);
@@ -412,7 +475,10 @@ fn run_rpc(parsed: &Args) -> ExitCode {
     let (rpc_writer, rpc_transcript, rpc_system_written) = if parsed.no_session {
         (None, Vec::new(), false)
     } else if parsed.continue_session || parsed.resume {
-        let Some(path) = pi_cli::session_writer::newest_session_file(&paths.session_dir) else {
+        let Some(path) = pi_cli::session_writer::newest_session_file(
+            &paths.session_dir,
+            continue_cwd_filter(&paths, &cwd_for_paths),
+        ) else {
             eprintln!(
                 "pi-rs: 找不到可续写的会话文件（目录：{}）",
                 paths.session_dir.display()
@@ -456,6 +522,10 @@ fn run_rpc(parsed: &Args) -> ExitCode {
             .any(|entry| entry.kind() == "thinking_level_change");
         match pi_cli::session_writer::SessionWriter::open(&path) {
             Ok(mut writer) => {
+                // F11：所有入口都要登记会话路径（`pi.appendEntry` 用），print/-c 同样包括。
+                writer.set_chain(pi_cli::ext_tools::session_chain());
+                pi_cli::ext_tools::set_session_file(writer.path());
+                pi_cli::ext_tools::set_session_id(writer.session_id());
                 if !had_thinking_level {
                     let level = if resolved.reasoning { "medium" } else { "off" };
                     if let Err(error) = writer.append_thinking_level_change(level) {
@@ -546,6 +616,9 @@ fn run_rpc(parsed: &Args) -> ExitCode {
         },
         loaded_session_path: rpc_loaded_session,
     });
+    // F25：启动期就把 writer 建好（只建内存数据），让 `session_start` 派发时扩展能拿到会话路径。
+    // 否则 rpc 的 `appendEntry` 永远落空（`p9_f11_entry_paths::rpc_entry_writes_append_entry`）。
+    shared.materialize_writer();
     let session = pi_cli::rpc_session::RpcSession::new(shared);
 
     let stdin = std::io::stdin();
@@ -668,6 +741,99 @@ fn assemble_system_prompt(
     (sections, text, loaded_skills, loaded_templates)
 }
 
+/// `--list-models [search]`：打印可用模型表后退出 0（ref `cli/list-models.ts:37-115`）。
+///
+/// 数据源是 `<agentDir>/models.json` 与内置目录的并集；没有可用模型时输出上游同一段
+/// "No models available" 提示（`core/auth-guidance.ts:16-20`）。
+/// `--list-tools`：内置工具在前、扩展工具按名字排序，输出 `name  source  description`。
+fn run_list_tools(parsed: &Args) -> ExitCode {
+    let builtin = pi_cli::print_mode::builtin_tools(parsed);
+    let agent_dir = {
+        let env = |key: &str| std::env::var(key).ok();
+        let home = pi_cli::runtime::home_from(&env);
+        pi_cli::runtime::resolve_paths(&env, &home, None, std::path::Path::new(".")).agent_dir
+    };
+    let cwd = std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("."));
+    let extensions = pi_cli::ext_tools::extension_tools(&agent_dir, &cwd);
+    // 这些模式不建会话：宿主启动后再显式派发一次 `session_start`（ref 也会构造 session 后派发）。
+    pi_cli::ext_tools::dispatch_startup_without_session();
+    println!("{:<24} {:<10} description", "name", "source");
+    for row in pi_cli::ext_tools::collect_rows(&builtin, &extensions) {
+        println!("{:<24} {:<10} {}", row.name, row.source, row.description);
+    }
+    ExitCode::SUCCESS
+}
+
+fn run_list_models(parsed: &Args, search: &str) -> ExitCode {
+    let home = pi_cli::runtime::home_from(&|key| std::env::var(key).ok());
+    let cwd = std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("."));
+    let paths = pi_cli::runtime::resolve_paths(
+        &|key| std::env::var(key).ok(),
+        &home,
+        parsed.session_dir.as_deref(),
+        &cwd,
+    );
+    let models_json = std::fs::read_to_string(paths.agent_dir.join("models.json")).ok();
+    let catalog = pi_cli::runtime::load_builtin_catalog(&paths.agent_dir);
+    // 可用 provider：`auth.json` 里有凭据的、`models.json` 里配了 `apiKey` 的、
+    // 或对应环境变量已设置的（ref 的 `getAvailable` 只返回已认证 provider 的模型）。
+    let mut authenticated: std::collections::BTreeSet<String> =
+        std::fs::read_to_string(paths.agent_dir.join("auth.json"))
+            .ok()
+            .and_then(|text| serde_json::from_str::<serde_json::Value>(&text).ok())
+            .and_then(|value| value.as_object().cloned())
+            .map(|object| object.keys().cloned().collect())
+            .unwrap_or_default();
+    if let Some(text) = models_json.as_deref() {
+        if let Ok(config) = serde_json::from_str::<pi_ai::config::ModelsConfig>(text) {
+            for (name, raw) in &config.providers {
+                let has_key = raw
+                    .get("apiKey")
+                    .and_then(serde_json::Value::as_str)
+                    .is_some_and(|key| !key.trim().is_empty());
+                let api = raw
+                    .get("api")
+                    .and_then(serde_json::Value::as_str)
+                    .unwrap_or("");
+                let api_env = if api == "anthropic-messages" {
+                    Some("ANTHROPIC_API_KEY")
+                } else if api == "openai-completions" || api == "openai-responses" {
+                    Some("OPENAI_API_KEY")
+                } else {
+                    None
+                };
+                let env_ready = api_env.is_some_and(|name| std::env::var(name).is_ok());
+                if has_key || env_ready {
+                    authenticated.insert(name.clone());
+                }
+            }
+        }
+    }
+    let rows = pi_cli::list_models::collect_models(
+        models_json.as_deref(),
+        catalog.as_ref(),
+        &authenticated,
+    );
+    if rows.is_empty() {
+        println!(
+            "No models available. Use /login to log into a provider via OAuth or API key. See:"
+        );
+        println!(
+            "  {}/docs/providers.md",
+            docs_dir(&paths.agent_dir).display()
+        );
+        println!("  {}/docs/models.md", docs_dir(&paths.agent_dir).display());
+        return ExitCode::SUCCESS;
+    }
+    let filtered = pi_cli::list_models::filter_models(rows, search);
+    if filtered.is_empty() {
+        println!("No models matching \"{search}\"");
+        return ExitCode::SUCCESS;
+    }
+    println!("{}", pi_cli::list_models::render_table(&filtered));
+    ExitCode::SUCCESS
+}
+
 /// print 模式（text / json）。返回进程退出码。〔print-mode.ts:143-161〕
 fn run_print(parsed: &Args, json: bool) -> ExitCode {
     let prompt = parsed.messages.join(" ");
@@ -683,6 +849,7 @@ fn run_print(parsed: &Args, json: bool) -> ExitCode {
         &|key| std::env::var(key).ok(),
         &home,
         parsed.session_dir.as_deref(),
+        &cwd,
     );
 
     // 模型解析顺序：命令行 → settings.json 的 defaultProvider/defaultModel →
@@ -716,6 +883,9 @@ fn run_print(parsed: &Args, json: bool) -> ExitCode {
                 return ExitCode::from(1);
             }
         },
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+            pi_ai::config::ModelsConfig::default()
+        }
         Err(error) => {
             eprintln!("pi-rs: 读不到 {}：{error}", models_path.display());
             return ExitCode::from(1);
@@ -778,7 +948,10 @@ fn run_print(parsed: &Args, json: bool) -> ExitCode {
         // **续写**：找会话目录里**最新**的 `.jsonl`，从它重建上下文，并**续写同一文件**。
         // golden/S14 实测：续写后会话里只有**一条** `session`、没有重复的 `model_change`，
         // 且 `system` 只出现一次——所以 `open` 不写 header/system 条目。
-        let Some(path) = pi_cli::session_writer::newest_session_file(&paths.session_dir) else {
+        let Some(path) = pi_cli::session_writer::newest_session_file(
+            &paths.session_dir,
+            continue_cwd_filter(&paths, &cwd),
+        ) else {
             eprintln!(
                 "pi-rs: 找不到可续写的会话文件（目录：{}）",
                 paths.session_dir.display()
@@ -834,6 +1007,10 @@ fn run_print(parsed: &Args, json: bool) -> ExitCode {
         written = 1 + initial_messages.len();
         match pi_cli::session_writer::SessionWriter::open(&path) {
             Ok(mut writer) => {
+                // F11：TUI `-c` 恢复同样要登记会话路径。
+                writer.set_chain(pi_cli::ext_tools::session_chain());
+                pi_cli::ext_tools::set_session_file(writer.path());
+                pi_cli::ext_tools::set_session_id(writer.session_id());
                 // **json 模式仍要打印 header 行**：golden/S14 的事件流里，第二阶段的开头
                 // 又是一条 `{"type":"session",…}`（第 15 行）。会话**文件**里不重复写，
                 // 但**事件流**里每次运行都要打印一次——我 `open` 分支漏了这句。
@@ -967,6 +1144,10 @@ fn run_print(parsed: &Args, json: bool) -> ExitCode {
             thinking_level,
         ) {
             Ok(mut writer) => {
+                // 扩展 `pi.appendEntry` 需要会话文件路径。
+                writer.set_chain(pi_cli::ext_tools::session_chain());
+                pi_cli::ext_tools::set_session_file(writer.path());
+                pi_cli::ext_tools::set_session_id(writer.session_id());
                 if json {
                     println!("{}", writer.header_line());
                 }
@@ -1057,6 +1238,7 @@ fn run_print(parsed: &Args, json: bool) -> ExitCode {
     // （golden/S01 的 `events.jsonl` 第 1 行是 `{"type":"session",…}`），
     // 所以必须先把 header 打出去，再让循环开始发事件。
     let (stdout, stderr, code, _messages) = runtime.block_on(run.execute());
+    // `agent_end` 已由 `print_mode` 在**每轮结束**时派发（早于 settle），这里不再重复。
     if !json {
         // json 模式的正文已由 sink 逐事件写出（实时），此处不再重复输出。
         print!("{stdout}");
@@ -1124,6 +1306,8 @@ fn build_tui_agent_parts(
     state: &mut pi_tui::TuiState,
 ) -> Result<Option<std::sync::Arc<pi_cli::tui::AgentParts>>, ExitCode> {
     let settings = load_settings(paths)?;
+    // F20：把 settings.json 的 `shellPath` 交给 bash 工具（ref `settings-manager.ts:1010`）。
+    pi_core::tools::shell_resolve::set_shell_path(settings.shell_path.as_deref());
     let (provider_name, model_id) = match resolve_startup_model(parsed, &settings, paths) {
         Ok(pair) => pair,
         Err(error) => {
@@ -1138,13 +1322,18 @@ fn build_tui_agent_parts(
         }
     };
     let models_path = paths.agent_dir.join("models.json");
-    let models_config = match std::fs::read_to_string(&models_path)
-        .map_err(|error| error.to_string())
-        .and_then(|text| {
-            serde_json::from_str::<pi_ai::config::ModelsConfig>(&text)
-                .map_err(|error| error.to_string())
-        }) {
-        Ok(config) => config,
+    // 同上：没有 models.json 时按空配置处理（模型从内置目录解析）。
+    let models_config = match std::fs::read_to_string(&models_path) {
+        Ok(text) => match serde_json::from_str::<pi_ai::config::ModelsConfig>(&text) {
+            Ok(config) => config,
+            Err(error) => {
+                eprintln!("pi-rs: {} 不可用：{error}", models_path.display());
+                return Err(ExitCode::from(1));
+            }
+        },
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+            pi_ai::config::ModelsConfig::default()
+        }
         Err(error) => {
             eprintln!("pi-rs: {} 不可用：{error}", models_path.display());
             return Err(ExitCode::from(1));
@@ -1163,7 +1352,10 @@ fn build_tui_agent_parts(
     ) {
         Ok(resolved) => resolved,
         Err(error) => {
-            eprintln!("pi-rs: {error}");
+            eprintln!(
+                "pi-rs[tui-parts]: {provider_name}/{model_id} catalog={} err={error}",
+                catalog.is_some()
+            );
             return Err(ExitCode::from(1));
         }
     };
@@ -1179,16 +1371,14 @@ fn build_tui_agent_parts(
             return Ok(None);
         }
     };
-    let (sections, system_text, _skills, _templates) =
+    let (sections, system_text, tui_skills, _templates) =
         assemble_system_prompt(parsed, cwd, &paths.agent_dir);
-    // 无 usage 时 footer 百分比用系统消息的 token 估算（见 `tui.rs` 的 `TuiEventSink`）。
-    //
-    // **必须按 TS 会话里 system 条目的形态构造**：`content` 为空串，正文放在 `sections`/`toolsAdded`
-    // （ref `compaction.ts:320-336` 的 `estimateTokens` 对 system 分支正是把 `sections` 与 `toolsAdded`
-    // 各自的长度计入；只算 `content` 会显著偏小 —— 实测 T05 曾因此得 0.5% 而 golden 是 1.1%）。
-    let system_message = {
-        let tools_for_sections = pi_cli::print_mode::default_tools(parsed);
-        let tools_added_for_sections = pi_core::agent::tools_added_json(&tools_for_sections);
+    // F29/S4d：**在扩展宿主派发 `session_start` 之前**把 `ctx.getContextUsage()` 的初值填上
+    // （ref `types.ts:294-300`、`footer.ts:111-113`：`contextWindow = usage?.contextWindow ??
+    // model.contextWindow ?? 0`、`percent = usage?.percent ?? 0`）。否则扩展读到 undefined，
+    // 自己拼出 `?/0 (auto)`（真机 ② 的底栏现象）。tokens 用 system 提示的估算，与 ref 的
+    // `estimateContextTokens` 在"还没有 assistant usage"时的口径一致。
+    if resolved.context_window > 0 {
         let mut sections_map = serde_json::Map::new();
         for (name, body) in &sections {
             sections_map.insert(name.clone(), serde_json::Value::String(body.clone()));
@@ -1198,24 +1388,35 @@ fn build_tui_agent_parts(
             "sections".to_string(),
             serde_json::Value::Object(sections_map),
         );
-        if !tools_added_for_sections.is_empty() {
-            extra.insert(
-                "toolsAdded".to_string(),
-                serde_json::Value::Array(tools_added_for_sections),
-            );
-        }
-        pi_ai::message::Message::System {
+        let estimate_message = pi_ai::message::Message::System {
             content: pi_ai::UserContent::Text(String::new()),
             timestamp: 0,
             extra,
-        }
-    };
-    state.model = resolved.model_id.clone();
+        };
+        let tokens = pi_core::agent::compaction::estimate_tokens(&estimate_message);
+        let percent = tokens as f64 / resolved.context_window as f64 * 100.0;
+        pi_cli::ext_tools::update_ctx_usage(Some(tokens), resolved.context_window, Some(percent));
+    }
+    // 启动屏 `[Skills]` 段（ref `interactive-mode.ts:1793-1797`）：名字已按 ref 的 compact list 排序。
+    if !tui_skills.is_empty() {
+        let mut names: Vec<String> = tui_skills.iter().map(|skill| skill.name.clone()).collect();
+        names.sort();
+        // 直接写 state：此刻扩展宿主（UI_TX）可能还没起来，走事件会丢。
+        state.skill_labels = names;
+    }
+    // 无 usage 时 footer 百分比用系统消息的 token 估算（见 `tui.rs` 的 `TuiEventSink`）。
+    //
+    // **必须按 TS 会话里 system 条目的形态构造**：`content` 为空串，正文放在 `sections`/`toolsAdded`
+    // （ref `compaction.ts:320-336` 的 `estimateTokens` 对 system 分支正是把 `sections` 与 `toolsAdded`
+    // 各自的长度计入；只算 `content` 会显著偏小 —— 实测 T05 曾因此得 0.5% 而 golden 是 1.1%）。
     // TUI 会话落盘（W4 会话层）：与 print 路径同一批调用（`SessionWriter::create` + `append_system_message`）。
     // `--continue/-c` / `--resume`：**续写最近一个会话**（而不是新建），并把历史消息读出来
     // （ref `sdk.ts` 的 continue 语义；此前 TUI 路径忽略这两个开关，导致续写会话是空屏、`/tree` 无历史）。
     let resumed_path = if parsed.continue_session || parsed.resume {
-        pi_cli::session_writer::newest_session_file(&paths.session_dir)
+        pi_cli::session_writer::newest_session_file(
+            &paths.session_dir,
+            continue_cwd_filter(paths, cwd),
+        )
     } else {
         None
     };
@@ -1241,7 +1442,13 @@ fn build_tui_agent_parts(
         None
     } else if let Some(path) = resumed_path.as_ref() {
         match pi_cli::session_writer::SessionWriter::open(path) {
-            Ok(writer) => Some(std::sync::Arc::new(std::sync::Mutex::new(writer))),
+            Ok(mut writer) => {
+                // F11：TUI 续写入口。
+                writer.set_chain(pi_cli::ext_tools::session_chain());
+                pi_cli::ext_tools::set_session_file(writer.path());
+                pi_cli::ext_tools::set_session_id(writer.session_id());
+                Some(std::sync::Arc::new(std::sync::Mutex::new(writer)))
+            }
             Err(error) => {
                 eprintln!("pi-rs: 续写会话失败：{error}");
                 None
@@ -1249,9 +1456,9 @@ fn build_tui_agent_parts(
         }
     } else {
         let thinking_level = if resolved.reasoning { "medium" } else { "off" };
-        let tools = pi_cli::print_mode::default_tools(parsed);
-        let tools_added = pi_core::agent::tools_added_json(&tools);
-        let tools_added_raw = pi_core::agent::tools_added_raw(&tools);
+        // F26/S0：**必须先建 writer 并登记路径，再调用 `default_tools`**——后者会启动扩展宿主并
+        // 派发 `session_start`，扩展在这个事件里 `appendEntry` 时若路径未登记，sink 会阻塞等 10s，
+        // 退出时再被 join 超时打成"会话写入超时"（真机 ⑤⑥）。
         match pi_cli::session_writer::SessionWriter::create(
             &paths.session_dir,
             cwd,
@@ -1260,6 +1467,15 @@ fn build_tui_agent_parts(
             thinking_level,
         ) {
             Ok(mut writer) => {
+                writer.set_chain(pi_cli::ext_tools::session_chain());
+                pi_cli::ext_tools::set_session_file(writer.path());
+                pi_cli::ext_tools::set_session_id(writer.session_id());
+                let tools = pi_cli::print_mode::default_tools(parsed);
+                let tools_added = pi_core::agent::tools_added_json(&tools);
+                let tools_added_raw = pi_core::agent::tools_added_raw(&tools);
+                // **TUI 入口也要登记会话路径**（F10 真机证据）：扩展的 `pi.appendEntry` 走
+                // `set_session_file` 这个槽位；此前只有 print 路径登记，TUI 下 sink 线程永远等不到
+                // 路径（10s 超时后丢弃），`pi-handoff-gate` 的 todo 条目因此**从未**写进会话。
                 match writer.append_system_message(&sections, &tools_added, &tools_added_raw) {
                     Ok(()) => Some(std::sync::Arc::new(std::sync::Mutex::new(writer))),
                     Err(error) => {
@@ -1274,6 +1490,32 @@ fn build_tui_agent_parts(
             }
         }
     };
+    let system_message = {
+        let tools_for_sections = pi_cli::print_mode::default_tools(parsed);
+        let tools_added_for_sections = pi_core::agent::tools_added_json(&tools_for_sections);
+        let mut sections_map = serde_json::Map::new();
+        for (name, body) in &sections {
+            sections_map.insert(name.clone(), serde_json::Value::String(body.clone()));
+        }
+        let mut extra = serde_json::Map::new();
+        extra.insert(
+            "sections".to_string(),
+            serde_json::Value::Object(sections_map),
+        );
+        if !tools_added_for_sections.is_empty() {
+            extra.insert(
+                "toolsAdded".to_string(),
+                serde_json::Value::Array(tools_added_for_sections),
+            );
+        }
+        pi_ai::message::Message::System {
+            content: pi_ai::UserContent::Text(String::new()),
+            timestamp: 0,
+            extra,
+        }
+    };
+    state.model = resolved.model_id.clone();
+
     // P7-7f M：该 provider 下的可选模型（`models.json` 顺序）与当前模型状态。
     // 可切换模型列表：**跨 provider**。ref 用 `settings.enabledModels`（形如
     // `provider/modelId`；模型 id 自身可能含 `/` ⇒ 按**第一个** `/` 切分）。
@@ -1318,7 +1560,11 @@ fn build_tui_agent_parts(
             // ref `core/model-resolver.ts:282-382`：启动时把 `enabledModels` 解析成
             // scope，**匹配不到的项被丢弃并打 Warning**（`No models match pattern "<p>"`），
             // 而不是留到运行时再跳过。这里做同样的过滤 + 告警。
-            let known: std::collections::BTreeSet<(String, String)> = models_config
+            // scope 里的一条 `provider/model` 可能来自内置目录（用户常见写法：只写
+            // `openrouter/free` 而不在 models.json 里声明该 provider）。此前 `known` 只取
+            // models.json，目录里的条目匹配不上就被当"无效项"丢掉 —— 真机上表现为
+            // `Model scope:` 有 openrouter/free，但 `/model` 里一个 openrouter 模型都没有。
+            let mut known: std::collections::BTreeSet<(String, String)> = models_config
                 .providers
                 .iter()
                 .flat_map(|(provider, value)| {
@@ -1335,28 +1581,33 @@ fn build_tui_agent_parts(
                         .unwrap_or_default()
                 })
                 .collect();
+            if let Some(catalog) = catalog.as_ref() {
+                for (provider, model) in catalog.entries() {
+                    known.insert((provider.to_string(), model.id.clone()));
+                }
+            }
             let (kept, warnings) = filter_available_models(&enabled, &known);
             for warning in &warnings {
                 eprintln!("Warning: {warning}");
             }
             kept
         } else {
-            let mut fallback: Vec<pi_cli::tui::ModelChoice> = models_config
-                .providers
-                .get(provider_name.as_str())
-                .and_then(|provider_config| provider_config.get("models"))
-                .and_then(|models| models.as_array())
-                .map(|models| {
-                    models
-                        .iter()
-                        .filter_map(|model| model.get("id").and_then(|id| id.as_str()))
-                        .map(|id| pi_cli::tui::ModelChoice {
-                            provider: provider_name.to_string(),
-                            id: id.to_string(),
-                        })
-                        .collect()
-                })
-                .unwrap_or_default();
+            // ref 的 `/model` 列表来自运行时 registry：`models.json` 里配置的 provider +
+            // **已认证 provider 的内置目录模型**。此前只取"当前 provider 在 models.json 里的模型"，
+            // 于是 `/login` 登录一个没写进 models.json 的 provider 后，`/model` 里看不到任何模型
+            // （真机：登录 openrouter 后只剩 mock-model）。
+            let models_json_text =
+                std::fs::read_to_string(paths.agent_dir.join("models.json")).ok();
+            let authenticated = pi_cli::list_models::authenticated_providers(
+                &paths.agent_dir,
+                models_json_text.as_deref(),
+            );
+            let rows = pi_cli::list_models::collect_models(
+                models_json_text.as_deref(),
+                catalog.as_ref(),
+                &authenticated,
+            );
+            let mut fallback = pi_cli::list_models::to_model_choices(&rows);
             if fallback.is_empty() {
                 fallback.push(pi_cli::tui::ModelChoice {
                     provider: provider_name.to_string(),
@@ -1367,6 +1618,7 @@ fn build_tui_agent_parts(
         }
     };
     Ok(Some(std::sync::Arc::new(pi_cli::tui::AgentParts {
+        skills: tui_skills.clone(),
         resumed_path,
         initial_messages,
         agent_dir: paths.agent_dir.clone(),
@@ -1378,12 +1630,9 @@ fn build_tui_agent_parts(
             names.sort();
             names
         },
-        login_providers: {
-            // `/login` 列表 = `models.json` 里配置过的 provider（ref 遍历运行时 provider）
-            let mut names: Vec<String> = models_config.providers.keys().cloned().collect();
-            names.sort();
-            names
-        },
+        // `/login` 列表 = `models.json` ∪ 内置目录（ref 遍历运行时 registry）；
+        // 与启动时写进 `TuiState` 的那份必须同源，否则 `parts` 存在时会把它覆盖成"只有 models.json"。
+        login_providers: pi_cli::runtime::login_provider_ids(&paths.agent_dir),
         scoped_models_configured: settings
             .enabled_models
             .as_ref()
@@ -1394,6 +1643,7 @@ fn build_tui_agent_parts(
             model_id: resolved.model_id.clone(),
             provider_name: provider_name.to_string(),
             provider: std::sync::Arc::clone(&provider),
+            context_window: resolved.context_window,
         })),
         provider,
         tools: pi_cli::print_mode::default_tools(parsed),
@@ -1458,13 +1708,9 @@ fn load_settings(paths: &pi_cli::runtime::Paths) -> Result<pi_cli::settings::Set
 
 /// 未识别或未实现的参数一律拒绝；返回 `Some(退出码)` 表示已拒绝。
 fn reject_unsupported(parsed: &Args) -> Option<ExitCode> {
+    // 未知 flag 不再在这里拒绝：它们可能由扩展 `registerFlag` 认领，
+    // 由 `ext_tools::resolve_flags` 在扩展加载后校验（ref `agent-session-services.ts:92-125`）。
     let mut rejected: Vec<String> = Vec::new();
-    for (name, value) in &parsed.unknown_flags {
-        rejected.push(match value {
-            Some(value) => format!("--{name}={value}"),
-            None => format!("--{name}"),
-        });
-    }
     rejected.extend(parsed.unsupported.iter().cloned());
     if rejected.is_empty() {
         return None;
@@ -1528,7 +1774,11 @@ fn print_help() {
         r#"  --list-models [search]         List available models (with optional fuzzy search)"#
     );
     println!(
-        r#"  --verbose                      Force verbose startup (overrides quietStartup setting)"#
+        r#"  --extension, -e <path>         Load an extension file (can be used multiple times)
+  --list-tools                   List available tools (built-in and extension)"#
+    );
+    println!(
+        r#"  --verbose                      Force verbose startup (accepted; this build always shows the full startup banner)"#
     );
     println!(r#"  --tui-mode <mode>              TUI mode: regular (default) or fullscreen"#);
     println!(
@@ -1543,6 +1793,13 @@ fn print_help() {
     println!("  write                     Create or overwrite a file");
     println!("  grep / find / ls          Read-only search (opt-in)");
     println!("  powershell                Run PowerShell (Windows only)");
+    println!("\nExtensions (node required):");
+    println!("  <agentDir>/extensions/*/index.mjs|index.js   loaded as-is (native ESM)");
+    println!("  <agentDir>/extensions/*/index.ts|index.mts   requires jiti; set PI_JITI to its package dir");
+    println!("  PI_NODE=<path>                               use a specific node binary");
+    println!("  PI_JITI=<dir>                                jiti package dir for .ts extensions");
+    println!("  --list-tools                                 show built-in and extension tools");
+    println!("  Missing node or jiti never blocks other features: extensions are skipped with a warning.");
     println!("\nNot implemented in pi-rs (see LIMITATIONS.md):");
     println!(
         r#"  --fork <path|id>               Fork specific session file or partial UUID into a new session"#
@@ -1653,5 +1910,47 @@ mod enabled_models_tests {
         let (kept, warnings) = filter_available_models(&[], &known(&[("a", "b")]));
         assert!(kept.is_empty());
         assert!(warnings.is_empty());
+    }
+}
+
+#[cfg(test)]
+mod catalog_only_tests {
+    use super::load_builtin_catalog;
+    use pi_ai::config::ModelsConfig;
+
+    /// 只放 `auth.json` 的机器（没有 `models.json`、没有 `models-store.json`）
+    /// 也必须拿得到模型目录；否则启动直接报
+    /// "models.json 中没有名为 openrouter 的 provider"。
+    #[test]
+    fn embedded_catalog_available_without_any_files() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let catalog = load_builtin_catalog(dir.path()).expect("内嵌目录应可用");
+        assert!(
+            catalog
+                .entries()
+                .any(|(provider, _)| provider == "openrouter"),
+            "内嵌目录应包含 openrouter"
+        );
+    }
+
+    /// 空 `models.json` + 目录 ⇒ 仍能解析出模型（目录分支）。
+    #[test]
+    fn empty_models_config_resolves_from_catalog() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let catalog = load_builtin_catalog(dir.path()).expect("内嵌目录应可用");
+        let (provider, model) = ("openrouter".to_string(), "moonshotai/kimi-k2.6".to_string());
+        let resolved = ModelsConfig::default()
+            .resolve_with_catalog(&provider, &model, Some(&catalog))
+            .expect("空 models.json 也应能解析目录里的模型");
+        println!(
+            "resolved {}/{} ctx={} api={} base={}",
+            resolved.provider_name,
+            resolved.model_id,
+            resolved.context_window,
+            resolved.api,
+            resolved.base_url
+        );
+        assert_eq!(resolved.provider_name, provider);
+        assert_eq!(resolved.model_id, model);
     }
 }

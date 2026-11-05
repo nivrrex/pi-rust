@@ -92,15 +92,17 @@ impl SessionFile {
     }
 
     /// 从文本解析；便于测试里不落盘。
+    ///
+    /// **坏行只跳过、不整份失败**（ref `session-manager.ts:616-624` 的 `parseSessionEntryLine`：
+    /// 空行与解析失败的行都返回 `null`，读取继续）。此前任一坏行都让整个会话加载失败
+    /// （真机 `-c` 报"第 6147 行解析失败"后整份会话打不开）。
     pub fn parse(path: &Path, text: &str) -> Result<Self, SessionIoError> {
         let mut header = None;
         let mut entries = Vec::new();
-        for (index, line) in text.lines().filter(|l| !l.trim().is_empty()).enumerate() {
-            let parsed = parse_line(line).map_err(|source| SessionIoError::Parse {
-                path: path.to_path_buf(),
-                line: index + 1,
-                source,
-            })?;
+        for line in text.lines().filter(|l| !l.trim().is_empty()) {
+            let Ok(parsed) = parse_line(line) else {
+                continue;
+            };
             match parsed {
                 SessionLine::Header(parsed) => {
                     if header.is_none() {

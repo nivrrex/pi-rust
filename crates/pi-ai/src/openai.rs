@@ -114,6 +114,7 @@ fn has_tool_history(messages: &[Message]) -> bool {
         Message::User { .. }
         | Message::System { .. }
         | Message::Custom { .. }
+        | Message::BashExecution { .. }
         | Message::BranchSummary { .. }
         | Message::CompactionSummary { .. } => false,
     })

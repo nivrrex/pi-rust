@@ -1,0 +1,49 @@
+{
+ "id": "T99-issue-syntax",
+ "description": "F22/S0b：syntax 类扩展加载失败",
+ "provider": "openai-completions",
+ "model": "mock-model",
+ "mode": "print",
+ "prompt": "hi",
+ "files": {},
+ "extensions": {
+  "a/package.json": "{\"type\":\"module\"}",
+  "a/index.js": "export default function (pi) { this is not valid javascript }\n"
+ },
+ "responses": [
+  {
+   "file": "fixtures/sse/openai/text-basic.sse"
+  }
+ ],
+ "tui": {
+  "cols": 100,
+  "rows": 30,
+  "steps": [
+   {
+    "action": "delay",
+    "ms": 2000
+   },
+   {
+    "action": "waitStable",
+    "quietMs": 900,
+    "timeoutMs": 15000
+   },
+   {
+    "action": "snapshot",
+    "name": "startup"
+   },
+   {
+    "action": "type",
+    "text": "\u0004"
+   },
+   {
+    "action": "waitStable",
+    "quietMs": 500,
+    "timeoutMs": 10000
+   }
+  ],
+  "snapshots": [
+   "startup"
+  ]
+ }
+}

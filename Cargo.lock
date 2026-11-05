@@ -749,6 +749,7 @@ dependencies = [
  "futures",
  "pi-ai",
  "pi-core",
+ "pi-ext-host",
  "pi-tui",
  "serde",
  "serde_json",
@@ -766,6 +767,21 @@ version = "0.87.1"
 dependencies = [
  "futures",
  "pi-ai",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "thiserror",
+ "tokio",
+ "tokio-util",
+ "uuid",
+]
+
+[[package]]
+name = "pi-ext-host"
+version = "0.87.1"
+dependencies = [
+ "futures",
+ "pi-core",
  "serde",
  "serde_json",
  "tempfile",

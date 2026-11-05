@@ -54,6 +54,10 @@ fn estimate_text_and_image_content_chars(content: &UserContent) -> usize {
 #[must_use]
 pub fn estimate_tokens(message: &Message) -> u64 {
     let chars: usize = match message {
+        // ref `compaction.ts:359-362`：`command.length + output.length`。
+        Message::BashExecution {
+            command, output, ..
+        } => command.chars().count() + output.chars().count(),
         Message::System { content, extra, .. } => {
             let mut chars = estimate_text_and_image_content_chars(content);
             // ref `:327-331`：`system.sections` 里每个**非空**段落按自身长度计入。
@@ -382,6 +386,7 @@ pub fn is_cut_point_message(message: &Message) -> bool {
         Message::User { .. }
         | Message::Assistant(_)
         | Message::Custom { .. }
+        | Message::BashExecution { .. }
         | Message::BranchSummary { .. }
         | Message::CompactionSummary { .. } => true,
         Message::System { .. } | Message::ToolResult { .. } => false,
@@ -395,6 +400,7 @@ pub fn is_turn_start_message(message: &Message) -> bool {
         // ref `:388-401`：custom / branchSummary / compactionSummary 都是 turn 起点。
         Message::User { .. }
         | Message::Custom { .. }
+        | Message::BashExecution { .. }
         | Message::BranchSummary { .. }
         | Message::CompactionSummary { .. } => true,
         Message::Assistant(_) | Message::ToolResult { .. } => false,
@@ -708,6 +714,7 @@ pub fn serialize_conversation(messages: &[Message]) -> String {
             // 三个 agent 层角色不参与序列化（保持与 ref 同形，不是"静默丢弃"）。
             Message::System { .. }
             | Message::Custom { .. }
+            | Message::BashExecution { .. }
             | Message::BranchSummary { .. }
             | Message::CompactionSummary { .. } => {}
         }

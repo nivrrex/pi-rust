@@ -1,6 +1,6 @@
 # spec/i-cli.md — CLI 参数、模式与退出码
 
-对应 RUNBOOK-1 步骤 A8。来源 `packages/coding-agent/src/cli/args.ts`（解析与帮助）、
+来源 `packages/coding-agent/src/cli/args.ts`（解析与帮助）、
 `packages/coding-agent/src/main.ts`（分派与退出码）、`packages/coding-agent/src/modes/print-mode.ts`（非交互模式）。
 
 ## 1. 解析结果形状

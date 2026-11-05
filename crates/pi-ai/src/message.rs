@@ -98,6 +98,27 @@ pub enum Message {
         #[serde(flatten)]
         extra: Map<String, Value>,
     },
+    /// 用户 `!` 命令的 bash 执行记录（ref `core/messages.ts:25-38` 的 `BashExecutionMessage`）。
+    ///
+    /// `excludeFromContext`（`!!`）为真时**不进 LLM 上下文**（ref `:150-155` 的 `convertToLlm`
+    /// 直接返回 `undefined`），但仍写进会话文件并由 `/tree` 与 TUI 重放。
+    BashExecution {
+        command: String,
+        output: String,
+        #[serde(rename = "exitCode", default)]
+        exit_code: Option<i64>,
+        #[serde(default)]
+        cancelled: bool,
+        #[serde(default)]
+        truncated: bool,
+        #[serde(rename = "fullOutputPath", default)]
+        full_output_path: Option<String>,
+        timestamp: i64,
+        #[serde(rename = "excludeFromContext", default)]
+        exclude_from_context: Option<bool>,
+        #[serde(flatten)]
+        extra: Map<String, Value>,
+    },
     /// 分支摘要（ref `:56-61` 的 `BranchSummaryMessage`）。
     BranchSummary {
         summary: String,
@@ -278,6 +299,43 @@ impl Serialize for Message {
                 extra,
             }
             .serialize(serializer),
+            Message::BashExecution {
+                command,
+                output,
+                exit_code,
+                cancelled,
+                truncated,
+                full_output_path,
+                timestamp,
+                exclude_from_context,
+                extra,
+            } => {
+                // 字段顺序照 ref 的对象字面量（`agent-session.ts:3497-3508`）：
+                // role → command → output → exitCode → cancelled → truncated →
+                // fullOutputPath（可选）→ timestamp → excludeFromContext（可选）→ extra。
+                let mut map = serializer.serialize_map(None)?;
+                map.serialize_entry("role", "bashExecution")?;
+                map.serialize_entry("command", command)?;
+                map.serialize_entry("output", output)?;
+                // TS 里 `exitCode` 是 `number | undefined`：`undefined` 时 JSON.stringify **省略该键**
+                // （不是写 null）。所以 `None` 也不写出，否则与 TS 样本不是逐字节一致。
+                if let Some(code) = exit_code {
+                    map.serialize_entry("exitCode", code)?;
+                }
+                map.serialize_entry("cancelled", cancelled)?;
+                map.serialize_entry("truncated", truncated)?;
+                if let Some(path) = full_output_path {
+                    map.serialize_entry("fullOutputPath", path)?;
+                }
+                map.serialize_entry("timestamp", timestamp)?;
+                if let Some(excluded) = exclude_from_context {
+                    map.serialize_entry("excludeFromContext", excluded)?;
+                }
+                for (key, value) in extra {
+                    map.serialize_entry(key, value)?;
+                }
+                map.end()
+            }
             Message::BranchSummary {
                 summary,
                 from_id,
@@ -317,6 +375,40 @@ pub const BRANCH_SUMMARY_PREFIX: &str =
 /// 分支摘要的收尾（ref `:24`）。
 pub const BRANCH_SUMMARY_SUFFIX: &str = "</summary>";
 
+/// `BashExecutionMessage` → user 文本（ref `core/messages.ts:80-99` `bashExecutionToText`）。
+///
+/// 逐字照抄：`Ran \`cmd\`\n` + 三反引号包围的输出（无输出为 `(no output)`）+
+/// 取消/非零退出码/截断三段补充说明。
+#[must_use]
+pub fn bash_execution_to_text(
+    command: &str,
+    output: &str,
+    exit_code: Option<i64>,
+    cancelled: bool,
+    truncated: bool,
+    full_output_path: Option<&str>,
+) -> String {
+    let mut text = format!("Ran `{command}`\n");
+    if output.is_empty() {
+        text.push_str("(no output)");
+    } else {
+        text.push_str(&format!("```\n{output}\n```"));
+    }
+    if cancelled {
+        text.push_str("\n\n(command cancelled)");
+    } else if let Some(code) = exit_code {
+        if code != 0 {
+            text.push_str(&format!("\n\nCommand exited with code {code}"));
+        }
+    }
+    if truncated {
+        if let Some(path) = full_output_path {
+            text.push_str(&format!("\n\n[Output truncated. Full output: {path}]"));
+        }
+    }
+    text
+}
+
 /// ref `core/messages.ts:148-188` `convertToLlm`：把三个 **agent 层**角色折成 user 消息，其余原样。
 ///
 /// 在 pi-core 构造 `ProviderRequest.context` 之前调用一次即可；provider 层因此只见到 4 个已知 role。
@@ -324,42 +416,71 @@ pub const BRANCH_SUMMARY_SUFFIX: &str = "</summary>";
 pub fn to_llm_messages(messages: &[Message]) -> Vec<Message> {
     messages
         .iter()
-        .map(|message| match message {
+        .filter_map(|message| match message {
+            // `!!` 的记录不进上下文（ref `messages.ts:150-155`）。
+            Message::BashExecution {
+                command,
+                output,
+                exit_code,
+                cancelled,
+                truncated,
+                full_output_path,
+                timestamp,
+                exclude_from_context,
+                extra,
+            } => {
+                if exclude_from_context.unwrap_or(false) {
+                    None
+                } else {
+                    Some(Message::User {
+                        content: UserContent::Text(bash_execution_to_text(
+                            command,
+                            output,
+                            *exit_code,
+                            *cancelled,
+                            *truncated,
+                            full_output_path.as_deref(),
+                        )),
+                        timestamp: *timestamp,
+                        extra: extra.clone(),
+                    })
+                }
+            }
             Message::Custom {
                 content,
                 timestamp,
                 extra,
                 ..
-            } => Message::User {
+            } => Some(Message::User {
                 content: content.clone(),
                 timestamp: *timestamp,
                 extra: extra.clone(),
-            },
+            }),
             Message::BranchSummary {
                 summary,
                 timestamp,
                 extra,
                 ..
-            } => Message::User {
+            } => Some(Message::User {
                 content: UserContent::Text(format!(
                     "{BRANCH_SUMMARY_PREFIX}{summary}{BRANCH_SUMMARY_SUFFIX}"
                 )),
                 timestamp: *timestamp,
                 extra: extra.clone(),
-            },
+            }),
             Message::CompactionSummary {
                 summary,
                 timestamp,
                 extra,
                 ..
-            } => Message::User {
+            } => Some(Message::User {
                 content: UserContent::Text(format!(
                     "{COMPACTION_SUMMARY_PREFIX}{summary}{COMPACTION_SUMMARY_SUFFIX}"
                 )),
                 timestamp: *timestamp,
                 extra: extra.clone(),
-            },
-            _not_agent_role => message.clone(),
+            }),
+            _not_agent_role => Some(message.clone()),
         })
         .collect()
 }
@@ -373,6 +494,7 @@ impl Message {
             Self::Assistant(_) => "assistant",
             Self::ToolResult { .. } => "toolResult",
             Self::Custom { .. } => "custom",
+            Self::BashExecution { .. } => "bashExecution",
             Self::BranchSummary { .. } => "branchSummary",
             Self::CompactionSummary { .. } => "compactionSummary",
         }
@@ -384,6 +506,7 @@ impl Message {
             Self::System { timestamp, .. }
             | Self::User { timestamp, .. }
             | Self::ToolResult { timestamp, .. }
+            | Self::BashExecution { timestamp, .. }
             | Self::Custom { timestamp, .. }
             | Self::BranchSummary { timestamp, .. }
             | Self::CompactionSummary { timestamp, .. } => *timestamp,
@@ -406,6 +529,8 @@ impl Message {
             },
             Self::Assistant(message) => message.content.clone(),
             Self::ToolResult { .. } => Vec::new(),
+            // 执行记录不是内容块消息；上下文投影由 `bash_execution_to_text` 负责。
+            Self::BashExecution { .. } => Vec::new(),
             Self::BranchSummary { summary, .. } | Self::CompactionSummary { summary, .. } => {
                 vec![Content::Text {
                     text: summary.clone(),
@@ -447,6 +572,7 @@ pub fn transform_messages(messages: &[Message]) -> Vec<Message> {
             | Message::User { .. }
             | Message::Assistant(_)
             | Message::Custom { .. }
+            | Message::BashExecution { .. }
             | Message::BranchSummary { .. }
             | Message::CompactionSummary { .. } => Vec::new(),
         }
@@ -510,6 +636,7 @@ pub fn transform_messages(messages: &[Message]) -> Vec<Message> {
             }
             Message::System { .. }
             | Message::Custom { .. }
+            | Message::BashExecution { .. }
             | Message::BranchSummary { .. }
             | Message::CompactionSummary { .. } => out.push(message.clone()),
         }

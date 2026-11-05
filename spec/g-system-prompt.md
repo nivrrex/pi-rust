@@ -1,6 +1,6 @@
 # spec/g-system-prompt.md — 系统提示（卡 g）
 
-对应 RUNBOOK-1 步骤 C4。**系统提示不从源码重写，而是以黄金录制里实际发出的请求体为准**，
+**系统提示不从源码重写，而是以黄金录制里实际发出的请求体为准**，
 再用源码解释每一段的来源。段落装配的逐段来源见 `spec/system-prompt-sections.md`（原先的 `spec/system-prompt.template.txt` 是 golden 挖空快照，已删除），
 由 `scripts/extract-system-prompt.mjs` 从 `golden/<场景号>/requests.jsonl` 抽出。
 **校验走 Rust 测试**（非循环）：`cargo test -p pi-core --test t3_12_system_prompt` 里的
@@ -9,7 +9,7 @@
 
 > 原先的 `scripts/verify-system-prompt.mjs` 已删除：它把 `{{PROJECT_CONTEXT}}` 的内容
 > **从同一条 golden 里抠出来再回填**，然后断言等于该 golden——这是循环验证，通过了也证明不了什么。
-> 详见 `notes/decisions.md`。
+
 
 ## 1. 线上形态
 

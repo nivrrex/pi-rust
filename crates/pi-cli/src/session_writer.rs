@@ -19,13 +19,77 @@ use pi_core::{session_io::SessionFile, session_path, timefmt};
 /// 文件名是 `<ISO 时间戳，`:` 与 `.` 换成 `-`>_<id>.jsonl`，定长且按时间递增，
 /// 因此**按文件名取最大**即可（与 ref 的"最近一次会话"语义一致），不必依赖 mtime
 /// （mtime 在复制/恢复过的目录里会骗人）。
-pub fn newest_session_file(session_dir: &std::path::Path) -> Option<std::path::PathBuf> {
-    let entries = std::fs::read_dir(session_dir).ok()?;
-    entries
-        .filter_map(|entry| entry.ok())
-        .map(|entry| entry.path())
-        .filter(|path| path.extension().is_some_and(|ext| ext == "jsonl"))
-        .max()
+/// 目录里**最近修改**的会话文件。
+///
+/// 与 ref `session-manager.ts:749-767` 一致：按 `mtime` 倒序（此前用文件名字典序 `max`，
+/// 与"最近"不是一回事），并可要求 header 里的 `cwd` 与给定目录匹配
+/// （`sessionCwdMatches`，`session-manager.ts:744-746`；`--session-dir` 指定了共享目录时才需要）。
+/// `-c`/`--resume` 是否该按会话文件头里的 `cwd` 过滤。
+///
+/// ref `session-manager.ts:1791-1796` 的 `continueRecent`：
+/// `filterCwd = sessionDir !== undefined && dir !== getDefaultSessionDirPath(cwd)`。
+/// 默认分区目录里**不**过滤 ⇒ 目录改名后（`Colibrì` → `colibri`）旧会话仍能被续写。
+#[must_use]
+pub fn should_filter_by_cwd(
+    session_dir: &std::path::Path,
+    cwd: &std::path::Path,
+    agent_dir: &std::path::Path,
+) -> bool {
+    !pi_core::session_path::is_default_session_dir(
+        session_dir,
+        &cwd.to_string_lossy(),
+        &agent_dir.to_string_lossy(),
+    )
+}
+
+pub fn newest_session_file(
+    session_dir: &std::path::Path,
+    cwd: Option<&std::path::Path>,
+) -> Option<std::path::PathBuf> {
+    let mut files: Vec<(std::time::SystemTime, std::path::PathBuf)> =
+        std::fs::read_dir(session_dir)
+            .ok()?
+            .filter_map(|entry| entry.ok())
+            .map(|entry| entry.path())
+            .filter(|path| path.extension().is_some_and(|ext| ext == "jsonl"))
+            .filter_map(|path| {
+                let mtime = std::fs::metadata(&path).ok()?.modified().ok()?;
+                Some((mtime, path))
+            })
+            .collect();
+    // 按 mtime **倒序**（最近的在前）。
+    files.sort_by_key(|entry| std::cmp::Reverse(entry.0));
+    let want = cwd.map(resolve_for_compare);
+    for (_, path) in files {
+        match &want {
+            None => return Some(path),
+            Some(want) => {
+                let header_cwd = session_header_cwd(&path)
+                    .map(|value| resolve_for_compare(std::path::Path::new(&value)));
+                if header_cwd.as_deref() == Some(want.as_str()) {
+                    return Some(path);
+                }
+            }
+        }
+    }
+    None
+}
+
+/// 比较 cwd 时统一形态（`resolvePath` 的近似：去掉末尾分隔符；能规范化就规范化）。
+fn resolve_for_compare(path: &std::path::Path) -> String {
+    let text = path.to_string_lossy();
+    let trimmed = text.trim_end_matches(['/', '\\']);
+    trimmed.to_string()
+}
+
+/// 读会话文件首行的 `cwd`（ref `readSessionHeaderForDiscovery`）：读不到或不是 JSON 就当没有。
+fn session_header_cwd(path: &std::path::Path) -> Option<String> {
+    use std::io::BufRead as _;
+    let file = std::fs::File::open(path).ok()?;
+    let mut line = String::new();
+    std::io::BufReader::new(file).read_line(&mut line).ok()?;
+    let value: serde_json::Value = serde_json::from_str(line.trim()).ok()?;
+    value.get("cwd")?.as_str().map(str::to_string)
 }
 
 /// **预生成**一份会话的 (ISO 时间戳, 会话 id, 文件路径)——**不建文件**。
@@ -52,6 +116,12 @@ pub struct SessionWriter {
     flushed: bool,
     /// 尚未落盘的条目行（header 之后的部分；header 单独由 `header_line` 保存）。
     pending: Vec<String>,
+    /// 与扩展 sink 共享的"当前叶子 id"（F25/S3）。
+    ///
+    /// 扩展的 `pi.appendEntry` 走独立线程裸追加，它也必须拿到**正确的 parentId**，
+    /// 否则会话链断掉（ref `session-manager.ts:1288-1299` 的 `appendCustomEntry` 用
+    /// `id: generateId(...)` + `parentId: this.leafId`）。两边共用这一份叶子。
+    chain: Option<std::sync::Arc<std::sync::Mutex<Option<String>>>>,
     /// header 那一行的原文。json 模式的**事件流首行**就是它
     /// （golden/S01 的 `events.jsonl` 第 1 行是 `{"type":"session",…}`），
     /// 所以要把原文留着，不能只在建文件时写一次就算。
@@ -59,6 +129,20 @@ pub struct SessionWriter {
 }
 
 impl SessionWriter {
+    /// 与扩展 sink 共享"当前叶子 id"（F25/S3）。
+    ///
+    /// writer 每次分配 id 后写回；sink 裸追加前读取，保证两条写路径落在**同一条** id 链上
+    /// （ref `session-manager.ts:1288-1299` 的 `appendCustomEntry`：`id: generateId(...)`、
+    /// `parentId: this.leafId`）。
+    pub fn set_chain(&mut self, chain: std::sync::Arc<std::sync::Mutex<Option<String>>>) {
+        if let Ok(mut guard) = chain.lock() {
+            if guard.is_none() {
+                *guard = self.last_id.clone();
+            }
+        }
+        self.chain = Some(chain);
+    }
+
     /// 新建会话文件并写入 header 与 `model_change`（内部先生成 id 与文件名）。
     ///
     /// 需要"先确定 id/文件名、稍后再建文件"的场景（rpc 的 `get_state` 要在写器未建时也报出来，
@@ -122,6 +206,7 @@ impl SessionWriter {
             kinds: Vec::new(),
             flushed: false,
             pending: Vec::new(),
+            chain: None,
             header_line: header_line.clone(),
         };
         let (entry_id, parent_id) = writer.take_id_and_parent();
@@ -157,10 +242,25 @@ impl SessionWriter {
         &self.header_line
     }
 
+    /// 会话 id（header 的 `id`；F28/S1：`ctx.sessionManager.getSessionId()` 用）。
+    #[must_use]
+    pub fn session_id(&self) -> Option<String> {
+        serde_json::from_str::<serde_json::Value>(&self.header_line)
+            .ok()
+            .and_then(|value| {
+                value
+                    .get("id")
+                    .and_then(|id| id.as_str())
+                    .map(str::to_string)
+            })
+    }
+
     /// 追加 **system 条目**。
     ///
     /// 形状照 `golden/S01` 第 4 行：`content` 是**空串**、正文由 `sections` 承载，
     /// 且带 `toolsAdded`（本 turn 声明的工具）。我原先写的是**渲染后的正文**，与 golden 不符。
+    ///
+    /// 末尾会派发延后的 `session_start`（见 `flush_pending_session_start`）。
     pub fn append_system_message(
         &mut self,
         sections: &[(String, String)],
@@ -236,7 +336,11 @@ impl SessionWriter {
                 extra,
             },
             extra: serde_json::Map::new(),
-        })
+        })?;
+        // F28/S1：system 条目写完（链叶子已更新）后才派发延后的 `session_start`，
+        // 扩展在该事件里 `appendEntry` 的 `parentId` 才能正确指向 system 条目。
+        crate::ext_tools::flush_pending_session_start();
+        Ok(())
     }
 
     /// 会话是否**已经真正落盘**（ref `session-manager.ts:1136` 的 `isPersisted()`
@@ -321,6 +425,7 @@ impl SessionWriter {
             // 打开已存在的会话文件 ⇒ 视为已经落盘（后续一律追加）。
             flushed: true,
             pending: Vec::new(),
+            chain: None,
             header_line,
         })
     }
@@ -378,7 +483,12 @@ impl SessionWriter {
     /// 再读 `self.last_id` 当 parent"，`parentId` 于是等于自己的 id——
     /// 由 golden 对比时的形状检查发现。
     fn take_id_and_parent(&mut self) -> (String, Option<String>) {
-        let parent = self.last_id.clone();
+        // 共享叶子（扩展 sink 可能已经追加过条目）优先于本 writer 自己的记账。
+        let shared_parent = self
+            .chain
+            .as_ref()
+            .and_then(|chain| chain.lock().ok().and_then(|guard| guard.clone()));
+        let parent = shared_parent.or_else(|| self.last_id.clone());
         // entry id 是 **uuid 的前 8 位**：`session-manager.ts:277-283` 的
         // `randomUUID().slice(0, 8)`（撞了就重试，最多 100 次，仍撞才退回整条 uuid）。
         // 我原先用整条 uuid，B 层比对的 `entry_appended` 里立刻显出形态不同
@@ -391,6 +501,11 @@ impl SessionWriter {
             .take(8)
             .collect::<String>();
         self.last_id = Some(id.clone());
+        if let Some(chain) = &self.chain {
+            if let Ok(mut guard) = chain.lock() {
+                *guard = Some(id.clone());
+            }
+        }
         (id, parent)
     }
 
@@ -452,6 +567,26 @@ impl SessionWriter {
         if let Some(parent) = self.path.parent() {
             std::fs::create_dir_all(parent).map_err(|error| error.to_string())?;
         }
+        // **仅测试用**的钩子（F22/S1b）：把"首次落盘"人为推迟，让 sink 线程的 `appendEntry`
+        // 必然先写入同一路径，从而确定性地暴露"整文件写入截断掉追加行"的竞态。
+        // 生产路径默认不设置该变量 ⇒ 行为不变。
+        if let Ok(ms) = std::env::var("PI_TEST_DELAY_FIRST_FLUSH_MS") {
+            if let Ok(ms) = ms.trim().parse::<u64>() {
+                if ms > 0 {
+                    std::thread::sleep(std::time::Duration::from_millis(ms));
+                }
+            }
+        }
+        // **先读回已存在的行**：sink 线程是裸追加（`OpenOptions::append`），完全可能在我们首次
+        // 整文件写入之前就写好了一条 `custom` 条目；`std::fs::write` 是截断语义，不并回来就丢。
+        let preexisting: Vec<String> = std::fs::read_to_string(&self.path)
+            .map(|text| {
+                text.lines()
+                    .map(str::to_string)
+                    .filter(|line| !line.trim().is_empty() && *line != self.header_line)
+                    .collect()
+            })
+            .unwrap_or_default();
         let mut body = String::with_capacity(self.header_line.len() + line.len() + 64);
         body.push_str(&self.header_line);
         body.push('\n');
@@ -461,6 +596,30 @@ impl SessionWriter {
         }
         body.push_str(&line);
         body.push('\n');
+        // 并入早写的行时**按逻辑顺序**插到 system 条目之后：sink 的 `appendEntry` 是在
+        // `session_start` 里发生的（此时 system 已攒进 `pending`、user/assistant 还没写），
+        // 直接追加到文件末尾会让"文件顺序"与"parentId 链"不一致（F28/S1 暴露）。
+        let mut merged: Vec<String> = Vec::new();
+        for extra in preexisting {
+            if !self.pending.contains(&extra) && !body.contains(&extra) && !merged.contains(&extra)
+            {
+                merged.push(extra);
+            }
+        }
+        if merged.is_empty() {
+            // 没有早写的行：保持原样。
+        } else {
+            let mut lines: Vec<&str> = body.lines().collect();
+            let insert_at = lines
+                .iter()
+                .rposition(|line| line.contains("\"role\":\"system\""))
+                .map_or(lines.len(), |index| index + 1);
+            let tail: Vec<&str> = lines.split_off(insert_at);
+            lines.extend(merged.iter().map(String::as_str));
+            lines.extend(tail);
+            body = lines.join("\n");
+            body.push('\n');
+        }
         std::fs::write(&self.path, body).map_err(|error| error.to_string())?;
         self.flushed = true;
         Ok(())

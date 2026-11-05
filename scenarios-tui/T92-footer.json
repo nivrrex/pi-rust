@@ -1,0 +1,50 @@
+{
+ "provider": "openai-completions",
+ "model": "mock-model",
+ "mode": "print",
+ "prompt": "hi",
+ "files": {},
+ "extensions": {
+  "footer/package.json": "{\n  \"type\": \"module\",\n  \"name\": \"pi-rs-footer-fixture\"\n}",
+  "footer/index.js": "// `ctx.ui.setFooter` 夹具（E4d）：只接受 `render() -> string[]` 的组件。\nimport { Text } from \"@earendil-works/pi-tui\";\n\nexport default function footerExtension(pi) {\n  pi.on(\"session_start\", (_event, ctx) => {\n    ctx.ui.setFooter((tui, theme, footerData) => ({\n      render: () => [\n        theme.fg(\"accent\", `custom-footer providers=${footerData.getAvailableProviderCount()}`),\n        \"second-footer-line\",\n      ],\n    }));\n  });\n}\n"
+ },
+ "responses": [
+  {
+   "file": "fixtures/sse/openai/text-basic.sse"
+  }
+ ],
+ "tui": {
+  "cols": 100,
+  "rows": 30,
+  "steps": [
+   {
+    "action": "waitScreen",
+    "contains": "custom-footer",
+    "timeoutMs": 40000
+   },
+   {
+    "action": "waitStable",
+    "quietMs": 800,
+    "timeoutMs": 20000
+   },
+   {
+    "action": "snapshot",
+    "name": "footer"
+   },
+   {
+    "action": "type",
+    "text": "\u0004"
+   },
+   {
+    "action": "waitStable",
+    "quietMs": 500,
+    "timeoutMs": 10000
+   }
+  ],
+  "snapshots": [
+   "footer"
+  ]
+ },
+ "id": "T92-footer",
+ "description": "E4d TUI：扩展 setFooter 接管页脚"
+}

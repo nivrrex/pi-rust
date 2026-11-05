@@ -70,6 +70,8 @@ pub struct Args {
     pub help: bool,
     pub version: bool,
     pub list_models: Option<String>,
+    /// `--list-tools`：列出可用工具（内置 + 扩展），一行一个。P9-1-B 新增。
+    pub list_tools: bool,
     /// 未识别的 `--flag`（值可能是字符串或"仅出现"）。〔args.ts:237-250〕
     pub unknown_flags: BTreeMap<String, Option<String>>,
     /// 已识别但本项目未实现的 flag，供 `main` 明确报错而不是静默忽略。
@@ -80,6 +82,11 @@ pub struct Args {
     pub no_skills: bool,
     /// `--skill <path>`（可重复）：显式技能路径（ref `cli/args.ts:181`）。
     pub skill_paths: Vec<String>,
+    /// `--extension <path>` / `-e`（可重复）：显式扩展路径（ref `cli/args.ts:176-179`）。
+    pub extension_paths: Vec<String>,
+    /// `--no-extensions / -ne`：只跳过**发现**（项目级/全局目录），显式 `-e` 仍生效
+    /// （ref `args.ts:179-180`、`resource-loader.ts:452-454` / `:556-559`）。
+    pub no_extensions: bool,
     /// `--no-prompt-templates` / `-np`：置真时不做模板发现（ref `cli/args.ts:200-201`）。
     pub no_prompt_templates: bool,
     /// `--tui-mode <mode>`：`regular`（默认）或 `fullscreen`（ref `cli/args.ts:50/213-219/325`）。
@@ -245,8 +252,14 @@ fn handle_short_flag(result: &mut Args, arg: &str, args: &[String], index: &mut 
         }
         "-a" => result.unsupported.push("--approve".to_string()),
         "-na" => result.unsupported.push("--no-approve".to_string()),
-        "-e" => result.unsupported.push("--extension".to_string()),
-        "-ne" => result.unsupported.push("--no-extensions".to_string()),
+        "-e" => {
+            // `-e <path>`（ref `cli/args.ts:176-179`）。
+            if let Some(value) = args.get(*index) {
+                result.extension_paths.push(value.clone());
+                *index += 1;
+            }
+        }
+        "-ne" => result.no_extensions = true,
         "-ns" => result.no_skills = true,
         "-np" => result.no_prompt_templates = true,
         "-nc" => result.no_context_files = true,
@@ -343,6 +356,12 @@ fn handle_long_flag(result: &mut Args, arg: &str, args: &[String], index: &mut u
                 result.skill_paths.push(text);
             }
         }
+        // `--extension` / `-e <path>`（可重复）：ref `cli/args.ts:176-179` 收进 `result.extensions`。
+        "extension" | "e" => {
+            if let Some(text) = value!() {
+                result.extension_paths.push(text);
+            }
+        }
         // `--tui-mode <mode>`（ref `cli/args.ts:213-219`）：缺值 ⇒ error 诊断；值非法也先记下
         // （**运行期**文案以实测为准：`Error: Invalid TUI mode "<v>". Valid values: regular, fullscreen`）。
         "tui-mode" => match value!() {
@@ -381,6 +400,7 @@ fn handle_long_flag(result: &mut Args, arg: &str, args: &[String], index: &mut u
         "verbose" => result.verbose = true,
         "help" | "h" => result.help = true,
         "version" | "v" => result.version = true,
+        "list-tools" => result.list_tools = true,
         "list-models" => {
             // 可带搜索模式；不带时记空串（表示"列出全部"）。
             let search = match inline.clone() {
@@ -405,8 +425,14 @@ fn handle_long_flag(result: &mut Args, arg: &str, args: &[String], index: &mut u
             result.no_context_files = true
         }
         // 已识别但本项目未实现：交给 main 明确报错，不静默忽略。
-        "extension" | "e" | "no-extensions" | "ne" | "theme" | "no-themes" | "use-theme"
-        | "export" | "approve" | "a" | "no-approve" | "na" => {
+        // `--no-extensions`：有实现（只跳发现），不是"未实现"。
+        "no-extensions" | "ne" => {
+            if inline.is_some() {
+                return false;
+            }
+            result.no_extensions = true
+        }
+        "theme" | "no-themes" | "use-theme" | "export" | "approve" | "a" | "no-approve" | "na" => {
             // 这几个带值；吃掉值以免它被当成位置参数。
             if matches!(key, "use-theme" | "theme" | "extension") {
                 let _ = value!();

@@ -1,0 +1,15 @@
+{
+  "id": "T100-skills",
+  "cols": 100,
+  "rows": 30,
+  "helperExit": 0,
+  "exitCode": 0,
+  "stderr": "",
+  "mockStderr": "",
+  "snapshotOffsets": [
+    {
+      "name": "startup",
+      "offset": 3329
+    }
+  ]
+}

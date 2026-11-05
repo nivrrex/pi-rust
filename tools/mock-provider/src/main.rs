@@ -88,6 +88,12 @@ struct Scenario {
     /// 期望的注入次数（由 runner 读取并断言，mock 本身不使用）。
     #[serde(default)]
     expect_injections: Option<serde_json::Value>,
+    /// P9-1-E1c：夹具扩展（`{ "目录/文件": "<内容>" }`），由 runner 写进 `<agentDir>/extensions`。
+    #[serde(default)]
+    extensions: Option<serde_json::Value>,
+    /// F23：run-tui 的 `agentFiles`（写进 `<tmp>/cfg`，用于默认路径下造 skills）。
+    #[serde(default)]
+    agent_files: Option<serde_json::Value>,
 }
 
 // 场景 JSON 用 camelCase（`gateAfterChunks` 等）。此前没有这个映射，

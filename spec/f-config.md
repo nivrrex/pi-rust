@@ -1,6 +1,6 @@
 # spec/f-config.md — settings.json / models.json / auth.json
 
-对应 RUNBOOK-1 步骤 A6。范围限定为本项目要互通与要实现的部分：字段定义、路径解析、多作用域合并、环境变量。
+范围限定为本项目要互通与要实现的部分：字段定义、路径解析、多作用域合并、环境变量。
 TUI 外观类设置（`terminal`、`theme`、`markdown`、`warnings`、全屏相关）只记字段名与默认值来源，不逐项展开。
 
 ## 1. 配置目录与环境变量

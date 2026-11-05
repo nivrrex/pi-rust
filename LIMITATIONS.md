@@ -7,11 +7,29 @@
 
 ### CLI 子命令与选项
 
-以下上游存在的子命令/选项尚未实现（`--help` 里也不会列出，避免给出无法使用的提示）：
+已实现（与上游 `cli/args.ts:80-260` 同名同义）：
+`--provider`、`--model`、`--api-key`、`--system-prompt`、`--append-system-prompt`、`--mode`、
+`--print/-p`、`--continue/-c`、`--resume/-r`、`--session`、`--session-id`、`--session-dir`、
+`--no-session`、`--name/-n`、`--models`、`--no-tools/-nt`、`--no-builtin-tools/-nbt`、
+`--tools/-t`、`--exclude-tools/-xt`、`--thinking`、`--no-context-files/-nc`、
+`--list-models [search]`、`--tui-mode`、`--offline`、`--verbose`、`--help/-h`、`--version/-v`。
 
-- 子命令：`install`、`remove`、`uninstall`、`update`、`list`、`config`、`auth`；
-- 选项：`--resume/-r`、`--session-id`、`--fork`、`--no-thinking`、`--verbose` 等。
-  会话续写用 `-c`；会话浏览用 TUI 里的 `/resume`、`/tree`、`/fork`。
+尚未实现（运行时以 `Error: 不支持的参数：…` 明确拒绝并以 1 退出，不会静默忽略）：
+子命令 `install`/`remove`/`uninstall`/`update`/`list`/`config`/`auth`；
+选项 `--fork`、`--extension/-e`、`--no-extensions/-ne`、`--skill`、`--no-skills/-ns`、
+`--prompt-template`、`--no-prompt-templates/-np`、`--theme`、`--use-theme`、`--no-themes`、
+`--export`、`--approve/-a`、`--no-approve/-na`。
+
+差异说明：
+
+- `--list-models` 的输出格式与上游逐字一致（6 列、两空格分隔、`200K`/`1.0M` 这类 token 缩写），
+  但**模型清单来自本二进制内置的目录快照**，可能与用户本机安装的上游版本目录不同步；
+  没有可用凭据时输出与上游相同的 `No models available…` 提示（其中的 docs 路径按本项目的
+  回落规则给出）。
+- `--verbose` 被接受但没有可见效果：本实现始终显示完整启动信息（没有实现上游的
+  `quietStartup` 静默启动），因此没有"强制显示"可做。
+- 未识别的 `--foo` 与上游不同：上游把它当作可能的扩展旗标转交扩展系统，本实现没有扩展，
+  直接报错退出（避免"参数被静默忽略"）。
 
 ### 扩展机制
 
@@ -68,6 +86,52 @@ footer 显示 `0.0%/0 (auto)`、模型名显示 `unknown`，与上游逐字一�
 但**文档路径不同**：上游用安装包的 `docs` 目录，pi-rs 是单二进制、没有安装包目录，
 按 `PI_DOCS_DIR` → 可执行文件旁 `docs/` → 公开仓库地址 依次回落。80 列终端下
 上游的长路径会折行、这里的短地址不折行，整屏行数可能因此差几行（纯路径长度所致）。
+
+### 大会话（十万行量级）的重绘耗时
+
+34.5 万行的会话，一次**真正的**整屏重绘是约 35 MB 输出，release 实测
+`build 0.14s / diff 0.62s / write 3.5s`（`PI_TUI_TIMING=<path>` 打印这三个数）。
+整屏重绘只在首帧、宽度变化、`clearOnShrink`、以及"首个变化行在视口之上"时发生；
+上游 `tui-main-screen.ts:277-300` 的 `fullRender` 同样逐行写全部行，这一项两边一致。
+
+P8e-19 之前的"每帧都整屏重绘"是 bug，不是设计代价：条目渲染缓存只存了行文本与整行样式，
+**没存工具头的行内分段**，命中缓存后这些行没有 span，差分层把第一处工具调用行判成变化
+（大会话里它在视口之上）⇒ 每次按键都整屏重绘。缓存现在连 span 一起存，`Ctrl+P` 在该会话上
+从 7 s 降到 0.44 s。
+
+### 扩展（P9-1 起）
+
+- **运行时依赖 `node`**：扩展跑在 Node 子进程里（控制通道是 loopback TCP + 一次性令牌，
+  见 `notes/p9-1/protocol.md`）。找不到 `node`（或 `PI_NODE` 指错）时**不加载扩展**，
+  打印一条提示，其余功能不受影响；`--list-tools` 只列内置工具。
+- **`.ts` 扩展需要 jiti**：探测顺序 `PI_JITI` → 扩展目录的 `node_modules/jiti` →
+  已安装 pi 的 `node_modules/jiti`（路径取自 `PI_PACKAGE_DIR`/`TS_PI_ENTRY`）。
+  都没有时 `.ts` 扩展跳过并提示，`.mjs`/`.js` 照常加载。jiti 的分发方式（随程序打包 /
+  要求用户安装 / 运行时探测）**仍未定**（`notes/questions.md`）。
+- **扩展的渲染钩子未实现**：`renderCall`/`renderResult`/`ctx.ui.custom`/`setFooter`/
+  组件式 `setWidget` 首版一律降级（工具行用内置渲染，UI 调用报"未实现"）。
+- **控制通道的令牌对同用户可见**：令牌经环境变量传给 node 子进程，同用户
+  （或 root）可读 `/proc/<pid>/environ` 拿到它；监听地址固定 `127.0.0.1`，且 `accept` 之后
+  立即关闭监听（只收一个连接）。这是"不新增依赖 + Windows 可用"下能接受的最小暴露面，
+  但不是安全边界：同机同用户的其它进程理论上可以读到令牌并抢先连接（概率低但存在）。
+- **事件分发只做了两种**：`session_start`、`agent_end`（其余在后续批次）。
+- **仓库约定检查依赖本机身份**：`scripts/check-repo-conventions.sh` 用 `id -un` 与 `hostname -s`
+  生成"用户路径/主机名"模式；换一台机器（不同用户名/主机名）时，这条规则对**那台机器**的
+  路径不生效（它防的是提交里混入这台机器的路径）。CI 场景应改用固定允许清单。
+
+### 只有 `auth.json` 的机器与 `models-store.json`
+
+没有 `models.json`、没有 `settings.json`（只放过 `/login` 写的 `auth.json`）时，
+模型来自**编译期内置目录**（`fixtures/models-config/builtin-catalog.json`，随二进制分发），
+只列已认证 provider 的模型；默认模型按上游 `defaultModelPerProvider` 表选，表里没有则取第一个。
+
+`models-store.json` 在上游是**动态刷新后的目录缓存**（4 小时 TTL 的 pi.dev 目录、
+`refreshModels` 拉到的 provider 模型），由 `publishProviderModels` 写入。pi-rs **不联网刷新、
+也从不写这个文件**：若配置目录里已有（例如与 TS 版共用），按模型 id 叠加到内置目录上
+（同 id 覆盖、新 id 追加，同 `remote-catalog-provider.ts` 的 `mergeModels`）。
+
+差异：上游还会比较缓存里的 `lastModified` 与内置目录的生成时间，比内置更旧的缓存直接丢弃；
+pi-rs 目前一律采用，即一份过期的 `models-store.json` 会遮住更新的内置条目。
 
 ### `!command` 配置值在 Windows 上的 shell 选择
 
@@ -167,6 +231,26 @@ Windows 产物是**交叉编译 + 有限真机验证**，整体标为实验性�
   与代码缺陷无关；等价验证在 Linux 侧完成。
 - `ctrl+x` 复制在 Windows 上退化为 OSC 52；上游在该平台用系统 `clip` 命令。
 
+## 已知差异：无 usage 时的上下文百分比（±0.1 个百分点）
+
+footer 的 `x%/Nk (auto)` 在没有 assistant usage 时是**估算值**（ref `compaction.ts:218-246`
+的 `estimateContextTokens`：把系统提示与会话里全部消息的字符数加起来除以 4）。两边的**估算公式一致**，
+但"系统提示有多少字符"的取值口径不同：我们按 `sections` 的拼装长度与 serde 的紧凑 JSON 计，
+上游按它自己内存里那份 system 对象计，实测同一场景下上游的基数比我们大约 150 token
+（128k 窗口下即 1.2% vs 1.1%）。
+
+影响范围：仅**没有真实 usage 的帧**（启动首屏、回放类场景）会差 0.1 个百分点，出现 usage 后
+两边都走 `usage` 口径，完全一致。`golden-tui/T10`、`T52-tree-summarize` 记的正是这个差异。
+
+## 输入层与渲染层的不变量
+
+两条硬约束（源码与测试都按它写）：
+
+- **字节偏移必须落在字符边界**：任何按字节切片的地方（渲染 span、截断、着色分段）都先收敛到
+  `char_indices` 给出的边界；多字节字符（`·`、`…`、中文、emoji）不得被切半。
+- **输入缓冲不得丢字节**：`RespFilter`、`BracketPaste`、`PasteBurst`、`InputState` 在超时/拆包时
+  只能"重放已吞字节"或"原样放行"，不允许静默丢弃；被判为杂散的前缀要么能补全后被吞，要么原样交回。
+
 ## 平台与工具
 
 - `ctrl+z`（挂起到后台）依赖作业控制：在孤儿进程组（某些自动化 pty 夹具）里
@@ -174,3 +258,203 @@ Windows 产物是**交叉编译 + 有限真机验证**，整体标为实验性�
 - `grep` / `find` 委托外部 `rg` / `fd`，**不自动下载**（上游会先尝试下载）。
   `fd` 的探测顺序：`PI_FD_BIN` → `fd` → `fdfind`。
 - TUI 里工具结果只渲染调用头与（按规则的）正文预览；`read` 在折叠态按上游语义不显示正文。
+
+### 扩展的 `notify` / `setStatus`（P9-1-E1）
+
+宿主能收 `host.ui.notify` / `host.ui.setStatus` 帧，但 **UI 渲染通道尚未接**：
+TUI 下 notify 只打到 stderr（不在会话区、不套主题样式），setStatus 只记账不显示在 footer。
+ref 的对应实现见 `interactive-mode.ts:2541`/`:2543`（`showExtensionNotify` / `setExtensionStatus`）。
+接通道需要给宿主 actor 增加"上行事件 channel"，列为 P9-1-E2 的第一项。
+
+## 扩展（P9-1-E1c 更新）
+
+- **发现规则**：实现了项目级 `<cwd>/.pi/extensions` → 全局目录的顺序与去重、目录内直接文件
+  （`.ts`/`.js`/`.mjs`）与 `index.ts`→`index.js`→`index.mjs` 入口（ref `loader.ts:657-800`）。
+  `package.json` 的 `pi.extensions` 清单与 `-e/--extension` 显式路径**已支持**；
+  排序按路径（ref 用目录读取顺序）。
+- **UI 帧**：`notify` 三档已按 ref 渲染（info 状态行 / `Warning: ` / `Error: `），
+  `setStatus` 在 footer 下单独一行（按 key 排序、清洗、截断）。本批 TS 录制逐帧 `same`
+  （`scenarios-tui/T88-ui-notify` 与 `scenarios-tui-light/L-T88-ui-notify`）。
+  **未验证**：颜色逐字节、空行计数。
+- **工具执行帧**：扩展若用 ref 的 `createBashToolDefinition` 等"由宿主执行"的构造器，
+  当前 shim 直接抛"未实现"（`notes/p9-1e1c/s3-matrix.md` 的 `bash` 行）——需要宿主动作帧。
+- **Ctrl+O 只覆盖 `renderResult`**：扩展自定义组件（`ui.custom` 面板、工厂式 widget 里的
+  自定义组件）不参与展开/折叠，`expanded` 变化不会触发它们的重渲染。
+- **`pi.appendEntry` 的会话文件等待**：宿主可能早于 `SessionWriter` 启动，消费者线程最多等 10s
+  再写；理想做法是"路径就绪后回放队列"（待查，见 `notes/p9-1e4e/ledger.md`）。
+- **Ctrl+O 的展开语义**：`renderResult` 会在切换后按新 `expanded` 重新渲染（`tool-execution.ts:352`），
+  但 ref 在展开态还会改启动提示行（`drop files to attach`）与把 `[Extensions]` 段展开成
+  `user` + 路径；这两项**未实现**，因此 Ctrl+O 的逐帧对拍尚未通过（`notes/p9-1e4b/s5-design.md`）。
+- **渲染钩子的样式**：`theme.fg` 用 ref `theme/dark.json` 生成的色表（56 色，truecolor SGR），
+  未知色名按 ref `theme.ts:323-327` **抛错**（宿主回落 `unsupported`）；`bg` 仍直通文本
+  （背景色未实现）。`T90` 的逐帧 same 已经包含 SGR，说明前景色与 ref 一致。
+- **真实扩展的逐行样式对拍未做**：`ask_user`/`cg_recall`/`web_read` 的 renderCall 已验证
+  序列化为 text 帧，且其用到的 **8 个色名 SGR 与 ref 逐项一致**（`notes/p9-1e4b/s6-colors-compare.txt`）；
+  但**没有**在真实工具调用下做 TS↔pi-rs 的整帧逐行 SGR 比对（`ask_user` 走 `ui.custom`、
+  `cg_recall` 需要网关 id、`web_read` 需联网，三者都缺可复现输入）。
+- 渲染钩子：`renderCall` 支持 `Text`/`Spacer`/`Container` 的降级（工具块 contentBox 左边距
+  与 ref 对齐；`unsupported` 整块回落到内置渲染）；`renderResult` 的帧宿主侧可用但**未接进
+  工具块**；`Box`/`Markdown`/`Table`/`SelectList` 不支持。
+- **命令**：`registerCommand` 已接分发（`/name args` → handler，未命中按普通 prompt，
+  handler 抛错仍视为已处理，ref `agent-session.ts:1766-1789`）。
+- **flag**：支持（两阶段解析）。已注册的 `string`/`boolean` flag 从命令行取值、
+  `pi.getFlag` 缺省回落注册默认值；未注册的 flag 报 `Unknown option(s)` 并退出 1，
+  缺值报 `Extension flag "--x" requires a value`（ref `agent-session-services.ts:92-125`）。
+  **`--help` 不列扩展 flag**（ref 的 help 在扩展加载前打印，同样不列）。
+
+## 扩展事件（P9 E2 第一批）
+
+- `input`：`continue`/`transform`/`handled` 三态都已实现（含端到端断言：改写后的文本进请求体、
+  `handled` 不产生 provider 请求）。`images` 字段未处理（还没有图片输入）。
+- `before_agent_start`：`message` 注入（`role:"custom"`，插在用户消息之前）与 `systemPrompt`
+  覆盖均已生效（print 路径有测试）。TUI/rpc 路径未单独验证。
+- `agent_before_settle`：`continue:true` 会再跑一轮（print 路径有测试；上限 10 轮），
+  `entries` 以 `role:"custom"` 消息落盘并进入下一轮（不是 ref 的会话条目草稿形态）。
+- `ui.select`/`ui.input`/`ui.confirm`：**无 UI 环境**（print/rpc）按 ref 的 `noOpUIContext`
+  （`runner.ts:320-325`）返回 `undefined`/`false`；TUI 下宿主侧往返通道与面板都已实现：
+  `select` 面板与 TS 逐帧 `same`（`scenarios-tui/T89-ext-select`、`scenarios-tui-light/L-T89-ext-select`），
+  `confirm`/`input` 用同一套面板但**未单独录制 golden**。
+
+## 扩展 widget（P9-1-E3b / S4 第一批）
+
+- `ctx.ui.setWidget(key, string[], {placement})` 支持，`undefined` 清除；渲染在编辑器下方
+  （`belowEditor`），按 key 升序、逐行输出。单测：`crates/pi-tui/src/lib.rs` 的
+  `extension_widget_tests`。
+- `ctx.getContextUsage()` 支持（宿主每帧把 `usage{tokens,contextWindow,percent}` 放进 ctx；
+  TUI 的用量事件会同步进去）。
+- `ctx.sessionManager` 提供只读子集（`getSessionFile()`/`getEntries()`，条目由扩展侧读文件解析）；
+  其余方法（分支切换、`appendCustomEntry` 等）未实现。
+- 宿主动作帧：`host.action.call` 已实现，`createBashToolDefinition` 的 `bash` 由宿主执行；
+  其它动作名一律回 `unknown host action`（不静默成功）。
+- `pi.getSessionName()` 恒 `undefined`：pi-rs 没有会话命名（无 `/rename`），不是假值。
+- `pi.sendUserMessage(text)` 支持（print 路径注入下一轮）。print 的 `agent_end` 已改为
+  **每轮结束、settle 之前**派发（ref `agent-session.ts:1061-1062`），因此扩展在 `agent_end`
+  里排的消息能赶上本轮 settle。
+- `pi.appendEntry(customType, data)` 支持（写 `{type:"custom", customType, data}` 进会话文件；
+  宿主比 writer 早启动时会短暂等待路径就绪）。
+- `setWidget` 的**组件工厂**：只支持 `render() -> string[]` 的形态（QR 那种），其它显式报错。
+- `ctx.ui.setFooter` 支持 `render() -> string[]` 的工厂（`footerData` 只提供
+  `getExtensionStatuses/getAvailableProviderCount/getGitBranch/getCwd/onBranchChange`）。
+- `ctx.ui.setTitle` 支持（写 OSC 2）；`setHeader`/`setFooter` 见上。
+- **并发语义**：工具调用仍**串行**（actor 一次一个 invoke）；UI 按键与渲染钩子在 invoke 期间
+  可并发（`Wire` 直连 + 应答按 id 路由）。连接空闲时按键走 actor 的阻塞读取。
+- `request_secret`（pi-secrets）已在隔离 `HOME`/`PI_CODING_AGENT_DIR` 下端到端验证：掩码渲染、
+  结果只报名字与长度、临时目录全量扫描明文命中 **0**（`tests/request_secret_masked.rs`）。
+  **未验证**：真实用户目录下的密钥存储与跨会话复用。
+- **`ctx.ui.custom` 的 overlay**：**已支持**合成（居中、盒宽 80、盒内清空、盒外保留；
+  `T95-overlay`/`L-T95-overlay` 逐帧 same）。`overlayOptions` 的 anchor/尺寸未实现。
+  **注意**：本机 9 个扩展里**没有任何一个**使用 `overlay: true`（`pi-interact` 与 `pi-secrets`
+  都走编辑器位置），因此 overlay 的对拍用的是**合成探针组件**，不是真实扩展。
+  旧记录（**已实现**，见下）：ref 的 overlay 分支（`interactive-mode.ts:2858-2900`）要求浮在内容
+  之上；pi-rs 现由 `pi-cli` 合成（居中、盒宽 `min(80,cols)`、盒内清空、盒外保留），
+  `T95-overlay`/`L-T95-overlay` dark/light 逐帧 same、各 10 次稳定。
+  但本机 9 个扩展**无一使用 `overlay: true`**，对拍用的是合成探针组件；`overlayOptions` 的
+  anchor/尺寸仍未实现、`onHandle` 仅提示。
+- **工具调用仍串行**：actor 一次处理一个 `Cmd::Invoke`；`Wire` 直连只在 `in_flight > 0`
+  （有读取循环）时启用，连接空闲时按键回落到 actor 的阻塞读取。若 `in_flight` 在判定后
+  立即归零，直连会等满 5s 超时并返回错误（不丢、不死锁，但会失败）——属已知窗口。
+  **F1 复核：维持现状**，reader 重构暂停（三条路径均失败于 `ext.custom.input` 应答迟到），
+  推翻条件见 `notes/decisions.md`「F1 / E4h 收尾」。
+- `ctx.ui.custom`：只支持最小交互集合（编辑器位置或 overlay、`render`/`handleInput`/`done`）；`overlay` 与
+  `onHandle` 未实现（显式抛错），`overlayOptions` 的 anchor/尺寸未实现；面板的按键映射目前覆盖
+  Char/Enter/Esc/Backspace/Tab/方向键。
+- **未实现**：
+  宿主动作帧（目前只实现 `bash`）的其余动作、
+  `createBashToolDefinition` 需要的宿主动作帧。
+
+- **kitty 键盘协议 flags 偏离 ref（5 而非 7）**：关闭位2（上报事件类型），因为抬起事件是"退出后 shell
+  回显 `0;5:3u`"的唯一来源（复现脚本 `tools/difftest/kitty-release.py`）。代价：拿不到 release 事件
+  （我们本来就把它们全部丢弃，`tui.ts:1073-1076` 语义）；若将来实现 `wantsKeyRelease` 必须恢复位2。
+  偏离的夹具通过生成器映射记录（`gen-term.mjs` 的 `applyKnownDeviation`），不是手改期望值。
+  依据与推翻条件见 `notes/decisions.md`「F4/S4 改（定案）」。
+
+- **`!` / `!!` 用户 bash 未实现**（P9-F6 结论）：ref 的语义与行号已登记在
+  `notes/decisions.md`「F6/S3」（输入分流 `interactive-mode.ts:3225-3240`、`user_bash` 事件
+  `:6725-6745`、落盘 `agent-session.ts:3496-3516`）。连带影响：`user_bash` 事件永不派发，
+  `pi-secrets` 对 `!` 命令的脱敏路径不会触发。
+  实现需要新增 `bashExecution` 会话消息类型（核心枚举，需保证与 TS jsonl 互操作）等五处改动，
+  已列为独立批次。
+
+- **`bashExecution` 会话消息**：类型、serde、上下文投影（`!!` 不进上下文）、token 估算与 compaction
+  切点**已与 TS 侧互验**（F7b）：
+  ① TS `SessionManager` 生成的样本 → pi-rs 解析 → 再序列化**逐字节一致**（含未知字段与键序）；
+  ② pi-rs 写出的会话被 ref 真实 `SessionManager.open` 加载后投影一致；
+  ③ 六种情形的投影文本与 ref `convertToLlm` 的 oracle **逐字节一致**；
+  ④ `-c` 恢复后的请求体断言**已完成**（`crates/pi-cli/tests/p9_f7c_resume_bash.rs`：普通项以
+  `bashExecutionToText` 文本进入 user、`!!` 项不出现、顺序正确，且会话文件原有行逐字节不变）。
+  **未完成**：TUI 的 `!`/`!!` 输入与 `BashExecutionComponent` 渲染、`/tree` 的命令摘要文本、
+  `user_bash` 事件派发（F8/F9）。因此 `pi-secrets` 对 `!` 命令的脱敏路径仍不会触发。
+
+- **`p9_e3b_append` 偶发（F10 已复现，未修）**：单跑 30/30、4 路并行 12/12 通过；仅在 workspace
+  全量并行时观测到 1 次失败，失败形态是**整条 `custom` 条目丢失**（assistant 已落盘 ⇒ 不是
+  `pending` 缓冲问题，而是 append 请求没到达 writer）。假设是退出时宿主动作帧未排空。
+  详见 `notes/p9-f7c/append-flaky.md`。**F10 追加**：8 路并行压力脚本下 **80/80、240/240 稳定丢**；
+  失败时 node 扩展进程报 `ECONNRESET` ⇒ 根因是**主进程先退出、扩展动作帧没处理完**（不是文件截断）。
+  两处试修（等落盘标志、落盘时并入已有行）均无效且已回滚。
+
+- **单文件发行包的扩展宿主（已修）**：此前 `runner.mjs` 只从 `<exe 目录>/ext-host/` 或源码树查找，
+  只下载单个二进制的用户会看到 `pi-rs: 扩展未加载：找不到 ext-host/runner.mjs`（Armbian 真机实测）。
+  现在**整个 `tools/ext-host/`（runner + resolve.mjs + 5 个 shim）**由 `include_str!` 内嵌，
+  找不到时落到 `$TMPDIR/pi-rs-ext-host-<pid>/`（只内嵌 runner.mjs 会让 node 报
+  `ERR_MODULE_NOT_FOUND .../shim/pi-tui.mjs`，Armbian 实测），
+  `PI_EXT_RUNNER` 仍可覆盖。`.ts` 扩展仍需 `PI_JITI` 指向 jiti（与之前一致）。
+
+- **`pi-handoff-gate` 的 todo 持久化载体（F12 核实）**：todo 状态写在 **toolResult 的
+  `details.state`**（`pi-handoff-gate/index.ts:346/377/392`，`todo.ts:472-500`），重启/切分支时由
+  `session_start`/`session_tree` 从 `ctx.sessionManager.getBranch()` 重建；`appendEntry`
+  （`index.ts:405`）**只在 `/todo clear`** 时用。⇒ 早前用"会话里有没有 custom 条目"判断 todo 是否
+  落盘是**错误的判据**，todo 一直正常。
+- **`pi.appendEntry` 的入口覆盖（F11）**：print / TUI / TUI `-c` / `/resume` 切换 / rpc 的
+  建 writer 处均已登记会话路径（`set_session_file`），**TUI 已有 pty 回归测试**
+  （`crates/pi-cli/tests/p9_f11_entry_paths.rs::tui_entry_writes_append_entry`）。
+  **用途说明**：appendEntry 只对"用 appendEntry 存状态的扩展"有效（如 `pi-handoff-gate` 的
+  `/todo clear`）；`todo` 工具本身走 toolResult.details，不受此影响。
+  **rpc 入口仍未覆盖**：rpc 的会话文件是懒创建的（首次 `prompt` 才建），而 `session_start` 在启动时
+  就派发，此时路径未知 ⇒ 该入口的 `appendEntry` 仍会落空；修法需在 rpc 会话生命周期里提前确定路径
+  （对应测试已写好但标 `#[ignore]`）。sink 超时不再静默丢弃，会打印 `customType`/`data` 告警。
+
+- **`/new` 未实现**（F12 复核）：ref 有 `/new`（`interactive-mode.ts:3182`），pi-rs 没有该命令，因此
+  "`/new` 之后 appendEntry 落到新会话文件"的用例不适用；`/resume` 切换路径已补登记
+  （`tui.rs` 的 writer 切换处），但**尚无 pty 级用例**。
+
+- **扩展加载问题的可见性（F14 已修）**：缺 `PI_JITI`、缺 runner、宿主握手失败现在既写 stderr，
+  也进启动屏 `[Extension issues]` 段（ref `interactive-mode.ts:1874-1894`）。此前的 `--list-tools`
+  实测在四个提交（`e4d2d297`/`013a993f`/`34c708c2`/`edc4de7a`）上都能列出 `todo`/`report_to_user`，
+  无加载回归。
+
+- **`/new`（F16 已实现）**：会话切换按 ref 顺序（`session_before_switch` → 新 writer →
+  `session_start{reason:"new"}` → 清屏）。与 ref 的差异：不重建扩展宿主（ref 会重建 runtime），
+  见 `notes/decisions.md`「F16」。`/new` 的 TS 对拍 golden 尚未录制（见 PLAN）。
+
+- **`session_shutdown{reason:"reload"}`**：pi-rs 没有扩展热重载入口，因此该 reason 永不派发
+  （ref `core/agent-session.ts:3294`）。**推翻条件**：若将来实现 `/reload`，必须同时补该事件。
+
+- **扩展加载错误的分类偏离 ref（F19 起，F23 登记）**：ref 把**所有**加载失败（import 失败、
+  factory 抛错、语法错误）都收敛成 `type:"error"` 诊断并在交互模式 `process.exit(1)`
+  （`loader.ts:563-578` 产生 `{extension:null,error}`、`:607-623` 收集、`main.ts:787-790` 映射、
+  `:896-906` 退出并打印 `EXTENSION_LOAD_FAILURE_HINT`），实测只有语法错误会 fatal、另两类进 TUI；
+  pi-rs 一律**容错**并把每条问题显示在启动屏 `[Extension issues]`（ref `interactive-mode.ts:1874-1894`）。
+  **推翻条件**：用户要求严格对齐 ref 时改为 fatal。
+- **请求体 JSON 键序**：`/skill:` 展开后的 user 内容块，TS 是 `{"type","text"}`，pi-rs 是
+  `{"text","type"}`（对象语义相同）。**推翻条件**：若某个 provider 或对拍要求字节一致，再调整
+  `Content::Text` 的序列化顺序（会影响所有消息，需全量回归）。
+
+- **`/resume` 的 reason 断言未自动化（F24）**：`p9_f18_reason_events` 只覆盖 startup / new / quit；
+  `/resume` 的 `shutdown{resume}` → `start{resume}` 顺序在真实运行里成立（F18 手工验证过），但用 pty
+  驱动会话选择器在负载下不稳定（三次修改仍偶发"面板未出现"），已从用例中移除并在此登记。
+  **推翻条件**：改为按会话 id 直接选中的确定性驱动后，补回该断言。
+- **缺 jiti 时的提示合并（F24，偏离 ref）**：ref 没有"jiti 缺失"这个场景；我们把 stderr 与启动屏
+  `[Extension issues]` 各合并成一条汇总（受影响扩展数 + 名单），避免 10 个扩展刷 30 行。
+
+- **两个 pty 生命周期用例改为 `#[ignore]`（F24）**：`p9_f16_new_session`（`/new` 后 appendEntry 落新会话）与
+  `p9_f18_reason_events`（startup/new/quit 的 reason 顺序）在**全量 `cargo test --workspace` 并行**时会被
+  同机进程挤到超时（实测 300s 不退出），单跑稳定（约 4–6s）。按"同一假设链三次失败换方法"停止调延时，
+  改为显式单跑：`cargo test -p pi-cli --test p9_f16_new_session -- --ignored`（`p9_f18_reason_events` 同）。
+  **推翻条件**：把 pty 驱动改成按会话 id 直接选中 / 用虚拟终端（vt100 直接驱动状态机）后可恢复为常规用例。
+
+## F28
+- `ctx.ui.setToolsExpanded` 只记录状态并回执，**不驱动** pi-tui 的工具行展开（`/expand` 仍是唯一开关）；
+  推翻条件：用户要求扩展能程序化展开工具输出。
+- `[Extension issues]` 已按宽度折行（ref `interactive-mode.ts:1874-1894` 的 `Text` 语义），
+  但 80/120 列的 pty 截图对照未做（只有单测）。
+- 底栏 `?/0 (auto)`（真机 ②）：未取证、未修，留待下一批；ref 语义见 `getContextUsage`（`types.ts:294-300`）。

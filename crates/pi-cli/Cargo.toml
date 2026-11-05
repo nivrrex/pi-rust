@@ -8,6 +8,7 @@ publish.workspace = true
 [dependencies]
 pi-ai = { path = "../pi-ai" }
 pi-core = { path = "../pi-core" }
+pi-ext-host = { path = "../pi-ext-host" }
 clap.workspace = true
 tokio.workspace = true
 serde.workspace = true

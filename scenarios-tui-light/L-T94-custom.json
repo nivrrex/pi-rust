@@ -1,0 +1,78 @@
+{
+ "provider": "openai-completions",
+ "model": "mock-model",
+ "mode": "print",
+ "prompt": "hi",
+ "files": {},
+ "extensions": {
+  "custom/package.json": "{\n  \"type\": \"module\",\n  \"name\": \"pi-rs-custom-fixture\"\n}",
+  "custom/index.js": "// `ctx.ui.custom` 夹具（E4e）：最小组件（render + handleInput + done）。\nimport fs from \"node:fs\";\n\nconst LOG = process.env.PI_EXT_TEST_LOG;\n\nfunction record(line) {\n  if (!LOG) return;\n  fs.appendFileSync(LOG, `${line}\\n`);\n}\n\nclass Picker {\n  constructor(done) {\n    this.done = done;\n    this.selected = 0;\n    this.items = [\"alpha\", \"beta\"];\n  }\n  render() {\n    return this.items.map((item, index) => `${index === this.selected ? \"→ \" : \"  \"}${item}`);\n  }\n  handleInput(data) {\n    if (data === \"\\u001b[B\") this.selected = Math.min(1, this.selected + 1);\n    if (data === \"\\u001b[A\") this.selected = Math.max(0, this.selected - 1);\n    if (data === \"\\r\") this.done(this.items[this.selected]);\n    if (data === \"\\u001b\") this.done(undefined);\n  }\n  invalidate() {}\n}\n\nexport default function customExtension(pi) {\n  pi.on(\"session_start\", (_event, ctx) => {\n    void ctx.ui.custom((_tui, _theme, _kb, done) => new Picker(done)).then((value) => {\n      record(`custom:result:${String(value)}`);\n    });\n  });\n}\n"
+ },
+ "responses": [
+  {
+   "file": "fixtures/sse/openai/text-basic.sse"
+  }
+ ],
+ "tui": {
+  "cols": 100,
+  "rows": 30,
+  "steps": [
+   {
+    "action": "waitScreen",
+    "contains": "→ alpha",
+    "timeoutMs": 40000
+   },
+   {
+    "action": "waitStable",
+    "quietMs": 800,
+    "timeoutMs": 20000
+   },
+   {
+    "action": "snapshot",
+    "name": "custom-open"
+   },
+   {
+    "action": "type",
+    "text": "\u001b[B"
+   },
+   {
+    "action": "waitStable",
+    "quietMs": 600,
+    "timeoutMs": 15000
+   },
+   {
+    "action": "snapshot",
+    "name": "custom-moved"
+   },
+   {
+    "action": "type",
+    "text": "\r"
+   },
+   {
+    "action": "waitStable",
+    "quietMs": 600,
+    "timeoutMs": 15000
+   },
+   {
+    "action": "snapshot",
+    "name": "custom-done"
+   },
+   {
+    "action": "type",
+    "text": "\u0004"
+   },
+   {
+    "action": "waitStable",
+    "quietMs": 500,
+    "timeoutMs": 10000
+   }
+  ],
+  "snapshots": [
+   "custom-open",
+   "custom-moved",
+   "custom-done"
+  ]
+ },
+ "id": "L-T94-custom",
+ "theme": "light"
+}

@@ -295,7 +295,12 @@ fn full_render_styled(
     spans: &[Vec<crate::style::Span>],
     width: usize,
     clear: bool,
+    height: usize,
 ) {
+    // 整屏重绘必须**把全部行重写一遍**以重建回滚（ref `tui-main-screen.ts:285-300`）：
+    // 只写视口会让清屏后的历史彻底消失（真机反馈"上翻不了历史，完全没法用"）。
+    // 超大缓冲下这一帧的开销（35 万行 ≈ 38 MB）只能靠"减少缓冲行数"解决，不能靠截断输出。
+    let _ = height;
     out.push_str(SYNC_START);
     if clear {
         out.push_str(CLEAR_ALL);
@@ -551,6 +556,25 @@ fn diff_render_body(
     diff_render_body_styled(state, lines, &[], &[], width, height)
 }
 
+/// `PI_TUI_DEBUG_REDRAW=1` 时把"整屏重绘的原因"追加到 `/tmp/pi-tui-debug.log`
+/// （ref `tui-main-screen.ts:320-327` 的 `logRedraw`；排查"全屏刷新/卡顿"只看这一行就够）。
+fn log_redraw(reason: &str, previous: usize, new: usize, height: usize) {
+    if std::env::var_os("PI_TUI_DEBUG_REDRAW").is_none() {
+        return;
+    }
+    use std::io::Write as _;
+    if let Ok(mut file) = std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open("/tmp/pi-tui-debug.log")
+    {
+        let _ = writeln!(
+            file,
+            "fullRender: {reason} (prev={previous}, new={new}, height={height})"
+        );
+    }
+}
+
 fn diff_render_body_styled(
     state: &mut DiffState,
     lines: &[String],
@@ -585,8 +609,14 @@ fn diff_render_body_styled(
     // 挂起恢复等场景：屏幕可能已被别的内容覆盖，必须清屏后整屏重绘，
     // 不能走"首帧假定屏幕干净"的分支（`tui-main-screen.ts:337-341`）。
     if state.force_clear {
+        log_redraw(
+            "force_clear",
+            state.previous_lines.len(),
+            new_lines.len(),
+            height,
+        );
         state.force_clear = false;
-        full_render_styled(&mut out, &new_lines, styles, spans, width, true);
+        full_render_styled(&mut out, &new_lines, styles, spans, width, true, height);
         state.full_redraw_count += 1;
         state.cursor_row = new_lines.len().saturating_sub(1);
         state.hardware_cursor_row = state.cursor_row;
@@ -601,7 +631,8 @@ fn diff_render_body_styled(
     }
 
     if state.previous_lines.is_empty() && !width_changed && !height_changed {
-        full_render_styled(&mut out, &new_lines, styles, spans, width, false);
+        log_redraw("first render", 0, new_lines.len(), height);
+        full_render_styled(&mut out, &new_lines, styles, spans, width, false, height);
         state.full_redraw_count += 1;
         state.cursor_row = new_lines.len().saturating_sub(1);
         state.hardware_cursor_row = state.cursor_row;
@@ -619,7 +650,17 @@ fn diff_render_body_styled(
     // 高度变化（非 Termux）同样整屏重绘（`:366-371`；Termux 判断在纯函数中不参与，见文档）。
     // clearOnShrink：内容比历史最大行数短且无覆盖层时整屏重绘（`:375-379`）。
     if width_changed || height_changed {
-        full_render_styled(&mut out, &new_lines, styles, spans, width, true);
+        log_redraw(
+            if width_changed {
+                "width changed"
+            } else {
+                "height changed"
+            },
+            state.previous_lines.len(),
+            new_lines.len(),
+            height,
+        );
+        full_render_styled(&mut out, &new_lines, styles, spans, width, true, height);
         state.full_redraw_count += 1;
         state.cursor_row = new_lines.len().saturating_sub(1);
         state.hardware_cursor_row = state.cursor_row;
@@ -638,7 +679,13 @@ fn diff_render_body_styled(
     // 把 `previous_viewport_top` 归 0 而后续帧的落点随之整体偏移。
     let has_overlay = state.has_overlay;
     if state.clear_on_shrink && new_lines.len() < state.max_lines_rendered && !has_overlay {
-        full_render_styled(&mut out, &new_lines, styles, spans, width, true);
+        log_redraw(
+            "clearOnShrink",
+            state.previous_lines.len(),
+            new_lines.len(),
+            height,
+        );
+        full_render_styled(&mut out, &new_lines, styles, spans, width, true, height);
         state.full_redraw_count += 1;
         state.cursor_row = new_lines.len().saturating_sub(1);
         state.hardware_cursor_row = state.cursor_row;
@@ -700,7 +747,7 @@ fn diff_render_body_styled(
             let target_row = new_lines.len().saturating_sub(1);
             if target_row < prev_viewport_top {
                 out.clear();
-                full_render_styled(&mut out, &new_lines, styles, spans, width, true);
+                full_render_styled(&mut out, &new_lines, styles, spans, width, true, height);
                 state.full_redraw_count += 1;
                 state.cursor_row = new_lines.len().saturating_sub(1);
                 state.hardware_cursor_row = state.cursor_row;
@@ -723,8 +770,14 @@ fn diff_render_body_styled(
             out.push('\r');
             let extra_lines = state.previous_lines.len() - new_lines.len();
             if extra_lines > height {
+                log_redraw(
+                    "extraLines > height",
+                    state.previous_lines.len(),
+                    new_lines.len(),
+                    height,
+                );
                 out.clear();
-                full_render_styled(&mut out, &new_lines, styles, spans, width, true);
+                full_render_styled(&mut out, &new_lines, styles, spans, width, true, height);
                 state.full_redraw_count += 1;
                 state.cursor_row = new_lines.len().saturating_sub(1);
                 state.hardware_cursor_row = state.cursor_row;
@@ -765,7 +818,53 @@ fn diff_render_body_styled(
 
     // 首个变化行在**上一帧视口之上**：差分无法触达，整屏重绘（`:457-463`）。
     if first_changed < prev_viewport_top {
-        full_render_styled(&mut out, &new_lines, styles, spans, width, true);
+        log_redraw(
+            "firstChanged above viewport",
+            state.previous_lines.len(),
+            new_lines.len(),
+            height,
+        );
+        // 排障：把"视口之上"实际变化的行打出来（只在前 3 行差异，避免日志爆炸）。
+        // 例：`/resume` 只多出完成框 2 行，但若判到 35 万行之前，说明中间有行被连带改变。
+        if std::env::var_os("PI_TUI_DEBUG_REDRAW").is_some() {
+            use std::io::Write as _;
+            if let Ok(mut file) = std::fs::OpenOptions::new()
+                .create(true)
+                .append(true)
+                .open("/tmp/pi-tui-debug.log")
+            {
+                let mut shown = 0;
+                for i in 0..max_lines {
+                    if shown >= 3 {
+                        break;
+                    }
+                    let old_line = state.previous_lines.get(i).map_or("", String::as_str);
+                    let new_line = new_lines.get(i).map_or("", String::as_str);
+                    let old_style = state.previous_styles.get(i).copied().flatten();
+                    let new_style = styles.get(i).copied().flatten();
+                    let old_spans = state
+                        .previous_spans
+                        .get(i)
+                        .filter(|line_spans| !line_spans.is_empty());
+                    let new_spans = spans.get(i).filter(|line_spans| !line_spans.is_empty());
+                    if old_line != new_line || old_style != new_style || old_spans != new_spans {
+                        let _ = writeln!(
+                            file,
+                            "  diff[{i}] line={} style={} spans={}\n    old={:?}\n    new={:?}",
+                            old_line != new_line,
+                            old_style != new_style,
+                            old_spans != new_spans,
+                            old_line.chars().take(60).collect::<String>(),
+                            new_line.chars().take(60).collect::<String>()
+                        );
+                        let _ = writeln!(file, "    old_spans={:?}", old_spans);
+                        let _ = writeln!(file, "    new_spans={:?}", new_spans);
+                        shown += 1;
+                    }
+                }
+            }
+        }
+        full_render_styled(&mut out, &new_lines, styles, spans, width, true, height);
         state.full_redraw_count += 1;
         state.cursor_row = new_lines.len().saturating_sub(1);
         state.hardware_cursor_row = state.cursor_row;

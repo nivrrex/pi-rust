@@ -1,0 +1,15 @@
+{
+  "id": "T102-skills-body",
+  "cols": 100,
+  "rows": 30,
+  "helperExit": 0,
+  "exitCode": 0,
+  "stderr": "",
+  "mockStderr": "",
+  "snapshotOffsets": [
+    {
+      "name": "after",
+      "offset": 6093
+    }
+  ]
+}

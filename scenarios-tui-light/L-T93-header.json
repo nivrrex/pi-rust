@@ -1,0 +1,50 @@
+{
+ "provider": "openai-completions",
+ "model": "mock-model",
+ "mode": "print",
+ "prompt": "hi",
+ "files": {},
+ "extensions": {
+  "header/package.json": "{\n  \"type\": \"module\",\n  \"name\": \"pi-rs-header-fixture\"\n}",
+  "header/index.js": "// `ctx.ui.setHeader` 夹具（E4d）：只接受 `render() -> string[]` 的组件。\nimport { Text } from \"@earendil-works/pi-tui\";\n\nexport default function headerExtension(pi) {\n  pi.on(\"session_start\", (_event, ctx) => {\n    ctx.ui.setHeader((_tui, theme) => ({\n      render: () => [theme.fg(\"accent\", \"custom-header-line-1\"), \"custom-header-line-2\"],\n    }));\n  });\n}\n"
+ },
+ "responses": [
+  {
+   "file": "fixtures/sse/openai/text-basic.sse"
+  }
+ ],
+ "tui": {
+  "cols": 100,
+  "rows": 30,
+  "steps": [
+   {
+    "action": "waitScreen",
+    "contains": "custom-header-line-1",
+    "timeoutMs": 40000
+   },
+   {
+    "action": "waitStable",
+    "quietMs": 800,
+    "timeoutMs": 20000
+   },
+   {
+    "action": "snapshot",
+    "name": "header"
+   },
+   {
+    "action": "type",
+    "text": "\u0004"
+   },
+   {
+    "action": "waitStable",
+    "quietMs": 500,
+    "timeoutMs": 10000
+   }
+  ],
+  "snapshots": [
+   "header"
+  ]
+ },
+ "id": "L-T93-header",
+ "theme": "light"
+}

@@ -1,0 +1,51 @@
+{
+ "provider": "openai-completions",
+ "model": "mock-model",
+ "mode": "print",
+ "prompt": "hi",
+ "files": {},
+ "extensions": {
+  "ov/package.json": "{\n  \"type\": \"module\",\n  \"name\": \"pi-rs-overlay-probe\"\n}",
+  "ov/index.js": "// overlay 几何探针（E4h）：3 行、宽度不同，用来反推 anchor 与列偏移。\nimport { Text } from \"@earendil-works/pi-tui\";\n\nexport default function overlayProbeExtension(pi) {\n  pi.on(\"session_start\", (_event, ctx) => {\n    void ctx.ui.custom(\n      (_tui, theme) => ({\n        render: () => [\n          theme.fg(\"accent\", \"OVL-A\"),\n          theme.fg(\"accent\", \"OVL-BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB\"),\n          theme.fg(\"accent\", \"OVL-C\"),\n        ],\n        handleInput() {},\n        invalidate() {},\n      }),\n      { overlay: true },\n    );\n  });\n}\n"
+ },
+ "responses": [
+  {
+   "file": "fixtures/sse/openai/text-basic.sse"
+  }
+ ],
+ "tui": {
+  "cols": 100,
+  "rows": 30,
+  "steps": [
+   {
+    "action": "waitScreen",
+    "contains": "OVL-A",
+    "timeoutMs": 40000
+   },
+   {
+    "action": "waitStable",
+    "quietMs": 800,
+    "timeoutMs": 20000
+   },
+   {
+    "action": "snapshot",
+    "name": "overlay"
+   },
+   {
+    "action": "type",
+    "text": "\u0004"
+   },
+   {
+    "action": "waitStable",
+    "quietMs": 500,
+    "timeoutMs": 10000
+   }
+  ],
+  "snapshots": [
+   "overlay"
+  ]
+ },
+ "id": "L-T95-overlay",
+ "description": "E4h TUI：overlay 几何探针（3 行不同宽度）",
+ "theme": "light"
+}
