@@ -10,3 +10,9 @@ tmp/
 # Python 缓存（含本机绝对路径，绝不能入库）
 __pycache__/
 *.pyc
+golden/_runs/
+golden/_prev/
+golden/_prev2/
+golden/_rejected/
+golden/_invalid/
+out-S23b/
