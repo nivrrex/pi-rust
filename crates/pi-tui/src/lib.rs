@@ -3678,12 +3678,13 @@ mod markdown_tests {
         let md = "| 位置 | 原状 |\n| --- | --- |\n| 二章 | 长句叙述 |\n\n### 未改动\n";
         let (lines, styles, _spans) =
             super::render_markdown_styled_with_width(md, &palette, Some(40));
-        assert!(lines[0].starts_with('┌'), "首行是上边框：{:?}", lines[0]);
+        // 助手消息 `outputPad = 1`：表格每行带 1 列左内边距（与 TS 逐行对拍）。
+        assert!(lines[0].starts_with(" ┌"), "首行是上边框：{:?}", lines[0]);
         assert!(
-            lines.iter().any(|line| line.starts_with('├')),
+            lines.iter().any(|line| line.starts_with(" ├")),
             "缺表头分隔线"
         );
-        assert!(lines.iter().any(|line| line.starts_with('└')), "缺下边框");
+        assert!(lines.iter().any(|line| line.starts_with(" └")), "缺下边框");
         assert!(
             lines
                 .iter()
