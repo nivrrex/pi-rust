@@ -1009,12 +1009,21 @@ fn run_print(parsed: &Args, json: bool) -> ExitCode {
         };
         // 已加载的那几条消息**已经在文件里**（外加一条 system），所以 `written` 从它们起算。
         written = 1 + initial_messages.len();
+        let had_system_for_flush = had_thinking_level
+            .map(|(_, had_system)| had_system)
+            .unwrap_or(false);
         match pi_cli::session_writer::SessionWriter::open(&path) {
             Ok(mut writer) => {
                 // F11：TUI `-c` 恢复同样要登记会话路径。
                 writer.set_chain(pi_cli::ext_tools::session_chain());
                 pi_cli::ext_tools::set_session_file(writer.path());
                 pi_cli::ext_tools::set_session_id(writer.session_id());
+                // F30：续写时若会话里**已有** system 条目，就不会走 `append_system_message`
+                // （它的末尾才会 flush 延后的 `session_start`）⇒ 这里补一次，否则扩展在
+                // `-c` / `--session` 下永远收不到 `session_start`。`flush` 是幂等的。
+                if had_system_for_flush {
+                    pi_cli::ext_tools::flush_pending_session_start();
+                }
                 // **json 模式仍要打印 header 行**：golden/S14 的事件流里，第二阶段的开头
                 // 又是一条 `{"type":"session",…}`（第 15 行）。会话**文件**里不重复写，
                 // 但**事件流**里每次运行都要打印一次——我 `open` 分支漏了这句。
