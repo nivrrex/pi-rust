@@ -464,7 +464,10 @@ ref 的对应实现见 `interactive-mode.ts:2541`/`:2543`（`showExtensionNotify
   已从 `5cfec2e` 用 `git show` 还原并以 `git add -f` 入库（`spec/d-compaction.md` 引用它，缺了会让 `check-spec-cites` 失败）。
 
 ## F31-B（`!` / `!!` 用户 bash）
-1. **`!` 命令后的 footer 百分比与 TS 有约 1 个百分点残差**：3000 行输出场景下 pi-rs `4.6%/128k`、TS `3.5%`；
+1. ~~**`!` 命令后的 footer 百分比与 TS 有约 1 个百分点残差**~~ **已修复（C1）**：根因是 footer 用了
+   `system + history` 全量估算；ref `compaction.ts:218-246` 在有 assistant usage 时用 `usage + 其后消息`。
+   改为复用 `estimate_context_tokens` 后，`!echo`/`!!echo`/Esc 取消 三个场景与 TS **逐帧 same**。
+   以下为历史记录：：3000 行输出场景下 pi-rs `4.6%/128k`、TS `3.5%`；
    ref 的 bash 估算口径已确认（`compaction.ts:359-362`：`command+output` 字符/4，无 markdown 包装），
    按 2000 行截断推算应为 3.98%（含 system）/3.52%（不含），我们的投影还多出约 800 tokens，成因**未定**。
    推翻条件：定位到我们投影里多计的部分（疑似 tool 声明重复计入）并修正后两者一致。
