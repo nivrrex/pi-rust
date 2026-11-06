@@ -82,3 +82,13 @@ L3 基线（R3）：dark 82 same / 2 different / 20 nogolden；light 23 same / 0
 - 我改造的"只跑到第一轮结束"场景里，pi-rs 必出 `Error: Stream ended without finish_reason`，原因是**场景 steps 结束后 run-tui 直接终止进程**，把仍在进行的 SSE 流切断——属取证手法产生的假象，不是产品缺陷；行数对照因此作废。
 - TS 侧没有"内容行清单"可观测（无 dump 开关，只有最终屏幕），而屏幕只暴露 `rows` 行；要拿到 TS 的完整 46 行内容，需要改 compare/run-tui 或给 TS 打补丁——两者都在本批禁区。
 - 结论：±1 行的最终定位**受限于取证手段**，停在此处；已证实"差值 1 行位于会话区"，未证实具体行。
+
+## F30 续批
+S0 预测（先写）：两侧差异在**原始写出序列**（每帧行数、`\r\n` 与光标上/下移序列、末帧光标行），不在内容。
+推翻条件：两侧原始字节流经同一流程重放后，逐帧行数与光标位置一致。
+- S0a（clean 后重建，各跑一次）：**T45 different / T10 same / T52 different**。⇒ T10 的 `1.2 vs 1.1` 是陈旧二进制造成（与 clean 前对比反转），现已 same。
+- S0b：ref tui 包写日志开关——`packages/tui/src/terminal.ts:150` `PI_TUI_WRITE_LOG`（值可为文件或目录）；另 `tui-main-screen.ts:321` `PI_TUI_DEBUG_REDRAW`、`:569` `PI_TUI_DEBUG`。前两者可用于不改 TS 包的前提下取得原始写出流。
+- S0c/S0d 原始流对照（T45，rows=30，双方完整跑完）：TS 侧 `PI_TUI_WRITE_LOG` 抓到 16 帧、最大整帧 **44 行**（43 个 `\r\n`）；pi-rs 侧 `PI_TUI_OUTPUT_DUMP` 末段 `viewport_top=15 hw_row=41`，按 ref 规则 `viewport_top = max(height, len) - height`（`tui-main-screen.ts:311-313`）反推 pi-rs 的 `new_lines.len()=45`。
+- ⇒ **pi-rs 比 TS 多渲染 1 行**（不是少），可见窗口因此比 TS 晚一行开始。此前"TS 46 行"的记录是错误反推，作废（标注：该数字从未实测）。
+- 更正早前"下半部分逐行相同但顶行不同"的自相矛盾：两侧屏幕内容同构、底部对齐，是由 **viewport_top 差 1**（45 vs 44）造成，不是内容差异。
+- 未定位：pi-rs 多出的那一行在**滚动区（转录区）**的具体位置；尚未取得 pi-rs 的完整 45 行清单（dump 只给 diff 后的行）。
