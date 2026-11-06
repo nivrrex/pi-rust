@@ -66,3 +66,4 @@
 - C1：`!` 后 footer 改用 `estimate_context_tokens`（ref `compaction.ts:218-246`），与 TS 逐帧一致。
 - C3：入库 3 个 `!` 场景 golden（`T89a/T89b/T89c`）；`T89d` 折叠高度差 1 行未入库。
 - C4：发布包 `~/archives/publish-20261106c`（buildHead `638ccc27`、publishTree `f98badae`，未发布）。
+- C2：折叠态在输出与提示之间补一行空行（与 TS 逐行对拍得出），`T89d-bash-fold` 转 same 并入库；regress dark **88/0/20**、light **23/0/1**。
