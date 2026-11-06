@@ -3285,8 +3285,85 @@ pub fn run(
                         if !command.is_empty() {
                             // F31/B1a：执行前派发 `user_bash`（ref `interactive-mode.ts:6732-6744`）。
                             let cwd = std::env::current_dir().unwrap_or_else(|_| ".".into());
-                            let _user_bash =
-                                crate::ext_tools::emit_user_bash(&command, exclude, &cwd);
+                            match crate::ext_tools::emit_user_bash(&command, exclude, &cwd) {
+                                // ref `:6741-6744`：处理器抛错 ⇒ **不回退本地执行**。
+                                crate::ext_tools::UserBash::Failed => continue,
+                                // ref `:6747-6773`：扩展给了完整结果 ⇒ 直接采用（渲染 + 落会话）。
+                                crate::ext_tools::UserBash::Result(value) => {
+                                    let output = value
+                                        .get("output")
+                                        .and_then(|v| v.as_str())
+                                        .unwrap_or_default()
+                                        .to_string();
+                                    let exit_code =
+                                        value.get("exitCode").and_then(serde_json::Value::as_i64);
+                                    let cancelled = value
+                                        .get("cancelled")
+                                        .and_then(serde_json::Value::as_bool)
+                                        .unwrap_or(false);
+                                    let truncated = value
+                                        .get("truncated")
+                                        .and_then(serde_json::Value::as_bool)
+                                        .unwrap_or(false);
+                                    let full_output_path = value
+                                        .get("fullOutputPath")
+                                        .and_then(|v| v.as_str())
+                                        .filter(|s| !s.is_empty())
+                                        .map(str::to_string);
+                                    state.transcript.push(
+                                        crate::tui::TranscriptItem::BashExecution {
+                                            command: command.clone(),
+                                            output: output.clone(),
+                                            exit_code,
+                                            cancelled,
+                                            truncated,
+                                            full_output_path: full_output_path.clone(),
+                                            exclude_from_context: exclude,
+                                            running: false,
+                                        },
+                                    );
+                                    let message = pi_ai::message::Message::BashExecution {
+                                        command: command.clone(),
+                                        output,
+                                        exit_code,
+                                        truncated,
+                                        full_output_path,
+                                        cancelled,
+                                        timestamp: pi_core::timefmt::now_unix_millis(),
+                                        exclude_from_context: Some(exclude),
+                                        extra: serde_json::Map::new(),
+                                    };
+                                    let deferred =
+                                        agent_busy.load(std::sync::atomic::Ordering::SeqCst);
+                                    if deferred {
+                                        if let Ok(mut guard) = pending_bash.lock() {
+                                            guard.push(message.clone());
+                                        }
+                                    } else if let Some(parts) = parts.as_ref() {
+                                        if let Some(writer) = parts.writer.as_ref() {
+                                            if let Ok(mut guard) = writer.lock() {
+                                                if let Err(error) = guard.append_message(&message) {
+                                                    eprintln!(
+                                                        "pi-rs: 写 bashExecution 失败：{error}"
+                                                    );
+                                                }
+                                                if let Err(error) = guard.ensure_flushed() {
+                                                    eprintln!("pi-rs: 刷会话文件失败：{error}");
+                                                }
+                                            }
+                                        }
+                                    }
+                                    if !deferred {
+                                        if let Ok(mut guard) = history.lock() {
+                                            guard.push(message);
+                                        }
+                                    }
+                                    dirty = true;
+                                    continue;
+                                }
+                                crate::ext_tools::UserBash::Operations(_)
+                                | crate::ext_tools::UserBash::None => {}
+                            }
                             // F31/S1b：真实执行。**不能在 TUI 主线程 `block_on`**（bash 工具依赖
                             // tokio 运行时，实测会卡死）⇒ 起独立线程、线程内自建 current-thread runtime。
                             state
