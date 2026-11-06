@@ -2152,30 +2152,39 @@ fn render_all_cached_styled_inner(
                 lines.push(clamp_to_width(&format!(" $ {command}"), cols));
                 if *running {
                     lines.push(clamp_to_width("  Running... (esc to cancel)", cols));
-                }
-                for line in output.lines() {
-                    for wrapped in wrap_to_width(&format!(" {line}"), cols) {
-                        lines.push(wrapped);
+                } else {
+                    // ref `bash-execution.ts:142-160`：输出块是 `"\n" + lines`（前导空行），
+                    // 且输出后还有一个空行（Text 的 padding）。截断/折叠见 `:158-196`（S2c/d）。
+                    if !output.is_empty() {
+                        lines.push(String::new());
+                        for line in output.lines() {
+                            for wrapped in wrap_to_width(&format!(" {line}"), cols) {
+                                lines.push(wrapped);
+                            }
+                        }
+                        lines.push(String::new());
                     }
-                }
-                if !*running {
-                    // ref：输出区与状态行之间有一个空行（`bash-execution.ts` 里 status 是独立 Text）。
-                    lines.push(String::new());
-                    let status = if *cancelled {
-                        " (cancelled)".to_string()
-                    } else {
-                        format!(
-                            " (exit {})",
-                            exit_code.map_or("?".to_string(), |c| c.to_string())
-                        )
-                    };
-                    lines.push(clamp_to_width(&status, cols));
+                    // ref `:186-204`：只有取消/错误/截断才有状态行（成功不留）。
+                    let mut status = String::new();
+                    if *cancelled {
+                        status.push_str(" (cancelled)");
+                    } else if let Some(code) = exit_code {
+                        if *code != 0 {
+                            status.push_str(&format!(" (exit {code})"));
+                        }
+                    }
                     if *truncated {
                         let path = full_output_path.as_deref().unwrap_or("");
-                        lines.push(clamp_to_width(
-                            &format!(" (truncated; full output: {path})"),
-                            cols,
-                        ));
+                        if !status.is_empty() {
+                            status.push('\n');
+                        }
+                        status.push_str(&format!(" Output truncated. Full output: {path}"));
+                    }
+                    if !status.is_empty() {
+                        lines.push(String::new());
+                        for line in status.lines() {
+                            lines.push(clamp_to_width(line, cols));
+                        }
                     }
                 }
                 lines.push(clamp_to_width(&rule, cols));
