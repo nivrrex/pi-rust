@@ -2179,6 +2179,9 @@ fn render_all_cached_styled_inner(
                         }
                         lines.push(String::new());
                         if hidden > 0 {
+                            // 折叠态在输出与提示之间**有两行空行**（`!seq 1 60` 与 TS 逐行对拍得出的
+                            // 差异点：ref 的输出块自身带尾部空行，提示行前又有一行）。
+                            lines.push(String::new());
                             let hint = if state.tools_expanded {
                                 " (ctrl+o to collapse)".to_string()
                             } else {
