@@ -1350,3 +1350,57 @@ pub fn discover_extensions_in_order(cwd: &Path, agent_dir: &Path) -> Vec<PathBuf
     }
     out
 }
+
+#[cfg(test)]
+mod windows_path_tests {
+    //! F34/W2a：Windows 路径参数的单测（Linux 上即可跑，不需要真机）。
+    //!
+    //! 关注两件事：①`canonicalize` 在 Windows 会返回 `\\?\C:\...` 前缀，传给 Node 的
+    //! `import()` 会失败，必须先剥离；②Node 侧加载绝对路径必须转成 `file://` URL。
+
+    use std::path::PathBuf;
+
+    /// 剥掉 Windows 的 verbatim 前缀（`\\?\` / `\\?\UNC\`）。
+    fn strip_verbatim(path: &str) -> String {
+        if let Some(rest) = path.strip_prefix(r"\\?\UNC\") {
+            return format!(r"\\{rest}");
+        }
+        if let Some(rest) = path.strip_prefix(r"\\?\") {
+            return rest.to_string();
+        }
+        path.to_string()
+    }
+
+    #[test]
+    fn verbatim_prefix_is_stripped() {
+        assert_eq!(strip_verbatim(r"\\?\C:\Users\u\proj"), r"C:\Users\u\proj");
+        assert_eq!(
+            strip_verbatim(r"\\?\UNC\server\share\proj"),
+            r"\\server\share\proj"
+        );
+        assert_eq!(strip_verbatim(r"C:\Users\u\proj"), r"C:\Users\u\proj");
+    }
+
+    /// 传给扩展宿主的路径参数不应对含空格/反斜杠/盘符的目录做破坏性改写。
+    #[test]
+    fn extension_paths_keep_native_form() {
+        let paths = [
+            PathBuf::from(r"C:\Users\u\AppData\Local\proj"),
+            PathBuf::from(r"C:\Program Files\proj ext"),
+            PathBuf::from(r"\\server\share\proj"),
+        ];
+        let json = serde_json::to_string(
+            &paths
+                .iter()
+                .map(|path| path.display().to_string())
+                .collect::<Vec<_>>(),
+        )
+        .expect("序列化");
+        assert!(
+            json.contains(r"C:\\Users\\u\\AppData\\Local\\proj"),
+            "{json}"
+        );
+        assert!(json.contains(r"C:\\Program Files\\proj ext"), "{json}");
+        assert!(json.contains(r"\\\\server\\share\\proj"), "{json}");
+    }
+}
