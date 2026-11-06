@@ -462,3 +462,13 @@ ref 的对应实现见 `interactive-mode.ts:2541`/`:2543`（`showExtensionNotify
 ## F30 收尾
 - `golden/_rejected/S19-attempt-3/`（TS 拒绝录制记录）在恢复时随 `.gitignore` 的 `golden/_rejected/` 规则丢失，
   已从 `5cfec2e` 用 `git show` 还原并以 `git add -f` 入库（`spec/d-compaction.md` 引用它，缺了会让 `check-spec-cites` 失败）。
+
+## F31-B（`!` / `!!` 用户 bash）
+1. **`!` 命令后的 footer 百分比与 TS 有约 1 个百分点残差**：3000 行输出场景下 pi-rs `4.6%/128k`、TS `3.5%`；
+   ref 的 bash 估算口径已确认（`compaction.ts:359-362`：`command+output` 字符/4，无 markdown 包装），
+   按 2000 行截断推算应为 3.98%（含 system）/3.52%（不含），我们的投影还多出约 800 tokens，成因**未定**。
+   推翻条件：定位到我们投影里多计的部分（疑似 tool 声明重复计入）并修正后两者一致。
+2. **S2d 取消/截断态在 light / truecolor / 256 三档未逐帧对照**（仅 dark 取消态与 TS 逐行一致）。
+   推翻条件：按主题各跑一次对照，差异行数落到与 dark 同级（仅临时路径）。
+3. **运行中态（loader）未做定格对照**：loader 每帧变化，无法在不引入固定延迟的前提下稳定取同一帧。
+   推翻条件：给 loader 加"固定帧号"测试钩子后可与 TS 同帧对照。
