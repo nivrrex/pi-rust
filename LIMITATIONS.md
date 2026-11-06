@@ -475,4 +475,9 @@ ref 的对应实现见 `interactive-mode.ts:2541`/`:2543`（`showExtensionNotify
 4. **`user_bash` 的 `{operations}` 返回尚未接入执行路径**：ref 把它交给 `executeBash(..., {operations})`
    （`interactive-mode.ts:6794-6800`）用于把文件读写等操作路由到扩展；pi-rs 的 `BashTool` 直接在本地进程执行，
    收到 `{operations}` 时按"无处理器"走本地执行（即扩展的执行实现不生效），流式回调不受影响。
-   推翻条件：把 `operations` 透传进 `pi_core::tools::bash` 的 I/O 封装后，用夹具断言扩展侧收到读写调用。
+   直接后果：**pi-secrets 对 `!` / `!!` 输出的脱敏不生效**——它的实现方式是
+   `pi.on("user_bash", …)` 返回 `{operations:{...local, exec(...)}}`，在 `onData` 里逐块脱敏
+   （`Extensions_dev/pi-secrets/src/index.ts:302-319`）；operations 不生效 ⇒ 流式输出与会话 `output` 都是原文。
+   我们的事件宿主是**独立 Node 进程**，`operations` 里是函数值，无法跨进程调用 ⇒ 要支持必须新增
+   "宿主反向请求执行 bash"的 RPC（协议级扩展，非补丁级）。
+   推翻条件：实现该 RPC 并用 pi-secrets 实测：`!echo <敏感串>` 的流式帧与会话 `output` 均为脱敏文本。
