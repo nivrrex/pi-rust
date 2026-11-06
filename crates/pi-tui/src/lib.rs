@@ -3203,11 +3203,14 @@ pub fn render_markdown_styled_with_width(
     let mut current: Option<style::LineStyle> = None;
     let mut inline = String::new();
     let mut in_list_item = false;
+    // 列表嵌套深度（`Start(List)` 时 +1）。ref `markdown.ts:758`：`indent = "    ".repeat(depth)`。
+    let mut list_depth: usize = 0;
     let mut in_code_block = false;
     let mut code_line = String::new();
     let mut pending_blank = false;
     let flush_inline = |inline: &mut String,
                         in_list_item: bool,
+                        list_depth: usize,
                         out: &mut Vec<String>,
                         styles: &mut Vec<Option<style::LineStyle>>,
                         spans: &mut Vec<(usize, Vec<style::Span>)>,
@@ -3226,12 +3229,13 @@ pub fn render_markdown_styled_with_width(
         *pending_blank = false;
         // ref `theme.ts:1181` 列表符号用 `mdListBullet`、`:1174` 行内代码用 `mdCode`（皆 accent）；
         // 这两段只能**按列染色**，整行染色会把正文一起染掉，所以走 span。
-        let prefix_len = if in_list_item { 3 } else { 1 };
+        let indent = "    ".repeat(list_depth.saturating_sub(1));
+        let prefix_len = if in_list_item { indent.len() + 3 } else { 1 };
         let mut line_spans: Vec<style::Span> = Vec::new();
         if in_list_item && !text.is_empty() {
             // ` - <text>`：`-` 与它后面那个空格都染 accent（TS 逐格实测 c1/c2）。
             line_spans.push(style::Span::new(
-                1,
+                indent.len() + 1,
                 prefix_len,
                 style::LineStyle::fg(palette.md_list_bullet),
             ));
@@ -3246,8 +3250,10 @@ pub fn render_markdown_styled_with_width(
                 ));
             }
         }
+        // ref `markdown.ts:758-775`：缩进 `"    ".repeat(depth)`，符号 `- `；续行缩进到
+        // 符号之后（`continuationPrefix`）。此前嵌套列表既没有缩进、还会被并进上一段。
         out.push(if in_list_item {
-            format!(" - {text}")
+            format!("{indent} - {text}")
         } else {
             format!(" {text}")
         });
@@ -3345,6 +3351,7 @@ pub fn render_markdown_styled_with_width(
                 flush_inline(
                     &mut inline,
                     false,
+                    list_depth,
                     &mut out,
                     &mut styles,
                     &mut spans,
@@ -3356,12 +3363,29 @@ pub fn render_markdown_styled_with_width(
                 pending_blank = true;
             }
             Event::Start(Tag::List(_)) => {
+                // 嵌套列表开始前必须把上一段的 inline 冲掉，否则
+                // "…新增 keystore/ 目录" 会和下一层的 `- keystore/…` 并成一行（真机会话实测）。
+                flush_inline(
+                    &mut inline,
+                    in_list_item,
+                    list_depth,
+                    &mut out,
+                    &mut styles,
+                    &mut spans,
+                    &mut code_ranges,
+                    current,
+                    &mut pending_blank,
+                );
                 if pending_blank && !out.is_empty() {
                     push_md_line(&mut out, &mut styles, String::new(), None);
                 }
                 pending_blank = false;
+                list_depth += 1;
             }
-            Event::End(TagEnd::List(_)) => pending_blank = true,
+            Event::End(TagEnd::List(_)) => {
+                list_depth = list_depth.saturating_sub(1);
+                pending_blank = true;
+            }
             Event::Start(Tag::Item) => {
                 in_list_item = true;
                 pending_blank = false;
@@ -3370,6 +3394,7 @@ pub fn render_markdown_styled_with_width(
                 flush_inline(
                     &mut inline,
                     in_list_item,
+                    list_depth,
                     &mut out,
                     &mut styles,
                     &mut spans,
@@ -3457,6 +3482,7 @@ pub fn render_markdown_styled_with_width(
                 flush_inline(
                     &mut inline,
                     in_list_item,
+                    list_depth,
                     &mut out,
                     &mut styles,
                     &mut spans,
@@ -3474,6 +3500,7 @@ pub fn render_markdown_styled_with_width(
     flush_inline(
         &mut inline,
         in_list_item,
+        list_depth,
         &mut out,
         &mut styles,
         &mut spans,
@@ -3715,6 +3742,18 @@ mod markdown_tests {
             Some(Some(palette.md_heading)),
             "标题应使用 mdHeading"
         );
+    }
+
+    /// ref `markdown.ts:758-775`：嵌套列表按 4 空格缩进，且**不能**把上一层段落与下一层列表项并成一行
+    /// （真机会话实测：`…新增 keystore/ 目录` 与 `- keystore/…` 被拼成一行）。
+    #[test]
+    fn nested_list_keeps_line_break_and_indent() {
+        let palette = crate::theme::Palette::of(&crate::theme::Theme::builtin("light"));
+        let md = "- 甲：新增目录\n  - `x.jks`（2,770 字节）\n";
+        let (lines, _styles, _spans) =
+            super::render_markdown_styled_with_width(md, &palette, Some(60));
+        assert_eq!(lines[0], " - 甲：新增目录");
+        assert_eq!(lines[1], "     - x.jks（2,770 字节）");
     }
 
     /// ref `interactive-mode.ts:1709`：启动屏各段标题统一 `mdHeading`
