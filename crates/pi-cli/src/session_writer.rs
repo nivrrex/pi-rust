@@ -634,12 +634,17 @@ impl SessionWriter {
         Ok(())
     }
 
-    /// 保证"已攒的条目"写进文件（`!` 命令这类没有 assistant 的会话用）。
+    /// 把"已攒的条目"写进文件——**仅在已经落盘过之后**才有意义。
+    ///
+    /// ref `core/session-manager.ts:1160-1175`：没有 assistant 消息时 `_persist` 一个字节都不写，
+    /// 条目只进内存（`flushed=false`），等首条 assistant 到达再整体落盘。因此这里对未落盘的会话
+    /// 直接返回：之前那版会强制写盘，导致"只有 `!` 命令、没有 assistant"的会话也留下 jsonl 并
+    /// 打印 `To resume this session`（与 TS 实测不符，见 notes/p9-f31）。
     pub fn ensure_flushed(&mut self) -> Result<(), String> {
-        if self.flushed {
+        if !self.flushed {
             return Ok(());
         }
-        self.write_first_flush(None)
+        Ok(())
     }
 
     /// 追加一条 `compaction` 条目（ref `session-manager.ts:1259-1285` 的 `appendCompaction`）。
