@@ -63,3 +63,6 @@
 - 落盘门控对齐 ref（`session-manager.ts:1160-1185`）：无 assistant 不落盘；`!`-only 会话不产生 jsonl、不打印 resume 行。已验证。
 - `user_bash` 事件三种返回：`{result}` 采用、`{operations}` 未接入（登记）、handler 抛错 fail-closed。已验证。
 - `!` 场景 golden 暂不入库（3 类差异未收敛，见 LIMITATIONS 第 5 条）。
+- C1：`!` 后 footer 改用 `estimate_context_tokens`（ref `compaction.ts:218-246`），与 TS 逐帧一致。
+- C3：入库 3 个 `!` 场景 golden（`T89a/T89b/T89c`）；`T89d` 折叠高度差 1 行未入库。
+- C4：发布包 `~/archives/publish-20261106c`（buildHead `638ccc27`、publishTree `f98badae`，未发布）。
