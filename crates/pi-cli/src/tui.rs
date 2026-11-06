@@ -3304,6 +3304,11 @@ pub fn run(
                             let bash_cancel_for_thread = std::sync::Arc::clone(&bash_cancel);
                             let bash_busy = std::sync::Arc::clone(&agent_busy);
                             let bash_pending = std::sync::Arc::clone(&pending_bash);
+                            // footer 刷新需要：系统消息 + 上下文窗口（`!` 不触发 MessageEnd，
+                            // 所以这里自己算一次投影，见 notes/p9-f31）。
+                            let bash_system = parts.as_ref().map(|p| p.system_message.clone());
+                            let bash_window_tokens =
+                                parts.as_ref().map_or(0, |p| context_window_of(p));
                             std::thread::spawn(move || {
                                 let Ok(runtime) = tokio::runtime::Builder::new_current_thread()
                                     .enable_all()
@@ -3426,6 +3431,37 @@ pub fn run(
                                 if !deferred {
                                     if let Ok(mut guard) = bash_history.lock() {
                                         guard.push(message);
+                                    }
+                                }
+                                // `!` 命令不产生 assistant 消息 ⇒ 不会走 `MessageEnd`，footer 需要单独刷新：
+                                // 用 `system + history` 的投影估算发一条 `Usage`（ref `footer.ts:150-155`）。
+                                if !deferred && bash_window_tokens > 0 {
+                                    if let Some(system) = bash_system.as_ref() {
+                                        let mut projected =
+                                            pi_core::agent::compaction::estimate_tokens(system);
+                                        if let Ok(guard) = bash_history.lock() {
+                                            for message in guard.iter() {
+                                                projected +=
+                                                    pi_core::agent::compaction::estimate_tokens(
+                                                        message,
+                                                    );
+                                            }
+                                        }
+                                        let percent =
+                                            projected as f64 / bash_window_tokens as f64 * 100.0;
+                                        let window = if bash_window_tokens >= 1000 {
+                                            format!("{}k", bash_window_tokens / 1000)
+                                        } else {
+                                            bash_window_tokens.to_string()
+                                        };
+                                        let _ = bash_tx.send(pi_tui::TuiEvent::Usage {
+                                            input: 0,
+                                            output: 0,
+                                            percent: Some(percent),
+                                            window,
+                                            auto: true,
+                                            cost: None,
+                                        });
                                     }
                                 }
                                 let _ = bash_tx.send(pi_tui::TuiEvent::BashDone {
