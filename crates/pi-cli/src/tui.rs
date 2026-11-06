@@ -3514,59 +3514,42 @@ pub fn run(
                                         guard.push(message);
                                     }
                                 }
-                                // `!` 命令不产生 assistant 消息 ⇒ 不会走 `MessageEnd`，footer 需要单独刷新：
-                                // 用 `system + history` 的投影估算发一条 `Usage`（ref `footer.ts:150-155`）。
+                                // `!` 命令不产生 assistant 消息 ⇒ 不会走 `MessageEnd`，footer 需要单独刷新。
+                                // ref `compaction.ts:218-246` `estimateContextTokens`：**有 assistant usage 时**
+                                // = 该 usage 的 `calculateContextTokens` + 其后消息的估算（system 不含在内，
+                                // 它已在 usage 里）；**没有 usage 时**才退回逐条估算。
                                 if !deferred && bash_window_tokens > 0 {
+                                    // 复用 `MessageEnd` 的口径：`estimate_context_tokens` 内部就是
+                                    // ref `compaction.ts:218-246`——有 usage 时 `usage + 其后消息`，
+                                    // 无 usage 时逐条估算（system 排在最前）。
+                                    let mut estimate_messages: Vec<pi_ai::message::Message> =
+                                        Vec::new();
                                     if let Some(system) = bash_system.as_ref() {
-                                        let mut projected =
-                                            pi_core::agent::compaction::estimate_tokens(system);
-                                        if let Ok(guard) = bash_history.lock() {
-                                            for message in guard.iter() {
-                                                // ref `bash-execution.ts:121-126`：bash 输出进上下文前
-                                                // 还要按 `DEFAULT_MAX_LINES/BYTES` 截断一次。
-                                                if let pi_ai::message::Message::BashExecution {
-                                                    command,
-                                                    output,
-                                                    exclude_from_context,
-                                                    ..
-                                                } = message
-                                                {
-                                                    if !exclude_from_context.unwrap_or(false) {
-                                                        let cut =
-                                                            pi_core::tools::bash_text::truncate_tail(
-                                                                output,
-                                                                pi_core::tools::read_text::DEFAULT_MAX_LINES,
-                                                                pi_core::tools::read_text::DEFAULT_MAX_BYTES,
-                                                            );
-                                                        let text =
-                                                            format!("$ {command}\n{}", cut.content);
-                                                        projected += (text.chars().count() as u64)
-                                                            .div_ceil(4);
-                                                        continue;
-                                                    }
-                                                }
-                                                projected +=
-                                                    pi_core::agent::compaction::estimate_tokens(
-                                                        message,
-                                                    );
-                                            }
-                                        }
-                                        let percent =
-                                            projected as f64 / bash_window_tokens as f64 * 100.0;
-                                        let window = if bash_window_tokens >= 1000 {
-                                            format!("{}k", bash_window_tokens / 1000)
-                                        } else {
-                                            bash_window_tokens.to_string()
-                                        };
-                                        let _ = bash_tx.send(pi_tui::TuiEvent::Usage {
-                                            input: 0,
-                                            output: 0,
-                                            percent: Some(percent),
-                                            window,
-                                            auto: true,
-                                            cost: None,
-                                        });
+                                        estimate_messages.push(system.clone());
                                     }
+                                    if let Ok(guard) = bash_history.lock() {
+                                        estimate_messages.extend(guard.iter().cloned());
+                                    }
+                                    let projected =
+                                        pi_core::agent::compaction::estimate_context_tokens(
+                                            &estimate_messages,
+                                        )
+                                        .tokens;
+                                    let percent =
+                                        projected as f64 / bash_window_tokens as f64 * 100.0;
+                                    let window = if bash_window_tokens >= 1000 {
+                                        format!("{}k", bash_window_tokens / 1000)
+                                    } else {
+                                        bash_window_tokens.to_string()
+                                    };
+                                    let _ = bash_tx.send(pi_tui::TuiEvent::Usage {
+                                        input: 0,
+                                        output: 0,
+                                        percent: Some(percent),
+                                        window,
+                                        auto: true,
+                                        cost: None,
+                                    });
                                 }
                                 let _ = bash_tx.send(pi_tui::TuiEvent::BashDone {
                                     output,
