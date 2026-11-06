@@ -23,3 +23,8 @@ L3 基线（R3）：dark 82 same / 2 different / 20 nogolden；light 23 same / 0
 - 结果：TS 42 行 / pi-rs 42 行，**唯一差异在第 25 行**：TS `  <TMP>/work/AGENTS.md`（绝对路径），pi-rs `  AGENTS.md`（相对路径）。其余 41 行逐行一致。
 - 30 行视口下 pi-rs 少 1 行（25 vs 24）与该差异的因果关系**未证实**：两者在同一 42 行内容下仅 1 行不同，行数相同。
 - ref 依据：`formatContextPath`（`interactive-mode.ts:1342-1350`）——路径在 cwd 内返回相对路径，否则 `formatDisplayPath`（home→`~`，其余绝对）；`getCwdRelativePath`（`utils/paths.ts:108-117`）做"是否在 cwd 内"判定。TS 实跑输出了绝对路径 ⇒ 在其环境里该判定返回 undefined（具体原因未证实）。
+
+### S0b 续 2：视口高度实验（rows=31）
+- TS 26 行 / pi-rs 25 行；两者**底部三行完全相同**（`<TMP>/work`、footer、空），差异只在**顶部起点**：TS 首行 ` ! to run bash`，pi-rs 首行 ` !! to run bash (no context)`。
+- 结合 rows=50 的结论（内容 42 行两边等长，仅第 25 行 `[Context]` 路径写法不同）⇒ **pi-rs 并没有少渲染内容行**，而是在 30/31 行视口下**可见起点比 TS 晚一行**（滚动/裁剪锚点不同）。
+- 状态：「内容未缺失」已证实；「滚动锚点为何差一行」未证实（未定位到具体渲染代码）。
