@@ -499,7 +499,14 @@ ref 的对应实现见 `interactive-mode.ts:2541`/`:2543`（`showExtensionNotify
 7. **Markdown 引用块内的空行**：TS 打 ` │`，pi-rs 打空行 —— pulldown-cmark 对 `>` 单独一行**不产生任何事件**
    （`Parser::new_ext` 事件探针确认），没有源位置就无法还原该行。推翻条件：改用 `into_offset_iter` 拿到源区间后补齐。
 8. **配色回归默认不设闸门**：见第 6 条；本批新增 `STYLE_CHECK=1` 开关（`scripts/regress-tui.sh`），默认关闭。
-9. **颜色差异尚未清零**：新增 `tools/difftest/color-dump.mjs`（只 import 既有 `renderStyledScreen`，不改 compare-*）
+9. **颜色差异尚未清零（重新分类）**：修复"启动屏 ` pi v…` 行样式"后 regress **dark 90/0/20**。
+   用 `color-dump.mjs` 对 90 个 dark golden 重新分类：`exact=0`、仅空行数不同 **9**、逐格不同 **81**；
+   但其中相当部分是**归一化不彻底**造成的假阳性——手工核 `T01`：去掉随机临时目录与 resume 行的
+   session id 后，逐格 dump **只剩 2 行环境差异**，样式与 TS 完全一致。要得到真实分类，分类脚本需要
+   与 `compare-tui.normalizeScreen` 用同一套占位规则（当前自写的正则漏项）。推翻条件：分类脚本复用
+   官方归一化后仍报逐格差异的场景，才需要按 ref 主题色逐类修。
+
+9b. **颜色差异尚未清零（初版记录，已被上条取代）**：新增 `tools/difftest/color-dump.mjs`（只 import 既有 `renderStyledScreen`，不改 compare-*）
    把每帧导出为「行号│文本│样式段」的稳定文本。对 90 个 dark golden 分类（路径已归一化）：
    `exact=0`、仅空行数不同 `=22`、逐格样式不同 `=68`。已定位的真实类别举例：
    `T01` r1c0 —— 启动屏 ` pi v0.87.1` 的**首列空格**在 TS 是 `dim`、我们不是（`dim` 属 ref `theme.ts` 的
