@@ -242,7 +242,15 @@ def main() -> int:
             # 退出后追加的 resume 提示就不会覆盖会话中的最后两行（cwd、footer）。
             drain(0.05)
             if marks_handle is not None:
-                marks_handle.write(json.dumps({"name": step["mark"], "offset": len(raw)}, ensure_ascii=False) + "\n")
+                # `t`：**单调时钟**（秒）。退出延迟等计时口径用「后续进程退出时刻 - t」计算；
+                # 只增字段，旧消费者按 `name`/`offset` 读取不受影响（F30/S4'a）。
+                marks_handle.write(
+                    json.dumps(
+                        {"name": step["mark"], "offset": len(raw), "t": time.monotonic()},
+                        ensure_ascii=False,
+                    )
+                    + "\n"
+                )
                 marks_handle.flush()
                 os.fsync(marks_handle.fileno())
             log(f"step[{step_index}] mark={step['mark']!r} offset={len(raw)}")
