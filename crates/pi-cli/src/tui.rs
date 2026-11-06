@@ -3441,6 +3441,29 @@ pub fn run(
                                             pi_core::agent::compaction::estimate_tokens(system);
                                         if let Ok(guard) = bash_history.lock() {
                                             for message in guard.iter() {
+                                                // ref `bash-execution.ts:121-126`：bash 输出进上下文前
+                                                // 还要按 `DEFAULT_MAX_LINES/BYTES` 截断一次。
+                                                if let pi_ai::message::Message::BashExecution {
+                                                    command,
+                                                    output,
+                                                    exclude_from_context,
+                                                    ..
+                                                } = message
+                                                {
+                                                    if !exclude_from_context.unwrap_or(false) {
+                                                        let cut =
+                                                            pi_core::tools::bash_text::truncate_tail(
+                                                                output,
+                                                                pi_core::tools::read_text::DEFAULT_MAX_LINES,
+                                                                pi_core::tools::read_text::DEFAULT_MAX_BYTES,
+                                                            );
+                                                        let text =
+                                                            format!("$ {command}\n{}", cut.content);
+                                                        projected += (text.chars().count() as u64)
+                                                            .div_ceil(4);
+                                                        continue;
+                                                    }
+                                                }
                                                 projected +=
                                                     pi_core::agent::compaction::estimate_tokens(
                                                         message,
