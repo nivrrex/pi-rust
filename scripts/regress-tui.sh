@@ -14,11 +14,21 @@
 set -u
 # 缺 `TS_PI_ENTRY`（或 `PI_TS_PACKAGE_DIR`）时，system prompt 的 docs 段会少 213 字符，
 # T10/T52 的 footer 上下文百分比因此差 0.1pp——与渲染无关，纯属环境缺失。直接失败，避免误判为偶发。
-if [ -z "${TS_PI_ENTRY:-}" ] && [ -z "${PI_TS_PACKAGE_DIR:-}" ]; then
-  echo "regress-tui: 需要 TS_PI_ENTRY 或 PI_TS_PACKAGE_DIR（否则 docs 段少 213 字符，T10/T52 会出现 0.1pp 假差异）" >&2
-  echo "  export TS_PI_ENTRY=/path/to/pi-package/dist/bundle/cli.js" >&2
+# F30/P1：golden 语料是**两类录制路径**混着的 ⇒ 按场景名选包路径。
+#   PI_TS_SHORT：<短路径包>/dist/bundle/cli.js 这类**短路径**（多数 TUI golden）
+#   PI_TS_LONG ：pnpm 全局包一类的**长路径**（T10 / T52-tree-summarize 与 print 层 S01）
+# 两个变量都必须由调用方给出；脚本里不写死任何用户路径。
+if [ -z "${PI_TS_SHORT:-}" ] || [ -z "${PI_TS_LONG:-}" ]; then
+  echo "regress-tui: 需要 PI_TS_SHORT 与 PI_TS_LONG（golden 语料分两类录制路径；缺一个就会得到 0.1pp 假差异）" >&2
+  echo "  export PI_TS_SHORT=/path/pi-ts-0.87.1/dist/bundle/cli.js" >&2
+  echo "  export PI_TS_LONG=/path/pnpm/.../pi-coding-agent/dist/bundle/cli.js" >&2
   exit 2
 fi
+# 用长路径录制的场景（其余一律短路径）。
+LONG_PATH_SCENARIOS=" T10 T52-tree-summarize "
+# 必须 export：实际的 run_one 跑在 `xargs sh -c "$(declare -f run_one)…"` 子进程里，
+# 不 export 的话子进程看不到这几个变量（表现为 TS_PI_ENTRY 为空 ⇒ docs 段退回短版本）。
+export PI_TS_SHORT PI_TS_LONG LONG_PATH_SCENARIOS
 REPO=$(cd "$(dirname "$0")/.." && pwd)
 RUNS=3
 JOBS=4
@@ -50,7 +60,11 @@ export THEME SCEN_DIR GOLD_DIR
 run_one() {
   name=$1; run=$2; out="$OUT_ROOT/$name/run-$run"
   mkdir -p "$out"
-  unshare -n sh -c "ip link set lo up; env PATH=\"$PATH\" TUI_CMD=$BIN DIFTEST_IMPL=pi-rs \
+  case "$LONG_PATH_SCENARIOS" in
+    *" $name "*) ts_entry=$PI_TS_LONG ;;
+    *) ts_entry=$PI_TS_SHORT ;;
+  esac
+  unshare -n sh -c "ip link set lo up; env PATH=\"$PATH\" TS_PI_ENTRY=$ts_entry TUI_CMD=$BIN DIFTEST_IMPL=pi-rs \
     node $REPO/tools/difftest/run-tui.mjs --scenario $REPO/$SCEN_DIR/$name.json --out $out" \
     > "$out/run.log" 2>&1
   gold="$REPO/$GOLD_DIR/$name/run-1/raw.bin"
