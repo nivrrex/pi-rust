@@ -481,3 +481,8 @@ ref 的对应实现见 `interactive-mode.ts:2541`/`:2543`（`showExtensionNotify
    我们的事件宿主是**独立 Node 进程**，`operations` 里是函数值，无法跨进程调用 ⇒ 要支持必须新增
    "宿主反向请求执行 bash"的 RPC（协议级扩展，非补丁级）。
    推翻条件：实现该 RPC 并用 pi-secrets 实测：`!echo <敏感串>` 的流式帧与会话 `output` 均为脱敏文本。
+
+5. **`!` / `!!` 场景暂无 TUI golden**：先落盘再执行 `!` 时 TS 与 pi-rs 仍有 3 类差异未收敛——
+   ①bash 块前的空行（ref 直接 `chatContainer.addChild(bashComponent)`，`interactive-mode.ts:6786`，无 Spacer）；
+   ②footer 百分比（见第 1 条）；③`tools/difftest/compare-tui.mjs` 未归一化随机临时路径 `/tmp/tui-<场景>-XXXXXX/work`。
+   推翻条件：三类差异各自消除后，用 TS 录制 4 个场景并全部 same。

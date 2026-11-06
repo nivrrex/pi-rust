@@ -58,3 +58,8 @@
 - S5 `4ed85f8d`：`custom_input` 的 5s 超时是竞态——invoke 在队列里时按键 Cmd 排在它后面（actor 单线程），
   或走直连时 actor 恰好空闲没人读帧。修法：`active_invokes` 计数决定走直连 + 直连后补发 `Cmd::Drain`
   让 actor 读一轮。复测：并行 12 轮 0 失败（修前约 25% 失败）。
+
+## F31-B 收口记录
+- 落盘门控对齐 ref（`session-manager.ts:1160-1185`）：无 assistant 不落盘；`!`-only 会话不产生 jsonl、不打印 resume 行。已验证。
+- `user_bash` 事件三种返回：`{result}` 采用、`{operations}` 未接入（登记）、handler 抛错 fail-closed。已验证。
+- `!` 场景 golden 暂不入库（3 类差异未收敛，见 LIMITATIONS 第 5 条）。
