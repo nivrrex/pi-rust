@@ -58,3 +58,9 @@ L3 基线（R3）：dark 82 same / 2 different / 20 nogolden；light 23 same / 0
 - 环境阻塞：本工作树 `cargo test --workspace` 中 `crates/pi-ai/tests/g0.rs` 14 个用例全部 panic “定位仓库根目录失败: No such file or directory”（`g0.rs:18` 的 `canonicalize()`），与本次改动无关，S8 的 L3 数字因此不可用。
 - 环境阻塞已解除（已证实）：`cargo test --workspace` 早先的 14 个 g0 失败与 5 个 pi-tui 夹具失败，均因 `target/` 里残留了在 `/root/recover/pi-rust-full`（及库存在 build-check）下编译的测试二进制——`strings` 可读到烘焙的 `CARGO_MANIFEST_DIR=/root/recover/pi-rust-full/crates/pi-ai`，`canonicalize()` 因此 ENOENT。`cargo clean -p pi-ai -p pi-tui` 后全量重跑：**workspace 1058 passed / 0 failed**（与自述基线一致）。
 - 结论：此前"14 个用例 panic 定位仓库根目录失败"不是代码问题，是构建产物污染；S8 的 workspace 数字可用了。
+
+### S0b 续 6：内容行数实测（插桩 `PI_TUI_DUMP_LINES`，已回退）
+- T45 的 `render_all_marker_cached_styled` 输出：rows=31 → **total=45**；rows=50 → **total=45**。⇒ 内容行数**与行高无关**，此前"按 rows 丢行"的推断**被推翻**。
+- 由此 TS 侧内容应为 46 行（rows=31 时其 viewport_top 比我们大 1）。差值 = 1 行。
+- 我们的 45 行里含一行**光标标记**（`\e_pi:c\a` + 反显空格），ref 在 diff 前会先 `extractCursorPosition(newLines)` 再 `applyLineResets`（`tui-main-screen.ts:266-270`）；该行为的细节是否与 ref 等价**未证实**，但"标记行是否计入内容行数"是目前最可疑的 ±1 来源。
+- 另一处干扰：本次 r50 对照里 pi-rs 出现 `Error: Stream ended without finish_reason`、footer `1.2%`，与 TS 的 `0.0%` 不可比 ⇒ 该次对照**不能用于判定位移**，仅用于取 `total`。
