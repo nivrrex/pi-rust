@@ -411,10 +411,16 @@ pub(crate) fn run_shell<'a>(
 
             // 退出码文案统一走 bash_text 里的同一个函数，避免两处写法漂移。
             // 输出就绪后再上报一次（golden/S05 的第二条 update 带 `hi\n`）。
-            let final_result = match exit_status_message(status.and_then(|status| status.code())) {
-                None => ToolResult::text(text),
-                Some(status_text) => ToolResult::error(append_status(&text, &status_text)),
-            };
+            let mut final_result =
+                match exit_status_message(status.and_then(|status| status.code())) {
+                    None => ToolResult::text(text),
+                    Some(status_text) => ToolResult::error(append_status(&text, &status_text)),
+                };
+            // F31：把截断信息放进 `details`，供上层回填 `BashExecutionMessage.truncated/fullOutputPath`。
+            final_result.details = Some(serde_json::json!({
+                "truncated": tail.truncated,
+                "fullOutputPath": full_output_path,
+            }));
             if let Some(on_update) = on_update {
                 // **增量结果的形状与 `tool_execution_end.result` 不同**：golden/S05、S10 实测
                 // `partialResult` **带** `details`（无详情时是空对象 `{}`），而 `result` 不带。

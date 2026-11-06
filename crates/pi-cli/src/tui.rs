@@ -3381,12 +3381,26 @@ pub fn run(
                                     *slot = None;
                                 }
                                 let exit_code = Some(i64::from(result.is_error));
+                                // F31：从工具 `details` 回填截断信息（ref `bash-execution.ts:123-126`）。
+                                let truncated = result
+                                    .details
+                                    .as_ref()
+                                    .and_then(|d| d.get("truncated"))
+                                    .and_then(serde_json::Value::as_bool)
+                                    .unwrap_or(false);
+                                let full_output_path = result
+                                    .details
+                                    .as_ref()
+                                    .and_then(|d| d.get("fullOutputPath"))
+                                    .and_then(|v| v.as_str())
+                                    .filter(|s| !s.is_empty())
+                                    .map(str::to_string);
                                 let message = pi_ai::message::Message::BashExecution {
                                     command: bash_cmd,
                                     output: output.clone(),
                                     exit_code,
-                                    truncated: false,
-                                    full_output_path: None,
+                                    truncated,
+                                    full_output_path: full_output_path.clone(),
                                     cancelled,
                                     timestamp: pi_core::timefmt::now_unix_millis(),
                                     exclude_from_context: Some(exclude),
