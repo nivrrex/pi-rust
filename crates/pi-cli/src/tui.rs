@@ -3283,6 +3283,10 @@ pub fn run(
                             rest.trim().to_string()
                         };
                         if !command.is_empty() {
+                            // F31/B1a：执行前派发 `user_bash`（ref `interactive-mode.ts:6732-6744`）。
+                            let cwd = std::env::current_dir().unwrap_or_else(|_| ".".into());
+                            let _user_bash =
+                                crate::ext_tools::emit_user_bash(&command, exclude, &cwd);
                             // F31/S1b：真实执行。**不能在 TUI 主线程 `block_on`**（bash 工具依赖
                             // tokio 运行时，实测会卡死）⇒ 起独立线程、线程内自建 current-thread runtime。
                             state

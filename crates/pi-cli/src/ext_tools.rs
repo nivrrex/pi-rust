@@ -1201,6 +1201,49 @@ pub fn emit_session_shutdown(reason: &str, target: Option<&std::path::Path>) {
     emit_event("session_shutdown", payload);
 }
 
+/// `user_bash` 的三种返回（ref `runner.ts:1154-1170`）。
+pub enum UserBash {
+    /// 没有扩展处理（或处理器返回 `undefined`）⇒ 本地执行。
+    None,
+    /// 扩展直接给了结果，本地不再执行（ref `interactive-mode.ts:6747-6773`）。
+    Result(serde_json::Value),
+    /// 扩展提供了执行实现（ref `:6781-6805`）。
+    Operations(serde_json::Value),
+    /// 处理器抛错 ⇒ **fail-closed**，不执行（ref `:6741-6744`）。
+    Failed,
+}
+
+/// 派发 `user_bash`（ref `interactive-mode.ts:6732-6744`）。
+#[must_use]
+pub fn emit_user_bash(
+    command: &str,
+    exclude_from_context: bool,
+    cwd: &std::path::Path,
+) -> UserBash {
+    let Some(host) = HOST.get().and_then(|slot| slot.as_ref()).cloned() else {
+        return UserBash::None;
+    };
+    let payload = serde_json::json!({
+        "type": "user_bash",
+        "command": command,
+        "excludeFromContext": exclude_from_context,
+        "cwd": cwd.display().to_string(),
+    });
+    match host.emit_value("user_bash", payload, std::time::Duration::from_secs(30)) {
+        Ok(Some(value)) => {
+            if let Some(result) = value.get("result") {
+                UserBash::Result(result.clone())
+            } else if let Some(operations) = value.get("operations") {
+                UserBash::Operations(operations.clone())
+            } else {
+                UserBash::None
+            }
+        }
+        Ok(None) => UserBash::None,
+        Err(_) => UserBash::Failed,
+    }
+}
+
 /// 派发 `session_before_switch`（ref `agent-session-runtime.ts:231` 的 `emitBeforeSwitch`）。
 ///
 /// 返回 `true` 表示扩展要求**取消**本次切换（`{cancelled:true}`）。没有扩展/超时按"不取消"处理
