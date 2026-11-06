@@ -472,3 +472,7 @@ ref 的对应实现见 `interactive-mode.ts:2541`/`:2543`（`showExtensionNotify
    推翻条件：按主题各跑一次对照，差异行数落到与 dark 同级（仅临时路径）。
 3. **运行中态（loader）未做定格对照**：loader 每帧变化，无法在不引入固定延迟的前提下稳定取同一帧。
    推翻条件：给 loader 加"固定帧号"测试钩子后可与 TS 同帧对照。
+4. **`user_bash` 的 `{operations}` 返回尚未接入执行路径**：ref 把它交给 `executeBash(..., {operations})`
+   （`interactive-mode.ts:6794-6800`）用于把文件读写等操作路由到扩展；pi-rs 的 `BashTool` 直接在本地进程执行，
+   收到 `{operations}` 时按"无处理器"走本地执行（即扩展的执行实现不生效），流式回调不受影响。
+   推翻条件：把 `operations` 透传进 `pi_core::tools::bash` 的 I/O 封装后，用夹具断言扩展侧收到读写调用。
