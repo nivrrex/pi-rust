@@ -605,11 +605,18 @@ pub fn find_node() -> Option<std::path::PathBuf> {
         let path = std::path::PathBuf::from(explicit);
         return path.is_file().then_some(path);
     }
-    let paths = std::env::var_os("PATH")?;
+    find_node_in_path(&std::env::var_os("PATH")?)
+}
+
+/// 在给定的 `PATH` 值里找 node（`node` 与 Windows 的 `node.exe` 都试）。
+///
+/// 抽成纯函数是为了能单测：改 `PATH` 环境变量在并行测试里会互相踩。
+#[must_use]
+pub fn find_node_in_path(paths: &std::ffi::OsStr) -> Option<std::path::PathBuf> {
     // Windows 上可执行文件带扩展名（`node.exe`）：只试 `node` 会漏掉所有 Windows 安装，
     // 真机表现是"扩展未加载：找不到 node"，而 `node -v` 明明能用。两者都试，不区分平台
     // （Linux 目录里不会有 `node.exe`，多试一次无副作用）。
-    for dir in std::env::split_paths(&paths) {
+    for dir in std::env::split_paths(paths) {
         for name in ["node", "node.exe"] {
             let candidate = dir.join(name);
             if candidate.is_file() {
@@ -1634,18 +1641,11 @@ mod tests {
         let dir = tempfile::tempdir().expect("临时目录");
         let exe = dir.path().join("node.exe");
         std::fs::write(&exe, b"").expect("写假 node.exe");
-        let previous = std::env::var_os("PATH");
-        let previous_node = std::env::var_os("PI_NODE");
-        std::env::remove_var("PI_NODE");
-        std::env::set_var("PATH", dir.path());
-        assert_eq!(find_node().as_deref(), Some(exe.as_path()));
-        match previous {
-            Some(value) => std::env::set_var("PATH", value),
-            None => std::env::remove_var("PATH"),
-        }
-        if let Some(value) = previous_node {
-            std::env::set_var("PI_NODE", value);
-        }
+        // 纯函数：只给定 PATH 值，不碰进程环境（并行测试下安全）。
+        assert_eq!(
+            find_node_in_path(dir.path().as_os_str()).as_deref(),
+            Some(exe.as_path())
+        );
     }
 
     /// `PI_NODE` 指向不存在的文件 ⇒ `find_node` 返回 None（不 panic）。

@@ -3352,7 +3352,19 @@ pub fn render_markdown_styled_with_width(
                     }
                     continue;
                 }
-                _ => continue,
+                // 表格内部只关心上面这些事件，其余（强调/列表等）直接忽略；
+                // lint-banned 禁止通配分支，这里显式列出可能出现的形态。
+                Event::Start(_)
+                | Event::End(_)
+                | Event::Text(_)
+                | Event::Code(_)
+                | Event::InlineMath(_)
+                | Event::DisplayMath(_)
+                | Event::Html(_)
+                | Event::InlineHtml(_)
+                | Event::FootnoteReference(_)
+                | Event::TaskListMarker(_)
+                | Event::Rule => continue,
             }
         }
         if let Event::Start(Tag::Table(_)) = event {
@@ -3383,7 +3395,7 @@ pub fn render_markdown_styled_with_width(
                         HeadingLevel::H3 => "###",
                         HeadingLevel::H4 => "####",
                         HeadingLevel::H5 => "#####",
-                        _ => "######",
+                        HeadingLevel::H1 | HeadingLevel::H2 | HeadingLevel::H6 => "######",
                     };
                     inline.push_str(hashes);
                     inline.push(' ');
@@ -3480,7 +3492,7 @@ pub fn render_markdown_styled_with_width(
                         *next += 1;
                         Some(marker)
                     }
-                    _ => None,
+                    Some(None) | None => None,
                 };
             }
             Event::End(TagEnd::Item) => {
@@ -3506,7 +3518,8 @@ pub fn render_markdown_styled_with_width(
                     pulldown_cmark::CodeBlockKind::Fenced(info) if !info.trim().is_empty() => {
                         format!(" ```{}", info.trim())
                     }
-                    _ => " ```".to_string(),
+                    pulldown_cmark::CodeBlockKind::Fenced(_)
+                    | pulldown_cmark::CodeBlockKind::Indented => " ```".to_string(),
                 };
                 if pending_blank && !out.is_empty() {
                     push_md_line(&mut out, &mut styles, String::new(), None);
