@@ -1588,6 +1588,7 @@ pub fn run(
                     | TuiEvent::AssistantDelta(_)
                     | TuiEvent::ThinkingDelta(_)
                     | TuiEvent::ToolCall { .. }
+                    | TuiEvent::BashChunk(_)
                     | TuiEvent::BashDone { .. }
                     | TuiEvent::Usage { .. }
                     | TuiEvent::UsageTotals { .. }
@@ -1723,6 +1724,7 @@ pub fn run(
                                 | TuiEvent::AssistantDelta(_)
                                 | TuiEvent::ThinkingDelta(_)
                                 | TuiEvent::ToolCall { .. }
+                                | TuiEvent::BashChunk(_)
                                 | TuiEvent::BashDone { .. }
                                 | TuiEvent::Usage { .. }
                                 | TuiEvent::UsageTotals { .. }
@@ -3296,10 +3298,34 @@ pub fn run(
                                 if let Ok(mut slot) = bash_cancel_slot.lock() {
                                     *slot = Some(cancel.clone());
                                 }
-                                let result = runtime.block_on(tool.execute(
+                                // F31/S1d：`invoke_with_progress` 的 `on_update` 逐块把输出送回 UI
+                                // （ref `interactive-mode.ts:6793-6800` 的 `appendOutput(chunk)`）。
+                                let chunk_tx = bash_tx.clone();
+                                let on_update =
+                                    move |partial: &pi_core::tools::tool::ToolResult| {
+                                        let text: String = partial
+                                            .content
+                                            .iter()
+                                            .filter_map(|block| match block {
+                                                pi_core::tools::tool::ToolResultBlock::Text {
+                                                    text,
+                                                } => Some(text.clone()),
+                                                pi_core::tools::tool::ToolResultBlock::Image {
+                                                    ..
+                                                } => None,
+                                            })
+                                            .collect::<Vec<_>>()
+                                            .join("\n");
+                                        if !text.is_empty() {
+                                            let _ =
+                                                chunk_tx.send(pi_tui::TuiEvent::BashChunk(text));
+                                        }
+                                    };
+                                let result = runtime.block_on(tool.invoke_with_progress(
                                     serde_json::json!({ "command": bash_cmd.clone() }),
                                     &context,
                                     &cancel,
+                                    &on_update,
                                 ));
                                 let output: String = result
                                     .content

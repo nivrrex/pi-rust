@@ -295,6 +295,8 @@ impl TuiState {
 pub enum TuiEvent {
     /// 切换主题（ref `settings-manager.setTheme` 之后立即重绘）。
     ThemeName(String),
+    /// `!` 命令的流式输出块（F31/S1d）：追加到最后一条"运行中"的 bash 块。
+    BashChunk(String),
     /// `!` 命令执行结束（F31/S1b）：把最后一条"运行中"的 bash 块置为完成态。
     BashDone {
         /// 完整输出。
@@ -821,6 +823,20 @@ pub fn apply(state: &mut TuiState, event: TuiEvent) -> TuiAction {
         }
         TuiEvent::RetryState(active) => {
             state.retrying = active;
+            TuiAction::Redraw
+        }
+        TuiEvent::BashChunk(chunk) => {
+            for item in state.transcript.iter_mut().rev() {
+                if let TranscriptItem::BashExecution {
+                    output, running, ..
+                } = item
+                {
+                    if *running {
+                        output.push_str(&chunk);
+                        break;
+                    }
+                }
+            }
             TuiAction::Redraw
         }
         TuiEvent::BashDone {
