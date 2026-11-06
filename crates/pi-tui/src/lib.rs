@@ -1733,7 +1733,14 @@ fn apply_chrome_styles(
             continue;
         }
         // `[Context]` 段标题用 accent。
-        if trimmed.starts_with("[Context]") || trimmed.starts_with("[branch]") {
+        // ref `interactive-mode.ts:1709`：`sectionHeader(name) = theme.fg("mdHeading", "[name]")`
+        // —— `[Context]` / `[Skills]` / `[Extensions]` / `[branch]` **同一个颜色**。
+        // 此前只染了 `[Context]`/`[branch]`，`[Skills]`/`[Extensions]` 落回默认正文色（真机反馈"颜色不一致"）。
+        if trimmed.starts_with("[Context]")
+            || trimmed.starts_with("[branch]")
+            || trimmed.starts_with("[Skills]")
+            || trimmed.starts_with("[Extensions]")
+        {
             *slot = Some(LineStyle::fg(palette.md_heading));
             continue;
         }
@@ -3399,6 +3406,34 @@ mod markdown_tests {
 
     /// ref `dark.json:53-60` + `theme.ts:1172-1181`：标题 `mdHeading` + 粗体、
     /// 围栏 `mdCodeBlockBorder`、代码内容 `mdCodeBlock`，逐行断言（不改文本）。
+    /// ref `interactive-mode.ts:1709`：启动屏各段标题统一 `mdHeading`
+    /// （`[Context]` / `[Skills]` / `[Extensions]` 同一个颜色）。
+    /// 此前只有 `[Context]`/`[branch]` 染色，其余落回默认正文色（真机反馈"颜色不一致"）。
+    #[test]
+    fn startup_section_headers_share_md_heading_color() {
+        let palette = crate::theme::Palette::of(&crate::theme::Theme::builtin("light"));
+        let lines: Vec<String> = [
+            "[Context]",
+            "  ~/.pi/agent/AGENTS.md",
+            "[Skills]",
+            "  a, b",
+            "[Extensions]",
+            "  user",
+        ]
+        .iter()
+        .map(|line| (*line).to_string())
+        .collect();
+        let spans = super::header_spans(&lines, &palette);
+        for index in [0usize, 2, 4] {
+            assert_eq!(
+                spans[index].first().map(|span| span.style.fg),
+                Some(Some(palette.md_heading)),
+                "第 {index} 行（{}）应为 mdHeading",
+                lines[index]
+            );
+        }
+    }
+
     #[test]
     fn markdown_lines_carry_theme_styles() {
         let input = "# 标题\n\n正文\n\n```\nfn main() {}\n```\n";
@@ -4726,7 +4761,11 @@ fn header_spans(lines: &[String], palette: &theme::Palette) -> Vec<Vec<style::Sp
         let trimmed = line.trim_start();
         // `[Context]`/`[branch]` 段：**连前导空格一起染色**（TS 实测 `  AGENTS.md`
         // 的 col0/col1 是 dim），与 `Press ctrl+o …` 那类提示行相反。
-        if trimmed.starts_with("[Context]") || trimmed.starts_with("[branch]") {
+        if trimmed.starts_with("[Context]")
+            || trimmed.starts_with("[branch]")
+            || trimmed.starts_with("[Skills]")
+            || trimmed.starts_with("[Extensions]")
+        {
             in_context_section = true;
             out.push(vec![style::Span::new(
                 0,
