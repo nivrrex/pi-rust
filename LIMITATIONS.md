@@ -458,3 +458,7 @@ ref 的对应实现见 `interactive-mode.ts:2541`/`:2543`（`showExtensionNotify
 - `[Extension issues]` 已按宽度折行（ref `interactive-mode.ts:1874-1894` 的 `Text` 语义），
   但 80/120 列的 pty 截图对照未做（只有单测）。
 - 底栏 `?/0 (auto)`（真机 ②）：未取证、未修，留待下一批；ref 语义见 `getContextUsage`（`types.ts:294-300`）。
+
+## F30 收尾
+- `golden/_rejected/S19-attempt-3/`（TS 拒绝录制记录）在恢复时随 `.gitignore` 的 `golden/_rejected/` 规则丢失，
+  已从 `5cfec2e` 用 `git show` 还原并以 `git add -f` 入库（`spec/d-compaction.md` 引用它，缺了会让 `check-spec-cites` 失败）。
