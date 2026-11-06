@@ -59,7 +59,16 @@ export async function copyToClipboard(text) {
   throw new Error(`pi-ext-host shim: copyToClipboard 未实现（P9 后续批次）：${String(text).length} 字节`);
 }
 
-export const AssistantMessageComponent = class extends Container {};
+// ref `components/assistant-message.ts:91` `updateContent(message, isStreaming)`：内容变化时重建行。
+// pi-ai-summary 的 thinking-label 适配器以 `updateContent` + `render` 作为"原型可用"判据，
+// 缺失就拒绝安装并弹 `[PI_AI_SUMMARY_INSTALL_FAILED] thinking adapter …`（真机 ②）。
+// 我们的助手行由 pi-tui 原生渲染，该方法不会被调用 ⇒ 空实现即可。
+export const AssistantMessageComponent = class extends Container {
+  updateContent() {}
+  render() {
+    return [];
+  }
+};
 // ref `components/tool-execution.ts`：工具行组件，`render()` + `updateDisplay()`（后者在
 // 参数/结果变化时重建行）。pi-ai-summary 的渲染适配器靠这两个方法判断"原型可用"；
 // 少了 `updateDisplay` 它会拒绝安装并弹 `[PI_AI_SUMMARY_INSTALL_FAILED] …incompatible prototype`
