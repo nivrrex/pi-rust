@@ -184,6 +184,8 @@ impl PrintRun {
     pub async fn execute(mut self) -> (String, Vec<String>, u8, Vec<Message>) {
         // F30/S1：估算投影需要 system 段；`self.system` 在后面被 move 掉，先留一份。
         let system_text_for_estimate = self.system.clone();
+        // 同上：`system_sections` 也会被 move 进 agent 配置，先留一份。
+        let sections_for_estimate = self.system_sections.clone();
         let cancel = tokio_util::sync::CancellationToken::new();
         let retry_max = LoopConfig::default().max_retries;
         let retry_delay_ms = LoopConfig::default().retry_delay_ms;
@@ -548,11 +550,23 @@ impl PrintRun {
             if self.context_window > 0 {
                 // ref 的估算基于**整段投影**（system + 会话消息），这里补上 system 段。
                 let mut projection: Vec<pi_ai::message::Message> = Vec::new();
-                if let Some(text) = system_text_for_estimate.as_deref() {
+                // print 路径的 system 正文在 `system_sections` 里（`self.system` 为 None），
+                // 估算要把 sections 一起算进去（ref `estimate.ts:44-50` 的 system 分支）。
+                {
+                    let mut extra = serde_json::Map::new();
+                    if !sections_for_estimate.is_empty() {
+                        let map: serde_json::Map<String, serde_json::Value> = sections_for_estimate
+                            .iter()
+                            .map(|(k, v)| (k.clone(), serde_json::Value::String(v.clone())))
+                            .collect();
+                        extra.insert("sections".to_string(), serde_json::Value::Object(map));
+                    }
                     projection.push(pi_ai::message::Message::System {
-                        content: pi_ai::UserContent::Text(text.to_string()),
+                        content: pi_ai::UserContent::Text(
+                            system_text_for_estimate.clone().unwrap_or_default(),
+                        ),
                         timestamp: 0,
-                        extra: serde_json::Map::new(),
+                        extra,
                     });
                 }
                 projection.extend(messages.iter().cloned());
