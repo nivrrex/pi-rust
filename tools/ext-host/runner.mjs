@@ -779,8 +779,11 @@ const VIRTUAL_MODULES = {
   "@mariozechner/pi-ai": shimAi,
 };
 
+const searchAttempts = [];
+
 async function makeJiti(extensionPaths) {
-  const found = resolveJiti(extensionPaths);
+  // F34/W1d：把搜索过的候选目录留档，失败提示里一次列全（真机一次定位）。
+  const found = resolveJiti(extensionPaths, { attempts: searchAttempts });
   if (!found) return undefined;
   const require = createRequire(import.meta.url);
   const module = require(found.entry);
@@ -898,13 +901,22 @@ async function main() {
 
   if (skippedTs.length > 0) {
     const names = skippedTs.join(", ");
+    // F34/W1d：把**已搜索的全部候选目录**与平台对应的设置示例一起打出来，
+    // 否则真机只能看到"未找到 jiti"，无法一次定位（Windows 上路径语法还不同）。
+    const searched = searchAttempts.length > 0 ? searchAttempts.map((dir) => `  - ${dir}`).join("\n") : "  （无）";
+    const hint = process.platform === "win32"
+      ? "set PI_JITI=C:\\Users\\<you>\\AppData\\Local\\pnpm\\global\\v11\\<hash>\\node_modules\\jiti"
+      : "export PI_JITI=/path/to/node_modules/jiti";
     process.stderr.write(
-      `[ext-host] 未找到 jiti：${skippedTs.length} 个 .ts 扩展被跳过（${names}）。` +
-        "安装：npm i -g jiti（或 pnpm i -g jiti）；或设置 PI_JITI 指向 jiti 包目录。\n",
+      `[ext-host] 未找到 jiti：${skippedTs.length} 个 .ts 扩展被跳过（${names}）。\n` +
+        `已搜索：\n${searched}\n` +
+        `安装：npm i -g jiti（或 pnpm i -g jiti）；或设置 PI_JITI 指向 jiti 包目录，例如：\n  ${hint}\n`,
     );
     loadErrors.push({
       path: `${skippedTs.length} 个 .ts 扩展被跳过`,
-      message: `未找到 jiti。受影响：${names}。安装 npm i -g jiti（或 pnpm i -g jiti），或设置 PI_JITI=<jiti 包目录>（npm 全局为 <npm root -g>/jiti；pnpm 全局在 <pnpm root -g> 目录下 <hash>/node_modules/jiti）。`,
+      message:
+        `未找到 jiti。受影响：${names}。已搜索：${searchAttempts.join(" | ") || "（无）"}。` +
+        "安装 npm i -g jiti（或 pnpm i -g jiti），或设置 PI_JITI=<jiti 包目录>（Windows 例：set PI_JITI=C:\\Users\\<you>\\AppData\\Local\\pnpm\\global\\v11\\<hash>\\node_modules\\jiti）。",
     });
   }
 

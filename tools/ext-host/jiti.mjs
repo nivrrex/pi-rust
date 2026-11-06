@@ -40,10 +40,93 @@ export function pnpmJitiCandidates(root, deps = {}) {
   return out;
 }
 
+/**
+ * Windows 安装布局（F34/W1）：pnpm 全局目录在 Windows 上是
+ * `%LOCALAPPDATA%\pnpm\global\<ver>\<hash>\node_modules\jiti`，
+ * 另有 `%PNPM_HOME%`、`%APPDATA%\npm\node_modules\jiti`、以及 node.exe 同目录的
+ * `node_modules\jiti`。**纯函数**：入参是环境变量表与注入的 fs 依赖，便于在 Linux 上单测。
+ */
+export function windowsJitiCandidates(env = {}, deps = {}) {
+  const listDir = deps.listDir ?? ((dir) => fs.readdirSync(dir));
+  const exists = deps.exists ?? ((file) => fs.existsSync(file));
+  const join = deps.join ?? ((...parts) => parts.join("\\"));
+  const out = [];
+  const push = (dir) => {
+    if (dir) out.push(dir);
+  };
+
+  // `%LOCALAPPDATA%\pnpm\global\<ver>\<hash>\node_modules\jiti`
+  if (env.LOCALAPPDATA) {
+    push(join(env.LOCALAPPDATA, "pnpm", "global", "node_modules", "jiti"));
+    const globalRoot = join(env.LOCALAPPDATA, "pnpm", "global");
+    let versions = [];
+    try {
+      versions = listDir(globalRoot).slice().sort();
+    } catch {
+      versions = [];
+    }
+    for (const version of versions) {
+      const versionDir = join(globalRoot, version);
+      push(join(versionDir, "node_modules", "jiti"));
+      let hashes = [];
+      try {
+        hashes = listDir(versionDir).slice().sort();
+      } catch {
+        hashes = [];
+      }
+      for (const hash of hashes) {
+        push(join(versionDir, hash, "node_modules", "jiti"));
+      }
+    }
+  }
+  // `%PNPM_HOME%`（pnpm 自己的根，可能直接就是 global 目录）
+  if (env.PNPM_HOME) {
+    push(join(env.PNPM_HOME, "node_modules", "jiti"));
+    push(join(env.PNPM_HOME, "jiti"));
+  }
+  // `%APPDATA%\npm\node_modules\jiti`
+  if (env.APPDATA) push(join(env.APPDATA, "npm", "node_modules", "jiti"));
+  // node.exe 同目录的 `node_modules\jiti`
+  if (env.NODE_EXE_DIR) push(join(env.NODE_EXE_DIR, "node_modules", "jiti"));
+  void exists;
+  return [...new Set(out)];
+}
+
+/**
+ * 在多个 hash 目录中挑最新的一个（`resolveJiti` 用）：
+ * 只接受含 `package.json` 且 `name === "jiti"` 的目录；按修改时间取最新（`mtimeMs` 缺失时退回字典序）。
+ */
+export function pickNewestJitiCandidate(dirs, deps = {}) {
+  const readJson = deps.readJson ?? ((file) => {
+    try {
+      return JSON.parse(fs.readFileSync(file, "utf8"));
+    } catch {
+      return undefined;
+    }
+  });
+  const mtime = deps.mtimeMs ?? ((file) => {
+    try {
+      return fs.statSync(file).mtimeMs;
+    } catch {
+      return 0;
+    }
+  });
+  const valid = [];
+  for (const dir of dirs) {
+    const pkg = readJson(`${dir}/package.json`);
+    if (pkg && pkg.name === "jiti") valid.push({ dir, mtime: mtime(`${dir}/package.json`) });
+  }
+  if (valid.length === 0) return undefined;
+  valid.sort((a, b) => (b.mtime - a.mtime) || (a.dir < b.dir ? -1 : 1));
+  return valid[0].dir;
+}
+
 /** 前序候选（不需要跑子进程就能得到的那些）。 */
 export function staticJitiCandidates(extensionPaths, env = process.env) {
   const out = [];
   if (env.PI_JITI) out.push(env.PI_JITI);
+  // Windows 布局（F34/W1）：`%LOCALAPPDATA%\pnpm\global\…` 等，Linux 上这些键不存在 ⇒ 空数组。
+  out.push(...windowsJitiCandidates(env));
   for (const entry of extensionPaths) {
     const dir = path.dirname(entry);
     out.push(path.join(dir, "node_modules/jiti"));
@@ -86,6 +169,7 @@ function resolveJitiDir(dir, exists = (file) => fs.existsSync(file)) {
  */
 export function resolveJiti(extensionPaths, deps = {}) {
   for (const dir of staticJitiCandidates(extensionPaths)) {
+    deps.attempts?.push(dir);
     const found = resolveJitiDir(dir, deps.exists);
     if (found) return found;
   }
@@ -104,6 +188,7 @@ export function resolveJiti(extensionPaths, deps = {}) {
   const commandDeps = { listDir: deps.listDir, exists: deps.exists };
   for (const cmd of ["npm", "pnpm"]) {
     for (const dir of commandJitiCandidates(runCommand(cmd), commandDeps)) {
+      deps.attempts?.push(dir);
       const found = resolveJitiDir(dir, deps.exists);
       if (found) return found;
     }
