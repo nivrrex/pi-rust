@@ -327,6 +327,13 @@ impl HostHandle {
     /// **不经过 actor**：工具调用期间 actor 会在 `block_on` 里等应答，按键必须能并发发出
     /// （见 `notes/decisions.md` 的 E4f 设计）。
     pub fn custom_input(&self, key: &str, width: usize) -> Result<Value, HostError> {
+        // **仅测试用**：把"检查 busy"推迟到调用方起 invoke 之后，使"排干检查后才登记"
+        // 的那条竞态必然发生（生产路径不设该变量 ⇒ 行为不变）。
+        if let Ok(ms) = std::env::var("PI_TEST_CUSTOM_INPUT_DELAY_MS") {
+            if let Ok(ms) = ms.trim().parse::<u64>() {
+                std::thread::sleep(std::time::Duration::from_millis(ms));
+            }
+        }
         // 有 invoke 在排队或执行 ⇒ actor 会被占住，走直连（读取由 invoke 的读帧循环服务）；
         // 否则 actor 空闲，按键交给它阻塞读取（此时直连会没人读应答）。
         let busy = self

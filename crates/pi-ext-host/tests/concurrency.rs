@@ -159,3 +159,60 @@ fn no_pending_requests_left_after_invoke_returns() {
     }
     host.shutdown();
 }
+
+/// F30/S3'：**确定性**复现"排干检查后才登记 custom_input"的竞态。
+///
+/// 做法：`PI_TEST_CUSTOM_INPUT_DELAY_MS` 让 `custom_input` 在算 `busy` 之前先睡，
+/// 于是调用方可以在它"还没开始检查"时就起一个 invoke —— 等到检查时 invoke 已经在跑，
+/// 按键必须走直连并被读到（否则会 5s 超时失败）。
+#[test]
+fn custom_input_started_before_invoke_is_delivered() {
+    let Some(node) = node_path() else {
+        eprintln!("跳过：本机没有 node");
+        return;
+    };
+    let host = HostHandle::start(HostOptions {
+        node,
+        runner: repo_root().join("tools/ext-host/runner.mjs"),
+        extensions: vec![repo_root().join("tools/ext-host/fixtures/custom_invoke-ext.mjs")],
+        cwd: repo_root(),
+        env: Vec::new(),
+    })
+    .expect("宿主应能启动");
+    let (tx, rx) = std::sync::mpsc::channel();
+    host.set_ui_sink(Some(tx));
+    host.set_ctx(
+        json!({"cwd": repo_root().display().to_string(), "mode": "tui", "hasUI": true,
+        "model": "mock-model", "thinkingLevel": "off"}),
+    );
+
+    std::env::set_var("PI_TEST_CUSTOM_INPUT_DELAY_MS", "300");
+    let keyer = {
+        let host = host.clone();
+        std::thread::spawn(move || host.custom_input("\r", 80))
+    };
+    // 让按键线程先进入"未开始检查"的窗口，再起 invoke。
+    std::thread::sleep(Duration::from_millis(100));
+    let invoker = {
+        let host = host.clone();
+        std::thread::spawn(move || {
+            host.invoke("ext_ask_inline", json!({}), Duration::from_secs(20))
+        })
+    };
+    let mut opened = false;
+    for _ in 0..50 {
+        if let Ok(pi_ext_host::UiFrame::CustomOpen { .. }) =
+            rx.recv_timeout(Duration::from_millis(100))
+        {
+            opened = true;
+            break;
+        }
+    }
+    assert!(opened, "应打开自定义面板");
+    let key_result = keyer.join().expect("按键线程");
+    std::env::remove_var("PI_TEST_CUSTOM_INPUT_DELAY_MS");
+    assert!(key_result.is_ok(), "按键应被投递：{key_result:?}");
+    let result = invoker.join().expect("线程").expect("工具应成功");
+    assert_eq!(result["content"][0]["text"], "answer:yes");
+    host.shutdown();
+}
