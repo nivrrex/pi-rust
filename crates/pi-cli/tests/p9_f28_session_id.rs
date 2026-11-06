@@ -200,3 +200,67 @@ fn get_session_id_matches_session_header_and_stays_empty_at_startup() {
         "TUI 启动时也应拿到会话 id：事件={ids:?}"
     );
 }
+
+/// F30/S4'b：`/new` 之后 `getSessionId()` 必须换成新会话的 id（与启动时的不同）。
+#[test]
+fn session_id_changes_after_new_session() {
+    let Some(node) = Command::new("sh")
+        .arg("-c")
+        .arg("command -v node")
+        .output()
+        .ok()
+        .map(|out| String::from_utf8_lossy(&out.stdout).trim().to_string())
+        .filter(|text| !text.is_empty())
+    else {
+        eprintln!("跳过：本机没有 node");
+        return;
+    };
+    let node = Path::new(&node);
+    let (_mock, base_url) = start_mock();
+
+    let tmp = tempfile::tempdir().expect("临时目录");
+    let (agent, sess, work) = prepare(&base_url, tmp.path());
+    let log = tmp.path().join("ev.jsonl");
+    let keys = tmp.path().join("keys.json");
+    std::fs::write(
+        &keys,
+        r#"[{"waitStrip":{"contains":"ctrl+o more","timeoutMs":30000}},{"raw":"/new\r"},{"waitStrip":{"contains":"New session started","timeoutMs":30000}},{"waitStable":{"quietMs":600,"timeoutMs":15000}},{"raw":"\u0004"}]"#,
+    )
+    .expect("写 keys");
+    let output = Command::new("python3")
+        .arg(repo_root().join("tools/difftest/pty-helper.py"))
+        .arg("--cols")
+        .arg("100")
+        .arg("--rows")
+        .arg("30")
+        .arg("--exit-code-file")
+        .arg(tmp.path().join("code.txt"))
+        .arg("--out")
+        .arg(tmp.path().join("raw.bin"))
+        .arg("--script")
+        .arg(&keys)
+        .arg("--")
+        .arg(env!("CARGO_BIN_EXE_pi-rs"))
+        .current_dir(&work)
+        .env("PI_CODING_AGENT_DIR", &agent)
+        .env("PI_CODING_AGENT_SESSION_DIR", &sess)
+        .env("PI_NODE", node)
+        .env("HOME", tmp.path().join("home"))
+        .env("PI_EVENT_LOG", &log)
+        .output()
+        .expect("运行 pty-helper");
+    assert!(
+        output.status.success(),
+        "pty-helper 失败：{:?}",
+        output.status
+    );
+    let ids: Vec<String> = events(&log)
+        .iter()
+        .filter_map(|event| event["id"].as_str().map(str::to_string))
+        .collect();
+    assert!(
+        ids.len() >= 2,
+        "应有启动与 /new 两次 session_start：{ids:?}"
+    );
+    assert_ne!(ids[0], ids[1], "/new 之后的会话 id 应变化：{ids:?}");
+}
