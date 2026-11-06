@@ -64,3 +64,9 @@ L3 基线（R3）：dark 82 same / 2 different / 20 nogolden；light 23 same / 0
 - 由此 TS 侧内容应为 46 行（rows=31 时其 viewport_top 比我们大 1）。差值 = 1 行。
 - 我们的 45 行里含一行**光标标记**（`\e_pi:c\a` + 反显空格），ref 在 diff 前会先 `extractCursorPosition(newLines)` 再 `applyLineResets`（`tui-main-screen.ts:266-270`）；该行为的细节是否与 ref 等价**未证实**，但"标记行是否计入内容行数"是目前最可疑的 ±1 来源。
 - 另一处干扰：本次 r50 对照里 pi-rs 出现 `Error: Stream ended without finish_reason`、footer `1.2%`，与 TS 的 `0.0%` 不可比 ⇒ 该次对照**不能用于判定位移**，仅用于取 `total`。
+
+### S0b 续 7：启动帧逐行（rows=50，仅到"Pi can explain"）
+- pi-rs `total=17`；TS 同屏 17 行；**逐行一致**，唯一差别在第 13 行：TS 是空行，pi-rs 是光标标记行（`\e_pi:c\a` + 反显空格）。
+- 第 15 行 cwd 路径不同（各自 mkdtemp，正常）。
+- 结论：**启动帧内容行数相同**，光标标记不额外占行 ⇒ "标记行多占一行"的假设**被排除**。
+- 完整 T45 流程在 rows=50 下 pi-rs 反复出现 `Error: Stream ended without finish_reason`（mock/时序），TS 同场景正常，故**完整流程的总行数不可比**；±1 行的来源仍未定位。
