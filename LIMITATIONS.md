@@ -499,3 +499,9 @@ ref 的对应实现见 `interactive-mode.ts:2541`/`:2543`（`showExtensionNotify
 7. **Markdown 引用块内的空行**：TS 打 ` │`，pi-rs 打空行 —— pulldown-cmark 对 `>` 单独一行**不产生任何事件**
    （`Parser::new_ext` 事件探针确认），没有源位置就无法还原该行。推翻条件：改用 `into_offset_iter` 拿到源区间后补齐。
 8. **配色回归默认不设闸门**：见第 6 条；本批新增 `STYLE_CHECK=1` 开关（`scripts/regress-tui.sh`），默认关闭。
+9. **颜色差异尚未清零**：新增 `tools/difftest/color-dump.mjs`（只 import 既有 `renderStyledScreen`，不改 compare-*）
+   把每帧导出为「行号│文本│样式段」的稳定文本。对 90 个 dark golden 分类（路径已归一化）：
+   `exact=0`、仅空行数不同 `=22`、逐格样式不同 `=68`。已定位的真实类别举例：
+   `T01` r1c0 —— 启动屏 ` pi v0.87.1` 的**首列空格**在 TS 是 `dim`、我们不是（`dim` 属 ref `theme.ts` 的
+   `getStylePrefix` 对 padding 的处理）。推翻条件：上述类别逐类修完后该脚本对全部 dark/light golden 报 0 差异。
+   （`compare-style.mjs` 的 `ch` 类假差异并非比较器错误：它不做路径归一化与空行对齐，`color-dump` 可复现同一现象。）
