@@ -46,3 +46,13 @@ L3 基线（R3）：dark 82 same / 2 different / 20 nogolden；light 23 same / 0
 - 说明 pi-rs 的 diff 渲染在 31 行视口里写出的物理行数（44）明显多于视口高度，且 `hw_row=41 > rows=31`，即整屏写完后靠终端滚动回填；`viewport_top` 只记录会话区起点（14）。
 - 尚未完成：TS 侧没有等价 dump（第三方 CLI，无该开关），无法直接对齐"物理写出行数"；要判定"多写一行导致滚动"需在本仓渲染路径加临时计数（属改码，本批禁止）。
 - 结论状态：**滚动/物理行数**这一层差异尚无定论（未证实），已知视口起点差一行（已证实）、内容行数相同（已证实）。
+
+## F30 批次（S0 起）
+- 预测（先写）：T45/T52 差异在 pi-rs 内容超出视口时的溢出/滚动路径（viewport_top、hw_row）。推翻条件：插桩显示两侧每帧会话区行数、总行数一致。
+- S0a ref 规则：`ref/pi-0.87.1/packages/tui/src/tui-main-screen.ts:247-315` 的 `doRender`/`fullRender`——写出**全部** `newLines`，然后 `bufferLength = max(height, newLines.length)`、`previousViewportTop = max(0, bufferLength - height)`；无 `truncate(rows)`。
+- S0b 插桩（已回退，diff 存 `notes/p9-f30/s0-instrumentation.diff`）：T45@rows=31 末帧 `total=45 viewport_top=14 hw_row=41`，`viewport_top = 45-31` 与 ref 公式一致。
+- 新发现（待证实）：rows=50 时两侧顶部 6 行完全一致（`"" / " pi v0.87.1" / " escape to interrupt" / …），但 rows=31 时 pi-rs 的 total=45，而 TS 可见起点比它早一行 ⇒ 两侧"内容总行数"在两种行高下并非同值，说明**我们的渲染结果与行高有关**（疑似在组装阶段按 rows 裁剪/丢行），这正是 T45/T52 差异的候选根因。
+- S0c 未修：尚未定位到具体行号，按"无 ref 行号依据不改码"停在此处。
+- S0d [Context] 路径：TS 绝对 / pi-rs 相对；ref `interactive-mode.ts:1342-1350` + `utils/paths.ts:108-117`。TS 为何落到绝对分支未推演完成（runtime 的 cwd 与 work 目录关系待查）。
+- S0e 插桩已回退：`git status` 仅 `?? AGENTS.md`（既有未跟踪）。
+- 环境阻塞：本工作树 `cargo test --workspace` 中 `crates/pi-ai/tests/g0.rs` 14 个用例全部 panic “定位仓库根目录失败: No such file or directory”（`g0.rs:18` 的 `canonicalize()`），与本次改动无关，S8 的 L3 数字因此不可用。

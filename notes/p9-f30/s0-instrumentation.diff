@@ -1,0 +1,18 @@
+diff --git a/crates/pi-cli/src/tui.rs b/crates/pi-cli/src/tui.rs
+index 1de94b3..81d8f79 100644
+--- a/crates/pi-cli/src/tui.rs
++++ b/crates/pi-cli/src/tui.rs
+@@ -4037,10 +4037,11 @@ fn dump_output(
+     };
+     let _ = writeln!(
+         file,
+-        "=== frame {index} size={cols}x{rows} viewport_top={} hw_row={} bytes={} ===",
++        "=== frame {index} size={cols}x{rows} viewport_top={} hw_row={} bytes={} total={} ===",
+         diff_state.previous_viewport_top,
+         diff_state.hardware_cursor_row,
+-        payload.len()
++        payload.len(),
++        diff_state.previous_lines.len()
+     );
+     let mut escaped = String::with_capacity(payload.len());
+     for ch in payload.chars() {
