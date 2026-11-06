@@ -1627,6 +1627,27 @@ mod tests {
         assert!(extension_tools(dir.path(), Path::new("/tmp")).is_empty());
     }
 
+    /// Windows 的 node 带扩展名：`PATH` 里只有 `node.exe` 时也必须找到。
+    /// 真机曾报"扩展未加载：找不到 node"，而 `node -v` 正常。
+    #[test]
+    fn find_node_accepts_exe_suffix_on_path() {
+        let dir = tempfile::tempdir().expect("临时目录");
+        let exe = dir.path().join("node.exe");
+        std::fs::write(&exe, b"").expect("写假 node.exe");
+        let previous = std::env::var_os("PATH");
+        let previous_node = std::env::var_os("PI_NODE");
+        std::env::remove_var("PI_NODE");
+        std::env::set_var("PATH", dir.path());
+        assert_eq!(find_node().as_deref(), Some(exe.as_path()));
+        match previous {
+            Some(value) => std::env::set_var("PATH", value),
+            None => std::env::remove_var("PATH"),
+        }
+        if let Some(value) = previous_node {
+            std::env::set_var("PI_NODE", value);
+        }
+    }
+
     /// `PI_NODE` 指向不存在的文件 ⇒ `find_node` 返回 None（不 panic）。
     #[test]
     fn find_node_honours_explicit_override() {
