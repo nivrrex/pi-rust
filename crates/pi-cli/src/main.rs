@@ -1148,6 +1148,15 @@ fn run_print(parsed: &Args, json: bool) -> ExitCode {
                 writer.set_chain(pi_cli::ext_tools::session_chain());
                 pi_cli::ext_tools::set_session_file(writer.path());
                 pi_cli::ext_tools::set_session_id(writer.session_id());
+                // F30/S1：print 下 `session_start` 由下面的 `append_system_message` 触发派发，
+                // 必须在它之前把 ctx usage 初值填好（TS 实测 `{tokens:0, window, percent:0}`）。
+                if resolved.context_window > 0 {
+                    pi_cli::ext_tools::update_ctx_usage(
+                        Some(0),
+                        resolved.context_window,
+                        Some(0.0),
+                    );
+                }
                 if json {
                     println!("{}", writer.header_line());
                 }
@@ -1170,6 +1179,12 @@ fn run_print(parsed: &Args, json: bool) -> ExitCode {
         }
     };
 
+    // F30/S1：print 路径同样要在宿主派发 `session_start`（以及回合内事件）之前把
+    // `ctx.getContextUsage()` 的初值填上——TS 实测是 `{tokens:0, window, percent:0}`。
+    // 之前只有 TUI 分支做了，print 下扩展读到的是 `null/null/null`。
+    if resolved.context_window > 0 {
+        pi_cli::ext_tools::update_ctx_usage(Some(0), resolved.context_window, Some(0.0));
+    }
     // P5-3c：自动压缩参数（没有会话文件时不接——没有可压缩的上下文）。
     let compaction = session_writer
         .as_ref()
