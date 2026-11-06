@@ -3400,11 +3400,11 @@ pub fn render_markdown_styled_with_width(
                 {
                     push_md_line(&mut out, &mut styles, String::new(), None);
                 }
-                let width = width.unwrap_or(80).min(80);
+                let rule_width = width.unwrap_or(80).min(80);
                 push_md_line(
                     &mut out,
                     &mut styles,
-                    format!(" {}", "─".repeat(width.saturating_sub(1))),
+                    format!(" {}", "─".repeat(rule_width)),
                     Some(style::LineStyle::fg(palette.dim)),
                 );
                 pending_blank = true;
@@ -3576,6 +3576,14 @@ pub fn render_markdown_styled_with_width(
                         );
                         code_line.clear();
                     }
+                } else if quote_depth > 0 && inline.trim().is_empty() {
+                    // 引用块内的空行（`>` 单独一行）：TS 打一个只有竖线的行（` │`）。
+                    push_md_line(
+                        &mut out,
+                        &mut styles,
+                        format!("{}", " │ ".repeat(quote_depth).trim_end()),
+                        Some(style::LineStyle::default().italic()),
+                    );
                 } else if quote_depth > 0 {
                     // 引用块里 TS 每行一条（`│ 引用第一行` / `│ 引用第二行`），不能攒成一行。
                     flush_inline(
