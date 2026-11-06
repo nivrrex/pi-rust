@@ -28,3 +28,9 @@ L3 基线（R3）：dark 82 same / 2 different / 20 nogolden；light 23 same / 0
 - TS 26 行 / pi-rs 25 行；两者**底部三行完全相同**（`<TMP>/work`、footer、空），差异只在**顶部起点**：TS 首行 ` ! to run bash`，pi-rs 首行 ` !! to run bash (no context)`。
 - 结合 rows=50 的结论（内容 42 行两边等长，仅第 25 行 `[Context]` 路径写法不同）⇒ **pi-rs 并没有少渲染内容行**，而是在 30/31 行视口下**可见起点比 TS 晚一行**（滚动/裁剪锚点不同）。
 - 状态：「内容未缺失」已证实；「滚动锚点为何差一行」未证实（未定位到具体渲染代码）。
+
+### S0b 续 3：31 行整帧（未裁剪）对照
+- 两边整帧都是 31 行，**从「Pi can explain…」往下逐行相同（含底部 9 行：Tool output / 空 / 分隔线 / 空 / 分隔线 / cwd / footer / resume 提示 / 空）**。
+- 唯一差别是**滚动起点**：TS 顶行 ` ! to run bash`，pi-rs 顶行 ` !! to run bash (no context)`，此后整体差一行；第 29 行 resume 提示内的临时目录名不同（各自 mkdtemp，属正常）。
+- 与 rows=50 的结果（两边内容 42 行、仅 `[Context]` 路径一行不同）合并看：内容总行数在无滚动时相等，滚动时可见起点差一行 ⇒ 属**滚动/锚点**差异，不是内容缺失。
+- 未证实：具体是哪一处渲染逻辑（`crates/pi-tui/src/lib.rs` 的整屏组装 vs 视口高度预算）导致起点差一行；未定位到行号，故不改码。
