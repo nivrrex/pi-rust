@@ -374,13 +374,30 @@ pub(crate) fn run_shell<'a>(
             };
 
             let tail = truncate_tail(&combined, DEFAULT_MAX_LINES, DEFAULT_MAX_BYTES);
-            let text = format_output(&tail.content, &tail, None, "(no output)");
+            // F31：截断时把**完整输出**落到临时文件，路径进提示文案
+            // （ref `bash-execution.ts:123-126` 的 `fullOutputPath`；此前标注"未实现"）。
+            let full_output_path: Option<String> = if tail.truncated {
+                let stamp = crate::timefmt::now_unix_millis();
+                let path = std::env::temp_dir()
+                    .join(format!("pi-bash-{stamp}-{}.log", std::process::id()));
+                std::fs::write(&path, &combined)
+                    .ok()
+                    .map(|()| path.display().to_string())
+            } else {
+                None
+            };
+            let text = format_output(
+                &tail.content,
+                &tail,
+                full_output_path.as_deref(),
+                "(no output)",
+            );
 
             // **错误路径的"空输出"占位符是空串**，不是 `(no output)`：
             // ref `bash.ts:41` 在中止/超时分支调用 `formatOutput(snapshot, "")`，
             // 于是空输出时 `appendStatus("", "Command aborted")` 得到的就是 `"Command aborted"`
             // （golden/S09b 实测；我此前用默认的 `(no output)`，多出了两行前缀）。
-            let error_text = format_output(&tail.content, &tail, None, "");
+            let error_text = format_output(&tail.content, &tail, full_output_path.as_deref(), "");
             if timed_out {
                 let seconds = timeout.unwrap_or(0) as f64 / 1000.0;
                 return ToolResult::error(append_status(
