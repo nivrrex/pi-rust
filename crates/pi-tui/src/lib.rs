@@ -3010,6 +3010,25 @@ pub fn render_markdown_styled_with(input: &str, palette: &theme::Palette) -> Mar
     render_markdown_styled_with_width(input, palette, None)
 }
 
+/// 把"只有 `>`（可带空白）的行"替换成 `> \u{1}` 哨兵（不引入 regex 依赖）。
+fn replace_quote_blank_lines(input: &str) -> String {
+    let mut out = String::with_capacity(input.len());
+    for (index, line) in input.split('\n').enumerate() {
+        if index > 0 {
+            out.push('\n');
+        }
+        let trimmed = line.trim();
+        let is_blank_quote =
+            trimmed.starts_with('>') && trimmed.trim_start_matches('>').trim().is_empty();
+        if is_blank_quote {
+            out.push_str("> \u{1}");
+        } else {
+            out.push_str(line);
+        }
+    }
+    out
+}
+
 /// GFM 表格的收集状态（ref `markdown.ts:839` `renderTable` 的输入）。
 #[derive(Default)]
 struct TableBuild {
@@ -3213,20 +3232,31 @@ pub fn render_markdown_styled_with_width(
     let mut link_dest: Option<String> = None;
     // 引用深度（ref `markdown.ts:556-570`：每行前缀 `│ `、整体 italic）。
     let mut quote_depth: usize = 0;
+    // 刚输出过"引用块空行哨兵"（该段结束后不该再补空行，否则比 TS 多一行）。
+    let quote_blank_emitted = std::cell::Cell::new(false);
     let mut code_line = String::new();
     let mut pending_blank = false;
-    let flush_inline = |inline: &mut String,
-                        in_list_item: bool,
-                        list_depth: usize,
-                        quote_depth: usize,
-                        marker: &str,
-                        out: &mut Vec<String>,
-                        styles: &mut Vec<Option<style::LineStyle>>,
-                        spans: &mut Vec<(usize, Vec<style::Span>)>,
-                        code_ranges: &mut Vec<(usize, usize)>,
-                        current: Option<style::LineStyle>,
-                        pending_blank: &mut bool| {
+    let mut flush_inline = |inline: &mut String,
+                            in_list_item: bool,
+                            list_depth: usize,
+                            quote_depth: usize,
+                            marker: &str,
+                            out: &mut Vec<String>,
+                            styles: &mut Vec<Option<style::LineStyle>>,
+                            spans: &mut Vec<(usize, Vec<style::Span>)>,
+                            code_ranges: &mut Vec<(usize, usize)>,
+                            current: Option<style::LineStyle>,
+                            pending_blank: &mut bool| {
         let text = inline.trim_end().to_string();
+        // 引用块的空行：只输出前缀（哨兵 `\u{1}`，见预处理）。
+        if text == "\u{1}" && quote_depth > 0 {
+            inline.clear();
+            out.push(" │ ".repeat(quote_depth).trim_end().to_string());
+            styles.push(Some(style::LineStyle::default().italic()));
+            *pending_blank = false;
+            quote_blank_emitted.set(true);
+            return;
+        }
         inline.clear();
         if text.is_empty() {
             return;
@@ -3293,8 +3323,12 @@ pub fn render_markdown_styled_with_width(
     // 边框渲染。此前用 `Options::empty()` ⇒ GFM 表格没开，表格退化成原始竖线串，且紧随其后的
     // `### …` 因并入同一段落而丢掉标题语义（Windows 真机截图）。
     let options = Options::ENABLE_TABLES | Options::ENABLE_STRIKETHROUGH;
+    // ref `markdown.ts:556-570`：引用块内的空行（`>` 单独一行）会输出一个只有 ` │` 的行。
+    // pulldown-cmark **不给这种行任何事件**（事件探针确认），所以先把它替换成哨兵文本，
+    // 渲染时再还原成"只有前缀"的行。
+    let preprocessed = replace_quote_blank_lines(input);
     let mut table: Option<TableBuild> = None;
-    for event in Parser::new_ext(input, options) {
+    for event in Parser::new_ext(&preprocessed, options) {
         // —— 表格：先把单元格文本收进状态机，`End(Table)` 时整体排版（ref `markdown.ts:839`）。
         if table.is_some() {
             match &event {
@@ -3628,7 +3662,12 @@ pub fn render_markdown_styled_with_width(
                     current,
                     &mut pending_blank,
                 );
-                pending_blank = true;
+                if quote_blank_emitted.get() {
+                    // 刚输出的就是"引用块空行"，该段结束后不再补空行（否则比 TS 多一行）。
+                    quote_blank_emitted.set(false);
+                } else {
+                    pending_blank = true;
+                }
             }
             other => {
                 let _ = other;
