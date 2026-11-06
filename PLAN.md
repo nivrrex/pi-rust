@@ -67,3 +67,9 @@
 - C3：入库 3 个 `!` 场景 golden（`T89a/T89b/T89c`）；`T89d` 折叠高度差 1 行未入库。
 - C4：发布包 `~/archives/publish-20261106c`（buildHead `638ccc27`、publishTree `f98badae`，未发布）。
 - C2：折叠态在输出与提示之间补一行空行（与 TS 逐行对拍得出），`T89d-bash-fold` 转 same 并入库；regress dark **88/0/20**、light **23/0/1**。
+
+## F32 收口
+- Markdown 对齐 ref：嵌套列表缩进/换行、H3+ 保留 `###` 前缀、有序序号、链接 URL、围栏语言、引用块 ` │ `、分隔线、GFM 表格。
+- Windows：`PATH` 同时找 `node`/`node.exe`（`find_node_in_path` 纯函数 + 单测）。
+- frontmatter：复杂 YAML 只跳过该键、不再整条报错。
+- regress 新增 `STYLE_CHECK=1`（接入既有 compare-style，默认关闭）。

@@ -496,3 +496,6 @@ ref 的对应实现见 `interactive-mode.ts:2541`/`:2543`（`showExtensionNotify
    compare-tui 判 same、compare-style 判 `' '` vs `'─'`），说明**该比较器自身对这些 raw（含 OSC-8 超链接）解析有偏差**，
    不能直接作为闸门。推翻条件：修好 compare-style 的屏幕解析（含 OSC-8/滚动）后，开关打开仍全绿。
    （颜色真实偏差确实存在过：`[Skills]`/`[Extensions]` 标题色，已在 `c82b0bc8` 修。）
+7. **Markdown 引用块内的空行**：TS 打 ` │`，pi-rs 打空行 —— pulldown-cmark 对 `>` 单独一行**不产生任何事件**
+   （`Parser::new_ext` 事件探针确认），没有源位置就无法还原该行。推翻条件：改用 `into_offset_iter` 拿到源区间后补齐。
+8. **配色回归默认不设闸门**：见第 6 条；本批新增 `STYLE_CHECK=1` 开关（`scripts/regress-tui.sh`），默认关闭。
