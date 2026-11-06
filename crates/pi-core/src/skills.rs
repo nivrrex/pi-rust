@@ -247,8 +247,8 @@ fn parse_scalar_value(
     lines: &[String],
     idx: &mut usize,
     key_indent: usize,
-    key: &str,
-) -> Result<String, String> {
+    _key: &str,
+) -> Result<Option<String>, String> {
     let trimmed = raw_value.trim();
     let is_block_header = matches!(trimmed, ">" | ">-" | ">+" | "|" | "|-" | "|+");
     if is_block_header {
@@ -274,13 +274,13 @@ fn parse_scalar_value(
             content.pop();
         }
         *idx = cursor.saturating_sub(1);
-        return parse_block_scalar(trimmed, &content);
+        return parse_block_scalar(trimmed, &content).map(Some);
     }
     if trimmed.starts_with('"') {
-        return parse_double_quoted(trimmed);
+        return parse_double_quoted(trimmed).map(Some);
     }
     if trimmed.starts_with('\'') {
-        return parse_single_quoted(trimmed);
+        return parse_single_quoted(trimmed).map(Some);
     }
     // 其余形态：本实现只保证简单标量。遇到可能的复杂 YAML 一律拒绝，
     // 绝不静默给出可能错误的值（见 notes/decisions.md 的已知限制）。
@@ -292,19 +292,36 @@ fn parse_scalar_value(
         || trimmed.contains(" #")
         || trimmed.contains(": ")
     {
-        return Err(format!(
-            "unsupported frontmatter syntax for `{key}`: {trimmed}"
-        ));
+        // 复杂 YAML 形态（锚点/别名/tag/flow 集合/注释/嵌套映射）：**跳过该键**并把它的续行
+        // 一并吃掉。ref 用完整 YAML 解析（`utils/frontmatter.ts:1`），我们只保证简单标量，
+        // 但"元数据里有复杂结构"不该让整个技能加载失败，也不该在启动屏刷 Warning。
+        let mut cursor = *idx + 1;
+        while cursor < lines.len() {
+            let line = &lines[cursor];
+            if line.trim().is_empty() || indent_of(line) <= key_indent {
+                break;
+            }
+            cursor += 1;
+        }
+        *idx = cursor.saturating_sub(1);
+        return Ok(None);
     }
     // 简单标量不得跨行（下一行更缩进 ⇒ 多行 plain 标量 ⇒ 拒绝）。
     if let Some(next) = lines.get(*idx + 1) {
         if !next.trim().is_empty() && indent_of(next) > key_indent {
-            return Err(format!(
-                "unsupported frontmatter syntax for `{key}`: multi-line plain scalar"
-            ));
+            let mut cursor = *idx + 1;
+            while cursor < lines.len() {
+                let line = &lines[cursor];
+                if line.trim().is_empty() || indent_of(line) <= key_indent {
+                    break;
+                }
+                cursor += 1;
+            }
+            *idx = cursor.saturating_sub(1);
+            return Ok(None);
         }
     }
-    Ok(trimmed.to_string())
+    Ok(Some(trimmed.to_string()))
 }
 
 /// **受限 YAML 子集**解析（见模块文档的已知限制①）。
@@ -339,19 +356,19 @@ pub fn parse_frontmatter_minimal(yaml: &str) -> Result<Frontmatter, String> {
             .to_string();
         let raw_value = &line[colon + 1..];
         let key_indent = indent_of(&line);
-        let value = parse_scalar_value(raw_value, &lines, &mut i, key_indent, &key)?;
+        let Some(value) = parse_scalar_value(raw_value, &lines, &mut i, key_indent, &key)? else {
+            i += 1;
+            continue;
+        };
         if key == "name" {
             out.name = Some(value);
         } else if key == "description" {
             out.description = Some(value);
         } else if key == "disable-model-invocation" {
             let lowered = value.trim().to_ascii_lowercase();
-            if lowered != "true" && lowered != "false" {
-                return Err(format!(
-                    "unsupported frontmatter syntax for `disable-model-invocation`: {value}"
-                ));
+            if lowered == "true" || lowered == "false" {
+                out.disable_model_invocation = lowered == "true";
             }
-            out.disable_model_invocation = lowered == "true";
         }
         i += 1;
     }
@@ -900,23 +917,33 @@ mod tests {
         assert_eq!(checked, 13, "fixtures 数应为 13，实际 {checked}");
     }
 
-    /// 不支持的形态必须返回 `Err`（不静默给出可能错误的值）。
+    /// 复杂 YAML 形态：**跳过该键继续**，而不是让整个技能加载失败。
+    ///
+    /// 依据：ref 用完整 YAML 解析（`utils/frontmatter.ts:1` `import { parse } from "yaml"`，
+    /// `:34-39` 直接把整段交给 `parse`），因此这些形态在 ref 里是**合法值**、不会报错。
+    /// 我们只实现简单标量子集，取不到的值就不写，且**不再向上报 Warning**（真机启动屏曾刷
+    /// `Warning: unsupported frontmatter syntax for \`metadata\` …`）。
     #[test]
-    fn unsupported_frontmatter_forms_are_rejected() {
+    fn unsupported_frontmatter_forms_are_skipped() {
         for (label, content) in [
             ("锚点", "---\nname: x\ndescription: &d 锚点描述\n---\n"),
             ("别名", "---\nname: x\ndescription: *d\n---\n"),
             ("flow 序列", "---\nname: x\ndescription: [a, b]\n---\n"),
-            ("未知转义", "---\nname: x\ndescription: \"a\\qb\"\n---\n"),
             ("多行 plain", "---\nname: x\ndescription: 甲\n  乙\n---\n"),
             ("带注释", "---\nname: x\ndescription: 甲 # 注释\n---\n"),
         ] {
-            assert!(
-                parse_skill_frontmatter(content).is_err(),
-                "{label} 必须被拒绝"
-            );
+            let parsed = parse_skill_frontmatter(content).unwrap_or_else(|error| {
+                panic!("{label} 不应整条失败（ref 用完整 YAML 解析）：{error}")
+            });
+            // `name` 这类简单标量仍应被读到；只有复杂形态的键被跳过。
+            assert_eq!(parsed.name.as_deref(), Some("x"), "{label} 的 name 丢了");
         }
         // 支持形态的负向对照：同样内容去掉不支持的部分必须 Ok
         assert!(parse_skill_frontmatter("---\nname: x\ndescription: 锚点描述\n---\n").is_ok());
+        // 双引号里的未知转义在 YAML 里本身就是非法值（`yaml` 会抛），保持报错。
+        assert!(
+            parse_skill_frontmatter("---\nname: x\ndescription: \"a\\qb\"\n---\n").is_err(),
+            "非法双引号转义应仍然报错"
+        );
     }
 }
