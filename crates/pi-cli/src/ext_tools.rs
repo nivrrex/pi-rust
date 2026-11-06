@@ -606,10 +606,15 @@ pub fn find_node() -> Option<std::path::PathBuf> {
         return path.is_file().then_some(path);
     }
     let paths = std::env::var_os("PATH")?;
+    // Windows 上可执行文件带扩展名（`node.exe`）：只试 `node` 会漏掉所有 Windows 安装，
+    // 真机表现是"扩展未加载：找不到 node"，而 `node -v` 明明能用。两者都试，不区分平台
+    // （Linux 目录里不会有 `node.exe`，多试一次无副作用）。
     for dir in std::env::split_paths(&paths) {
-        let candidate = dir.join("node");
-        if candidate.is_file() {
-            return Some(candidate);
+        for name in ["node", "node.exe"] {
+            let candidate = dir.join(name);
+            if candidate.is_file() {
+                return Some(candidate);
+            }
         }
     }
     None
