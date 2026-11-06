@@ -1585,6 +1585,7 @@ pub fn run(
                     | TuiEvent::AssistantDelta(_)
                     | TuiEvent::ThinkingDelta(_)
                     | TuiEvent::ToolCall { .. }
+                    | TuiEvent::BashDone { .. }
                     | TuiEvent::Usage { .. }
                     | TuiEvent::UsageTotals { .. }
                     | TuiEvent::Status(_)
@@ -1719,6 +1720,7 @@ pub fn run(
                                 | TuiEvent::AssistantDelta(_)
                                 | TuiEvent::ThinkingDelta(_)
                                 | TuiEvent::ToolCall { .. }
+                                | TuiEvent::BashDone { .. }
                                 | TuiEvent::Usage { .. }
                                 | TuiEvent::UsageTotals { .. }
                                 | TuiEvent::Status(_)
@@ -3240,47 +3242,88 @@ pub fn run(
                             rest.trim().to_string()
                         };
                         if !command.is_empty() {
-                            // S1a：先给**占位完成态**（真正执行在 S1b）。
-                            let message = pi_ai::message::Message::BashExecution {
-                                command: command.clone(),
-                                output: String::new(),
-                                exit_code: Some(0),
-                                cancelled: false,
-                                truncated: false,
-                                full_output_path: None,
-                                timestamp: pi_core::timefmt::now_unix_millis(),
-                                exclude_from_context: Some(exclude),
-                                extra: serde_json::Map::new(),
-                            };
+                            // F31/S1b：真实执行。**不能在 TUI 主线程 `block_on`**（bash 工具依赖
+                            // tokio 运行时，实测会卡死）⇒ 起独立线程、线程内自建 current-thread runtime。
                             state
                                 .transcript
                                 .push(crate::tui::TranscriptItem::BashExecution {
                                     command: command.clone(),
                                     output: String::new(),
-                                    exit_code: Some(0),
+                                    exit_code: None,
                                     cancelled: false,
                                     truncated: false,
                                     full_output_path: None,
                                     exclude_from_context: exclude,
-                                    running: false,
+                                    running: true,
                                 });
-                            if let Some(parts) = parts.as_ref() {
-                                if let Some(writer) = parts.writer.as_ref() {
-                                    if let Ok(mut guard) = writer.lock() {
-                                        if let Err(error) = guard.append_message(&message) {
-                                            eprintln!("pi-rs: 写 bashExecution 失败：{error}");
+                            let bash_cmd = command.clone();
+                            let bash_tx = tx.clone();
+                            let bash_parts = parts.as_ref().map(std::sync::Arc::clone);
+                            let bash_history = std::sync::Arc::clone(&history);
+                            std::thread::spawn(move || {
+                                let Ok(runtime) = tokio::runtime::Builder::new_current_thread()
+                                    .enable_all()
+                                    .build()
+                                else {
+                                    eprintln!("pi-rs: 无法创建 bash 运行时");
+                                    return;
+                                };
+                                use pi_core::tools::tool::Tool as _;
+                                let tool = pi_core::tools::bash::BashTool;
+                                let context = pi_core::tools::tool::ToolContext {
+                                    cwd: std::env::current_dir()
+                                        .unwrap_or_else(|_| std::path::PathBuf::from(".")),
+                                };
+                                let cancel = tokio_util::sync::CancellationToken::new();
+                                let result = runtime.block_on(tool.execute(
+                                    serde_json::json!({ "command": bash_cmd.clone() }),
+                                    &context,
+                                    &cancel,
+                                ));
+                                let output: String = result
+                                    .content
+                                    .iter()
+                                    .filter_map(|block| match block {
+                                        pi_core::tools::tool::ToolResultBlock::Text { text } => {
+                                            Some(text.clone())
                                         }
-                                        // `!` 会话通常没有 assistant ⇒ 首次整文件落盘不会自然发生，
-                                        // 这里显式刷一次，保证条目真的写进 jsonl（ref 是逐条即时写）。
-                                        if let Err(error) = guard.ensure_flushed() {
-                                            eprintln!("pi-rs: 刷会话文件失败：{error}");
+                                        pi_core::tools::tool::ToolResultBlock::Image { .. } => None,
+                                    })
+                                    .collect::<Vec<_>>()
+                                    .join("\n");
+                                let exit_code = Some(i64::from(result.is_error));
+                                let message = pi_ai::message::Message::BashExecution {
+                                    command: bash_cmd,
+                                    output: output.clone(),
+                                    exit_code,
+                                    cancelled: false,
+                                    truncated: false,
+                                    full_output_path: None,
+                                    timestamp: pi_core::timefmt::now_unix_millis(),
+                                    exclude_from_context: Some(exclude),
+                                    extra: serde_json::Map::new(),
+                                };
+                                if let Some(parts) = bash_parts.as_ref() {
+                                    if let Some(writer) = parts.writer.as_ref() {
+                                        if let Ok(mut guard) = writer.lock() {
+                                            if let Err(error) = guard.append_message(&message) {
+                                                eprintln!("pi-rs: 写 bashExecution 失败：{error}");
+                                            }
+                                            if let Err(error) = guard.ensure_flushed() {
+                                                eprintln!("pi-rs: 刷会话文件失败：{error}");
+                                            }
                                         }
                                     }
                                 }
-                                if let Ok(mut guard) = history.lock() {
+                                if let Ok(mut guard) = bash_history.lock() {
                                     guard.push(message);
                                 }
-                            }
+                                let _ = bash_tx.send(pi_tui::TuiEvent::BashDone {
+                                    output,
+                                    exit_code,
+                                    cancelled: false,
+                                });
+                            });
                             state.input.clear();
                             dirty = true;
                             continue;

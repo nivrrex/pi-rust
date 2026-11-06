@@ -295,6 +295,15 @@ impl TuiState {
 pub enum TuiEvent {
     /// 切换主题（ref `settings-manager.setTheme` 之后立即重绘）。
     ThemeName(String),
+    /// `!` 命令执行结束（F31/S1b）：把最后一条"运行中"的 bash 块置为完成态。
+    BashDone {
+        /// 完整输出。
+        output: String,
+        /// 退出码（`None` = 被取消/未取到）。
+        exit_code: Option<i64>,
+        /// 是否被取消。
+        cancelled: bool,
+    },
     /// 可打印字符。
     Char(char),
     /// 退格。
@@ -812,6 +821,32 @@ pub fn apply(state: &mut TuiState, event: TuiEvent) -> TuiAction {
         }
         TuiEvent::RetryState(active) => {
             state.retrying = active;
+            TuiAction::Redraw
+        }
+        TuiEvent::BashDone {
+            output,
+            exit_code,
+            cancelled,
+        } => {
+            // 从后往前找"还在运行"的 bash 块（ref 里 `setComplete` 作用在当次组件上）。
+            for item in state.transcript.iter_mut().rev() {
+                if let TranscriptItem::BashExecution {
+                    output: slot,
+                    exit_code: code,
+                    cancelled: cancelled_slot,
+                    running,
+                    ..
+                } = item
+                {
+                    if *running {
+                        *slot = output;
+                        *code = exit_code;
+                        *cancelled_slot = cancelled;
+                        *running = false;
+                        break;
+                    }
+                }
+            }
             TuiAction::Redraw
         }
         TuiEvent::AssistantNotice(text) => {
