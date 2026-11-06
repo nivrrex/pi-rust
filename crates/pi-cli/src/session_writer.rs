@@ -564,6 +564,12 @@ impl SessionWriter {
             self.pending.push(line);
             return Ok(());
         }
+        self.write_first_flush(Some(&line))
+    }
+    /// 首次整文件落盘（header + `pending` + 这一条），并把早写进文件的 `custom` 行按逻辑顺序并入。
+    ///
+    /// 抽出来是为了让"只有 bash 条目、没有 assistant"的会话也能落盘（ref 是逐条即时写）。
+    fn write_first_flush(&mut self, extra_line: Option<&str>) -> Result<(), String> {
         if let Some(parent) = self.path.parent() {
             std::fs::create_dir_all(parent).map_err(|error| error.to_string())?;
         }
@@ -587,15 +593,18 @@ impl SessionWriter {
                     .collect()
             })
             .unwrap_or_default();
-        let mut body = String::with_capacity(self.header_line.len() + line.len() + 64);
+        let extra_len = extra_line.map_or(0, str::len);
+        let mut body = String::with_capacity(self.header_line.len() + extra_len + 64);
         body.push_str(&self.header_line);
         body.push('\n');
         for buffered in self.pending.drain(..) {
             body.push_str(&buffered);
             body.push('\n');
         }
-        body.push_str(&line);
-        body.push('\n');
+        if let Some(line) = extra_line {
+            body.push_str(line);
+            body.push('\n');
+        }
         // 并入早写的行时**按逻辑顺序**插到 system 条目之后：sink 的 `appendEntry` 是在
         // `session_start` 里发生的（此时 system 已攒进 `pending`、user/assistant 还没写），
         // 直接追加到文件末尾会让"文件顺序"与"parentId 链"不一致（F28/S1 暴露）。
@@ -624,6 +633,15 @@ impl SessionWriter {
         self.flushed = true;
         Ok(())
     }
+
+    /// 保证"已攒的条目"写进文件（`!` 命令这类没有 assistant 的会话用）。
+    pub fn ensure_flushed(&mut self) -> Result<(), String> {
+        if self.flushed {
+            return Ok(());
+        }
+        self.write_first_flush(None)
+    }
+
     /// 追加一条 `compaction` 条目（ref `session-manager.ts:1259-1285` 的 `appendCompaction`）。
     ///
     /// 字段与 ref 一致：`type/id/parentId/timestamp/summary/firstKeptEntryId/tokensBefore/details/usage/fromHook/systemMessage`。

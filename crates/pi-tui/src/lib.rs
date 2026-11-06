@@ -168,6 +168,26 @@ pub enum TranscriptItem {
         /// 是否展开（`ctrl+o` 切换；本实现暂未接键盘）。
         expanded: bool,
     },
+    /// 用户 `!` / `!!` 命令块（ref `components/bash-execution.ts:32-60`）：
+    /// 上边框 + ` $ <command>` + 输出 + 下边框；`!!` 用 dim 边框。
+    BashExecution {
+        /// 命令正文（已去掉 `!`/`!!` 前缀并 trim）。
+        command: String,
+        /// 已收集的输出（流式追加）。
+        output: String,
+        /// 退出码；`None` = 未完成或被取消。
+        exit_code: Option<i64>,
+        /// 是否被用户取消（Esc）。
+        cancelled: bool,
+        /// 输出是否被截断（截断时 `full_output_path` 指向完整输出文件）。
+        truncated: bool,
+        /// 完整输出文件路径（截断时才有）。
+        full_output_path: Option<String>,
+        /// `!!` ⇒ 不进上下文（仅影响边框颜色与会话字段）。
+        exclude_from_context: bool,
+        /// 是否仍在运行。
+        running: bool,
+    },
     /// 状态通知行（ref `interactive-mode.ts:3695-3716` 的 `showStatus`：`Text(msg, 1, 0)`，
     /// 即前导一个空格；连续同一条时**原地替换**而不是新增一行）。
     Status(String),
@@ -699,6 +719,7 @@ pub fn apply(state: &mut TuiState, event: TuiEvent) -> TuiAction {
                 | Some(TranscriptItem::Status(_))
                 | Some(TranscriptItem::Notice(_))
                 | Some(TranscriptItem::ToolCall { .. })
+                | Some(TranscriptItem::BashExecution { .. })
                 | None => state.transcript.push(TranscriptItem::Thinking(delta)),
             }
             TuiAction::Redraw
@@ -810,6 +831,7 @@ pub fn apply(state: &mut TuiState, event: TuiEvent) -> TuiAction {
                 | Some(TranscriptItem::Thinking(_))
                 | Some(TranscriptItem::Notice(_))
                 | Some(TranscriptItem::ToolCall { .. })
+                | Some(TranscriptItem::BashExecution { .. })
                 | None => state.transcript.push(TranscriptItem::Assistant(delta)),
             }
             TuiAction::Redraw
@@ -1700,6 +1722,9 @@ fn item_style(
         // 用户消息：TS 是整块底色 + 默认前景（`user-message.ts:40,48`）。
         // 用户消息：整块底色 + `userMessageText`（= theme `text`，实测 256 色 188），
         // 不是"仅底色+默认前景"（T01 实测 TS 的文字 cell 有前景色）。
+        // `!` 命令块（ref `bash-execution.ts:36-38`：`!!` 用 dim，普通用 bashMode）：
+        // 这里先不额外上色（S2 再按逐帧对照补），返回 `None` 表示用默认样式。
+        TranscriptItem::BashExecution { .. } => None,
         TranscriptItem::User(_) | TranscriptItem::SkillInvocation { .. } => {
             Some(LineStyle::fg(palette.text).with_bg(palette.user_message_bg))
         }
@@ -1976,6 +2001,18 @@ fn render_all_cached_styled_inner(
                 format!("s\u{1}{name}\u{1}{content}")
             }
             TranscriptItem::Assistant(text) => format!("a\u{1}{text}"),
+            TranscriptItem::BashExecution {
+                command,
+                output,
+                exit_code,
+                cancelled,
+                truncated,
+                full_output_path,
+                exclude_from_context,
+                running,
+            } => format!(
+                "b\u{1}{command}\u{1}{output}\u{1}{exit_code:?}\u{1}{cancelled}\u{1}{truncated}\u{1}{full_output_path:?}\u{1}{exclude_from_context}\u{1}{running}"
+            ),
             TranscriptItem::BranchSummary { summary, expanded } => {
                 format!("b\u{1}{expanded}\u{1}{summary}")
             }
@@ -2046,6 +2083,49 @@ fn render_all_cached_styled_inner(
         // `addChild(new Spacer(1))`（如 `interactive-mode.ts:3678/3768/3775/3787/3800/3964/3979/4021`）。
         lines.push(String::new());
         match item {
+            // `!` / `!!` 命令块（ref `components/bash-execution.ts:44-59`）：
+            // 上边框 + ` $ <command>` + 输出/运行态 + 下边框。
+            TranscriptItem::BashExecution {
+                command,
+                output,
+                exit_code,
+                cancelled,
+                truncated,
+                full_output_path,
+                running,
+                ..
+            } => {
+                let rule = "─".repeat(cols.saturating_sub(2));
+                lines.push(clamp_to_width(&format!(" {rule}"), cols));
+                lines.push(clamp_to_width(&format!(" $ {command}"), cols));
+                if *running {
+                    lines.push(clamp_to_width("  Running... (esc to cancel)", cols));
+                }
+                for line in output.lines() {
+                    for wrapped in wrap_to_width(&format!(" {line}"), cols) {
+                        lines.push(wrapped);
+                    }
+                }
+                if !*running {
+                    let status = if *cancelled {
+                        " (cancelled)".to_string()
+                    } else {
+                        format!(
+                            " (exit {})",
+                            exit_code.map_or("?".to_string(), |c| c.to_string())
+                        )
+                    };
+                    lines.push(clamp_to_width(&status, cols));
+                    if *truncated {
+                        let path = full_output_path.as_deref().unwrap_or("");
+                        lines.push(clamp_to_width(
+                            &format!(" (truncated; full output: {path})"),
+                            cols,
+                        ));
+                    }
+                }
+                lines.push(clamp_to_width(&format!(" {rule}"), cols));
+            }
             TranscriptItem::SkillInvocation { name, content } => {
                 // ref `skill-invocation-message.ts:48-56`：折叠态一行
                 // `[skill] <name> (ctrl+o to expand)`；展开态 `[skill]` + 名称 + 正文。

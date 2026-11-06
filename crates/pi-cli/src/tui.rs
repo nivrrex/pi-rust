@@ -2845,7 +2845,8 @@ pub fn run(
                     | pi_tui::TranscriptItem::Notice(_)
                     | pi_tui::TranscriptItem::Status(_)
                     | pi_tui::TranscriptItem::BranchSummary { .. }
-                    | pi_tui::TranscriptItem::ToolCall { .. } => None,
+                    | pi_tui::TranscriptItem::ToolCall { .. }
+                    | pi_tui::TranscriptItem::BashExecution { .. } => None,
                 });
                 match last {
                     Some(text) => {
@@ -3229,6 +3230,62 @@ pub fn run(
                         crate::ext_tools::InputOutcome::Transform(text) => text,
                         crate::ext_tools::InputOutcome::Continue => text,
                     };
+                    // F31/S1a：`!` / `!!` 输入分流（ref `interactive-mode.ts:3225-3240`）。
+                    // 空命令（只有一个 `!`）**不算** bash，按普通提示词放行（ref 的 `if (command)`）。
+                    if let Some(rest) = text.strip_prefix('!') {
+                        let exclude = rest.starts_with('!');
+                        let command = if exclude {
+                            rest[1..].trim().to_string()
+                        } else {
+                            rest.trim().to_string()
+                        };
+                        if !command.is_empty() {
+                            // S1a：先给**占位完成态**（真正执行在 S1b）。
+                            let message = pi_ai::message::Message::BashExecution {
+                                command: command.clone(),
+                                output: String::new(),
+                                exit_code: Some(0),
+                                cancelled: false,
+                                truncated: false,
+                                full_output_path: None,
+                                timestamp: pi_core::timefmt::now_unix_millis(),
+                                exclude_from_context: Some(exclude),
+                                extra: serde_json::Map::new(),
+                            };
+                            state
+                                .transcript
+                                .push(crate::tui::TranscriptItem::BashExecution {
+                                    command: command.clone(),
+                                    output: String::new(),
+                                    exit_code: Some(0),
+                                    cancelled: false,
+                                    truncated: false,
+                                    full_output_path: None,
+                                    exclude_from_context: exclude,
+                                    running: false,
+                                });
+                            if let Some(parts) = parts.as_ref() {
+                                if let Some(writer) = parts.writer.as_ref() {
+                                    if let Ok(mut guard) = writer.lock() {
+                                        if let Err(error) = guard.append_message(&message) {
+                                            eprintln!("pi-rs: 写 bashExecution 失败：{error}");
+                                        }
+                                        // `!` 会话通常没有 assistant ⇒ 首次整文件落盘不会自然发生，
+                                        // 这里显式刷一次，保证条目真的写进 jsonl（ref 是逐条即时写）。
+                                        if let Err(error) = guard.ensure_flushed() {
+                                            eprintln!("pi-rs: 刷会话文件失败：{error}");
+                                        }
+                                    }
+                                }
+                                if let Ok(mut guard) = history.lock() {
+                                    guard.push(message);
+                                }
+                            }
+                            state.input.clear();
+                            dirty = true;
+                            continue;
+                        }
+                    }
                     if busy {
                         queued_inputs.push_back(text);
                         dirty = true;
