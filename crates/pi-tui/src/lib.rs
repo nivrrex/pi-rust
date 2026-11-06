@@ -2556,6 +2556,36 @@ pub fn render(state: &TuiState, cols: usize, rows: usize) -> Vec<String> {
 
 #[cfg(test)]
 mod tests {
+    /// F30/S7b：`[Context]` 段路径显示的五个布局（ref `interactive-mode.ts:1340-1349`）。
+    #[test]
+    fn context_display_path_five_layouts() {
+        // 1) 全局（家目录下、cwd 外）⇒ `~` 缩写
+        assert_eq!(
+            super::context_display_path("/home/u/.pi/agent/AGENTS.md", "/work", Some("/home/u")),
+            "~/.pi/agent/AGENTS.md"
+        );
+        // 2) cwd 下 ⇒ 相对路径
+        assert_eq!(
+            super::context_display_path("/work/AGENTS.md", "/work", Some("/home/u")),
+            "AGENTS.md"
+        );
+        // 3) 两者并存（cwd 在家目录下）：cwd 相对优先
+        assert_eq!(
+            super::context_display_path("/home/u/proj/AGENTS.md", "/home/u/proj", Some("/home/u")),
+            "AGENTS.md"
+        );
+        // 4) 文件在家目录下、cwd 不在其下 ⇒ `~` 缩写
+        assert_eq!(
+            super::context_display_path("/home/u/docs/x.md", "/home/u/proj", Some("/home/u")),
+            "~/docs/x.md"
+        );
+        // 5) cwd 在家目录外、文件也不在家目录下 ⇒ 绝对路径
+        assert_eq!(
+            super::context_display_path("/srv/data/x.md", "/mnt/work", Some("/home/u")),
+            "/srv/data/x.md"
+        );
+    }
+
     use super::*;
 
     fn state() -> TuiState {
