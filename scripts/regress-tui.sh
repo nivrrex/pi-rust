@@ -77,7 +77,14 @@ run_one() {
   cols=${dims%% *}; rows=${dims##* }
   if node "$REPO/tools/difftest/compare-tui.mjs" --left "$gold" --right "$raw" \
       --cols "$cols" --rows "$rows" 2>&1 | head -1 | grep -q same; then
-    echo "$name run-$run same"
+    # 文本一致后再比**样式**（SGR：前景/背景/粗体/斜体/暗淡/反显）。`compare-style.mjs` 是既有
+    # 比较器，这里只**增加调用**、不改它的判据；文本已 different 的场景不再重复算样式。
+    if [ "${STYLE_CHECK:-0}" = "1" ] && ! node "$REPO/tools/difftest/compare-style.mjs" \
+        --left "$gold" --right "$raw" --cols "$cols" --rows "$rows" 2>&1 | head -1 | grep -q same; then
+      echo "$name run-$run STYLE"
+    else
+      echo "$name run-$run same"
+    fi
   else
     echo "$name run-$run DIFFERENT"
   fi
@@ -98,9 +105,9 @@ echo "$serial_list" | tr ' ' '\n' | grep -v '^$' | while read -r name; do
   for run in $(seq 1 "$RUNS"); do echo "$name $run"; done
 done > "$OUT_ROOT/serial.txt"
 
-xargs -P "$JOBS" -n 2 sh -c "$(declare -f run_one); REPO=$REPO OUT_ROOT=$OUT_ROOT BIN=$BIN SCEN_DIR=$SCEN_DIR GOLD_DIR=$GOLD_DIR run_one \"\$0\" \"\$1\"" \
+xargs -P "$JOBS" -n 2 sh -c "$(declare -f run_one); REPO=$REPO OUT_ROOT=$OUT_ROOT BIN=$BIN SCEN_DIR=$SCEN_DIR GOLD_DIR=$GOLD_DIR STYLE_CHECK=${STYLE_CHECK:-0} run_one \"\$0\" \"\$1\"" \
   < "$OUT_ROOT/parallel.txt" > "$OUT_ROOT/parallel.log" 2>&1
-xargs -P 1 -n 2 sh -c "$(declare -f run_one); REPO=$REPO OUT_ROOT=$OUT_ROOT BIN=$BIN SCEN_DIR=$SCEN_DIR GOLD_DIR=$GOLD_DIR run_one \"\$0\" \"\$1\"" \
+xargs -P 1 -n 2 sh -c "$(declare -f run_one); REPO=$REPO OUT_ROOT=$OUT_ROOT BIN=$BIN SCEN_DIR=$SCEN_DIR GOLD_DIR=$GOLD_DIR STYLE_CHECK=${STYLE_CHECK:-0} run_one \"\$0\" \"\$1\"" \
   < "$OUT_ROOT/serial.txt" > "$OUT_ROOT/serial.log" 2>&1
 
 cat "$OUT_ROOT/parallel.log" "$OUT_ROOT/serial.log" > "$OUT_ROOT/result.txt"
@@ -108,5 +115,10 @@ same=$(grep -c ' same$' "$OUT_ROOT/result.txt" || true)
 diff=$(grep -c ' DIFFERENT$' "$OUT_ROOT/result.txt" || true)
 nogold=$(grep -c ' nogolden$' "$OUT_ROOT/result.txt" || true)
 fail=$(grep -c ' runfail$' "$OUT_ROOT/result.txt" || true)
-echo "same=$same different=$diff nogolden=$nogold runfail=$fail"
+style=$(grep -c ' STYLE$' "$OUT_ROOT/result.txt" || true)
+if [ "${STYLE_CHECK:-0}" = "1" ]; then
+  echo "same=$same different=$diff style=$style nogolden=$nogold runfail=$fail"
+else
+  echo "same=$same different=$diff nogolden=$nogold runfail=$fail"
+fi
 [ "$diff" -eq 0 ] && [ "$fail" -eq 0 ]

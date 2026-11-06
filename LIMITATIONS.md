@@ -489,3 +489,10 @@ ref 的对应实现见 `interactive-mode.ts:2541`/`:2543`（`showExtensionNotify
    ①bash 块前的空行（ref 直接 `chatContainer.addChild(bashComponent)`，`interactive-mode.ts:6786`，无 Spacer）；
    ②footer 百分比（见第 1 条）；③`tools/difftest/compare-tui.mjs` 未归一化随机临时路径 `/tmp/tui-<场景>-XXXXXX/work`。
    推翻条件：三类差异各自消除后，用 TS 录制 4 个场景并全部 same。
+6. **颜色回归没有默认闸门**：`tools/difftest/compare-style.mjs` 已存在（逐单元格比 `fg/bg/bold/italic/dim/inverse`），
+   但 `scripts/regress-tui.sh` 之前**没有调用**它。本批加了 `STYLE_CHECK=1` 开关（只增加调用、不改比较器判据）。
+   实测在既有 88 个 dark golden 上开启后**全部报差异**，首个差异分类：`ch` 40、`fg` 13、`dim` 11、`bold` 11、
+   `ch,fg` 10、`bg` 1 —— 其中 `ch` 类与 `compare-tui` 的"same"结论矛盾（例：`T100-skills` r10c0，
+   compare-tui 判 same、compare-style 判 `' '` vs `'─'`），说明**该比较器自身对这些 raw（含 OSC-8 超链接）解析有偏差**，
+   不能直接作为闸门。推翻条件：修好 compare-style 的屏幕解析（含 OSC-8/滚动）后，开关打开仍全绿。
+   （颜色真实偏差确实存在过：`[Skills]`/`[Extensions]` 标题色，已在 `c82b0bc8` 修。）
