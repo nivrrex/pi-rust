@@ -17,3 +17,9 @@ L3 基线（R3）：dark 82 same / 2 different / 20 nogolden；light 23 same / 0
 - (c) 三方逐行（T52 为完整跑完后的终值，此前 22 行是运行中途读取）：T45 → golden == TS live（25/25 逐行一致），pi-rs 24 行，第一处不同行号 **0**（顶部缺 ` !! to run bash (no context)`，成因是 pi-rs 少一个空行导致整屏上移）；T10 → golden == TS live（27/27），pi-rs 27 行，第一处不同行号 **25**（footer `1.2%` vs `1.1%`）；T52 → golden == TS live（24/24），pi-rs 23 行，第一处不同行号 **0**。三处均为 pi-rs 侧差异。
 - (d) T10 百分比口径：ref `footer.ts:110-113`（`contextWindow/percent` 取自 `session.getContextUsage()`），`agent-session.ts:3858-3904`（`estimateProjectedContextTokens(...).tokens / contextWindow * 100`）。pi-rs 对应 `crates/pi-cli/src/tui.rs` 的 `TuiEvent::Usage` 分支（percent 由 `context_tokens`/`system+text` 估算），`crates/pi-tui/src/lib.rs:869-880` 负责格式化。
 - (e) T45 文案来源：ref `interactive-mode.ts:955-990`（`expandedInstructions` 数组，`!!` 在 :978）；pi-rs `crates/pi-tui/src/lib.rs:1847-1849` 有同一行。差异不在该行本身，而在其上方少一个空行（golden 第 18 行为空、pi-rs 第 18 行即分隔线），产生空行的组件行号**未定位**。
+
+### S0b 续：50 行视口下的全屏对照
+- 用法：把 T45 场景复制成 `tmp/T45-r50.json`（仅 `tui.rows=50`，仓库文件不动），TS（pnpm 包）与 pi-rs 各跑一次。
+- 结果：TS 42 行 / pi-rs 42 行，**唯一差异在第 25 行**：TS `  <TMP>/work/AGENTS.md`（绝对路径），pi-rs `  AGENTS.md`（相对路径）。其余 41 行逐行一致。
+- 30 行视口下 pi-rs 少 1 行（25 vs 24）与该差异的因果关系**未证实**：两者在同一 42 行内容下仅 1 行不同，行数相同。
+- ref 依据：`formatContextPath`（`interactive-mode.ts:1342-1350`）——路径在 cwd 内返回相对路径，否则 `formatDisplayPath`（home→`~`，其余绝对）；`getCwdRelativePath`（`utils/paths.ts:108-117`）做"是否在 cwd 内"判定。TS 实跑输出了绝对路径 ⇒ 在其环境里该判定返回 undefined（具体原因未证实）。
