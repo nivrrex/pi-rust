@@ -499,7 +499,12 @@ ref 的对应实现见 `interactive-mode.ts:2541`/`:2543`（`showExtensionNotify
 7. **Markdown 引用块内的空行**：TS 打 ` │`，pi-rs 打空行 —— pulldown-cmark 对 `>` 单独一行**不产生任何事件**
    （`Parser::new_ext` 事件探针确认），没有源位置就无法还原该行。推翻条件：改用 `into_offset_iter` 拿到源区间后补齐。
 8. **配色回归默认不设闸门**：见第 6 条；本批新增 `STYLE_CHECK=1` 开关（`scripts/regress-tui.sh`），默认关闭。
-9. **颜色差异尚未清零（重新分类）**：修复"启动屏 ` pi v…` 行样式"后 regress **dark 90/0/20**。
+9. **颜色差异尚未清零（官方归一化后重分类）**：新增 `tools/difftest/color-classify.mjs`（复用
+   `compare-tui.normalizeScreen`，不改它）。对 90 个 dark golden：**exact=22、逐格样式不同=68**。
+   **关键发现**：语料自身不自洽 —— `T01` 的 golden 里 ` pi v0.87.1` 行的首列是 `dim`，`T02` 的 golden
+   同位置**没有** `dim`（`r1` 逐格 dump 实测）。同一份 UI 不可能两种样式 ⇒ 这些 golden 是在不同终端能力/
+   不同 pi-rs 版本下录的，追求"逐格样式全绿"必须以**重新录制 golden** 为前提（属红线，需授权）。
+   9a. **颜色差异尚未清零（初版记录）**：修复"启动屏 ` pi v…` 行样式"后 regress **dark 90/0/20**。
    用 `color-dump.mjs` 对 90 个 dark golden 重新分类：`exact=0`、仅空行数不同 **9**、逐格不同 **81**；
    但其中相当部分是**归一化不彻底**造成的假阳性——手工核 `T01`：去掉随机临时目录与 resume 行的
    session id 后，逐格 dump **只剩 2 行环境差异**，样式与 TS 完全一致。要得到真实分类，分类脚本需要
