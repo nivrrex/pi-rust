@@ -3833,9 +3833,10 @@ mod markdown_tests {
             .iter()
             .position(|line| line.contains("未改动"))
             .expect("标题行");
+        // ref `markdown.ts:482`：`headingLevel >= 3` **保留** `### ` 前缀（与 TS 逐行对拍）。
         assert!(
-            !lines[heading_index].contains("###"),
-            "标题不应残留 ###：{:?}",
+            lines[heading_index].contains("### 未改动"),
+            "H3 应保留前缀：{:?}",
             lines[heading_index]
         );
         assert_eq!(
