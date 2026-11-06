@@ -944,14 +944,18 @@ fn run_print(parsed: &Args, json: bool) -> ExitCode {
     };
     let session_writer = if parsed.no_session {
         None
-    } else if parsed.continue_session || parsed.resume {
-        // **续写**：找会话目录里**最新**的 `.jsonl`，从它重建上下文，并**续写同一文件**。
+    } else if parsed.continue_session || parsed.resume || parsed.session.is_some() {
+        // **续写**：显式 `--session <path>` 优先；否则找会话目录里**最新**的 `.jsonl`。
+        // 显式路径此前被忽略（只用于模型解析），导致 `--session` 实际新开空会话。
         // golden/S14 实测：续写后会话里只有**一条** `session`、没有重复的 `model_change`，
         // 且 `system` 只出现一次——所以 `open` 不写 header/system 条目。
-        let Some(path) = pi_cli::session_writer::newest_session_file(
-            &paths.session_dir,
-            continue_cwd_filter(&paths, &cwd),
-        ) else {
+        let explicit = parsed.session.as_deref().map(std::path::PathBuf::from);
+        let Some(path) = explicit.or_else(|| {
+            pi_cli::session_writer::newest_session_file(
+                &paths.session_dir,
+                continue_cwd_filter(&paths, &cwd),
+            )
+        }) else {
             eprintln!(
                 "pi-rs: 找不到可续写的会话文件（目录：{}）",
                 paths.session_dir.display()
@@ -1415,7 +1419,9 @@ fn build_tui_agent_parts(
     // TUI 会话落盘（W4 会话层）：与 print 路径同一批调用（`SessionWriter::create` + `append_system_message`）。
     // `--continue/-c` / `--resume`：**续写最近一个会话**（而不是新建），并把历史消息读出来
     // （ref `sdk.ts` 的 continue 语义；此前 TUI 路径忽略这两个开关，导致续写会话是空屏、`/tree` 无历史）。
-    let resumed_path = if parsed.continue_session || parsed.resume {
+    let resumed_path = if let Some(explicit) = parsed.session.as_deref() {
+        Some(std::path::PathBuf::from(explicit))
+    } else if parsed.continue_session || parsed.resume {
         pi_cli::session_writer::newest_session_file(
             &paths.session_dir,
             continue_cwd_filter(paths, cwd),
