@@ -3209,7 +3209,7 @@ pub fn render_markdown_styled_with_width(
     // 每层列表是否有序与下一个序号（`Tag::List(Some(start))`）；无序层为 `None`。
     let mut list_stack: Vec<Option<u64>> = Vec::new();
     let mut in_code_block = false;
-    let mut fence_line = " ```".to_string();
+    let mut fence_line;
     let mut link_dest: Option<String> = None;
     // 引用深度（ref `markdown.ts:556-570`：每行前缀 `│ `、整体 italic）。
     let mut quote_depth: usize = 0;
