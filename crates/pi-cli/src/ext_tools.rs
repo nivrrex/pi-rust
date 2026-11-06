@@ -1231,6 +1231,9 @@ pub fn emit_user_bash(
     });
     match host.emit_value("user_bash", payload, std::time::Duration::from_secs(30)) {
         Ok(Some(value)) => {
+            if value.get("__failed").is_some() {
+                return UserBash::Failed;
+            }
             if let Some(result) = value.get("result") {
                 UserBash::Result(result.clone())
             } else if let Some(operations) = value.get("operations") {

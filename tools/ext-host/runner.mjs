@@ -516,6 +516,39 @@ async function dispatch(frame) {
       });
       return;
     }
+    // `user_bash`：**第一个**返回 `{result}` 或 `{operations}` 的处理器胜出；
+    // 返回 `undefined` 继续下一个；**任一处理器抛错即整体失败**（ref `runner.ts:1154-1180`）。
+    if (name === "user_bash") {
+      for (const handler of list) {
+        let result;
+        try {
+          result = await handler({ ...(params?.payload ?? {}) }, contextForExtension());
+        } catch (error) {
+          const message = String(error && error.message ? error.message : error);
+          process.stderr.write(`[ext-host] user_bash handler failed: ${message}\n`);
+          respond(id, { handled: list.length, errors: [message], result: { __failed: message } });
+          return;
+        }
+        if (result === undefined) continue;
+        const valid =
+          result &&
+          typeof result === "object" &&
+          ((result.result && typeof result.result === "object") ||
+            (result.operations && typeof result.operations === "object"));
+        if (!valid) {
+          respond(id, {
+            handled: list.length,
+            errors,
+            result: { __failed: "Invalid user_bash handler result" },
+          });
+          return;
+        }
+        respond(id, { handled: list.length, errors, result });
+        return;
+      }
+      respond(id, { handled: list.length, errors, result: null });
+      return;
+    }
     // `before_agent_start`：收集 `message`，`systemPrompt` 覆盖后者胜（ref `runner.ts:1312-1365`）。
     if (name === "before_agent_start") {
       const messages = [];
