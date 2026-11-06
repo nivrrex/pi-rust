@@ -3389,6 +3389,26 @@ pub fn render_markdown_styled_with_width(
                     inline.push(' ');
                 }
             }
+            // ref `markdown.ts:605-610`：分隔线 `─` × min(width, 80)，样式取 `hr`（我们无该色键 ⇒ dim）。
+            Event::Rule => {
+                // ref 的段落/标题分支都会在 `nextTokenType !== "space"` 时补一行空行，分隔线前也是。
+                if !out.is_empty()
+                    && !out
+                        .last()
+                        .map(|line| line.trim().is_empty())
+                        .unwrap_or(true)
+                {
+                    push_md_line(&mut out, &mut styles, String::new(), None);
+                }
+                let width = width.unwrap_or(80).min(80);
+                push_md_line(
+                    &mut out,
+                    &mut styles,
+                    format!(" {}", "─".repeat(width.saturating_sub(1))),
+                    Some(style::LineStyle::fg(palette.dim)),
+                );
+                pending_blank = true;
+            }
             Event::Start(Tag::BlockQuote(_)) => {
                 quote_depth += 1;
             }
