@@ -20,8 +20,10 @@ fn main() {
         .map(|text| text.trim().to_string())
         .filter(|text| !text.is_empty())
         .unwrap_or_else(|| "unknown".to_string());
+    // `--untracked-files=no`：仓库按约定放了一个**永不入库**的 `AGENTS.md`（见项目规则），
+    // 只因为它就让版本号永远带 `-dirty`，会把"工作区干净"的唯一读法毁掉。
     let dirty = Command::new("git")
-        .args(["status", "--porcelain"])
+        .args(["status", "--porcelain", "--untracked-files=no"])
         .output()
         .ok()
         .filter(|output| output.status.success())
