@@ -1,0 +1,61 @@
+{
+  "id": "T89f-md-elements",
+  "description": "Markdown 元素全集（标题1-6/有序无序嵌套列表/行内码/强调/删除线/链接/引用/围栏/分隔线）",
+  "provider": "openai-completions",
+  "model": "mock-model",
+  "mode": "print",
+  "prompt": "hi",
+  "tui": {
+    "cols": 100,
+    "rows": 60,
+    "snapshots": [
+      "md"
+    ],
+    "steps": [
+      {
+        "action": "waitScreen",
+        "contains": "Pi can explain",
+        "timeoutMs": 30000
+      },
+      {
+        "action": "waitStable",
+        "quietMs": 1200,
+        "timeoutMs": 25000
+      },
+      {
+        "action": "type",
+        "text": "hi\r"
+      },
+      {
+        "action": "delay",
+        "ms": 6000
+      },
+      {
+        "action": "waitStable",
+        "quietMs": 1500,
+        "timeoutMs": 20000
+      },
+      {
+        "action": "delay",
+        "ms": 600
+      },
+      {
+        "action": "snapshot",
+        "name": "md"
+      },
+      {
+        "action": "type",
+        "text": "\u0004"
+      },
+      {
+        "action": "waitExit",
+        "timeoutMs": 20000
+      }
+    ]
+  },
+  "responses": [
+    {
+      "file": "fixtures/sse/openai/md-elements.sse"
+    }
+  ]
+}

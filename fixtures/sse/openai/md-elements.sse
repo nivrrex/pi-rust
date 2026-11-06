@@ -1,0 +1,33 @@
+data: {"id": "chatcmpl-mock", "object": "chat.completion.chunk", "created": 1700000000, "model": "mock-model", "choices": [{"index": 0, "delta": {"role": "assistant", "content": ""}, "finish_reason": null}]}
+
+data: {"id": "chatcmpl-mock", "object": "chat.completion.chunk", "created": 1700000000, "model": "mock-model", "choices": [{"index": 0, "delta": {"content": "# 标题一\n## 标题二\n### 标题三"}, "finish_reason": null}]}
+
+data: {"id": "chatcmpl-mock", "object": "chat.completion.chunk", "created": 1700000000, "model": "mock-model", "choices": [{"index": 0, "delta": {"content": "\n#### 标题四\n##### 标题五\n"}, "finish_reason": null}]}
+
+data: {"id": "chatcmpl-mock", "object": "chat.completion.chunk", "created": 1700000000, "model": "mock-model", "choices": [{"index": 0, "delta": {"content": "###### 标题六\n\n有序列表：\n\n1"}, "finish_reason": null}]}
+
+data: {"id": "chatcmpl-mock", "object": "chat.completion.chunk", "created": 1700000000, "model": "mock-model", "choices": [{"index": 0, "delta": {"content": ". 第一项\n2. 第二项\n   1. 嵌"}, "finish_reason": null}]}
+
+data: {"id": "chatcmpl-mock", "object": "chat.completion.chunk", "created": 1700000000, "model": "mock-model", "choices": [{"index": 0, "delta": {"content": "套有序\n   2. 嵌套二\n\n无序列表："}, "finish_reason": null}]}
+
+data: {"id": "chatcmpl-mock", "object": "chat.completion.chunk", "created": 1700000000, "model": "mock-model", "choices": [{"index": 0, "delta": {"content": "\n\n- 甲\n  - 甲一\n  - 甲二\n"}, "finish_reason": null}]}
+
+data: {"id": "chatcmpl-mock", "object": "chat.completion.chunk", "created": 1700000000, "model": "mock-model", "choices": [{"index": 0, "delta": {"content": "- 乙\n\n行内：`code` 与 **粗"}, "finish_reason": null}]}
+
+data: {"id": "chatcmpl-mock", "object": "chat.completion.chunk", "created": 1700000000, "model": "mock-model", "choices": [{"index": 0, "delta": {"content": "体** 与 *斜体* 与 ~~删除线~~"}, "finish_reason": null}]}
+
+data: {"id": "chatcmpl-mock", "object": "chat.completion.chunk", "created": 1700000000, "model": "mock-model", "choices": [{"index": 0, "delta": {"content": " 与 [链接](https://exam"}, "finish_reason": null}]}
+
+data: {"id": "chatcmpl-mock", "object": "chat.completion.chunk", "created": 1700000000, "model": "mock-model", "choices": [{"index": 0, "delta": {"content": "ple.com)。\n\n> 引用第一行\n>"}, "finish_reason": null}]}
+
+data: {"id": "chatcmpl-mock", "object": "chat.completion.chunk", "created": 1700000000, "model": "mock-model", "choices": [{"index": 0, "delta": {"content": " 引用第二行\n>\n> > 嵌套引用\n\n`"}, "finish_reason": null}]}
+
+data: {"id": "chatcmpl-mock", "object": "chat.completion.chunk", "created": 1700000000, "model": "mock-model", "choices": [{"index": 0, "delta": {"content": "``rust\nfn main() { p"}, "finish_reason": null}]}
+
+data: {"id": "chatcmpl-mock", "object": "chat.completion.chunk", "created": 1700000000, "model": "mock-model", "choices": [{"index": 0, "delta": {"content": "rintln!(\"hi\"); }\n```"}, "finish_reason": null}]}
+
+data: {"id": "chatcmpl-mock", "object": "chat.completion.chunk", "created": 1700000000, "model": "mock-model", "choices": [{"index": 0, "delta": {"content": "\n\n---\n"}, "finish_reason": null}]}
+
+data: {"id": "chatcmpl-mock", "object": "chat.completion.chunk", "created": 1700000000, "model": "mock-model", "choices": [{"index": 0, "delta": {}, "finish_reason": "stop"}], "usage": {"prompt_tokens": 10, "completion_tokens": 20, "total_tokens": 30}}
+
+data: [DONE]

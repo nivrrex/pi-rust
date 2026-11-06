@@ -3203,14 +3203,23 @@ pub fn render_markdown_styled_with_width(
     let mut current: Option<style::LineStyle> = None;
     let mut inline = String::new();
     let mut in_list_item = false;
+    let mut ordered_marker: Option<String> = None;
     // 列表嵌套深度（`Start(List)` 时 +1）。ref `markdown.ts:758`：`indent = "    ".repeat(depth)`。
     let mut list_depth: usize = 0;
+    // 每层列表是否有序与下一个序号（`Tag::List(Some(start))`）；无序层为 `None`。
+    let mut list_stack: Vec<Option<u64>> = Vec::new();
     let mut in_code_block = false;
+    let mut fence_line = " ```".to_string();
+    let mut link_dest: Option<String> = None;
+    // 引用深度（ref `markdown.ts:556-570`：每行前缀 `│ `、整体 italic）。
+    let mut quote_depth: usize = 0;
     let mut code_line = String::new();
     let mut pending_blank = false;
     let flush_inline = |inline: &mut String,
                         in_list_item: bool,
                         list_depth: usize,
+                        quote_depth: usize,
+                        marker: &str,
                         out: &mut Vec<String>,
                         styles: &mut Vec<Option<style::LineStyle>>,
                         spans: &mut Vec<(usize, Vec<style::Span>)>,
@@ -3230,7 +3239,12 @@ pub fn render_markdown_styled_with_width(
         // ref `theme.ts:1181` 列表符号用 `mdListBullet`、`:1174` 行内代码用 `mdCode`（皆 accent）；
         // 这两段只能**按列染色**，整行染色会把正文一起染掉，所以走 span。
         let indent = "    ".repeat(list_depth.saturating_sub(1));
-        let prefix_len = if in_list_item { indent.len() + 3 } else { 1 };
+        let marker_width = marker.chars().count() + 1;
+        let prefix_len = if in_list_item {
+            indent.len() + 1 + marker_width
+        } else {
+            1
+        };
         let mut line_spans: Vec<style::Span> = Vec::new();
         if in_list_item && !text.is_empty() {
             // ` - <text>`：`-` 与它后面那个空格都染 accent（TS 逐格实测 c1/c2）。
@@ -3252,11 +3266,23 @@ pub fn render_markdown_styled_with_width(
         }
         // ref `markdown.ts:758-775`：缩进 `"    ".repeat(depth)`，符号 `- `；续行缩进到
         // 符号之后（`continuationPrefix`）。此前嵌套列表既没有缩进、还会被并进上一段。
+        let quote_prefix = if quote_depth > 0 {
+            format!(" {}", "│ ".repeat(quote_depth))
+        } else {
+            String::new()
+        };
         out.push(if in_list_item {
-            format!("{indent} - {text}")
+            format!("{quote_prefix}{indent} {marker} {text}")
+        } else if quote_depth > 0 {
+            format!("{quote_prefix}{text}")
         } else {
             format!(" {text}")
         });
+        if quote_depth > 0 {
+            let line_style = current.unwrap_or_default().italic();
+            styles.pop();
+            styles.push(Some(line_style));
+        }
         if !line_spans.is_empty() {
             spans.push((out.len() - 1, line_spans));
         }
@@ -3338,7 +3364,7 @@ pub fn render_markdown_styled_with_width(
             continue;
         }
         match event {
-            Event::Start(Tag::Heading { .. }) => {
+            Event::Start(Tag::Heading { level, .. }) => {
                 if pending_blank && !out.is_empty() {
                     // `push_md_line` 自己会压一条 style（这里传 `None`）；此前后面又多压了一条
                     // ⇒ `lines`/`styles` 从此错位一格，表现为"表格后紧跟的 `### 标题` 没有标题色"。
@@ -3346,12 +3372,46 @@ pub fn render_markdown_styled_with_width(
                 }
                 pending_blank = false;
                 current = Some(style::LineStyle::fg(palette.md_heading).bold());
+                // ref `markdown.ts:482`：`headingLevel >= 3` 时**把 `### ` 前缀一起输出**（同样按标题染色），
+                // H1/H2 才去掉前缀。此前我们对所有级别都去掉了前缀。
+                let depth = matches!(
+                    level,
+                    HeadingLevel::H3 | HeadingLevel::H4 | HeadingLevel::H5 | HeadingLevel::H6
+                );
+                if depth {
+                    let hashes = match level {
+                        HeadingLevel::H3 => "###",
+                        HeadingLevel::H4 => "####",
+                        HeadingLevel::H5 => "#####",
+                        _ => "######",
+                    };
+                    inline.push_str(hashes);
+                    inline.push(' ');
+                }
+            }
+            Event::Start(Tag::BlockQuote(_)) => {
+                quote_depth += 1;
+            }
+            Event::End(TagEnd::BlockQuote(_)) => {
+                quote_depth = quote_depth.saturating_sub(1);
+                pending_blank = true;
+            }
+            Event::Start(Tag::Link { dest_url, .. }) => {
+                link_dest = Some(dest_url.to_string());
+            }
+            Event::End(TagEnd::Link) => {
+                if let Some(dest) = link_dest.take() {
+                    // ref `markdown.ts:689-700`：无超链接能力时输出 `文本 (url)`。
+                    inline.push_str(&format!(" ({dest})"));
+                }
             }
             Event::End(TagEnd::Heading(_)) => {
                 flush_inline(
                     &mut inline,
                     false,
                     list_depth,
+                    quote_depth,
+                    "-",
                     &mut out,
                     &mut styles,
                     &mut spans,
@@ -3362,13 +3422,15 @@ pub fn render_markdown_styled_with_width(
                 current = None;
                 pending_blank = true;
             }
-            Event::Start(Tag::List(_)) => {
+            Event::Start(Tag::List(start)) => {
                 // 嵌套列表开始前必须把上一段的 inline 冲掉，否则
                 // "…新增 keystore/ 目录" 会和下一层的 `- keystore/…` 并成一行（真机会话实测）。
                 flush_inline(
                     &mut inline,
                     in_list_item,
                     list_depth,
+                    quote_depth,
+                    ordered_marker.as_deref().unwrap_or("-"),
                     &mut out,
                     &mut styles,
                     &mut spans,
@@ -3381,20 +3443,33 @@ pub fn render_markdown_styled_with_width(
                 }
                 pending_blank = false;
                 list_depth += 1;
+                list_stack.push(start);
             }
             Event::End(TagEnd::List(_)) => {
                 list_depth = list_depth.saturating_sub(1);
+                list_stack.pop();
                 pending_blank = true;
             }
             Event::Start(Tag::Item) => {
                 in_list_item = true;
                 pending_blank = false;
+                // 有序列表：把序号写进 inline 前缀（ref `markdown.ts:765-774` 的 `1. ` 形态）。
+                ordered_marker = match list_stack.last_mut() {
+                    Some(Some(next)) => {
+                        let marker = format!("{next}.");
+                        *next += 1;
+                        Some(marker)
+                    }
+                    _ => None,
+                };
             }
             Event::End(TagEnd::Item) => {
                 flush_inline(
                     &mut inline,
                     in_list_item,
                     list_depth,
+                    quote_depth,
+                    ordered_marker.as_deref().unwrap_or("-"),
                     &mut out,
                     &mut styles,
                     &mut spans,
@@ -3404,8 +3479,15 @@ pub fn render_markdown_styled_with_width(
                 );
                 in_list_item = false;
             }
-            Event::Start(Tag::CodeBlock(_)) => {
+            Event::Start(Tag::CodeBlock(kind)) => {
                 in_code_block = true;
+                // ref `markdown.ts:522`：围栏行带语言标注 ```` ```rust ````。
+                fence_line = match kind {
+                    pulldown_cmark::CodeBlockKind::Fenced(info) if !info.trim().is_empty() => {
+                        format!(" ```{}", info.trim())
+                    }
+                    _ => " ```".to_string(),
+                };
                 if pending_blank && !out.is_empty() {
                     push_md_line(&mut out, &mut styles, String::new(), None);
                 }
@@ -3413,7 +3495,7 @@ pub fn render_markdown_styled_with_width(
                 push_md_line(
                     &mut out,
                     &mut styles,
-                    " ```".to_string(),
+                    fence_line.clone(),
                     Some(style::LineStyle::fg(palette.md_code_block_border)),
                 );
             }
@@ -3474,6 +3556,21 @@ pub fn render_markdown_styled_with_width(
                         );
                         code_line.clear();
                     }
+                } else if quote_depth > 0 {
+                    // 引用块里 TS 每行一条（`│ 引用第一行` / `│ 引用第二行`），不能攒成一行。
+                    flush_inline(
+                        &mut inline,
+                        in_list_item,
+                        list_depth,
+                        quote_depth,
+                        ordered_marker.as_deref().unwrap_or("-"),
+                        &mut out,
+                        &mut styles,
+                        &mut spans,
+                        &mut code_ranges,
+                        current,
+                        &mut pending_blank,
+                    );
                 } else {
                     inline.push(' ');
                 }
@@ -3483,6 +3580,8 @@ pub fn render_markdown_styled_with_width(
                     &mut inline,
                     in_list_item,
                     list_depth,
+                    quote_depth,
+                    ordered_marker.as_deref().unwrap_or("-"),
                     &mut out,
                     &mut styles,
                     &mut spans,
@@ -3501,6 +3600,8 @@ pub fn render_markdown_styled_with_width(
         &mut inline,
         in_list_item,
         list_depth,
+        quote_depth,
+        ordered_marker.as_deref().unwrap_or("-"),
         &mut out,
         &mut styles,
         &mut spans,
