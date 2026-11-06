@@ -1291,6 +1291,9 @@ pub fn run(
     // 槽位在提交线程启动回合时填入，回合结束后清空。
     let turn_cancel: std::sync::Arc<std::sync::Mutex<Option<tokio_util::sync::CancellationToken>>> =
         std::sync::Arc::new(std::sync::Mutex::new(None));
+    // F31/S1c：`!` 命令的取消令牌（Esc 中止正在跑的 bash，ref `agent-session.ts:3517-3526`）。
+    let bash_cancel: std::sync::Arc<std::sync::Mutex<Option<tokio_util::sync::CancellationToken>>> =
+        std::sync::Arc::new(std::sync::Mutex::new(None));
     // V6 调试开关：`PI_TUI_CURSOR_DUMP=<路径>`（值为 `1` 时用系统临时目录下的
     // `pi-rs-cursor.log`）→ 每画一帧追加一行光标行列，供与 TS 侧同口径逐帧对比。
     // 未设置时**零开销**（不建文件、不格式化）。
@@ -2981,6 +2984,18 @@ pub fn run(
                 }
                 dirty = true;
             }
+            // F31/S1c：Esc 先取消正在跑的 `!` 命令（ref `agent-session.ts:3517-3526` `abortBash()`）。
+            if matches!(event, TuiEvent::Escape) {
+                let token = bash_cancel.lock().ok().and_then(|slot| {
+                    slot.as_ref()
+                        .map(tokio_util::sync::CancellationToken::clone)
+                });
+                if let Some(token) = token {
+                    token.cancel();
+                    dirty = true;
+                    continue;
+                }
+            }
             // Escape 中止正在执行的回合（ref `interactive-mode.ts:3607-3613`
             // `escape` → `session.abort()`；重试倒计时期间同样生效）。
             if matches!(event, TuiEvent::Escape) && busy && selector.is_none() {
@@ -3260,6 +3275,7 @@ pub fn run(
                             let bash_tx = tx.clone();
                             let bash_parts = parts.as_ref().map(std::sync::Arc::clone);
                             let bash_history = std::sync::Arc::clone(&history);
+                            let bash_cancel_for_thread = std::sync::Arc::clone(&bash_cancel);
                             std::thread::spawn(move || {
                                 let Ok(runtime) = tokio::runtime::Builder::new_current_thread()
                                     .enable_all()
@@ -3275,6 +3291,11 @@ pub fn run(
                                         .unwrap_or_else(|_| std::path::PathBuf::from(".")),
                                 };
                                 let cancel = tokio_util::sync::CancellationToken::new();
+                                let bash_cancel_slot =
+                                    std::sync::Arc::clone(&bash_cancel_for_thread);
+                                if let Ok(mut slot) = bash_cancel_slot.lock() {
+                                    *slot = Some(cancel.clone());
+                                }
                                 let result = runtime.block_on(tool.execute(
                                     serde_json::json!({ "command": bash_cmd.clone() }),
                                     &context,
@@ -3291,14 +3312,18 @@ pub fn run(
                                     })
                                     .collect::<Vec<_>>()
                                     .join("\n");
+                                let cancelled = cancel.is_cancelled();
+                                if let Ok(mut slot) = bash_cancel_slot.lock() {
+                                    *slot = None;
+                                }
                                 let exit_code = Some(i64::from(result.is_error));
                                 let message = pi_ai::message::Message::BashExecution {
                                     command: bash_cmd,
                                     output: output.clone(),
                                     exit_code,
-                                    cancelled: false,
                                     truncated: false,
                                     full_output_path: None,
+                                    cancelled,
                                     timestamp: pi_core::timefmt::now_unix_millis(),
                                     exclude_from_context: Some(exclude),
                                     extra: serde_json::Map::new(),
@@ -3321,7 +3346,7 @@ pub fn run(
                                 let _ = bash_tx.send(pi_tui::TuiEvent::BashDone {
                                     output,
                                     exit_code,
-                                    cancelled: false,
+                                    cancelled,
                                 });
                             });
                             state.input.clear();
