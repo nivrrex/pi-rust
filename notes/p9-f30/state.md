@@ -40,3 +40,9 @@ L3 基线（R3）：dark 82 same / 2 different / 20 nogolden；light 23 same / 0
 - `crates/pi-tui/src/lib.rs:2540-2555` 的 `render()` 里有预算公式 `capacity = rows - (chrome_lines + 4)`（rows=31 ⇒ 22），与实际 23 行会话区**不符**——但该函数**不是** TUI 实际使用的入口。
 - 实际入口：`crates/pi-cli/src/tui.rs:4143` 调用 `pi_tui::render_all_marker_cached_styled(state, cols, rows, cache)`。裁剪/滚动发生在这条路径上，具体行号**未定位**。
 - 因此"滚动起点差一行"仍未归因；已排除的假设：内容缺失（rows=50 等长）、布局预算公式（live 不走 `render()`）。
+
+### S0b 续 5：用 `PI_TUI_OUTPUT_DUMP` 取实际写帧（无改码）
+- 开启 `PI_TUI_OUTPUT_DUMP=/tmp/pi-dump.log` 跑 T45（rows=31）：共 15 帧，末帧 `viewport_top=14 hw_row=41 bytes=2634`，payload 写 44 行（`\r\n` 计数）。
+- 说明 pi-rs 的 diff 渲染在 31 行视口里写出的物理行数（44）明显多于视口高度，且 `hw_row=41 > rows=31`，即整屏写完后靠终端滚动回填；`viewport_top` 只记录会话区起点（14）。
+- 尚未完成：TS 侧没有等价 dump（第三方 CLI，无该开关），无法直接对齐"物理写出行数"；要判定"多写一行导致滚动"需在本仓渲染路径加临时计数（属改码，本批禁止）。
+- 结论状态：**滚动/物理行数**这一层差异尚无定论（未证实），已知视口起点差一行（已证实）、内容行数相同（已证实）。
