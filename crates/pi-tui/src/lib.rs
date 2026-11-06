@@ -2156,13 +2156,36 @@ fn render_all_cached_styled_inner(
                     // ref `bash-execution.ts:142-160`：输出块是 `"\n" + lines`（前导空行），
                     // 且输出后还有一个空行（Text 的 padding）。截断/折叠见 `:158-196`（S2c/d）。
                     if !output.is_empty() {
-                        lines.push(String::new());
-                        for line in output.lines() {
+                        // ref `bash-execution.ts:19` `PREVIEW_LINES = 20`：折叠态只显示**最后 20 行**，
+                        // 并用 `... N more lines (ctrl+o to expand)` 提示（`:166-186`）。
+                        // ref `:158-186`：预览池是 `"\n" + 输出`（**前导空行也算一行**），
+                        // `truncateToVisualLines(..., PREVIEW_LINES=20)` 取最后 20 行 ⇒
+                        // 折叠时前导空行被吃掉，只留最后 19 行输出，`hidden = 总行数 - 19`。
+                        const PREVIEW_LINES: usize = 20;
+                        let all: Vec<&str> = output.lines().collect();
+                        let hidden = all.len().saturating_sub(PREVIEW_LINES - 1);
+                        if state.tools_expanded || hidden == 0 {
+                            lines.push(String::new());
+                        }
+                        let shown: &[&str] = if state.tools_expanded || hidden == 0 {
+                            &all
+                        } else {
+                            &all[all.len() - (PREVIEW_LINES - 1)..]
+                        };
+                        for line in shown {
                             for wrapped in wrap_to_width(&format!(" {line}"), cols) {
                                 lines.push(wrapped);
                             }
                         }
                         lines.push(String::new());
+                        if hidden > 0 {
+                            let hint = if state.tools_expanded {
+                                " (ctrl+o to collapse)".to_string()
+                            } else {
+                                format!(" ... {hidden} more lines (ctrl+o to expand)")
+                            };
+                            lines.push(clamp_to_width(&hint, cols));
+                        }
                     }
                     // ref `:186-204`：只有取消/错误/截断才有状态行（成功不留）。
                     let mut status = String::new();
