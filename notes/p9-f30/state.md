@@ -56,3 +56,5 @@ L3 基线（R3）：dark 82 same / 2 different / 20 nogolden；light 23 same / 0
 - S0d [Context] 路径：TS 绝对 / pi-rs 相对；ref `interactive-mode.ts:1342-1350` + `utils/paths.ts:108-117`。TS 为何落到绝对分支未推演完成（runtime 的 cwd 与 work 目录关系待查）。
 - S0e 插桩已回退：`git status` 仅 `?? AGENTS.md`（既有未跟踪）。
 - 环境阻塞：本工作树 `cargo test --workspace` 中 `crates/pi-ai/tests/g0.rs` 14 个用例全部 panic “定位仓库根目录失败: No such file or directory”（`g0.rs:18` 的 `canonicalize()`），与本次改动无关，S8 的 L3 数字因此不可用。
+- 环境阻塞已解除（已证实）：`cargo test --workspace` 早先的 14 个 g0 失败与 5 个 pi-tui 夹具失败，均因 `target/` 里残留了在 `/root/recover/pi-rust-full`（及库存在 build-check）下编译的测试二进制——`strings` 可读到烘焙的 `CARGO_MANIFEST_DIR=/root/recover/pi-rust-full/crates/pi-ai`，`canonicalize()` 因此 ENOENT。`cargo clean -p pi-ai -p pi-tui` 后全量重跑：**workspace 1058 passed / 0 failed**（与自述基线一致）。
+- 结论：此前"14 个用例 panic 定位仓库根目录失败"不是代码问题，是构建产物污染；S8 的 workspace 数字可用了。
