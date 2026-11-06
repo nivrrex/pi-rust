@@ -408,22 +408,35 @@ fn refresh_model_window(
         .and_then(|messages| {
             messages.iter().rev().find_map(|message| {
                 if let pi_ai::message::Message::Assistant(assistant) = message {
+                    // ref `compaction.ts:170-183` `getAssistantUsage`：**中止/失败**的 assistant
+                    // 与 `calculateContextTokens(usage) == 0` 的响应一律跳过，否则恢复会话时
+                    // 最后一条是 aborted（usage 全 0）⇒ 退化成"只算 system"，页脚显示 1.0%
+                    // 而 TS 用更早那条真实 usage 显示 138.6%（真机实测）。
+                    let usable = !matches!(
+                        assistant.stop_reason,
+                        pi_ai::StopReason::Aborted | pi_ai::StopReason::Error
+                    );
                     let tokens = pi_ai::calculate_context_tokens(&assistant.usage);
-                    (tokens > 0).then_some(tokens)
+                    (usable && tokens > 0).then_some(tokens)
                 } else {
                     None
                 }
             })
         })
         .unwrap_or(0);
+    // ref `compaction.ts:218-246`：有可用 usage ⇒ `usage + 其后消息估算`；没有才逐条估。
     let percent = if window_tokens == 0 {
         None
-    } else if last_input > 0 {
-        Some(last_input as f64 / window_tokens as f64 * 100.0)
     } else {
-        let system_tokens = pi_core::agent::compaction::estimate_tokens(&parts.system_message);
-        Some(system_tokens as f64 / window_tokens as f64 * 100.0)
+        let mut estimate_messages = vec![parts.system_message.clone()];
+        if let Ok(guard) = history.lock() {
+            estimate_messages.extend(guard.iter().cloned());
+        }
+        let projected =
+            pi_core::agent::compaction::estimate_context_tokens(&estimate_messages).tokens;
+        Some(projected as f64 / window_tokens as f64 * 100.0)
     };
+    let _ = last_input;
     let _ = apply(
         state,
         TuiEvent::Usage {
@@ -1169,7 +1182,13 @@ pub fn run(
         .rev()
         .find_map(|message| match message {
             pi_ai::message::Message::Assistant(assistant) => {
-                Some(pi_ai::calculate_context_tokens(&assistant.usage))
+                // 同 `compaction.ts:170-183`：中止/失败或 usage 为 0 的不算。
+                let usable = !matches!(
+                    assistant.stop_reason,
+                    pi_ai::StopReason::Aborted | pi_ai::StopReason::Error
+                );
+                let tokens = pi_ai::calculate_context_tokens(&assistant.usage);
+                (usable && tokens > 0).then_some(tokens)
             }
             other => {
                 let _ = other;
@@ -1249,13 +1268,16 @@ pub fn run(
             let window_tokens = context_window_of(parts_ref);
             let percent = if window_tokens == 0 {
                 None
-            } else if last_assistant_input > 0 {
-                Some(last_assistant_input as f64 / window_tokens as f64 * 100.0)
             } else {
-                let system_tokens =
-                    pi_core::agent::compaction::estimate_tokens(&parts_ref.system_message);
-                Some(system_tokens as f64 / window_tokens as f64 * 100.0)
+                let mut estimate_messages = vec![parts_ref.system_message.clone()];
+                if let Ok(guard) = history.lock() {
+                    estimate_messages.extend(guard.iter().cloned());
+                }
+                let projected =
+                    pi_core::agent::compaction::estimate_context_tokens(&estimate_messages).tokens;
+                Some(projected as f64 / window_tokens as f64 * 100.0)
             };
+            let _ = last_assistant_input;
             // 把用量同步进扩展 ctx（`ctx.getContextUsage()`，ref `types.ts:294-300`）：
             // `tokens` 用百分比 × 窗口的估算（ref 在没有新响应时也是估算值）。
             if let (Some(percent_value), Ok(window_tokens)) =
