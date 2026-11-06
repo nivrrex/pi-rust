@@ -2288,8 +2288,11 @@ fn render_all_cached_styled_inner(
                 lines.push(String::new());
             }
             TranscriptItem::Assistant(text) => {
-                let (md_lines, md_styles, md_spans) =
-                    render_markdown_styled_with(text, style_out.palette);
+                let (md_lines, md_styles, md_spans) = render_markdown_styled_with_width(
+                    text,
+                    style_out.palette,
+                    Some(cols.saturating_sub(2)),
+                );
                 let spans_by_line: std::collections::HashMap<usize, Vec<style::Span>> =
                     md_spans.into_iter().collect();
                 for (index, line) in md_lines.iter().enumerate() {
@@ -3004,6 +3007,193 @@ pub fn render_markdown_styled(input: &str) -> MarkdownRender {
 /// 与 [`render_markdown_styled`] 相同，但 markdown 各色键按给定调色板取。
 #[must_use]
 pub fn render_markdown_styled_with(input: &str, palette: &theme::Palette) -> MarkdownRender {
+    render_markdown_styled_with_width(input, palette, None)
+}
+
+/// GFM 表格的收集状态（ref `markdown.ts:839` `renderTable` 的输入）。
+#[derive(Default)]
+struct TableBuild {
+    header: Vec<String>,
+    rows: Vec<Vec<String>>,
+    row: Vec<String>,
+    cell: Option<String>,
+    in_head: bool,
+}
+
+fn text_width(text: &str) -> usize {
+    UnicodeWidthStr::width(text)
+}
+
+/// 按 ref `markdown.ts:839-1010` 排版一张表：分配列宽、逐格折行、边框用 `┌─┬─┐` 系列。
+///
+/// `width = None` 时按自然宽度排版（不折行），用于拿不到容器宽度的调用点。
+fn render_table(
+    state: &TableBuild,
+    width: Option<usize>,
+    palette: &theme::Palette,
+) -> Vec<(String, Option<style::LineStyle>)> {
+    let columns = state
+        .header
+        .len()
+        .max(state.rows.iter().map(Vec::len).max().unwrap_or(0));
+    if columns == 0 {
+        return Vec::new();
+    }
+    let get =
+        |row: &Vec<String>, index: usize| -> String { row.get(index).cloned().unwrap_or_default() };
+    // 自然宽度与"最长单词宽度"（ref 里上限 30，避免单个超长 token 撑爆列）。
+    let mut natural = vec![0usize; columns];
+    let mut min_word = vec![1usize; columns];
+    for (index, width_i) in natural.iter_mut().enumerate() {
+        let header = get(&state.header, index);
+        *width_i = text_width(&header);
+        min_word[index] = longest_word_width(&header).clamp(1, 30);
+    }
+    for row in &state.rows {
+        for (index, width_i) in natural.iter_mut().enumerate() {
+            let cell = get(row, index);
+            *width_i = (*width_i).max(text_width(&cell));
+            min_word[index] = min_word[index].max(longest_word_width(&cell).clamp(1, 30));
+        }
+    }
+    let mut widths = natural.clone();
+    if let Some(total) = width {
+        // 边框开销：`│ ` + (n-1)×` │ ` + ` │` = 3n+1。
+        let overhead = 3 * columns + 1;
+        let available = total.saturating_sub(overhead);
+        if available < columns {
+            // 太窄排不出稳定表格 ⇒ 退化成"竖线分隔的原始行"（ref 用 `token.raw` 折行）。
+            let mut out = Vec::new();
+            for row in std::iter::once(&state.header).chain(state.rows.iter()) {
+                let joined = (0..columns)
+                    .map(|i| get(row, i))
+                    .collect::<Vec<_>>()
+                    .join(" | ");
+                for line in wrap_to_width(&joined, total.max(1)) {
+                    out.push((line, None));
+                }
+            }
+            return out;
+        }
+        let mut mins = min_word.clone();
+        if mins.iter().sum::<usize>() > available {
+            // 各列压到 1，再按"超出 1 的权重"分配剩余宽度（ref `:905-930`）。
+            mins = vec![1; columns];
+            let remaining = available.saturating_sub(columns);
+            let total_weight: usize = min_word.iter().map(|w| w.saturating_sub(1)).sum();
+            let mut used = 0usize;
+            for (index, min_i) in mins.iter_mut().enumerate() {
+                let weight = min_word[index].saturating_sub(1);
+                let grow = weight
+                    .checked_mul(remaining)
+                    .and_then(|value| value.checked_div(total_weight))
+                    .unwrap_or(0);
+                *min_i += grow;
+                used += grow;
+            }
+            let mut leftover = remaining.saturating_sub(used);
+            while leftover > 0 {
+                let mut progressed = false;
+                for min_i in mins.iter_mut() {
+                    if leftover == 0 {
+                        break;
+                    }
+                    *min_i += 1;
+                    leftover -= 1;
+                    progressed = true;
+                }
+                if !progressed {
+                    break;
+                }
+            }
+        }
+        let min_total: usize = mins.iter().sum();
+        let extra = available.saturating_sub(min_total);
+        let potential: usize = (0..columns)
+            .map(|i| natural[i].saturating_sub(mins[i]))
+            .sum();
+        widths = (0..columns)
+            .map(|i| {
+                let delta = natural[i].saturating_sub(mins[i]);
+                let grow = delta
+                    .checked_mul(extra)
+                    .and_then(|value| value.checked_div(potential))
+                    .unwrap_or(0);
+                mins[i] + grow
+            })
+            .collect();
+        let mut leftover = available.saturating_sub(widths.iter().sum());
+        while leftover > 0 {
+            let mut progressed = false;
+            for (index, width_i) in widths.iter_mut().enumerate() {
+                if leftover == 0 {
+                    break;
+                }
+                if *width_i < natural[index] {
+                    *width_i += 1;
+                    leftover -= 1;
+                    progressed = true;
+                }
+            }
+            if !progressed {
+                break;
+            }
+        }
+    }
+    let rule = |left: char, mid: char, right: char| -> String {
+        let cells: Vec<String> = widths.iter().map(|w| "─".repeat(*w)).collect();
+        format!("{left}─{}─{right}", cells.join(&format!("─{mid}─")))
+    };
+    let mut out: Vec<(String, Option<style::LineStyle>)> = Vec::new();
+    out.push((rule('┌', '┬', '┐'), None));
+    let push_row =
+        |cells: &Vec<String>, bold: bool, out: &mut Vec<(String, Option<style::LineStyle>)>| {
+            let wrapped: Vec<Vec<String>> = (0..columns)
+                .map(|index| wrap_to_width(&get(cells, index), widths[index].max(1)))
+                .collect();
+            let height = wrapped.iter().map(Vec::len).max().unwrap_or(0);
+            for line_index in 0..height {
+                let parts: Vec<String> = (0..columns)
+                    .map(|index| {
+                        let text = wrapped[index].get(line_index).cloned().unwrap_or_default();
+                        let pad = widths[index].saturating_sub(text_width(&text));
+                        format!("{text}{}", " ".repeat(pad))
+                    })
+                    .collect();
+                let line = format!("│ {} │", parts.join(" │ "));
+                let style = if bold {
+                    Some(style::LineStyle::fg(palette.text).bold())
+                } else {
+                    None
+                };
+                out.push((line, style));
+            }
+        };
+    push_row(&state.header, true, &mut out);
+    let separator = rule('├', '┼', '┤');
+    out.push((separator.clone(), None));
+    for (index, row) in state.rows.iter().enumerate() {
+        push_row(row, false, &mut out);
+        if index + 1 < state.rows.len() {
+            out.push((separator.clone(), None));
+        }
+    }
+    out.push((rule('└', '┴', '┘'), None));
+    out
+}
+
+/// 最长单词显示宽度（中文按 2 计；用空白切词）。
+fn longest_word_width(text: &str) -> usize {
+    text.split_whitespace().map(text_width).max().unwrap_or(1)
+}
+
+/// 同上，但允许给出**渲染宽度**（表格需要按容器宽度分配列宽；`None` = 不折行）。
+#[must_use]
+pub fn render_markdown_styled_with_width(
+    input: &str,
+    palette: &theme::Palette,
+    width: Option<usize>,
+) -> MarkdownRender {
     use pulldown_cmark::{Event, HeadingLevel, Options, Parser, Tag, TagEnd};
     let mut out: Vec<String> = Vec::new();
     let mut styles: Vec<Option<style::LineStyle>> = Vec::new();
@@ -3067,12 +3257,83 @@ pub fn render_markdown_styled_with(input: &str, palette: &theme::Palette) -> Mar
         styles.push(current);
     };
     let _ = HeadingLevel::H1;
-    for event in Parser::new_ext(input, Options::empty()) {
+    // ref `packages/tui/src/components/markdown.ts:550`/`:839`：表格按容器宽度分配列宽并用
+    // 边框渲染。此前用 `Options::empty()` ⇒ GFM 表格没开，表格退化成原始竖线串，且紧随其后的
+    // `### …` 因并入同一段落而丢掉标题语义（Windows 真机截图）。
+    let options = Options::ENABLE_TABLES | Options::ENABLE_STRIKETHROUGH;
+    let mut table: Option<TableBuild> = None;
+    for event in Parser::new_ext(input, options) {
+        // —— 表格：先把单元格文本收进状态机，`End(Table)` 时整体排版（ref `markdown.ts:839`）。
+        if table.is_some() {
+            match &event {
+                Event::Start(Tag::TableRow) | Event::Start(Tag::TableHead) => {
+                    if let Some(state) = table.as_mut() {
+                        state.in_head = matches!(&event, Event::Start(Tag::TableHead));
+                        state.row.clear();
+                        state.cell = None;
+                    }
+                    continue;
+                }
+                Event::End(TagEnd::TableRow) | Event::End(TagEnd::TableHead) => {
+                    if let Some(state) = table.as_mut() {
+                        let row = std::mem::take(&mut state.row);
+                        if state.in_head {
+                            state.header = row;
+                        } else {
+                            state.rows.push(row);
+                        }
+                    }
+                    continue;
+                }
+                Event::Start(Tag::TableCell) => {
+                    if let Some(state) = table.as_mut() {
+                        state.cell = Some(String::new());
+                    }
+                    continue;
+                }
+                Event::End(TagEnd::TableCell) => {
+                    if let Some(state) = table.as_mut() {
+                        let cell = state.cell.take().unwrap_or_default();
+                        state.row.push(cell.trim().to_string());
+                    }
+                    continue;
+                }
+                Event::Text(text) | Event::Code(text) => {
+                    if let Some(cell) = table.as_mut().and_then(|state| state.cell.as_mut()) {
+                        cell.push_str(text);
+                    }
+                    continue;
+                }
+                Event::SoftBreak | Event::HardBreak => {
+                    if let Some(cell) = table.as_mut().and_then(|state| state.cell.as_mut()) {
+                        cell.push(' ');
+                    }
+                    continue;
+                }
+                Event::End(TagEnd::Table) => {
+                    if let Some(state) = table.take() {
+                        for (line, style) in render_table(&state, width, palette) {
+                            out.push(line);
+                            styles.push(style);
+                        }
+                        pending_blank = true;
+                    }
+                    continue;
+                }
+                _ => continue,
+            }
+        }
+        if let Event::Start(Tag::Table(_)) = event {
+            table = Some(TableBuild::default());
+            pending_blank = false;
+            continue;
+        }
         match event {
             Event::Start(Tag::Heading { .. }) => {
                 if pending_blank && !out.is_empty() {
+                    // `push_md_line` 自己会压一条 style（这里传 `None`）；此前后面又多压了一条
+                    // ⇒ `lines`/`styles` 从此错位一格，表现为"表格后紧跟的 `### 标题` 没有标题色"。
                     push_md_line(&mut out, &mut styles, String::new(), None);
-                    styles.push(None);
                 }
                 pending_blank = false;
                 current = Some(style::LineStyle::fg(palette.md_heading).bold());
@@ -3406,6 +3667,52 @@ mod markdown_tests {
 
     /// ref `dark.json:53-60` + `theme.ts:1172-1181`：标题 `mdHeading` + 粗体、
     /// 围栏 `mdCodeBlockBorder`、代码内容 `mdCodeBlock`，逐行断言（不改文本）。
+    /// ref `packages/tui/src/components/markdown.ts:839-1010`：GFM 表格按容器宽度排版，
+    /// 边框 `┌─┬─┐ / ├─┼─┤ / └─┴─┘`，表头加粗，紧跟表格的 `### 标题` 仍是标题。
+    #[test]
+    fn markdown_renders_gfm_table_with_borders() {
+        let palette = crate::theme::Palette::of(&crate::theme::Theme::builtin("light"));
+        let md = "| 位置 | 原状 |\n| --- | --- |\n| 二章 | 长句叙述 |\n\n### 未改动\n";
+        let (lines, styles, _spans) =
+            super::render_markdown_styled_with_width(md, &palette, Some(40));
+        assert!(lines[0].starts_with('┌'), "首行是上边框：{:?}", lines[0]);
+        assert!(
+            lines.iter().any(|line| line.starts_with('├')),
+            "缺表头分隔线"
+        );
+        assert!(lines.iter().any(|line| line.starts_with('└')), "缺下边框");
+        assert!(
+            lines
+                .iter()
+                .any(|line| line.contains("二章") && line.contains("长句叙述")),
+            "数据行应在一行内：{lines:?}"
+        );
+        // 表头加粗：找含"位置"的那一行，样式必须是 bold。
+        let header_index = lines
+            .iter()
+            .position(|line| line.contains("位置"))
+            .expect("表头行");
+        assert!(
+            styles[header_index].is_some_and(|style| style.bold),
+            "表头必须加粗"
+        );
+        // `### 未改动` 不能被并进表格段落，必须渲染成标题（带 md_heading 色 + 粗体）。
+        let heading_index = lines
+            .iter()
+            .position(|line| line.contains("未改动"))
+            .expect("标题行");
+        assert!(
+            !lines[heading_index].contains("###"),
+            "标题不应残留 ###：{:?}",
+            lines[heading_index]
+        );
+        assert_eq!(
+            styles[heading_index].map(|style| style.fg),
+            Some(Some(palette.md_heading)),
+            "标题应使用 mdHeading"
+        );
+    }
+
     /// ref `interactive-mode.ts:1709`：启动屏各段标题统一 `mdHeading`
     /// （`[Context]` / `[Skills]` / `[Extensions]` 同一个颜色）。
     /// 此前只有 `[Context]`/`[branch]` 染色，其余落回默认正文色（真机反馈"颜色不一致"）。
