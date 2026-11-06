@@ -1,0 +1,61 @@
+{
+  "id": "T89e-md-table",
+  "description": "Markdown 表格渲染（GFM 表格 + 表后 ### 标题）",
+  "provider": "openai-completions",
+  "model": "mock-model",
+  "mode": "print",
+  "prompt": "hi",
+  "tui": {
+    "cols": 100,
+    "rows": 30,
+    "snapshots": [
+      "after-table"
+    ],
+    "steps": [
+      {
+        "action": "waitScreen",
+        "contains": "Pi can explain",
+        "timeoutMs": 30000
+      },
+      {
+        "action": "waitStable",
+        "quietMs": 1200,
+        "timeoutMs": 25000
+      },
+      {
+        "action": "type",
+        "text": "hi\r"
+      },
+      {
+        "action": "delay",
+        "ms": 6000
+      },
+      {
+        "action": "waitStable",
+        "quietMs": 1500,
+        "timeoutMs": 20000
+      },
+      {
+        "action": "delay",
+        "ms": 600
+      },
+      {
+        "action": "snapshot",
+        "name": "after-table"
+      },
+      {
+        "action": "type",
+        "text": "\u0004"
+      },
+      {
+        "action": "waitExit",
+        "timeoutMs": 20000
+      }
+    ]
+  },
+  "responses": [
+    {
+      "file": "fixtures/sse/openai/table-basic.sse"
+    }
+  ]
+}

@@ -3070,7 +3070,7 @@ fn render_table(
                     .collect::<Vec<_>>()
                     .join(" | ");
                 for line in wrap_to_width(&joined, total.max(1)) {
-                    out.push((line, None));
+                    out.push((format!(" {line}"), None));
                 }
             }
             return out;
@@ -3145,7 +3145,7 @@ fn render_table(
         format!("{left}─{}─{right}", cells.join(&format!("─{mid}─")))
     };
     let mut out: Vec<(String, Option<style::LineStyle>)> = Vec::new();
-    out.push((rule('┌', '┬', '┐'), None));
+    out.push((format!(" {}", rule('┌', '┬', '┐')), None));
     let push_row =
         |cells: &Vec<String>, bold: bool, out: &mut Vec<(String, Option<style::LineStyle>)>| {
             let wrapped: Vec<Vec<String>> = (0..columns)
@@ -3160,7 +3160,7 @@ fn render_table(
                         format!("{text}{}", " ".repeat(pad))
                     })
                     .collect();
-                let line = format!("│ {} │", parts.join(" │ "));
+                let line = format!(" │ {} │", parts.join(" │ "));
                 let style = if bold {
                     Some(style::LineStyle::fg(palette.text).bold())
                 } else {
@@ -3170,7 +3170,7 @@ fn render_table(
             }
         };
     push_row(&state.header, true, &mut out);
-    let separator = rule('├', '┼', '┤');
+    let separator = format!(" {}", rule('├', '┼', '┤'));
     out.push((separator.clone(), None));
     for (index, row) in state.rows.iter().enumerate() {
         push_row(row, false, &mut out);
@@ -3178,7 +3178,7 @@ fn render_table(
             out.push((separator.clone(), None));
         }
     }
-    out.push((rule('└', '┴', '┘'), None));
+    out.push((format!(" {}", rule('└', '┴', '┘')), None));
     out
 }
 
@@ -3324,6 +3324,9 @@ pub fn render_markdown_styled_with_width(
             }
         }
         if let Event::Start(Tag::Table(_)) = event {
+            if pending_blank && !out.is_empty() {
+                push_md_line(&mut out, &mut styles, String::new(), None);
+            }
             table = Some(TableBuild::default());
             pending_blank = false;
             continue;
