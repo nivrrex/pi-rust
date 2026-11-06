@@ -3581,7 +3581,7 @@ pub fn render_markdown_styled_with_width(
                     push_md_line(
                         &mut out,
                         &mut styles,
-                        format!("{}", " │ ".repeat(quote_depth).trim_end()),
+                        " │ ".repeat(quote_depth).trim_end().to_string(),
                         Some(style::LineStyle::default().italic()),
                     );
                 } else if quote_depth > 0 {
