@@ -1211,6 +1211,7 @@ fn run_print(parsed: &Args, json: bool) -> ExitCode {
         writer: session_writer,
         written,
         initial_messages,
+        context_window: resolved.context_window,
         compaction,
         announce_system,
         instruction_role,

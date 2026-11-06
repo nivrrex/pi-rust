@@ -157,6 +157,8 @@ pub struct PrintRun {
     /// 本轮是否新写了 system 条目（`--continue` 且会话里原先没有 system）。
     pub announce_system: bool,
 
+    /// 模型上下文窗口（F30/S1：回合结束刷新 `ctx.getContextUsage()` 用）。
+    pub context_window: u64,
     pub prompt: String,
     pub max_completion_tokens: u64,
     pub cwd: PathBuf,
@@ -180,6 +182,8 @@ impl PrintRun {
     ///
     /// 把消息一并返回，是为了让调用方决定要不要落会话文件（`--no-session` 时不落）。
     pub async fn execute(mut self) -> (String, Vec<String>, u8, Vec<Message>) {
+        // F30/S1：估算投影需要 system 段；`self.system` 在后面被 move 掉，先留一份。
+        let system_text_for_estimate = self.system.clone();
         let cancel = tokio_util::sync::CancellationToken::new();
         let retry_max = LoopConfig::default().max_retries;
         let retry_delay_ms = LoopConfig::default().retry_delay_ms;
@@ -539,6 +543,27 @@ impl PrintRun {
             // ref 没有显式上限；这里加一个上限保护，避免扩展把主循环拖死。
             // `agent_end`（ref `agent-session.ts:1061-1062`）：**每轮结束都派发**，且必须在
             // settle 之前——否则扩展在 `agent_end` 里排的消息（`pi.sendUserMessage`）赶不上本轮。
+            // F30/S1：派发 `agent_end` 之前刷新 `ctx.getContextUsage()`（ref
+            // `agent-session.ts:3893-3895`：tokens 取投影估算，percent = tokens/window*100）。
+            if self.context_window > 0 {
+                // ref 的估算基于**整段投影**（system + 会话消息），这里补上 system 段。
+                let mut projection: Vec<pi_ai::message::Message> = Vec::new();
+                if let Some(text) = system_text_for_estimate.as_deref() {
+                    projection.push(pi_ai::message::Message::System {
+                        content: pi_ai::UserContent::Text(text.to_string()),
+                        timestamp: 0,
+                        extra: serde_json::Map::new(),
+                    });
+                }
+                projection.extend(messages.iter().cloned());
+                let est = pi_core::agent::compaction::estimate_context_tokens(&projection);
+                let pct = est.tokens as f64 / self.context_window as f64 * 100.0;
+                crate::ext_tools::update_ctx_usage(
+                    Some(est.tokens),
+                    self.context_window,
+                    Some(pct),
+                );
+            }
             crate::ext_tools::emit_event(
                 "agent_end",
                 serde_json::json!({
