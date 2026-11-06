@@ -3356,8 +3356,6 @@ pub fn render_markdown_styled_with_width(
                 // lint-banned 禁止通配分支，这里显式列出可能出现的形态。
                 Event::Start(_)
                 | Event::End(_)
-                | Event::Text(_)
-                | Event::Code(_)
                 | Event::InlineMath(_)
                 | Event::DisplayMath(_)
                 | Event::Html(_)
