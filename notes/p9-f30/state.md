@@ -34,3 +34,9 @@ L3 基线（R3）：dark 82 same / 2 different / 20 nogolden；light 23 same / 0
 - 唯一差别是**滚动起点**：TS 顶行 ` ! to run bash`，pi-rs 顶行 ` !! to run bash (no context)`，此后整体差一行；第 29 行 resume 提示内的临时目录名不同（各自 mkdtemp，属正常）。
 - 与 rows=50 的结果（两边内容 42 行、仅 `[Context]` 路径一行不同）合并看：内容总行数在无滚动时相等，滚动时可见起点差一行 ⇒ 属**滚动/锚点**差异，不是内容缺失。
 - 未证实：具体是哪一处渲染逻辑（`crates/pi-tui/src/lib.rs` 的整屏组装 vs 视口高度预算）导致起点差一行；未定位到行号，故不改码。
+
+### S0b 续 4：渲染入口与预算公式排查
+- 实测帧结构（rows=31，未裁剪）：TS 与 pi-rs 都是 **23 行会话区 + 8 行 chrome**（chrome = 空 / 上下边框 / 空 / cwd / footer / resume 提示 / 空），仅起点错一行。
+- `crates/pi-tui/src/lib.rs:2540-2555` 的 `render()` 里有预算公式 `capacity = rows - (chrome_lines + 4)`（rows=31 ⇒ 22），与实际 23 行会话区**不符**——但该函数**不是** TUI 实际使用的入口。
+- 实际入口：`crates/pi-cli/src/tui.rs:4143` 调用 `pi_tui::render_all_marker_cached_styled(state, cols, rows, cache)`。裁剪/滚动发生在这条路径上，具体行号**未定位**。
+- 因此"滚动起点差一行"仍未归因；已排除的假设：内容缺失（rows=50 等长）、布局预算公式（live 不走 `render()`）。
