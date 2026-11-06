@@ -77,3 +77,8 @@ L3 基线（R3）：dark 82 same / 2 different / 20 nogolden；light 23 same / 0
 - 因此多出的 1 行位于**会话区**（索引 16..45 之间），具体位置未证实。
 - 干扰项：rows=50 的完整流程 pi-rs 必然进入 `Error: Stream ended without finish_reason`（rows=30/31 不出现），该变体不能用于对齐。
 - 结论：S0c 仍未定位到行号；已排除：按 rows 丢行、光标标记占行、启动段差异、底部差异。
+
+### S0b 续 9：截断流错误的成因（澄清）
+- 我改造的"只跑到第一轮结束"场景里，pi-rs 必出 `Error: Stream ended without finish_reason`，原因是**场景 steps 结束后 run-tui 直接终止进程**，把仍在进行的 SSE 流切断——属取证手法产生的假象，不是产品缺陷；行数对照因此作废。
+- TS 侧没有"内容行清单"可观测（无 dump 开关，只有最终屏幕），而屏幕只暴露 `rows` 行；要拿到 TS 的完整 46 行内容，需要改 compare/run-tui 或给 TS 打补丁——两者都在本批禁区。
+- 结论：±1 行的最终定位**受限于取证手段**，停在此处；已证实"差值 1 行位于会话区"，未证实具体行。
