@@ -70,3 +70,10 @@ L3 基线（R3）：dark 82 same / 2 different / 20 nogolden；light 23 same / 0
 - 第 15 行 cwd 路径不同（各自 mkdtemp，正常）。
 - 结论：**启动帧内容行数相同**，光标标记不额外占行 ⇒ "标记行多占一行"的假设**被排除**。
 - 完整 T45 流程在 rows=50 下 pi-rs 反复出现 `Error: Stream ended without finish_reason`（mock/时序），TS 同场景正常，故**完整流程的总行数不可比**；±1 行的来源仍未定位。
+
+### S0b 续 8：内容行数对齐推导
+- pi-rs 完整流程（rows=31，无 mock 错误）内容 45 行；由 TS 在 rows=31 的可见首行（` ! to run bash` = pi-rs 索引 15）推得 TS 的 `viewport_top=15` ⇒ **TS 内容 46 行**，差值恰 1。
+- 启动段（索引 0–22：版本行 + 19 条帮助 + 空行 + `Pi can explain…`）两侧一致；底部（编辑器框/cwd/footer/resume 提示）两侧一致。
+- 因此多出的 1 行位于**会话区**（索引 16..45 之间），具体位置未证实。
+- 干扰项：rows=50 的完整流程 pi-rs 必然进入 `Error: Stream ended without finish_reason`（rows=30/31 不出现），该变体不能用于对齐。
+- 结论：S0c 仍未定位到行号；已排除：按 rows 丢行、光标标记占行、启动段差异、底部差异。
