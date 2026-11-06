@@ -3236,17 +3236,17 @@ pub fn render_markdown_styled_with_width(
     let quote_blank_emitted = std::cell::Cell::new(false);
     let mut code_line = String::new();
     let mut pending_blank = false;
-    let mut flush_inline = |inline: &mut String,
-                            in_list_item: bool,
-                            list_depth: usize,
-                            quote_depth: usize,
-                            marker: &str,
-                            out: &mut Vec<String>,
-                            styles: &mut Vec<Option<style::LineStyle>>,
-                            spans: &mut Vec<(usize, Vec<style::Span>)>,
-                            code_ranges: &mut Vec<(usize, usize)>,
-                            current: Option<style::LineStyle>,
-                            pending_blank: &mut bool| {
+    let flush_inline = |inline: &mut String,
+                        in_list_item: bool,
+                        list_depth: usize,
+                        quote_depth: usize,
+                        marker: &str,
+                        out: &mut Vec<String>,
+                        styles: &mut Vec<Option<style::LineStyle>>,
+                        spans: &mut Vec<(usize, Vec<style::Span>)>,
+                        code_ranges: &mut Vec<(usize, usize)>,
+                        current: Option<style::LineStyle>,
+                        pending_blank: &mut bool| {
         let text = inline.trim_end().to_string();
         // 引用块的空行：只输出前缀（哨兵 `\u{1}`，见预处理）。
         if text == "\u{1}" && quote_depth > 0 {
