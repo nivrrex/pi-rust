@@ -4485,6 +4485,32 @@ impl pi_core::agent::EventSink for TuiEventSink {
                         assistant.error_message.as_deref(),
                     );
                     let notice_delta = notice;
+                    // F30/S1：每轮结束把上下文用量同步给扩展 ctx（ref `agent-session.ts:3893-3895`）。
+                    if self.context_window > 0 {
+                        let used = pi_ai::calculate_context_tokens(&assistant.usage);
+                        let tokens = if used > 0 {
+                            used
+                        } else {
+                            let text_tokens = pi_core::agent::compaction::estimate_tokens(
+                                &pi_ai::message::Message::Assistant(assistant.clone()),
+                            );
+                            let projected = self
+                                .context_tokens
+                                .load(std::sync::atomic::Ordering::Relaxed);
+                            if projected > 0 {
+                                projected + text_tokens
+                            } else {
+                                pi_core::agent::compaction::estimate_tokens(&self.system_message)
+                                    + text_tokens
+                            }
+                        };
+                        let pct = tokens as f64 / self.context_window as f64 * 100.0;
+                        crate::ext_tools::update_ctx_usage(
+                            Some(tokens),
+                            self.context_window,
+                            Some(pct),
+                        );
+                    }
                     let window = if self.context_window >= 1000 {
                         format!("{}k", self.context_window / 1000)
                     } else {

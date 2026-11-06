@@ -1378,24 +1378,11 @@ fn build_tui_agent_parts(
     // model.contextWindow ?? 0`、`percent = usage?.percent ?? 0`）。否则扩展读到 undefined，
     // 自己拼出 `?/0 (auto)`（真机 ② 的底栏现象）。tokens 用 system 提示的估算，与 ref 的
     // `estimateContextTokens` 在"还没有 assistant usage"时的口径一致。
+    // F30/S1：TS 实测 `session_start` 时为 `{tokens: 0, window, percent: 0}`——会话投影里还没有
+    // 消息（ref `agent-session.ts:3858-3904` 的 `estimateProjectedContextTokens` 此时为空）。
+    // 关键是 window 已知、percent 不是 null（null 会让扩展显示 `?/0`）。每轮结束由 sink 刷新。
     if resolved.context_window > 0 {
-        let mut sections_map = serde_json::Map::new();
-        for (name, body) in &sections {
-            sections_map.insert(name.clone(), serde_json::Value::String(body.clone()));
-        }
-        let mut extra = serde_json::Map::new();
-        extra.insert(
-            "sections".to_string(),
-            serde_json::Value::Object(sections_map),
-        );
-        let estimate_message = pi_ai::message::Message::System {
-            content: pi_ai::UserContent::Text(String::new()),
-            timestamp: 0,
-            extra,
-        };
-        let tokens = pi_core::agent::compaction::estimate_tokens(&estimate_message);
-        let percent = tokens as f64 / resolved.context_window as f64 * 100.0;
-        pi_cli::ext_tools::update_ctx_usage(Some(tokens), resolved.context_window, Some(percent));
+        pi_cli::ext_tools::update_ctx_usage(Some(0), resolved.context_window, Some(0.0));
     }
     // 启动屏 `[Skills]` 段（ref `interactive-mode.ts:1793-1797`）：名字已按 ref 的 compact list 排序。
     if !tui_skills.is_empty() {

@@ -138,13 +138,16 @@ fn context_usage_is_available_at_session_start() {
         Some(200_000),
         "会话开始时就该有 contextWindow：{first}"
     );
-    let percent = first["percent"].as_f64().expect("percent 是数字");
-    assert!(
-        (0.0..100.0).contains(&percent),
-        "启动时百分比应是 `估算/system 提示` 的量级：{first}"
+    // F30/S1：TS 实测 `session_start` 为 `{tokens: 0, percent: 0}`（会话投影为空），
+    // 关键是不能为 null（null ⇒ 扩展显示 `?/0`）。
+    assert_eq!(
+        first["percent"].as_f64(),
+        Some(0.0),
+        "启动时 percent 应为 0（非 null）：{first}"
     );
-    assert!(
-        first["tokens"].as_u64().unwrap_or(0) > 0,
-        "tokens 不应为 null：{first}"
+    assert_eq!(
+        first["tokens"].as_u64(),
+        Some(0),
+        "启动时 tokens 应为 0：{first}"
     );
 }
