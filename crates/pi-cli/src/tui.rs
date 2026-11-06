@@ -1291,6 +1291,11 @@ pub fn run(
     // 槽位在提交线程启动回合时填入，回合结束后清空。
     let turn_cancel: std::sync::Arc<std::sync::Mutex<Option<tokio_util::sync::CancellationToken>>> =
         std::sync::Arc::new(std::sync::Mutex::new(None));
+    // F31/S3：agent streaming 期间把 bash 结果排队，等本轮结束再落盘
+    // （ref `agent-session.ts:3500-3504` 的 `_pendingBashMessages`，避免打乱 tool_use/tool_result 顺序）。
+    let agent_busy = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let pending_bash: std::sync::Arc<std::sync::Mutex<Vec<pi_ai::message::Message>>> =
+        std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
     // F31/S1c：`!` 命令的取消令牌（Esc 中止正在跑的 bash，ref `agent-session.ts:3517-3526`）。
     let bash_cancel: std::sync::Arc<std::sync::Mutex<Option<tokio_util::sync::CancellationToken>>> =
         std::sync::Arc::new(std::sync::Mutex::new(None));
@@ -2979,6 +2984,25 @@ pub fn run(
                 // 重试退避期间 `AgentSettled` 也会来：整轮没结束，保持"忙"。
                 if !state.retrying {
                     busy = false;
+                    agent_busy.store(false, std::sync::atomic::Ordering::SeqCst);
+                    // 把 streaming 期间排队的 bash 条目补写进会话（ref 在 `agent_end` 后 flush）。
+                    let deferred: Vec<pi_ai::message::Message> = pending_bash
+                        .lock()
+                        .map(|mut guard| guard.drain(..).collect())
+                        .unwrap_or_default();
+                    if let Some(parts) = parts.as_ref() {
+                        for message in deferred {
+                            if let Some(writer) = parts.writer.as_ref() {
+                                if let Ok(mut guard) = writer.lock() {
+                                    let _ = guard.append_message(&message);
+                                    let _ = guard.ensure_flushed();
+                                }
+                            }
+                            if let Ok(mut guard) = history.lock() {
+                                guard.push(message);
+                            }
+                        }
+                    }
                 }
                 if let Some(next) = queued_inputs.pop_front() {
                     state.input = next;
@@ -3278,6 +3302,8 @@ pub fn run(
                             let bash_parts = parts.as_ref().map(std::sync::Arc::clone);
                             let bash_history = std::sync::Arc::clone(&history);
                             let bash_cancel_for_thread = std::sync::Arc::clone(&bash_cancel);
+                            let bash_busy = std::sync::Arc::clone(&agent_busy);
+                            let bash_pending = std::sync::Arc::clone(&pending_bash);
                             std::thread::spawn(move || {
                                 let Ok(runtime) = tokio::runtime::Builder::new_current_thread()
                                     .enable_all()
@@ -3366,7 +3392,12 @@ pub fn run(
                                     exclude_from_context: Some(exclude),
                                     extra: serde_json::Map::new(),
                                 };
-                                if let Some(parts) = bash_parts.as_ref() {
+                                let deferred = bash_busy.load(std::sync::atomic::Ordering::SeqCst);
+                                if deferred {
+                                    if let Ok(mut guard) = bash_pending.lock() {
+                                        guard.push(message.clone());
+                                    }
+                                } else if let Some(parts) = bash_parts.as_ref() {
                                     if let Some(writer) = parts.writer.as_ref() {
                                         if let Ok(mut guard) = writer.lock() {
                                             if let Err(error) = guard.append_message(&message) {
@@ -3378,8 +3409,10 @@ pub fn run(
                                         }
                                     }
                                 }
-                                if let Ok(mut guard) = bash_history.lock() {
-                                    guard.push(message);
+                                if !deferred {
+                                    if let Ok(mut guard) = bash_history.lock() {
+                                        guard.push(message);
+                                    }
                                 }
                                 let _ = bash_tx.send(pi_tui::TuiEvent::BashDone {
                                     output,
@@ -3398,6 +3431,7 @@ pub fn run(
                         continue;
                     }
                     busy = true;
+                    agent_busy.store(true, std::sync::atomic::Ordering::SeqCst);
                     // W3-2：用户消息进会话区（golden 形如 ` say hi`）；随后起一轮 agent run，
                     // 助手增量/工具调用/Working 由 `TuiEventSink` 经同一个 `tx` 送回本循环。
                     match skill_invocation {
