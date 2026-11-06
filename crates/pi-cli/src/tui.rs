@@ -3301,6 +3301,9 @@ pub fn run(
                                 // F31/S1d：`invoke_with_progress` 的 `on_update` 逐块把输出送回 UI
                                 // （ref `interactive-mode.ts:6793-6800` 的 `appendOutput(chunk)`）。
                                 let chunk_tx = bash_tx.clone();
+                                let streamed =
+                                    std::sync::Arc::new(std::sync::Mutex::new(String::new()));
+                                let streamed_for_cb = std::sync::Arc::clone(&streamed);
                                 let on_update =
                                     move |partial: &pi_core::tools::tool::ToolResult| {
                                         let text: String = partial
@@ -3317,6 +3320,9 @@ pub fn run(
                                             .collect::<Vec<_>>()
                                             .join("\n");
                                         if !text.is_empty() {
+                                            if let Ok(mut guard) = streamed_for_cb.lock() {
+                                                guard.push_str(&text);
+                                            }
                                             let _ =
                                                 chunk_tx.send(pi_tui::TuiEvent::BashChunk(text));
                                         }
@@ -3339,6 +3345,12 @@ pub fn run(
                                     .collect::<Vec<_>>()
                                     .join("\n");
                                 let cancelled = cancel.is_cancelled();
+                                // 取消时用**已流式收到的输出**（ref 里取消不会追加工具自己的中止文案）。
+                                let output = if cancelled {
+                                    streamed.lock().map(|g| g.clone()).unwrap_or_default()
+                                } else {
+                                    output
+                                };
                                 if let Ok(mut slot) = bash_cancel_slot.lock() {
                                     *slot = None;
                                 }

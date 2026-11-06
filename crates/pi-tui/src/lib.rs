@@ -2146,8 +2146,9 @@ fn render_all_cached_styled_inner(
                 running,
                 ..
             } => {
-                let rule = "─".repeat(cols.saturating_sub(2));
-                lines.push(clamp_to_width(&format!(" {rule}"), cols));
+                // ref：边框是整宽（`DynamicBorder` 铺满容器宽度，无前导空格）。
+                let rule = "─".repeat(cols);
+                lines.push(clamp_to_width(&rule, cols));
                 lines.push(clamp_to_width(&format!(" $ {command}"), cols));
                 if *running {
                     lines.push(clamp_to_width("  Running... (esc to cancel)", cols));
@@ -2158,6 +2159,8 @@ fn render_all_cached_styled_inner(
                     }
                 }
                 if !*running {
+                    // ref：输出区与状态行之间有一个空行（`bash-execution.ts` 里 status 是独立 Text）。
+                    lines.push(String::new());
                     let status = if *cancelled {
                         " (cancelled)".to_string()
                     } else {
@@ -2175,7 +2178,9 @@ fn render_all_cached_styled_inner(
                         ));
                     }
                 }
-                lines.push(clamp_to_width(&format!(" {rule}"), cols));
+                lines.push(clamp_to_width(&rule, cols));
+                // ref：块后与后续内容（编辑器区）之间留一个空行。
+                lines.push(String::new());
             }
             TranscriptItem::SkillInvocation { name, content } => {
                 // ref `skill-invocation-message.ts:48-56`：折叠态一行
