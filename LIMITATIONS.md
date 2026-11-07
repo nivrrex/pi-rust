@@ -518,7 +518,15 @@ ref 的对应实现见 `interactive-mode.ts:2541`/`:2543`（`showExtensionNotify
    `getStylePrefix` 对 padding 的处理）。推翻条件：上述类别逐类修完后该脚本对全部 dark/light golden 报 0 差异。
    （`compare-style.mjs` 的 `ch` 类假差异并非比较器错误：它不做路径归一化与空行对齐，`color-dump` 可复现同一现象。）
 
-10. **markdown 直渲染对拍尚未收敛（F34/M1）**：新增 `tools/difftest/md-oracle.mjs`（TS 侧直渲染，
+10. **markdown 直渲染对拍尚未收敛（F34/M1，最新）**：`md-diff` 的差异已全部归为**纯样式**类
+    （文本层一致），共 8~9 处，代表项：行尾 padding（TS `Text` 补满宽度）、H1 的分段 SGR、
+    引用行前缀与正文分段、代码块语法高亮（TS 走 `theme.highlightCode`，`markdown.ts:523`）。
+    本轮尝试把引用行改成"前缀+正文两段 span"，`T89f-md-elements` golden 立刻判 different
+    （引用块内的空行位置随之改变）⇒ **已回退**：既有 TUI golden 是判据，直渲染的样式微调
+    不能反过来动它。推翻条件：这几类样式在不动 `golden-tui` 的前提下对齐（例如只在
+    `md-render` example 侧模拟 TS 的 padding/分段，不改进程内渲染）。
+
+10b. **markdown 直渲染对拍尚未收敛（初版记录）**：新增 `tools/difftest/md-oracle.mjs`（TS 侧直渲染，
     构造参数照 ref `assistant-message.ts:114`、主题 `theme.ts:1170`，必须 `FORCE_COLOR=3` 否则
     chalk 会关色）、`crates/pi-tui/examples/md-render.rs`（pi-rs 侧同输入输出）与
     `tools/difftest/md-diff.mjs`（逐列归一 SGR 后比较）。
