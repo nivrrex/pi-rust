@@ -92,6 +92,35 @@ pub fn configure_ctx(cwd: &std::path::Path, mode: &str, has_ui: bool) {
     push_ctx();
 }
 
+/// 更新 ctx 里的终端宽度（列数）。扩展的页脚/组件按它渲染（ref 的 `render(width)`）。
+pub fn update_ctx_width(cols: usize) {
+    let Some(slot) = CTX.get() else {
+        return;
+    };
+    if let Ok(mut guard) = slot.lock() {
+        guard["width"] = serde_json::json!(cols);
+    }
+    push_ctx();
+}
+
+/// 把 `ctx.model` 设成 ref 的 **Model 对象**（`types.ts:327` 是 `Model<any> | undefined`，
+/// 不是字符串）。扩展普遍读 `ctx.model?.id` / `.provider` / `.reasoning`
+/// （如实测的 pi-ai-summary 页脚），此前我们存的是字符串 ⇒ `model=undefined`、页脚丢模型名。
+pub fn set_ctx_model_object(id: &str, provider: &str, reasoning: bool, context_window: u64) {
+    let Some(slot) = CTX.get() else {
+        return;
+    };
+    if let Ok(mut guard) = slot.lock() {
+        guard["model"] = serde_json::json!({
+            "id": id,
+            "provider": provider,
+            "reasoning": reasoning,
+            "contextWindow": context_window,
+        });
+    }
+    push_ctx();
+}
+
 /// 更新 ctx 里的当前模型与思考档位（切换模型 / Ctrl+P / `/thinking` 后调用）。
 ///
 /// ref `types.ts:325-334`：`ctx.model` 与 `ctx.thinkingLevel` 是**当前**值，扩展在

@@ -1127,6 +1127,13 @@ pub fn run(
             state.model = current.model_id.clone();
             state.model_provider = current.provider_name.clone();
         }
+        // `ctx.model` 必须是 **Model 对象**（ref `types.ts:327`）：扩展读 `.id/.provider/.reasoning`。
+        crate::ext_tools::set_ctx_model_object(
+            &state.model,
+            &state.model_provider,
+            parts_ref.supports_thinking,
+            context_window_of(parts_ref),
+        );
         // 优先用"models.json 里配了模型的 provider 数"（与 ref 的 getAvailableProviderCount 同口径）；
         // 没有该信息时退回 scoped 列表里的 provider 去重数。
         state.login_providers = parts_ref.login_providers.clone();
@@ -1220,6 +1227,8 @@ pub fn run(
     spawn_r3_input_thread(input_tx);
 
     let mut cols = terminal::size().map(|(c, _)| c as usize).unwrap_or(80);
+    // 把初始宽度告诉扩展宿主：页脚/组件按 `render(width)` 排版（ref `footer.ts`）。
+    crate::ext_tools::update_ctx_width(cols);
     let mut rows = terminal::size().map(|(_, r)| r as usize).unwrap_or(24);
     // R2 需要上一帧的屏幕行；R1 忽略它。resize 时必须清空（下一帧整屏重画）。
     let mut previous: Vec<String> = Vec::new();
@@ -4294,6 +4303,8 @@ pub fn run(
             if c as usize != cols || r as usize != rows {
                 cols = c as usize;
                 rows = r as usize;
+                // 宽度变化要同步给扩展宿主（页脚/组件按 `render(width)` 排版）。
+                crate::ext_tools::update_ctx_width(cols);
                 previous.clear();
                 dirty = true;
             }

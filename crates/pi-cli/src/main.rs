@@ -160,6 +160,11 @@ fn main() -> ExitCode {
             pi_cli::args::AppMode::PrintJson | pi_cli::args::AppMode::PrintText => ("print", false),
         };
         pi_cli::ext_tools::configure_ctx(&cwd, mode_name, has_ui);
+        // 扩展的页脚/组件按 `render(width)` 排版（ref `footer.ts`），而 `session_start`
+        // 在宿主启动时就派发 ⇒ 宽度必须在**建宿主之前**写进 ctx，否则扩展拿不到宽度。
+        if let Ok((cols, _)) = crossterm::terminal::size() {
+            pi_cli::ext_tools::update_ctx_width(cols as usize);
+        }
     }
     match mode {
         AppMode::PrintText => run_print(&parsed, false),
@@ -452,6 +457,14 @@ fn run_rpc(parsed: &Args) -> ExitCode {
             return ExitCode::from(1);
         }
     };
+    // `ctx.model` 是 **Model 对象**（ref `types.ts:327`），必须在扩展宿主启动 / `session_start`
+    // 派发**之前**就写进 ctx——扩展在 `session_start` 里读它做页脚/组件排版。
+    pi_cli::ext_tools::set_ctx_model_object(
+        &resolved.model_id,
+        &resolved.provider_name,
+        resolved.reasoning,
+        resolved.context_window,
+    );
     let runtime = match tokio::runtime::Builder::new_current_thread()
         .enable_all()
         .build()
@@ -1474,6 +1487,14 @@ fn build_tui_agent_parts(
         }
     } else {
         let thinking_level = if resolved.reasoning { "medium" } else { "off" };
+        // `ctx.model` 必须在**扩展宿主启动前**是 Model 对象（ref `types.ts:327`）：
+        // 扩展在 `session_start` 里读 `ctx.model?.id` 做页脚（实测 pi-ai-summary）。
+        pi_cli::ext_tools::set_ctx_model_object(
+            &resolved.model_id,
+            &resolved.provider_name,
+            resolved.reasoning,
+            resolved.context_window,
+        );
         // F26/S0：**必须先建 writer 并登记路径，再调用 `default_tools`**——后者会启动扩展宿主并
         // 派发 `session_start`，扩展在这个事件里 `appendEntry` 时若路径未登记，sink 会阻塞等 10s，
         // 退出时再被 join 超时打成"会话写入超时"（真机 ⑤⑥）。

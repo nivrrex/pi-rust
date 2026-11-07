@@ -214,7 +214,10 @@ function contextForExtension() {
           throw new Error("pi-ext-host: ctx.ui.setFooter 只接受工厂函数或 undefined");
         }
         const component = factory({ requestRender() {} }, makeThemeStub(), footerDataStub());
-        const rendered = component?.render?.();
+        // 宽度：ref 的页脚每帧用**终端宽度**渲染（`footer.ts` 的 `render(width)`）。
+        // 此前这里不传宽度 ⇒ 扩展里的 `truncateToWidth(x, undefined)` 把 cwd 截成 `...`、
+        // 模型名整段丢失（F36/H2 实测）。
+        const rendered = component?.render?.(Number(hostCtx.width ?? 80));
         if (!Array.isArray(rendered)) {
           throw new Error("pi-ext-host: ctx.ui.setFooter 工厂返回的组件不支持 render() -> string[]");
         }
