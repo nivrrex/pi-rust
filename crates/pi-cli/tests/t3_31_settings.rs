@@ -14,6 +14,7 @@ fn cli_flags_win_over_settings() {
         default_provider: Some("from-settings".to_string()),
         default_model: Some("settings-model".to_string()),
         compaction: None,
+        quiet_startup: None,
     };
     let resolved = resolve_model(Some("cli-p"), Some("cli-m"), &settings).expect("可解析");
     assert_eq!(resolved, ("cli-p".to_string(), "cli-m".to_string()));
@@ -31,6 +32,7 @@ fn settings_are_used_when_the_cli_is_silent() {
         default_provider: Some("p".to_string()),
         default_model: Some("m".to_string()),
         compaction: None,
+        quiet_startup: None,
     };
     assert_eq!(
         resolve_model(None, None, &settings).expect("可解析"),
@@ -50,6 +52,7 @@ fn a_lone_provider_borrows_the_settings_model_and_vice_versa() {
         default_provider: Some("p".to_string()),
         default_model: Some("m".to_string()),
         compaction: None,
+        quiet_startup: None,
     };
     assert_eq!(
         resolve_model(Some("cli-p"), None, &settings).expect("可解析"),
@@ -83,6 +86,7 @@ fn settings_must_give_both_fields() {
         default_provider: Some("p".to_string()),
         default_model: None,
         compaction: None,
+        quiet_startup: None,
     };
     let error = resolve_model(None, None, &only_provider).expect_err("应报错");
     assert!(error.contains("缺 defaultModel"), "实际：{error}");
@@ -97,6 +101,7 @@ fn settings_must_give_both_fields() {
         default_provider: None,
         default_model: Some("m".to_string()),
         compaction: None,
+        quiet_startup: None,
     };
     let error = resolve_model(None, None, &only_model).expect_err("应报错");
     assert!(error.contains("缺 defaultProvider"), "实际：{error}");
