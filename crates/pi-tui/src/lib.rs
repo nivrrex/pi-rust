@@ -3530,17 +3530,8 @@ pub fn render_markdown_styled_with_width(
                 pending_blank = true;
             }
             Event::Start(Tag::BlockQuote(_)) => {
-                // ref `markdown.ts:556-570`：引用块之前若已有内容，补一行空行（`space` 语义）。
-                if !out.is_empty()
-                    && !out
-                        .last()
-                        .map(|line| line.trim().is_empty())
-                        .unwrap_or(true)
-                {
-                    push_md_line(&mut out, &mut styles, String::new(), None);
-                }
+                // 引用块前**不**额外补空行：`T89f-md-elements` 的 TS golden 实测没有。
                 quote_depth += 1;
-                pending_blank = false;
             }
             Event::End(TagEnd::BlockQuote(_)) => {
                 quote_depth = quote_depth.saturating_sub(1);
