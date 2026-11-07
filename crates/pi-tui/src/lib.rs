@@ -3280,6 +3280,9 @@ pub fn render_markdown_styled_with_width(
     let mut list_stack: Vec<Option<u64>> = Vec::new();
     let mut in_code_block = false;
     let mut fence_line;
+    // 代码块在**列表内**时的额外缩进（ref `markdown.ts:521` 的 `codeBlockIndent = "  "`；
+    // 围栏行自身已带 1 个前导空格 ⇒ 列表内 3 空格、代码行 5 空格，TS 逐行实测）。
+    let mut code_indent = String::new();
     let mut link_dest: Option<String> = None;
     // 引用深度（ref `markdown.ts:556-570`：每行前缀 `│ `、整体 italic）。
     let mut quote_depth: usize = 0;
@@ -3641,14 +3644,20 @@ pub fn render_markdown_styled_with_width(
                     pulldown_cmark::CodeBlockKind::Fenced(_)
                     | pulldown_cmark::CodeBlockKind::Indented => " ```".to_string(),
                 };
+                code_indent = if in_list_item {
+                    "  ".to_string()
+                } else {
+                    String::new()
+                };
                 if pending_blank && !out.is_empty() {
                     push_md_line(&mut out, &mut styles, String::new(), None);
                 }
                 pending_blank = false;
+                let fence_text = format!("{code_indent}{fence_line}");
                 push_md_line(
                     &mut out,
                     &mut styles,
-                    fence_line.clone(),
+                    fence_text,
                     Some(style::LineStyle::fg(palette.md_code_block_border)),
                 );
             }
@@ -3657,17 +3666,19 @@ pub fn render_markdown_styled_with_width(
                     push_md_line(
                         &mut out,
                         &mut styles,
-                        format!("   {}", code_line.trim_end()),
+                        format!("{code_indent}   {}", code_line.trim_end()),
                         Some(style::LineStyle::fg(palette.md_code_block)),
                     );
                     code_line.clear();
                 }
+                // 收尾围栏与起始围栏同缩进（列表内 3 空格）。
                 push_md_line(
                     &mut out,
                     &mut styles,
-                    " ```".to_string(),
+                    format!("{code_indent} ```"),
                     Some(style::LineStyle::fg(palette.md_code_block_border)),
                 );
+                code_indent.clear();
                 in_code_block = false;
                 pending_blank = true;
             }
@@ -3683,7 +3694,7 @@ pub fn render_markdown_styled_with_width(
                             push_md_line(
                                 &mut out,
                                 &mut styles,
-                                format!("   {}", code_line.trim_end()),
+                                format!("{code_indent}   {}", code_line.trim_end()),
                                 Some(style::LineStyle::fg(palette.md_code_block)),
                             );
                             code_line.clear();
@@ -3727,7 +3738,7 @@ pub fn render_markdown_styled_with_width(
                         push_md_line(
                             &mut out,
                             &mut styles,
-                            format!("   {}", code_line.trim_end()),
+                            format!("{code_indent}   {}", code_line.trim_end()),
                             Some(style::LineStyle::fg(palette.md_code_block)),
                         );
                         code_line.clear();
