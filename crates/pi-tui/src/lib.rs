@@ -1381,8 +1381,6 @@ pub fn apply(state: &mut TuiState, event: TuiEvent) -> TuiAction {
     }
 }
 
-/// 把字符串按显示宽度裁剪到 `width` 列（不补空格）。
-#[must_use]
 /// 按**可见宽度**截断，保留 ANSI 转义序列（扩展给的页脚/头部/widget 行自带颜色）。
 ///
 /// `clamp_to_width` 把转义字节也算进宽度 ⇒ 扩展的行会被过早截断（实测：pi-ai-summary
@@ -1433,6 +1431,8 @@ pub fn clamp_to_width_ansi(text: &str, width: usize) -> String {
     out
 }
 
+/// 把字符串按显示宽度裁剪到 `width` 列（不补空格）。
+#[must_use]
 pub fn clamp_to_width(text: &str, width: usize) -> String {
     // P7-6al/F：**热路径**——旧实现每个字符都 `ch.to_string()` 再算宽度（每帧约 27 万次分配，
     // N=3000 时 render 占 35 ms）。`UnicodeWidthChar::width` 与 `UnicodeWidthStr::width(单字符)`
