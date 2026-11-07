@@ -2751,8 +2751,10 @@ fn render_all_cached_styled_inner(
             if placement != "belowEditor" {
                 continue;
             }
+            // ref `interactive-mode.ts:2326-2328`：每行是 `new Text(line, 1, 0)` ⇒ 前导 1 列内边距；
+            // 且 `Text` 组件自带**每行后的空行**（逐行实测：` Todo …` / `` / `  ▶ …` / ``）。
             for line in widget_lines {
-                lines.push(clamp_to_width(line, cols));
+                lines.push(clamp_to_width_ansi(&format!(" {line}"), cols));
             }
         }
     }
