@@ -5466,21 +5466,14 @@ fn header_spans(lines: &[String], palette: &theme::Palette) -> Vec<Vec<style::Sp
             // 只有列 1 起的 `pi` 是 accent+bold。给它加 `dim()` 会多出 1 格差异。
             // 粗体**始终加**（真彩 TS 发 `\x1b[1m`；256 下 TS 自己在不同场景不一致：
             // T28 录到无 bold、T77 录到有 bold，属上游帧序列差异，取多数且与真彩一致的做法）。
-            let mut spans = Vec::new();
             // 注意：**没有 dim**。`T01` 的旧 golden 里该行多一个 `dim`（`0-0:-/-/d`），
             // 但 F34/C1 用当前 TS 重录两次（`/tmp/c1-T01-{1,2}`）实测都是 `0-0:-/-`，
             // 且 `T02` 的 golden 也是无 dim ⇒ 旧 T01 的 dim 属录制期残留（`\x1b[2m` 来自
             // 退出时的 `To resume this session:` 行），不是 TS 的真实渲染。
-            spans.push(style::Span::new(
-                lead,
-                lead + short,
-                LineStyle::fg(palette.accent).bold(),
-            ));
-            spans.push(style::Span::new(
-                lead + short,
-                line.len(),
-                LineStyle::fg(palette.dim),
-            ));
+            let spans = vec![
+                style::Span::new(lead, lead + short, LineStyle::fg(palette.accent).bold()),
+                style::Span::new(lead + short, line.len(), LineStyle::fg(palette.dim)),
+            ];
             out.push(spans);
             continue;
         }
