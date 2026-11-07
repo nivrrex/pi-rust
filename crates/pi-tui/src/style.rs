@@ -173,6 +173,10 @@ pub struct LineStyle {
     pub dim: bool,
     /// 斜体（SGR 3）。
     pub italic: bool,
+    /// 下划线（SGR 4）。ref `markdown.ts:472`：H1 是 `heading(bold(underline(text)))`。
+    pub underline: bool,
+    /// 删除线（SGR 9）。ref `markdown.ts:660-700` 的 `~~…~~`。
+    pub strike: bool,
 }
 
 impl LineStyle {
@@ -185,6 +189,8 @@ impl LineStyle {
             bold: false,
             dim: false,
             italic: false,
+            underline: false,
+            strike: false,
         }
     }
 
@@ -197,6 +203,8 @@ impl LineStyle {
             bold: false,
             dim: false,
             italic: false,
+            underline: false,
+            strike: false,
         }
     }
 
@@ -216,6 +224,8 @@ impl LineStyle {
             bold: false,
             dim: false,
             italic: false,
+            underline: false,
+            strike: false,
         }
     }
 
@@ -246,10 +256,30 @@ impl LineStyle {
         self
     }
 
+    /// 加下划线（SGR 4）。
+    #[must_use]
+    pub const fn underline(mut self) -> Self {
+        self.underline = true;
+        self
+    }
+
+    /// 加删除线（SGR 9）。
+    #[must_use]
+    pub const fn strike(mut self) -> Self {
+        self.strike = true;
+        self
+    }
+
     /// 是否没有任何效果（不需要写 SGR）。
     #[must_use]
     pub const fn is_plain(&self) -> bool {
-        self.fg.is_none() && self.bg.is_none() && !self.bold && !self.dim && !self.italic
+        self.fg.is_none()
+            && self.bg.is_none()
+            && !self.bold
+            && !self.dim
+            && !self.italic
+            && !self.underline
+            && !self.strike
     }
 
     /// 生成 SGR 前缀；无效果时返回空串。
@@ -273,6 +303,12 @@ impl LineStyle {
         }
         if self.italic {
             parts.push("3".to_string());
+        }
+        if self.underline {
+            parts.push("4".to_string());
+        }
+        if self.strike {
+            parts.push("9".to_string());
         }
         // ref `theme.ts:202-232`：真彩用 `38;2;r;g;b`，否则用 `38;5;N`（最近的 256 色）。
         if let Some((r, g, b)) = self.fg {

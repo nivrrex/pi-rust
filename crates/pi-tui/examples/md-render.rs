@@ -28,7 +28,13 @@ fn main() {
     }
     let palette = pi_tui::theme::Palette::of(&pi_tui::theme::Theme::builtin(&theme));
     let (lines, styles, spans) =
-        pi_tui::render_markdown_styled_with_width(input.trim(), &palette, Some(width));
+        // TS 的 `Markdown(text, paddingX=1, …)` 在 `width` 里扣掉左右各 1 列（ref
+        // `assistant-message.ts:114` + `text.ts` 的 padding 处理）⇒ 内容宽度是 `width-2`。
+        pi_tui::render_markdown_styled_with_width(
+            input.trim(),
+            &palette,
+            Some(width.saturating_sub(2)),
+        );
     let spans_by_line: std::collections::HashMap<usize, Vec<pi_tui::style::Span>> =
         spans.into_iter().collect();
     for (index, line) in lines.iter().enumerate() {

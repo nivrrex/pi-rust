@@ -3240,6 +3240,8 @@ pub fn render_markdown_styled_with_width(
     let quote_blank_emitted = std::cell::Cell::new(false);
     let mut code_line = String::new();
     let mut pending_blank = false;
+    // 空行来源：ref `markdown.ts:487-497` 里**段落**后面接列表不补空行，**标题**后面要补。
+    let mut pending_from_paragraph = false;
     let flush_inline = |inline: &mut String,
                         in_list_item: bool,
                         list_depth: usize,
@@ -3430,7 +3432,11 @@ pub fn render_markdown_styled_with_width(
                     push_md_line(&mut out, &mut styles, String::new(), None);
                 }
                 pending_blank = false;
-                current = Some(style::LineStyle::fg(palette.md_heading).bold());
+                // ref `markdown.ts:469-475`：H1 = `heading(bold(underline(text)))`，H2+ 只 bold。
+                current = Some(match level {
+                    HeadingLevel::H1 => style::LineStyle::fg(palette.md_heading).bold().underline(),
+                    _ => style::LineStyle::fg(palette.md_heading).bold(),
+                });
                 // ref `markdown.ts:482`：`headingLevel >= 3` 时**把 `### ` 前缀一起输出**（同样按标题染色），
                 // H1/H2 才去掉前缀。此前我们对所有级别都去掉了前缀。
                 let depth = matches!(
@@ -3469,7 +3475,17 @@ pub fn render_markdown_styled_with_width(
                 pending_blank = true;
             }
             Event::Start(Tag::BlockQuote(_)) => {
+                // ref `markdown.ts:556-570`：引用块之前若已有内容，补一行空行（`space` 语义）。
+                if !out.is_empty()
+                    && !out
+                        .last()
+                        .map(|line| line.trim().is_empty())
+                        .unwrap_or(true)
+                {
+                    push_md_line(&mut out, &mut styles, String::new(), None);
+                }
                 quote_depth += 1;
+                pending_blank = false;
             }
             Event::End(TagEnd::BlockQuote(_)) => {
                 quote_depth = quote_depth.saturating_sub(1);
@@ -3501,8 +3517,11 @@ pub fn render_markdown_styled_with_width(
                 );
                 current = None;
                 pending_blank = true;
+                pending_from_paragraph = false;
             }
             Event::Start(Tag::List(start)) => {
+                // ref `markdown.ts:487-497`：段落与列表之间**不补**空行（`nextTokenType === "list"`）。
+                // 此前我们在列表开始前保留 `pending_blank` ⇒ 比 TS 多一行空行。
                 // 嵌套列表开始前必须把上一段的 inline 冲掉，否则
                 // "…新增 keystore/ 目录" 会和下一层的 `- keystore/…` 并成一行（真机会话实测）。
                 flush_inline(
@@ -3519,17 +3538,21 @@ pub fn render_markdown_styled_with_width(
                     current,
                     &mut pending_blank,
                 );
-                if pending_blank && !out.is_empty() {
+                if pending_blank && !pending_from_paragraph && !out.is_empty() {
                     push_md_line(&mut out, &mut styles, String::new(), None);
                 }
                 pending_blank = false;
+                pending_from_paragraph = false;
                 list_depth += 1;
                 list_stack.push(start);
             }
             Event::End(TagEnd::List(_)) => {
                 list_depth = list_depth.saturating_sub(1);
                 list_stack.pop();
-                pending_blank = true;
+                // ref `markdown.ts:542-548`：列表本身**不补**空行（后续空行由 `space` token 决定）；
+                // 这里置 `pending_from_paragraph = true` 让紧随其后的列表也不额外补。
+                pending_blank = false;
+                pending_from_paragraph = true;
             }
             Event::Start(Tag::Item) => {
                 in_list_item = true;
@@ -3631,7 +3654,7 @@ pub fn render_markdown_styled_with_width(
                 let style = match &event {
                     Event::Start(Tag::Strong) => style::LineStyle::default().bold(),
                     Event::Start(Tag::Emphasis) => style::LineStyle::default().italic(),
-                    _ => style::LineStyle::default().dim(),
+                    _ => style::LineStyle::default().strike(),
                 };
                 inline_stack.push((style, inline.len()));
             }
@@ -3701,6 +3724,7 @@ pub fn render_markdown_styled_with_width(
                     current,
                     &mut pending_blank,
                 );
+                pending_from_paragraph = true;
                 if quote_blank_emitted.get() {
                     // 刚输出的就是"引用块空行"，该段结束后不再补空行（否则比 TS 多一行）。
                     quote_blank_emitted.set(false);
