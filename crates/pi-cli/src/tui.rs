@@ -1268,6 +1268,9 @@ pub fn run(
     let mut last_draw: Option<std::time::Instant> = None;
     // Ctrl+O 之后需要按新的展开态重跑扩展的 renderResult。
     let mut needs_expanded_rerender = false;
+    // ref `interactive-mode.ts:4116-4124` `handleCtrlC()`：距上一次 Ctrl+C 不足 500 ms 时
+    // 第二次 Ctrl+C 触发 `shutdown()`，否则只清编辑器并记录时刻。
+    let mut last_ctrl_c: Option<std::time::Instant> = None;
     // 当前挂起的扩展 UI 询问（`ctx.ui.select/confirm/input`）。
     let mut ext_ask: Option<ExtAsk> = None;
     // P7-7a：`/model` 选择器的状态（`None` = 未打开）。
@@ -3219,6 +3222,20 @@ pub fn run(
                     // 面板打开时，其它按键保持原样交给后续流程
                     _other => {}
                 }
+            }
+            // ref `interactive-mode.ts:4116-4124`：Ctrl+C 双击（500 ms 窗口）退出。
+            // 首次 Ctrl+C 只清编辑器并记时刻；窗口内第二次即 shutdown。
+            if matches!(event, TuiEvent::Clear) {
+                let now = std::time::Instant::now();
+                let within_window =
+                    last_ctrl_c.is_some_and(|last| now.duration_since(last).as_millis() < 500);
+                last_ctrl_c = Some(now);
+                if within_window {
+                    break 'main;
+                }
+                let _ = apply(&mut state, event);
+                dirty = true;
+                continue;
             }
             match apply(&mut state, event) {
                 TuiAction::Exit => break 'main,
