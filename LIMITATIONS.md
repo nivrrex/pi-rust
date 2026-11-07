@@ -499,7 +499,19 @@ ref 的对应实现见 `interactive-mode.ts:2541`/`:2543`（`showExtensionNotify
 7. **Markdown 引用块内的空行**：TS 打 ` │`，pi-rs 打空行 —— pulldown-cmark 对 `>` 单独一行**不产生任何事件**
    （`Parser::new_ext` 事件探针确认），没有源位置就无法还原该行。推翻条件：改用 `into_offset_iter` 拿到源区间后补齐。
 8. **配色回归默认不设闸门**：见第 6 条；本批新增 `STYLE_CHECK=1` 开关（`scripts/regress-tui.sh`），默认关闭。
-9. **颜色差异尚未清零（官方归一化后重分类）**：新增 `tools/difftest/color-classify.mjs`（复用
+9. **颜色差异分类（F34/C1+C2 重新取证后）**：regress 文本层 **dark 91/0/21**。
+   `color-classify`（复用官方 `normalizeScreen`）对 91 个 dark golden：**exact=36**、逐格不同 **55**。
+   代表样本 `T01` 的逐格 dump：
+   | 侧 | ` pi v0.87.1` 行样式段 |
+   | --- | --- |
+   | 旧 `T01` golden | `0-0:-/-/d`（首列 dim）、`1-2:i109/-/b/d`（`pi` bold+dim） |
+   | 当前环境 TS 重录 ×2 | `0-0:-/-`、`1-2:i109/-/b`（**无 dim**） |
+   | `T02` golden | 同"无 dim" |
+   ⇒ 旧 `T01` 的 `dim` 是**录制期残留**（该 golden 里 `\x1b[2m` 只出现在退出时的
+   `To resume this session:` 行），不是 TS 的真实渲染；pi-rs 已按当前 TS 修正（`e5843ef7`）。
+   其余 54 个"逐格不同"场景尚未逐类定性（需按 `color-dump` 逐行核）。
+
+9a. **颜色差异尚未清零（官方归一化后重分类，旧记录）**：新增 `tools/difftest/color-classify.mjs`（复用
    `compare-tui.normalizeScreen`，不改它）。对 90 个 dark golden：**exact=22、逐格样式不同=68**。
    **关键发现**：语料自身不自洽 —— `T01` 的 golden 里 ` pi v0.87.1` 行的首列是 `dim`，`T02` 的 golden
    同位置**没有** `dim`（`r1` 逐格 dump 实测）。同一份 UI 不可能两种样式 ⇒ 这些 golden 是在不同终端能力/

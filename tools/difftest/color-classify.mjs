@@ -3,7 +3,7 @@ import { normalizeScreen } from "/root/Desktop/pi-rust/tools/difftest/compare-tu
 import { dumpStyled } from "/root/Desktop/pi-rust/tools/difftest/color-dump.mjs";
 
 const goldDir = "/root/Desktop/pi-rust/golden-tui";
-const runDir = "/tmp/rg2";
+const runDir = "/tmp/rg6";
 const lines = (path) => dumpStyled(path, 100, 30).map((l) => l.replace(/^\d+│/, ""));
 let total = 0, exact = 0, offsetOnly = 0, real = 0;
 const samples = [];
