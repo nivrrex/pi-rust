@@ -1,0 +1,17 @@
+data: {"id": "chatcmpl-mock", "object": "chat.completion.chunk", "created": 1700000000, "model": "mock-model", "choices": [{"index": 0, "delta": {"role": "assistant", "content": ""}, "finish_reason": null}]}
+
+data: {"id": "chatcmpl-mock", "object": "chat.completion.chunk", "created": 1700000000, "model": "mock-model", "choices": [{"index": 0, "delta": {"content": "> 外层引用\n>\n> > 嵌套引用\n> "}, "finish_reason": null}]}
+
+data: {"id": "chatcmpl-mock", "object": "chat.completion.chunk", "created": 1700000000, "model": "mock-model", "choices": [{"index": 0, "delta": {"content": ">\n> > - 引用里的列表\n>\n> 回"}, "finish_reason": null}]}
+
+data: {"id": "chatcmpl-mock", "object": "chat.completion.chunk", "created": 1700000000, "model": "mock-model", "choices": [{"index": 0, "delta": {"content": "到外层\n\n- 列表内代码块：\n\n  ``"}, "finish_reason": null}]}
+
+data: {"id": "chatcmpl-mock", "object": "chat.completion.chunk", "created": 1700000000, "model": "mock-model", "choices": [{"index": 0, "delta": {"content": "`python\n  print(\"hi\""}, "finish_reason": null}]}
+
+data: {"id": "chatcmpl-mock", "object": "chat.completion.chunk", "created": 1700000000, "model": "mock-model", "choices": [{"index": 0, "delta": {"content": ")\n  ```\n\n- [ ] 未完成任务"}, "finish_reason": null}]}
+
+data: {"id": "chatcmpl-mock", "object": "chat.completion.chunk", "created": 1700000000, "model": "mock-model", "choices": [{"index": 0, "delta": {"content": "\n- [x] 已完成任务\n"}, "finish_reason": null}]}
+
+data: {"id": "chatcmpl-mock", "object": "chat.completion.chunk", "created": 1700000000, "model": "mock-model", "choices": [{"index": 0, "delta": {}, "finish_reason": "stop"}], "usage": {"prompt_tokens": 10, "completion_tokens": 20, "total_tokens": 30}}
+
+

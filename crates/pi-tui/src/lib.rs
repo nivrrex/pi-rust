@@ -3184,6 +3184,23 @@ fn render_table(
             }
         }
     }
+    if let Some(total) = width {
+        // 兜底：总宽（含边框）**不得超过可用宽度**，否则外层 `wrap_to_width` 会把表格行折断
+        // （实测：含 `<br>` 的 CJK 单元格会让第二列表格折成两行、丢掉行首内边距）。
+        // `+1` 是行首内边距（我们给每行加了 1 个空格，ref 的 `paddingX`）；不加这一格，
+        // 外层 `wrap_to_width` 会把表格行折成两行（实测）。
+        let overhead = 3 * columns + 2;
+        while overhead + widths.iter().sum::<usize>() > total {
+            let Some((widest, _)) = widths.iter().enumerate().max_by_key(|(_, value)| **value)
+            else {
+                break;
+            };
+            if widths[widest] <= 1 {
+                break;
+            }
+            widths[widest] -= 1;
+        }
+    }
     let rule = |left: char, mid: char, right: char| -> String {
         let cells: Vec<String> = widths.iter().map(|w| "─".repeat(*w)).collect();
         format!("{left}─{}─{right}", cells.join(&format!("─{mid}─")))
@@ -3412,6 +3429,13 @@ pub fn render_markdown_styled_with_width(
                 Event::Text(text) | Event::Code(text) => {
                     if let Some(cell) = table.as_mut().and_then(|state| state.cell.as_mut()) {
                         cell.push_str(text);
+                    }
+                    continue;
+                }
+                Event::InlineHtml(text) | Event::Html(text) => {
+                    // ref `markdown.ts:612-618`：HTML 按**纯文本**渲染（标签原样保留）。
+                    if let Some(cell) = table.as_mut().and_then(|state| state.cell.as_mut()) {
+                        cell.push_str(text.as_ref());
                     }
                     continue;
                 }
@@ -3690,6 +3714,10 @@ pub fn render_markdown_styled_with_width(
                 if let Some((style, start)) = inline_stack.pop() {
                     inline_styles.push((start, inline.len(), style));
                 }
+            }
+            Event::InlineHtml(text) | Event::Html(text) => {
+                // ref `markdown.ts:612-618`：HTML 块/行内 HTML 都按纯文本输出（不解释标签）。
+                inline.push_str(text.as_ref());
             }
             Event::Code(text) => {
                 let start = inline.len();

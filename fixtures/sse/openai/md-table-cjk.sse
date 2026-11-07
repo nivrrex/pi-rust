@@ -1,0 +1,23 @@
+data: {"id": "chatcmpl-mock", "object": "chat.completion.chunk", "created": 1700000000, "model": "mock-model", "choices": [{"index": 0, "delta": {"role": "assistant", "content": ""}, "finish_reason": null}]}
+
+data: {"id": "chatcmpl-mock", "object": "chat.completion.chunk", "created": 1700000000, "model": "mock-model", "choices": [{"index": 0, "delta": {"content": "| 位置 | 原状 | 现状 |\n| :"}, "finish_reason": null}]}
+
+data: {"id": "chatcmpl-mock", "object": "chat.completion.chunk", "created": 1700000000, "model": "mock-model", "choices": [{"index": 0, "delta": {"content": "--- | :---: | ---: |"}, "finish_reason": null}]}
+
+data: {"id": "chatcmpl-mock", "object": "chat.completion.chunk", "created": 1700000000, "model": "mock-model", "choices": [{"index": 0, "delta": {"content": "\n| 二章·北区 | 长句叙述 | 要点"}, "finish_reason": null}]}
+
+data: {"id": "chatcmpl-mock", "object": "chat.completion.chunk", "created": 1700000000, "model": "mock-model", "choices": [{"index": 0, "delta": {"content": "列表 |\n| 三章·低摘牌 | 整段文字"}, "finish_reason": null}]}
+
+data: {"id": "chatcmpl-mock", "object": "chat.completion.chunk", "created": 1700000000, "model": "mock-model", "choices": [{"index": 0, "delta": {"content": " | 分项列表 |\n\n| 多行 | 说明"}, "finish_reason": null}]}
+
+data: {"id": "chatcmpl-mock", "object": "chat.completion.chunk", "created": 1700000000, "model": "mock-model", "choices": [{"index": 0, "delta": {"content": " |\n| --- | --- |\n| 第"}, "finish_reason": null}]}
+
+data: {"id": "chatcmpl-mock", "object": "chat.completion.chunk", "created": 1700000000, "model": "mock-model", "choices": [{"index": 0, "delta": {"content": "一行<br>第二行 | 单元格内多行文本"}, "finish_reason": null}]}
+
+data: {"id": "chatcmpl-mock", "object": "chat.completion.chunk", "created": 1700000000, "model": "mock-model", "choices": [{"index": 0, "delta": {"content": "需要折行显示以验证列宽分配与分隔线位置 "}, "finish_reason": null}]}
+
+data: {"id": "chatcmpl-mock", "object": "chat.completion.chunk", "created": 1700000000, "model": "mock-model", "choices": [{"index": 0, "delta": {"content": "|\n"}, "finish_reason": null}]}
+
+data: {"id": "chatcmpl-mock", "object": "chat.completion.chunk", "created": 1700000000, "model": "mock-model", "choices": [{"index": 0, "delta": {}, "finish_reason": "stop"}], "usage": {"prompt_tokens": 10, "completion_tokens": 20, "total_tokens": 30}}
+
+
