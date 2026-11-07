@@ -199,6 +199,10 @@ fn main() -> ExitCode {
             // `/login` 的 provider 列表必须在没有可用模型（parts=None）时也可用，
             // 故直接写到 state 上（`run()` 里若 parts 存在会用同一份覆盖，等价）。
             state.agent_dir = paths.agent_dir.clone();
+            // ref `interactive-mode.ts:904/957`：`quietStartup` 关掉启动屏的 `Model scope:` 行与内置头部；
+            // `--verbose`（ref `:405` 的 `options.verbose`）可覆盖。
+            state.quiet_startup =
+                pi_cli::settings::quiet_startup(&paths.agent_dir) && !parsed.verbose;
             // `/login` 候选 = `models.json` 的 provider ∪ 内置目录的 provider（ref 遍历的
             // 是含内置的运行时 registry；零配置的新机器也要能用 `/login`）。
             state.login_providers = pi_cli::runtime::login_provider_ids(&paths.agent_dir);

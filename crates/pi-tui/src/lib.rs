@@ -144,6 +144,10 @@ pub struct TuiState {
     /// 可切换的模型 scope（`enabledModels` 解析后的 id 列表）。
     /// ref `interactive-mode.ts:905-916`：非空时启动屏打印 `Model scope: …`。
     pub model_scope: Vec<String>,
+    /// `settings.quietStartup`（ref `interactive-mode.ts:904/957`）：为真时启动屏**不打印**
+    /// `Model scope:` 行，也不打印内置头部（`pi v…` + 键位提示 + onboarding），
+    /// 只剩会话区/编辑器/状态区。`--verbose` 可覆盖（本项目 `--verbose` 恒开）。
+    pub quiet_startup: bool,
     /// 当前模型所属的 provider（ref `footer.ts:193-200`：多个 provider 可用时右侧加 `(provider)` 前缀）。
     pub model_provider: String,
     /// 可用的 provider 数量（ref `footerData.getAvailableProviderCount()`；>1 才显示前缀）。
@@ -277,6 +281,7 @@ impl TuiState {
             usage_cost: 0.0,
             version: version.into(),
             model_scope: Vec::new(),
+            quiet_startup: false,
             cwd: cwd.into(),
             home: std::env::var("HOME").ok(),
             context_files: Vec::new(),
@@ -2035,7 +2040,8 @@ fn render_all_cached_styled_inner(
     style_out: RenderStyleOut<'_>,
 ) -> Vec<String> {
     let mut lines: Vec<String> = Vec::with_capacity(rows);
-    if !state.model_scope.is_empty() {
+    // ref `interactive-mode.ts:904`：`verbose || !quietStartup` 才打印 `Model scope:`。
+    if !state.model_scope.is_empty() && !state.quiet_startup {
         // ref `interactive-mode.ts:905-916`：`Model scope: <id[:thinking], …> (Ctrl+P to cycle)`
         lines.push(clamp_to_width(
             &format!(
@@ -2052,6 +2058,9 @@ fn render_all_cached_styled_inner(
             lines.push(clamp_to_width(line, cols));
         }
         lines.push(String::new());
+    } else if state.quiet_startup {
+        // ref `:1011-1014`：静默启动 ⇒ 内置头部是 `new Text("", 0, 0)`（空组件），
+        // 不画 `pi v…`/键位提示/onboarding。
     } else {
         // ref `:958`：`pi v<version>`（头部件内边距 → 一个前导空格）
         // golden-tui 的启动屏显示的是**上游 pi 的版本**（0.87.1，见 tag/`ref/`），不是本 crate 的包版本。
@@ -2118,8 +2127,11 @@ fn render_all_cached_styled_inner(
         }
         lines.push(String::new());
     }
+    // ref `showLoadedResources`（`interactive-mode.ts:1697-1712`）：`showListing = verbose || !quietStartup`，
+    // 静默启动时**整段都不渲染**（`[Context]`/`[Skills]`/`[Extensions]` 全部跳过）。
+    let show_listing = !state.quiet_startup;
     // ref `:1770-1784`：`[Context]` 段（只显示路径）
-    if !state.context_files.is_empty() {
+    if show_listing && !state.context_files.is_empty() {
         // P7-6o(续4)/W0：`[Context]` 段前的段落空行。ref `interactive-mode.ts:1776`
         // `this.loadedResourcesContainer.addChild(new Spacer(1));`（在 `addLoadedSection("Context", …)` `:1784` 之前）。
         lines.push(String::new());
@@ -2150,12 +2162,12 @@ fn render_all_cached_styled_inner(
         lines.push(String::new());
     }
     // ref `:1793-1797`：`[Skills]` 段位于 `[Context]` 与 `[Extensions]` 之间（用户真机实测顺序）。
-    if !state.skill_labels.is_empty() {
+    if show_listing && !state.skill_labels.is_empty() {
         lines.push("[Skills]".to_string());
         push_compact_list(&mut lines, &state.skill_labels, cols);
         lines.push(String::new());
     }
-    if !state.extension_labels.is_empty() {
+    if show_listing && !state.extension_labels.is_empty() {
         // 展开态下头部本身已带尾部空行（ref 的 header Text 与 loaded-resources 容器只隔一个
         // Spacer），再补一个会让整屏比 TS 多 1 行（实测 T90 `after-expand`：我们 viewport_top=21、
         // TS=20）。

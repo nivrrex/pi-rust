@@ -46,6 +46,10 @@ pub struct Settings {
     /// （即"不是内置名"），由主题加载器按路径处理。
     #[serde(default)]
     pub theme: Option<String>,
+    /// `quietStartup`（ref `settings-manager.ts:1021-1023` 的 `getQuietStartup()`，默认 false）：
+    /// 为真时启动屏不打印 `Model scope:` 与内置头部（`interactive-mode.ts:904/957`）。
+    #[serde(default, rename = "quietStartup")]
+    pub quiet_startup: Option<bool>,
     /// `modelThinkingLevels`：`{"provider/modelId": "high"}` 形式的**每模型档位覆盖**
     /// （ref `settings-manager.ts:809-811` 的 `getModelThinkingLevel`）。
     #[serde(default, rename = "modelThinkingLevels")]
@@ -82,6 +86,16 @@ impl Settings {
             },
         }
     }
+}
+
+/// 读 `<agent_dir>/settings.json` 的 `quietStartup`（缺失/解析失败一律 false）。
+#[must_use]
+pub fn quiet_startup(agent_dir: &std::path::Path) -> bool {
+    std::fs::read_to_string(agent_dir.join("settings.json"))
+        .ok()
+        .and_then(|text| parse(&text).ok())
+        .and_then(|settings| settings.quiet_startup)
+        .unwrap_or(false)
 }
 
 /// 解析 settings.json 的文本；空文本或缺失文件按"没有设置"处理。

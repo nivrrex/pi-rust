@@ -1,0 +1,73 @@
+{
+ "id": "T92-quiet-startup-scope",
+ "provider": "openai-completions",
+ "model": "mock-model",
+ "mode": "tui",
+ "prompt": "",
+ "files": {
+  "AGENTS.md": "# 项目规则\n"
+ },
+ "globalFiles": {},
+ "cliArgs": [],
+ "settings": {
+  "enabledModels": [
+   "openai-completions/mock-model"
+  ],
+  "quietStartup": true
+ },
+ "responses": [
+  {
+   "file": "fixtures/sse/openai/text-basic.sse"
+  }
+ ],
+ "description": "quietStartup=true：启动屏无 Model scope 行、无内置头部（ref interactive-mode.ts:904/957/1011-1014）",
+ "tui": {
+  "cols": 100,
+  "rows": 30,
+  "snapshots": [
+   "scope"
+  ],
+  "steps": [
+   {
+    "action": "waitScreen",
+    "contains": "──",
+    "timeoutMs": 25000
+   },
+   {
+    "action": "type",
+    "text": "scope test"
+   },
+   {
+    "action": "waitStable",
+    "quietMs": 600,
+    "timeoutMs": 15000
+   },
+   {
+    "action": "type",
+    "text": "\r"
+   },
+   {
+    "action": "delay",
+    "ms": 3000
+   },
+   {
+    "action": "waitStable",
+    "quietMs": 1200,
+    "timeoutMs": 15000
+   },
+   {
+    "action": "snapshot",
+    "name": "scope"
+   },
+   {
+    "action": "type",
+    "text": "\u0004"
+   },
+   {
+    "action": "waitStable",
+    "quietMs": 600,
+    "timeoutMs": 15000
+   }
+  ]
+ }
+}
