@@ -1,16 +1,19 @@
 #!/usr/bin/env python3
 """K1a：真实终端时序下的退出残留字节对比台。
 
-用法：term-sim-residual.py <delay_ms> <binary...>
+用法：term-sim-residual.py <delay_ms> <argv...>
   delay_ms：终端应答查询的延迟（0 / 20 / 100），模拟终端处理耗时。
-输出 JSON：启动字节统计、退出字节统计、退出后 tty 输入队列残留字节（十六进制 + 可读形态）。
+输出一行 JSON，字段：
+  startup / exit          启动期与退出期的模式字节计数
+  late_after_exit         被测进程退出后仍然出现的输出（用于确认是否还有尾帧）
+  residual_len / _hex     退出后**从设备输入队列**残留的字节数与内容
+  cat_v_seen              在同一 pty 上随后启动的 `cat -v` 看到的残留
 
 设计要点（不改 run-tui / compare-tui）：
-- 用 `pty.openpty()` + 手工 `setsid`/`TIOCSCTTY` 而不是 `pty.fork()`，因为要在**同一个 pty**
-  上先后跑「被测程序」与「随后启动的 cat -v」，`pty.fork()` 每次都会新建一对。
-- 退出后用 `FIONREAD` 读**从设备输入队列**里还剩多少字节：这些字节就是终端应答查询后
-  程序没有读走、退出后被 shell 读成按键的东西（真机 `^[[A` 类现象的候选来源）。
-- 之后再在同一 pty 上跑 `cat -v`，把残留字节按原样打印出来，作为人能看懂的证据。
+- 用 `pty.openpty()` + 手工 `setsid`/`TIOCSCTTY`（`pty.fork()` 不能复用同一 pty 跑第二个程序）。
+- 用 FIONREAD 直接读**内核输入队列剩余字节**——这才是"退出后被 shell 读成按键"的东西。
+- 应答按延迟投递：0ms 表示终端立刻回应；100ms 表示程序可能已经退出后才回应，
+  这正是真机"退出后方向键异常"的候选时序。
 """
 
 import fcntl
@@ -27,7 +30,6 @@ import time
 DELAY_MS = int(sys.argv[1])
 ARGV = sys.argv[2:]
 
-STARTUP_STATS = ("kitty_push", "kitty_pop", "mok_on", "mok_off", "paste_on", "paste_off", "cursor_show")
 PATTERNS = {
     "kitty_push": rb"\x1b\[>\d+u",
     "kitty_pop": rb"\x1b\[<u",
@@ -40,10 +42,29 @@ PATTERNS = {
 
 
 def stats(raw: bytes) -> dict:
-    out = {}
-    for name, pat in PATTERNS.items():
-        out[name] = len(re.findall(pat, raw))
-    return out
+    return {name: len(re.findall(pat, raw)) for name, pat in PATTERNS.items()}
+
+
+def write_config(cfg: str, work: str) -> None:
+    os.makedirs(cfg, exist_ok=True)
+    with open(os.path.join(cfg, "settings.json"), "w", encoding="utf8") as handle:
+        handle.write('{"theme":"dark","defaultProvider":"p","defaultModel":"m"}\n')
+    with open(os.path.join(cfg, "models.json"), "w", encoding="utf8") as handle:
+        handle.write(
+            json.dumps(
+                {
+                    "providers": {
+                        "p": {
+                            "baseUrl": "http://127.0.0.1:1/v1",
+                            "api": "openai-completions",
+                            "apiKey": "DUMMY",
+                            "models": [{"id": "m"}],
+                        }
+                    }
+                }
+            )
+        )
+    os.makedirs(work, exist_ok=True)
 
 
 def spawn(master: int, slave: int, argv: list, env: dict, cwd: str) -> int:
@@ -64,33 +85,11 @@ def spawn(master: int, slave: int, argv: list, env: dict, cwd: str) -> int:
     return pid
 
 
-def read_until(pid: int, master: int, predicate, on_chunk, deadline_s: float) -> bytes:
-    out = b""
-    end = time.time() + deadline_s
-    while time.time() < end:
-        if predicate(out):
-            break
-        r, _, _ = select.select([master], [], [], 0.1)
-        if not r:
-            continue
-        try:
-            chunk = os.read(master, 65536)
-        except OSError:
-            break
-        if not chunk:
-            break
-        out += chunk
-        on_chunk(out, chunk)
-    return out
-
-
 def main() -> int:
-    work = "/tmp/k1work"
-    home = "/tmp/k1home"
-    cfg = "/tmp/k1cfg"
-    sess = "/tmp/k1sess"
-    for d in (work, home, cfg, sess):
-        os.makedirs(d, exist_ok=True)
+    work, home, cfg, sess = "/tmp/k1work", "/tmp/k1home", "/tmp/k1cfg", "/tmp/k1sess"
+    write_config(cfg, work)
+    os.makedirs(home, exist_ok=True)
+    os.makedirs(sess, exist_ok=True)
     env = dict(
         os.environ,
         HOME=home,
@@ -100,75 +99,76 @@ def main() -> int:
     )
     master, slave = pty.openpty()
     fcntl.ioctl(slave, termios.TIOCSWINSZ, struct.pack("HHHH", 30, 100, 0, 0))
-    # 从设备留在父进程里（第二个 cat -v 复用），子进程 dup 后自己关。
     pid = spawn(master, slave, ARGV, env, work)
 
-    state = {"answered": False, "exited_keys": False}
-    startup = b""
-    exited = b""
+    startup = bytearray()
+    exited = bytearray()
+    answered = False
+    sent_exit = False
+    reply_at = None
+    end = time.time() + 20
 
-    def on_chunk(buf: bytes, chunk: bytes) -> None:
-        nonlocal startup, exited
-        if not state["answered"] and b"\x1b[c" in buf:
-            state["answered"] = True
-
-            def reply() -> None:
-                if DELAY_MS:
-                    time.sleep(DELAY_MS / 1000.0)
-                try:
-                    os.write(master, b"\x1b[?1;2c")
-                    os.write(master, b"\x1b[?5u")
-                except OSError:
-                    pass
-
-            reply()
-        if not state["exited_keys"] and b"(auto)" in buf:
-            state["exited_keys"] = True
+    while time.time() < end:
+        if reply_at is not None and time.time() >= reply_at:
             try:
-                os.write(master, b"\x04")
+                os.write(master, b"\x1b[?1;2c")
+                os.write(master, b"\x1b[?5u")
             except OSError:
                 pass
-        if state["exited_keys"]:
-            exited += chunk
+            reply_at = None
+        if not answered:
+            if b"\x1b[c" in startup:
+                answered = True
+                reply_at = time.time() + DELAY_MS / 1000.0
         else:
-            startup += chunk
+            if not sent_exit:
+                if b"(auto)" in startup or b"Warning: No models available" in startup:
+                    sent_exit = True
+                    try:
+                        os.write(master, b"\x04")
+                    except OSError:
+                        pass
+            elif b"\x1b[?25h" in exited:
+                break
+        r, _, _ = select.select([master], [], [], 0.05)
+        if not r:
+            continue
+        try:
+            chunk = os.read(master, 65536)
+        except OSError:
+            break
+        if not chunk:
+            break
+        (exited if sent_exit else startup).extend(chunk)
 
-    read_until(pid, master, lambda _b: state["exited_keys"], on_chunk, 15.0)
-    # 等进程真正退出（最多 6s）。
     status = None
-    for _ in range(60):
+    for _ in range(80):
         wpid, st = os.waitpid(pid, os.WNOHANG)
         if wpid == pid:
             status = st
             break
-        time.sleep(0.1)
+        time.sleep(0.05)
     if status is None:
         os.kill(pid, 9)
         os.waitpid(pid, 0)
 
-    # 退出后，终端**仍然**会把我们早先查询的应答写入 pty（真实终端就是这样）。
-    # 程序此时已经退出 ⇒ 这些字节只能留在从设备的输入队列里。
-    late = b""
-    for _ in range(5):
-        r, _, _ = select.select([master], [], [], 0.3)
-        if r:
-            try:
-                chunk = os.read(master, 65536)
-            except OSError:
-                break
-            if not chunk:
-                break
-            exited += chunk
-            late += chunk
-            continue
-        break
-    for seq in (b"\x1b[?5u", b"\x1b[?1;2c"):
+    # 退出后仍到达的终端数据（尾帧）。
+    late = bytearray()
+    deadline = time.time() + 1.0
+    while time.time() < deadline:
+        r, _, _ = select.select([master], [], [], 0.1)
+        if not r:
+            break
         try:
-            os.write(master, seq)
+            chunk = os.read(master, 65536)
         except OSError:
-            pass
-    time.sleep(0.2)
+            break
+        if not chunk:
+            break
+        late.extend(chunk)
+        deadline = time.time() + 0.3
 
+    # 关键测量：从设备输入队列里还剩多少字节（终端应答未被程序读走的部分）。
     buf = fcntl.ioctl(slave, termios.FIONREAD, struct.pack("I", 0))
     residual_len = struct.unpack("I", buf)[0]
     residual = b""
@@ -178,36 +178,20 @@ def main() -> int:
         except OSError:
             residual = b""
 
-    # 用同一 pty 上随后启动的 `cat -v` 复看残留（人能读懂的形态）。
-    cat_pid = spawn(master, slave, ["cat", "-v"], env, work)
-    time.sleep(0.3)
-    cat_out = b""
-    r, _, _ = select.select([master], [], [], 0.5)
-    if r:
-        try:
-            cat_out = os.read(master, 65536)
-        except OSError:
-            cat_out = b""
-    try:
-        os.kill(cat_pid, 9)
-        os.waitpid(cat_pid, 0)
-    except OSError:
-        pass
-
     print(
         json.dumps(
             {
                 "delay_ms": DELAY_MS,
                 "argv": ARGV,
-                "exited": os.WIFEXITED(status) if status is not None else False,
-                "exit_code": os.WEXITSTATUS(status) if status is not None and os.WIFEXITED(status) else None,
-                "startup": stats(startup),
-                "exit": stats(exited),
+                "exit_code": os.WEXITSTATUS(status)
+                if status is not None and os.WIFEXITED(status)
+                else None,
+                "startup": stats(bytes(startup)),
+                "exit": stats(bytes(exited)),
                 "late_after_exit": late.decode("utf8", "replace"),
                 "residual_len": residual_len,
                 "residual_hex": residual.hex(),
-                "residual_repr": repr(residual.decode("latin1")),
-                "cat_v_seen": repr(cat_out.decode("latin1")),
+                "residual_repr": residual.decode("latin1").encode("unicode_escape").decode("latin1"),
             },
             ensure_ascii=False,
         )
