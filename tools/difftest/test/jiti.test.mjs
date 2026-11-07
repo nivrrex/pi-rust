@@ -185,3 +185,26 @@ test("linux 路径保持 file:/// 形态", () => {
   });
   assert.equal(url, "file:///opt/ext/index.mjs");
 });
+
+// —— F35/G4b：pnpm 全局目录的符号链接/junction ——
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
+
+test("windows：hash 目录是符号链接时仍能读到 package.json（junction 等价）", () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "jiti-link-"));
+  try {
+    const real = path.join(root, "real-jiti");
+    fs.mkdirSync(real, { recursive: true });
+    fs.writeFileSync(path.join(real, "package.json"), JSON.stringify({ name: "jiti" }));
+    const hashDir = path.join(root, "global", "v11", "abcd-1234-0", "node_modules");
+    fs.mkdirSync(hashDir, { recursive: true });
+    fs.symlinkSync(real, path.join(hashDir, "jiti"), "dir");
+    const candidates = pnpmJitiCandidates(path.join(root, "global", "v11"));
+    const hit = candidates.find((dir) => fs.existsSync(path.join(dir, "package.json")));
+    assert.ok(hit, `符号链接目录必须能被找到：${candidates.join(" | ")}`);
+    assert.equal(JSON.parse(fs.readFileSync(path.join(hit, "package.json"), "utf8")).name, "jiti");
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
