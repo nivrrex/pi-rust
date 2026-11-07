@@ -1519,6 +1519,24 @@ pub fn display_width(text: &str) -> usize {
 /// 我们原来用 `clamp_to_width` 直接**截断**，导致长回复只显示第一行的前 100 列。
 /// 折行策略：按显示宽度贪心累积，优先在**空格**处断开；无空格时按字符硬断。
 #[must_use]
+/// ref `utils.ts` 的 `cjkBreakRegex` 覆盖范围：CJK 汉字/假名/谚文与全角标点等。
+fn is_cjk_breakable(ch: char) -> bool {
+    matches!(ch as u32,
+        0x1100..=0x11FF      // 谚文字母
+        | 0x2E80..=0x2EFF    // CJK 部首补充
+        | 0x3000..=0x303F    // CJK 符号与标点
+        | 0x3040..=0x30FF    // 平假名 / 片假名
+        | 0x3400..=0x4DBF    // CJK 扩展 A
+        | 0x4E00..=0x9FFF    // CJK 统一表意
+        | 0xA000..=0xA4CF    // 彝文
+        | 0xAC00..=0xD7AF    // 谚文音节
+        | 0xF900..=0xFAFF    // CJK 兼容表意
+        | 0xFE30..=0xFE4F    // CJK 兼容形式
+        | 0xFF00..=0xFFEF    // 全角字符
+        | 0x20000..=0x2FA1F  // CJK 扩展 B+
+    )
+}
+
 pub fn wrap_to_width(text: &str, width: usize) -> Vec<String> {
     if width == 0 {
         return vec![String::new()];
@@ -1542,7 +1560,9 @@ pub fn wrap_to_width(text: &str, width: usize) -> Vec<String> {
                 continue;
             }
             match last_space {
-                Some((byte, _space_width)) if !current.is_empty() => {
+                // `byte == 0` 表示这一行**以空格开头**（助手消息的 padding）；在它上面断行会
+                // 产出一个空行并丢掉前导空格（真实会话实测：段落首行变成空白行）。
+                Some((byte, _space_width)) if byte > 0 && !current.is_empty() => {
                     let rest = current[byte..].to_string();
                     current.truncate(byte);
                     out.push(current.trim_end().to_string());
@@ -1578,6 +1598,12 @@ pub fn wrap_to_width(text: &str, width: usize) -> Vec<String> {
         }
         current.push(ch);
         used += w;
+        // ref `utils.ts:789-812` 的 `cjkBreakRegex`：**CJK 字符本身就是断点**（可以逐字符折行），
+        // 只有拉丁词才作为整体不可分。此前我们只在空格处断行 ⇒ 中日韩段落每行都短一截
+        // （真实语料实测：TS 行宽 78、我们 61）。
+        if is_cjk_breakable(ch) {
+            last_space = Some((current.len(), used));
+        }
     }
     if !current.is_empty() {
         out.push(current);
@@ -2301,7 +2327,19 @@ fn render_all_cached_styled_inner(
                     // 宽度扣掉左右各 1 列内边距（ref 助手消息 `outputPad = 1`，
                     // `assistant-message.ts:31` 传给 Markdown 的 `paddingX`；
                     // pi-tui 的 Text/Markdown 按 `width - 2 * paddingX` 排版）。
-                    let segments = wrap_to_width(line, cols.saturating_sub(2));
+                    // 折行后**续行要补回行首内边距**（ref 的 `Text` 给每行都加 `paddingX`；
+                    // 我们的 markdown 行已含 1 个前导空格，续行原本没有 ⇒ 真机会话里续行左移一格）。
+                    let lead: String = line.chars().take_while(|ch| *ch == ' ').collect();
+                    // 折行宽度要**加上行首内边距**：ref 的 `availableWidth = width - 2*paddingX`
+                    // 是不含 padding 的内容宽，而我们这里的 `line` 已经带了 1 个前导空格
+                    // （实测：不加这一格，续行比 TS 早断一个词）。
+                    let wrap_width = cols.saturating_sub(2) + lead.len();
+                    let mut segments = wrap_to_width(line, wrap_width);
+                    for (index, segment) in segments.iter_mut().enumerate() {
+                        if index > 0 && !segment.starts_with(lead.as_str()) {
+                            segment.insert_str(0, &lead);
+                        }
+                    }
                     // 只有**未被折行**的行才能直接用 span 的字节偏移（T05 的两行都属于这种）。
                     let un_wrapped = segments.len() == 1;
                     for wrapped in segments {

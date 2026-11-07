@@ -29,7 +29,8 @@ fn main() {
             .collect();
         names.sort();
         for name in names {
-            let text = std::fs::read_to_string(std::path::Path::new(&dir).join(&name)).expect("读文件");
+            let text =
+                std::fs::read_to_string(std::path::Path::new(&dir).join(&name)).expect("读文件");
             let lines = render_lines(&text, &theme, width);
             let payload = serde_json::json!({ "file": name, "lines": lines });
             println!("{}", serde_json::to_string(&payload).expect("序列化"));
@@ -69,7 +70,14 @@ fn render_lines(input: &str, theme: &str, width: usize) -> Vec<String> {
     let content_width = width.saturating_sub(2);
     for (index, line) in lines.iter().enumerate() {
         let style = styles.get(index).copied().flatten();
-        let segments = pi_tui::wrap_to_width(line, content_width);
+        // 续行补回行首内边距（与 `lib.rs` 的 Assistant 分支同口径）。
+        let lead: String = line.chars().take_while(|ch| *ch == ' ').collect();
+        let mut segments = pi_tui::wrap_to_width(line, content_width + lead.len());
+        for (index, segment) in segments.iter_mut().enumerate() {
+            if index > 0 && !segment.starts_with(lead.as_str()) {
+                segment.insert_str(0, &lead);
+            }
+        }
         let un_wrapped = segments.len() == 1;
         for segment in segments {
             let mut rendered = String::new();
