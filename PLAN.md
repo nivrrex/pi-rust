@@ -91,3 +91,11 @@
   映射到 `syntaxKeyword/syntaxType/syntaxString/...`；标点/运算符不产生 token（ref 映射到默认色）。
 - G4：`extensionImportUrl`（Windows `file://`）+ 符号链接/junction 单测。
 - 发布包 `~/archives/publish-20261107f`（buildHead/publishCommit `e0970427`、publishTree `f6f42383`，未发布）。
+
+## F36 收口（部分）
+- H1：退出时复位 modifyOtherKeys（`>4;0m`），此前只开不关 ⇒ 真机退出后方向键回显 `^[[A`。
+- H2：扩展 ctx 补齐 `width` / `availableProviderCount` / `thinkingLevel` / **Model 对象**（ref `types.ts:327`），
+  页脚 override 行按**可见宽度**截断并保留 ANSI ⇒ 底栏 `(provider) model • level` 与 TS 一致。
+- H6a：runner 对 socket RST/EPIPE 静默退出 0。
+- 未完成：H3（/todo 与 Todo 部件）、H4（渲染钩子按需取行）、H5（缓存命中用量）、H6b/H6c、H8 全量收口。
+- 发布包 `~/archives/publish-20261107g`（buildHead/publishCommit `403269b5`、publishTree `f29c4904`，未发布）。
