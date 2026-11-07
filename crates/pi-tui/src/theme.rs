@@ -177,6 +177,16 @@ pub struct Palette {
     pub md_code_block: (u8, u8, u8),
     /// `mdCodeBlockBorder`
     pub md_code_block_border: (u8, u8, u8),
+    /// 语法高亮各色（ref `theme.ts:1036-1064` 的 `buildCliHighlightTheme` 映射目标）。
+    pub syntax_keyword: (u8, u8, u8),
+    pub syntax_type: (u8, u8, u8),
+    pub syntax_string: (u8, u8, u8),
+    pub syntax_number: (u8, u8, u8),
+    pub syntax_comment: (u8, u8, u8),
+    pub syntax_function: (u8, u8, u8),
+    pub syntax_variable: (u8, u8, u8),
+    pub syntax_punctuation: (u8, u8, u8),
+    pub syntax_operator: (u8, u8, u8),
     /// `mdLink`
     pub md_link: (u8, u8, u8),
     /// `mdListBullet`（dark 指向 accent、light 指向 green）
@@ -211,6 +221,15 @@ impl Palette {
             md_heading: get(theme, "mdHeading").unwrap_or((0xf0, 0xc6, 0x74)),
             md_code_block: get(theme, "mdCodeBlock").unwrap_or((0xb5, 0xbd, 0x68)),
             md_code_block_border: get(theme, "mdCodeBlockBorder").unwrap_or((0x80, 0x80, 0x80)),
+            syntax_keyword: get(theme, "syntaxKeyword").unwrap_or((0x56, 0x9c, 0xd6)),
+            syntax_type: get(theme, "syntaxType").unwrap_or((0x4e, 0xc9, 0xb0)),
+            syntax_string: get(theme, "syntaxString").unwrap_or((0xce, 0x91, 0x78)),
+            syntax_number: get(theme, "syntaxNumber").unwrap_or((0xb5, 0xce, 0xa8)),
+            syntax_comment: get(theme, "syntaxComment").unwrap_or((0x6a, 0x99, 0x55)),
+            syntax_function: get(theme, "syntaxFunction").unwrap_or((0xdc, 0xdc, 0xaa)),
+            syntax_variable: get(theme, "syntaxVariable").unwrap_or((0x9c, 0xdc, 0xfe)),
+            syntax_punctuation: get(theme, "syntaxPunctuation").unwrap_or((0xd4, 0xd4, 0xd4)),
+            syntax_operator: get(theme, "syntaxOperator").unwrap_or((0xd4, 0xd4, 0xd4)),
             md_link: get(theme, "mdLink").unwrap_or((0x81, 0xa2, 0xbe)),
             md_list_bullet: get(theme, "mdListBullet")
                 .or(md_accent)

@@ -21,6 +21,7 @@
 pub mod diff;
 pub mod gitinfo;
 pub mod style;
+pub mod syntax;
 pub mod theme;
 // P7-6q/W3：键盘输入层纯函数（本批不接线）。
 pub mod input;
@@ -3020,6 +3021,70 @@ mod tests {
 /// 解析用 `pulldown-cmark`（P7 允许清单内，理由见 `notes/decisions.md`）；与 TS 的差异范围
 /// 已在 `notes/reports/P7-4-spec.md` 列出（表格/删除线等扩展未启用；本函数只处理 T05 用到的子集）。
 /// markdown 渲染用的"行 + 样式"成对写入，**保证两者永远等长**。
+/// 输出一行**代码块内容**：语言已知且有高亮实现时逐 token 着色，否则整行 `mdCodeBlock`。
+///
+/// ref `theme.ts:1078-1097`：`highlightCode` 只在语言被支持时按 highlight.js token 上色，
+/// 否则整行用 `mdCodeBlock`（`markdown.ts:523-533`）。
+fn push_code_line(
+    out: &mut Vec<String>,
+    styles: &mut Vec<Option<style::LineStyle>>,
+    spans: &mut Vec<(usize, Vec<style::Span>)>,
+    indent: &str,
+    lang: &str,
+    text: &str,
+    palette: &theme::Palette,
+) {
+    // 行首缩进 `indent + "   "` 不参与高亮（ref 把它作为普通前缀）。
+    let prefix = format!("{indent}   ");
+    let line = format!("{prefix}{text}");
+    let line_index = out.len();
+    if lang.is_empty() || !syntax::supports(lang) {
+        // 用**整行 span**而不是行级 style：行级样式在渲染层会跳过行首空格（那是正文段落的
+        // padding 规则），而代码块里代码自身的缩进**要**染色（ref `markdown.ts:532` 把
+        // `indent` 放在 `codeBlock()` 外面、代码内容在里面对颜色里）。
+        out.push(line.clone());
+        styles.push(None);
+        // 只染**代码内容**：ref `markdown.ts:532` 的 `indent` 在 `codeBlock()` 之外，
+        // 缩进本身不带颜色（逐格实测：TS 的前 3 个空格无色）。
+        spans.push((
+            line_index,
+            vec![style::Span::new(
+                prefix.len(),
+                line.len(),
+                style::LineStyle::fg(palette.md_code_block),
+            )],
+        ));
+        return;
+    }
+    let tokens = syntax::tokens(lang, text);
+    let line_spans: Vec<style::Span> = tokens
+        .into_iter()
+        .map(|(start, end, kind)| {
+            let color = match kind {
+                syntax::TokenKind::Keyword => palette.syntax_keyword,
+                syntax::TokenKind::Type => palette.syntax_type,
+                syntax::TokenKind::String => palette.syntax_string,
+                syntax::TokenKind::Number => palette.syntax_number,
+                syntax::TokenKind::Comment => palette.syntax_comment,
+                syntax::TokenKind::Function => palette.syntax_function,
+                syntax::TokenKind::Variable => palette.syntax_variable,
+                syntax::TokenKind::Punctuation => palette.syntax_punctuation,
+                syntax::TokenKind::Operator => palette.syntax_operator,
+            };
+            style::Span::new(
+                prefix.len() + start,
+                prefix.len() + end,
+                style::LineStyle::fg(color),
+            )
+        })
+        .collect();
+    out.push(line);
+    styles.push(None);
+    if !line_spans.is_empty() {
+        spans.push((line_index, line_spans));
+    }
+}
+
 fn push_md_line(
     out: &mut Vec<String>,
     styles: &mut Vec<Option<style::LineStyle>>,
@@ -3366,6 +3431,8 @@ pub fn render_markdown_styled_with_width(
     // 代码块在**列表内**时的额外缩进（ref `markdown.ts:521` 的 `codeBlockIndent = "  "`；
     // 围栏行自身已带 1 个前导空格 ⇒ 列表内 3 空格、代码行 5 空格，TS 逐行实测）。
     let mut code_indent = String::new();
+    // 当前代码块的语言标注（用于语法高亮；空 = 不高亮）。
+    let mut code_lang = String::new();
     let mut link_dest: Option<String> = None;
     // 引用深度（ref `markdown.ts:556-570`：每行前缀 `│ `、整体 italic）。
     let mut quote_depth: usize = 0;
@@ -3759,6 +3826,7 @@ pub fn render_markdown_styled_with_width(
                 // ref `markdown.ts:522`：围栏行带语言标注 ```` ```rust ````。
                 fence_line = match kind {
                     pulldown_cmark::CodeBlockKind::Fenced(info) if !info.trim().is_empty() => {
+                        code_lang = info.trim().to_string();
                         format!(" ```{}", info.trim())
                     }
                     pulldown_cmark::CodeBlockKind::Fenced(_)
@@ -3783,11 +3851,14 @@ pub fn render_markdown_styled_with_width(
             }
             Event::End(TagEnd::CodeBlock) => {
                 if !code_line.is_empty() {
-                    push_md_line(
+                    push_code_line(
                         &mut out,
                         &mut styles,
-                        format!("{code_indent}   {}", code_line.trim_end()),
-                        Some(style::LineStyle::fg(palette.md_code_block)),
+                        &mut spans,
+                        &code_indent,
+                        &code_lang,
+                        code_line.trim_end(),
+                        palette,
                     );
                     code_line.clear();
                 }
@@ -3799,6 +3870,7 @@ pub fn render_markdown_styled_with_width(
                     Some(style::LineStyle::fg(palette.md_code_block_border)),
                 );
                 code_indent.clear();
+                code_lang.clear();
                 in_code_block = false;
                 pending_blank = true;
             }
@@ -3811,11 +3883,14 @@ pub fn render_markdown_styled_with_width(
                     while let Some(part) = parts.next() {
                         code_line.push_str(part);
                         if parts.peek().is_some() {
-                            push_md_line(
+                            push_code_line(
                                 &mut out,
                                 &mut styles,
-                                format!("{code_indent}   {}", code_line.trim_end()),
-                                Some(style::LineStyle::fg(palette.md_code_block)),
+                                &mut spans,
+                                &code_indent,
+                                &code_lang,
+                                code_line.trim_end(),
+                                palette,
                             );
                             code_line.clear();
                         }
@@ -3870,11 +3945,16 @@ pub fn render_markdown_styled_with_width(
             Event::SoftBreak | Event::HardBreak => {
                 if in_code_block {
                     if !code_line.is_empty() {
-                        push_md_line(
+                        let lang = code_lang.clone();
+                        let indent = code_indent.clone();
+                        push_code_line(
                             &mut out,
                             &mut styles,
-                            format!("{code_indent}   {}", code_line.trim_end()),
-                            Some(style::LineStyle::fg(palette.md_code_block)),
+                            &mut spans,
+                            &indent,
+                            &lang,
+                            code_line.trim_end(),
+                            palette,
                         );
                         code_line.clear();
                     }
@@ -4268,7 +4348,7 @@ mod markdown_tests {
     #[test]
     fn markdown_lines_carry_theme_styles() {
         let input = "# 标题\n\n正文\n\n```\nfn main() {}\n```\n";
-        let (lines, styles, _spans) = render_markdown_styled(input);
+        let (lines, styles, spans) = render_markdown_styled(input);
         assert_eq!(lines.len(), styles.len(), "行与样式必须等长");
         let find = |needle: &str| {
             lines
@@ -4283,9 +4363,16 @@ mod markdown_tests {
             styles[find("```")].map(|style| style.fg),
             Some(Some(style::MD_CODE_BLOCK_BORDER))
         );
-        assert_eq!(
-            styles[find("fn main")].map(|style| style.fg),
-            Some(Some(style::MD_CODE_BLOCK))
+        // 代码块内容现在用**span** 上色（可能被语法高亮覆盖），不再依赖整行 `styles`。
+        let code_index = find("fn main");
+        let code_spans = spans
+            .iter()
+            .find(|(index, _)| *index == code_index)
+            .map(|(_, list)| list.clone())
+            .unwrap_or_default();
+        assert!(
+            !code_spans.is_empty(),
+            "代码块内容必须有 span 上色：{lines:?}"
         );
         assert!(styles[find("正文")].is_none(), "普通正文不上整行样式");
     }
