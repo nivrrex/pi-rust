@@ -6,6 +6,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { spawnSync } from "node:child_process";
+import { pathToFileURL } from "node:url";
 
 // 探测顺序：PI_JITI → 扩展目录 node_modules/jiti → 已安装 pi 的 node_modules/jiti
 // （路径来自 PI_PACKAGE_DIR 或 TS_PI_ENTRY，不硬编码用户目录）→ **全都落空时**才问
@@ -38,6 +39,20 @@ export function pnpmJitiCandidates(root, deps = {}) {
   }
   out.push(path.join(root, "jiti"));
   return out;
+}
+
+/**
+ * 扩展路径 → `import()` 用的 URL（F35/G4a）。
+ *
+ * Windows 上绝对路径**必须**转成 `file:///C:/…`：裸路径 `import("C:\\a\\b.mjs")` 会被当成
+ * 协议名（`C:`）而失败。本函数把平台判断抽成参数，便于在 Linux 上单测 Windows 形态。
+ */
+export function extensionImportUrl(filePath, options = {}) {
+  const platform = options.platform ?? process.platform;
+  const toUrl = options.pathToFileURL ?? pathToFileURL;
+  const flags = platform === "win32" ? { windows: true } : undefined;
+  const url = flags ? toUrl(filePath, flags) : toUrl(filePath);
+  return url.href;
 }
 
 /**

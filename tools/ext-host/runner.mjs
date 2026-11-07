@@ -761,6 +761,7 @@ const pi = {
 
 // jiti 解析放在独立模块（纯函数，可单测；见 `jiti.mjs`）。
 import {
+  extensionImportUrl,
   extensionLabel,
   resolveJiti,
 } from "./jiti.mjs";
@@ -848,7 +849,8 @@ async function loadExtension(extensionPath, jiti) {
     }
     return jiti.import(extensionPath, { default: true });
   }
-  return import(pathToFileURL(extensionPath).href);
+  // F35/G4a：Windows 绝对路径必须转 `file://` URL（裸 `C:\a\b.mjs` 会被当成协议）。
+  return import(extensionImportUrl(extensionPath));
 }
 
 async function main() {

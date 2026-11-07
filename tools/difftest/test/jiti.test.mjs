@@ -158,3 +158,30 @@ test("W1d：失败时 attempts 记录全部已搜索候选", () => {
   assert.ok(attempts.length >= 3, `应记录多个候选，实际 ${attempts.length}`);
   assert.ok(attempts.some((dir) => dir.includes("node_modules")), "应包含 node_modules 候选");
 });
+
+// —— F35/G4a：扩展路径 → import URL（Windows 必须 file:// 且带盘符） ——
+import { extensionImportUrl } from "../../ext-host/jiti.mjs";
+
+test("windows 绝对路径转 file:// URL（含空格、反斜杠、盘符）", () => {
+  const url = extensionImportUrl("C:\\work\\my ext\\index.mjs", {
+    platform: "win32",
+    pathToFileURL: (p, opts) => ({ href: `file:///${p.replace(/\\/g, "/")}${opts?.windows ? "" : ""}` }),
+  });
+  assert.equal(url, "file:///C:/work/my ext/index.mjs");
+});
+
+test("windows UNC 路径转 file://（host 段保留）", () => {
+  const url = extensionImportUrl("\\\\server\\share\\ext\\index.mjs", {
+    platform: "win32",
+    pathToFileURL: (p) => ({ href: `file://${p.replace(/\\/g, "/")}` }),
+  });
+  assert.equal(url, "file:////server/share/ext/index.mjs");
+});
+
+test("linux 路径保持 file:/// 形态", () => {
+  const url = extensionImportUrl("/opt/ext/index.mjs", {
+    platform: "linux",
+    pathToFileURL: (p) => ({ href: `file://${p}` }),
+  });
+  assert.equal(url, "file:///opt/ext/index.mjs");
+});

@@ -64,31 +64,37 @@ fn render_lines(input: &str, theme: &str, width: usize) -> Vec<String> {
         );
     let spans_by_line: std::collections::HashMap<usize, Vec<pi_tui::style::Span>> =
         spans.into_iter().collect();
+    // 折行要在**纯文本**上做（`rendered` 里含 SGR，按显示宽度折会把转义序列算进宽度），
+    // 与 `lib.rs` 的 Assistant 分支同口径：先 `wrap_to_width(line)`，再按段套 span。
+    let content_width = width.saturating_sub(2);
     for (index, line) in lines.iter().enumerate() {
         let style = styles.get(index).copied().flatten();
-        let mut rendered = String::new();
-        if let Some(line_spans) = spans_by_line.get(&index) {
-            pi_tui::diff::write_spans(&mut rendered, line, line_spans, 0);
-        } else {
-            rendered.push_str(line);
-        }
-        // 整行样式（标题/引用/代码块）作为兜底：没有逐段 span 时整行染色。
-        if !spans_by_line.contains_key(&index) {
-            if let Some(style) = style {
-                rendered = format!("{}{}{}", style.prefix(), rendered, style.reset());
+        let segments = pi_tui::wrap_to_width(line, content_width);
+        let un_wrapped = segments.len() == 1;
+        for segment in segments {
+            let mut rendered = String::new();
+            if un_wrapped {
+                if let Some(line_spans) = spans_by_line.get(&index) {
+                    let fits = line_spans.iter().all(|span| span.end <= segment.len());
+                    if fits {
+                        pi_tui::diff::write_spans(&mut rendered, &segment, line_spans, 0);
+                    }
+                }
             }
+            if rendered.is_empty() {
+                rendered = match style {
+                    Some(style) => format!("{}{}{}", style.prefix(), segment, style.reset()),
+                    None => segment,
+                };
+            }
+            let visible = pi_tui::diff::visible_width(&rendered);
+            let padded = if visible < content_width {
+                format!("{rendered}{}", " ".repeat(content_width - visible))
+            } else {
+                rendered
+            };
+            out.push(padded);
         }
-        // TS 的 `Text` 会把每行补空格到可用宽度（padding 区域）；对齐到同一宽度便于逐格比较。
-        let visible = pi_tui::diff::visible_width(&rendered);
-        let padded = if visible < width.saturating_sub(2) {
-            format!(
-                "{rendered}{}",
-                " ".repeat(width.saturating_sub(2) - visible)
-            )
-        } else {
-            rendered
-        };
-        out.push(padded);
     }
     out
 }
