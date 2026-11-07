@@ -2340,24 +2340,47 @@ fn render_all_cached_styled_inner(
                             segment.insert_str(0, &lead);
                         }
                     }
-                    // 只有**未被折行**的行才能直接用 span 的字节偏移（T05 的两行都属于这种）。
-                    let un_wrapped = segments.len() == 1;
-                    for wrapped in segments {
+                    // 折行后 **span 要按段重新映射**：此前只在"未折行"时套 span，导致长段落里的
+                    // `**粗体**`/行内代码在折行后**整段丢样式**（真实语料实测：同一行文本相同、
+                    // 只有 bold/fg 差异，占差异格数的大头）。
+                    let line_spans = spans_by_line.get(&index).cloned().unwrap_or_default();
+                    let mut cursor = 0usize;
+                    for (segment_index, wrapped) in segments.iter().enumerate() {
                         if md_style.is_some() {
                             style_out.markdown_styles.push((lines.len(), md_style));
                         }
-                        if un_wrapped {
-                            if let Some(line_spans) = spans_by_line.get(&index) {
-                                let fits = line_spans.iter().all(|span| span.end <= wrapped.len());
-                                if fits {
-                                    style_out
-                                        .spans
-                                        .markdown
-                                        .push((lines.len(), line_spans.clone()));
+                        // 在本行的原始文本里定位这一段的起点（续行前面补过 `lead`）。
+                        let body = if segment_index > 0 {
+                            wrapped.strip_prefix(lead.as_str()).unwrap_or(wrapped)
+                        } else {
+                            wrapped.as_str()
+                        };
+                        let start = line[cursor.min(line.len())..]
+                            .find(body)
+                            .map(|offset| cursor + offset)
+                            .unwrap_or(cursor);
+                        let end = start + body.len();
+                        cursor = end;
+                        let shift = wrapped.len() - body.len();
+                        let mapped: Vec<style::Span> = line_spans
+                            .iter()
+                            .filter_map(|span| {
+                                let from = span.start.max(start);
+                                let to = span.end.min(end);
+                                if from >= to {
+                                    return None;
                                 }
-                            }
+                                Some(style::Span::new(
+                                    from - start + shift,
+                                    to - start + shift,
+                                    span.style,
+                                ))
+                            })
+                            .collect();
+                        if !mapped.is_empty() {
+                            style_out.spans.markdown.push((lines.len(), mapped));
                         }
-                        lines.push(wrapped);
+                        lines.push(wrapped.clone());
                     }
                 }
                 lines.push(String::new());

@@ -79,20 +79,46 @@ fn render_lines(input: &str, theme: &str, width: usize) -> Vec<String> {
             }
         }
         let un_wrapped = segments.len() == 1;
-        for segment in segments {
+        let line_spans_all = spans_by_line.get(&index).cloned().unwrap_or_default();
+        let mut cursor = 0usize;
+        for (segment_index, segment) in segments.iter().enumerate() {
+            let _ = un_wrapped;
             let mut rendered = String::new();
-            if un_wrapped {
-                if let Some(line_spans) = spans_by_line.get(&index) {
-                    let fits = line_spans.iter().all(|span| span.end <= segment.len());
-                    if fits {
-                        pi_tui::diff::write_spans(&mut rendered, &segment, line_spans, 0);
+            // 按段重映射 span（折行后仍然保留 `**粗体**`/行内代码的样式）。
+            let body = if segment_index > 0 {
+                segment.strip_prefix(lead.as_str()).unwrap_or(segment)
+            } else {
+                segment.as_str()
+            };
+            let start = line[cursor.min(line.len())..]
+                .find(body)
+                .map(|offset| cursor + offset)
+                .unwrap_or(cursor);
+            let end = start + body.len();
+            cursor = end;
+            let shift = segment.len() - body.len();
+            let mapped: Vec<pi_tui::style::Span> = line_spans_all
+                .iter()
+                .filter_map(|span| {
+                    let from = span.start.max(start);
+                    let to = span.end.min(end);
+                    if from >= to {
+                        return None;
                     }
-                }
+                    Some(pi_tui::style::Span::new(
+                        from - start + shift,
+                        to - start + shift,
+                        span.style,
+                    ))
+                })
+                .collect();
+            if !mapped.is_empty() {
+                pi_tui::diff::write_spans(&mut rendered, segment, &mapped, 0);
             }
             if rendered.is_empty() {
                 rendered = match style {
                     Some(style) => format!("{}{}{}", style.prefix(), segment, style.reset()),
-                    None => segment,
+                    None => segment.clone(),
                 };
             }
             let visible = pi_tui::diff::visible_width(&rendered);
