@@ -227,7 +227,7 @@ fn ceil_char_boundary(text: &str, index: usize) -> usize {
     index
 }
 
-fn write_spans(out: &mut String, line: &str, spans: &[crate::style::Span], width: usize) {
+pub fn write_spans(out: &mut String, line: &str, spans: &[crate::style::Span], width: usize) {
     let mut cursor = 0_usize;
     let mut last_background = None;
     for span in spans {

@@ -517,3 +517,15 @@ ref 的对应实现见 `interactive-mode.ts:2541`/`:2543`（`showExtensionNotify
    `T01` r1c0 —— 启动屏 ` pi v0.87.1` 的**首列空格**在 TS 是 `dim`、我们不是（`dim` 属 ref `theme.ts` 的
    `getStylePrefix` 对 padding 的处理）。推翻条件：上述类别逐类修完后该脚本对全部 dark/light golden 报 0 差异。
    （`compare-style.mjs` 的 `ch` 类假差异并非比较器错误：它不做路径归一化与空行对齐，`color-dump` 可复现同一现象。）
+
+10. **markdown 直渲染对拍尚未收敛（F34/M1）**：新增 `tools/difftest/md-oracle.mjs`（TS 侧直渲染，
+    构造参数照 ref `assistant-message.ts:114`、主题 `theme.ts:1170`，必须 `FORCE_COLOR=3` 否则
+    chalk 会关色）、`crates/pi-tui/examples/md-render.rs`（pi-rs 侧同输入输出）与
+    `tools/difftest/md-diff.mjs`（逐列归一 SGR 后比较）。
+    首轮差异（`tools/difftest/md-corpus/basic.md`，dark/60 列）共 16 行，分类：
+    ①**行尾 padding**：TS 每行补满宽度（`Text` 的 paddingX），pi-rs 不补（表现"仅样式"差）；
+    ②**H1 下划线**：ref `markdown.ts:472` 的 H1 是 `heading(bold(underline(text)))`，我们缺 underline；
+    ③**行内强调**：TS 的 `**粗**`/`*斜*`/`~~删~~`/链接下划线是独立 SGR 段，我们整行只有一个样式；
+    ④**代码块高亮**：TS 走 `theme.highlightCode`（`markdown.ts:523`）带语法高亮，我们是单色；
+    ⑤**段落与列表的空行**：TS 在段落/列表前后补空行（`markdown.ts:487-497`），我们少/多一处。
+    推翻条件：上述五类逐类修完后 `md-diff` 报 0 差异。
