@@ -110,3 +110,18 @@
   四条退出路径实测：Ctrl+D、`/quit`、SIGTERM 复位齐全，Ctrl+C×2 不退出（与 ref 一致）。
 - J2–J5 未做。发布包 `~/archives/publish-20261107h`（buildHead/publishCommit `ac4cd21c`、
   publishTree `f4f1d761`，未发布）。
+
+## F38 收口（HEAD 12c8e73e）
+- K0：`ac4cd21c..HEAD` 只有文档提交，无代码改动 ⇒ 发布包 h 已含全部代码。
+- K1：删除 ref 没有的 `?2031h`/`?996n`；`tools/difftest/term-sim-residual.py` 实测三档应答延迟下
+  pi-rs 残留恒 0（TS 在 100ms 档残留 12 字节）；**Ctrl+C 双击（500ms 窗口）此前不退出**，已按
+  ref `interactive-mode.ts:4116-4124` 修，新测 `p9_f38_ctrlc_double.rs` 改前 FAILED → 改后 2/2。
+- K2：Linux pty 下两侧退出期都不重绘页脚（页脚次数 4 vs 3 的差异在会话区，不在退出期）。
+- K3：扩展开命令进斜杠菜单（`[tag] desc`、invocationName 去重、计数含之），T91 golden 入库；
+  另修 `quietStartup`（启动屏不打印 `Model scope:`/内置头部/资源清单），T92 golden 入库。
+- K4：渲染钩子按需重渲染（`ext.render.footer/widget` + `(kind,key,width,digest)` 缓存 + 200ms 超时回退）；
+  顺带修 widget 工厂不加内边距、补派发 `turn_end`；T95/T96/T97 golden 入库。
+- K5：loose 列表项间补空行（`markdown.ts:800-802`）——T89h 与 T89f/T89e/T89g 同时 same，golden 入库。
+- 收口数字（cargo clean 后全量）：workspace **1081/0**、clippy 0、precommit **11/11**、
+  regress **dark 98/0/21**、**light 23/0/1**、privacy-scan 干净、readonly 一致、check-orphans 0。
+- 发布包 `~/archives/publish-20261107i`（buildHead/publishCommit `12c8e73e`、publishTree `498dcc9f`，未发布）。

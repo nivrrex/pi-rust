@@ -538,10 +538,9 @@ ref 的对应实现见 `interactive-mode.ts:2541`/`:2543`（`showExtensionNotify
     不能反过来动它。推翻条件：这几类样式在不动 `golden-tui` 的前提下对齐（例如只在
     `md-render` example 侧模拟 TS 的 padding/分段，不改进程内渲染）。
 
-10a-2. **嵌套引用内的空行**（`nested.md` 剩余差异）：TS 在引用块内**空行也画 `│ ` 前缀**
-    （`markdown.ts:589-593` 对每行都加 `quoteBorder`），我们目前只在有内容时加前缀。照此修会
-    影响 `T89f-md-elements` 的既有 golden（该场景引用块内空行的期望不同）⇒ 暂缓，逐类修复需
-    先厘清两处 golden 的差异来源。推翻条件：按 `T89f`/`nested.md` 两侧逐行对齐后同时 same。
+10a-2. **已关闭（F38/K5）**：`T89h-md-nested` 与 `T89f-md-elements` 的"互斥"是误判——
+    `T89f` 的列表是 tight（pulldown 不产生 `Paragraph`）、`T89h` 的是 loose（保留 `Paragraph`）；
+    按 ref `markdown.ts:800-802` 对 loose 列表项之间补空行后，两份 golden 同时 same。
 
 10a-1. **表格单元格右边界**：`T89g-md-table-cjk` 中 TS 会把超宽单元格内容**折行**（`renderTable`
     的 `wrapCellText`，`markdown.ts:830-837`）后按列宽补齐，我们的行尾空格少 5 列（内容相同）。
