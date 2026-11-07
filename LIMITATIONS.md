@@ -526,6 +526,11 @@ ref 的对应实现见 `interactive-mode.ts:2541`/`:2543`（`showExtensionNotify
     不能反过来动它。推翻条件：这几类样式在不动 `golden-tui` 的前提下对齐（例如只在
     `md-render` example 侧模拟 TS 的 padding/分段，不改进程内渲染）。
 
+10a-1. **表格单元格右边界**：`T89g-md-table-cjk` 中 TS 会把超宽单元格内容**折行**（`renderTable`
+    的 `wrapCellText`，`markdown.ts:830-837`）后按列宽补齐，我们的行尾空格少 5 列（内容相同）。
+    已修的部分：表格总宽不再超过可用宽度（此前被外层 `wrap_to_width` 折断成两行）、
+    HTML/行内 HTML 按纯文本处理（`markdown.ts:612-618`）。剩余是 padding 差异，属样式类。
+
 10a. **引用块与列表的空行/缩进语义（F34/M1 新增语料）**：`tools/difftest/md-corpus/nested.md`
     （嵌套引用 + 引用内列表 + 列表内代码块 + 任务列表）对拍 13 行全差，代表：
     - TS 在引用内**每层**都重画 `│ `，空引用行也画出 ` │`；我们的引用内多/少一行、列表项与引用前缀
