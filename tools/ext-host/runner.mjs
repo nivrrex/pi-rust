@@ -905,7 +905,7 @@ async function main() {
     // 否则真机只能看到"未找到 jiti"，无法一次定位（Windows 上路径语法还不同）。
     const searched = searchAttempts.length > 0 ? searchAttempts.map((dir) => `  - ${dir}`).join("\n") : "  （无）";
     const hint = process.platform === "win32"
-      ? "set PI_JITI=C:\\Users\\<you>\\AppData\\Local\\pnpm\\global\\v11\\<hash>\\node_modules\\jiti"
+      ? "set PI_JITI=%LOCALAPPDATA%\\pnpm\\global\\v11\\<hash>\\node_modules\\jiti"
       : "export PI_JITI=/path/to/node_modules/jiti";
     process.stderr.write(
       `[ext-host] 未找到 jiti：${skippedTs.length} 个 .ts 扩展被跳过（${names}）。\n` +
@@ -916,7 +916,7 @@ async function main() {
       path: `${skippedTs.length} 个 .ts 扩展被跳过`,
       message:
         `未找到 jiti。受影响：${names}。已搜索：${searchAttempts.join(" | ") || "（无）"}。` +
-        "安装 npm i -g jiti（或 pnpm i -g jiti），或设置 PI_JITI=<jiti 包目录>（Windows 例：set PI_JITI=C:\\Users\\<you>\\AppData\\Local\\pnpm\\global\\v11\\<hash>\\node_modules\\jiti）。",
+        "安装 npm i -g jiti（或 pnpm i -g jiti），或设置 PI_JITI=<jiti 包目录>（Windows 例：set PI_JITI=%LOCALAPPDATA%\\pnpm\\global\\v11\\<hash>\\node_modules\\jiti）。",
     });
   }
 

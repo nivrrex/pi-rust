@@ -1373,19 +1373,19 @@ mod windows_path_tests {
 
     #[test]
     fn verbatim_prefix_is_stripped() {
-        assert_eq!(strip_verbatim(r"\\?\C:\Users\u\proj"), r"C:\Users\u\proj");
+        assert_eq!(strip_verbatim(r"\\?\C:\work\proj"), r"C:\work\proj");
         assert_eq!(
             strip_verbatim(r"\\?\UNC\server\share\proj"),
             r"\\server\share\proj"
         );
-        assert_eq!(strip_verbatim(r"C:\Users\u\proj"), r"C:\Users\u\proj");
+        assert_eq!(strip_verbatim(r"C:\work\proj"), r"C:\work\proj");
     }
 
     /// 传给扩展宿主的路径参数不应对含空格/反斜杠/盘符的目录做破坏性改写。
     #[test]
     fn extension_paths_keep_native_form() {
         let paths = [
-            PathBuf::from(r"C:\Users\u\AppData\Local\proj"),
+            PathBuf::from(r"C:\work\AppData\Local\proj"),
             PathBuf::from(r"C:\Program Files\proj ext"),
             PathBuf::from(r"\\server\share\proj"),
         ];
@@ -1396,10 +1396,7 @@ mod windows_path_tests {
                 .collect::<Vec<_>>(),
         )
         .expect("序列化");
-        assert!(
-            json.contains(r"C:\\Users\\u\\AppData\\Local\\proj"),
-            "{json}"
-        );
+        assert!(json.contains(r"C:\\work\\AppData\\Local\\proj"), "{json}");
         assert!(json.contains(r"C:\\Program Files\\proj ext"), "{json}");
         assert!(json.contains(r"\\\\server\\share\\proj"), "{json}");
     }

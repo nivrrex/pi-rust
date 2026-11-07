@@ -98,36 +98,36 @@ import { windowsJitiCandidates, pickNewestJitiCandidate } from "../../ext-host/j
 
 test("windows：%LOCALAPPDATA%\\pnpm\\global\\<ver>\\<hash>\\node_modules\\jiti", () => {
   const dirs = {
-    "C:\\Users\\u\\AppData\\Local\\pnpm\\global": ["v11"],
-    "C:\\Users\\u\\AppData\\Local\\pnpm\\global\\v11": ["abcd-1234-0", "efgh-5678-0"],
+    "C:\\work\\AppData\\Local\\pnpm\\global": ["v11"],
+    "C:\\work\\AppData\\Local\\pnpm\\global\\v11": ["abcd-1234-0", "efgh-5678-0"],
   };
   const out = windowsJitiCandidates(
-    { LOCALAPPDATA: "C:\\Users\\u\\AppData\\Local" },
+    { LOCALAPPDATA: "C:\\work\\AppData\\Local" },
     { listDir: (dir) => dirs[dir] ?? [] },
   );
   assert.ok(
-    out.includes("C:\\Users\\u\\AppData\\Local\\pnpm\\global\\v11\\abcd-1234-0\\node_modules\\jiti"),
+    out.includes("C:\\work\\AppData\\Local\\pnpm\\global\\v11\\abcd-1234-0\\node_modules\\jiti"),
     `缺 hash 目录候选：${out.join(" | ")}`,
   );
   assert.ok(
-    out.includes("C:\\Users\\u\\AppData\\Local\\pnpm\\global\\v11\\efgh-5678-0\\node_modules\\jiti"),
+    out.includes("C:\\work\\AppData\\Local\\pnpm\\global\\v11\\efgh-5678-0\\node_modules\\jiti"),
     "多 hash 都要覆盖",
   );
 });
 
 test("windows：%APPDATA%\\npm 与 %PNPM_HOME% 也被覆盖", () => {
   const out = windowsJitiCandidates({
-    APPDATA: "C:\\Users\\u\\AppData\\Roaming",
+    APPDATA: "C:\\work\\AppData\\Roaming",
     PNPM_HOME: "D:\\pnpm",
   });
-  assert.ok(out.includes("C:\\Users\\u\\AppData\\Roaming\\npm\\node_modules\\jiti"));
+  assert.ok(out.includes("C:\\work\\AppData\\Roaming\\npm\\node_modules\\jiti"));
   assert.ok(out.includes("D:\\pnpm\\node_modules\\jiti"));
 });
 
 test("windows：PI_JITI 优先于所有探测", () => {
   const out = staticJitiCandidates([], {
     PI_JITI: "C:\\tools\\jiti",
-    LOCALAPPDATA: "C:\\Users\\u\\AppData\\Local",
+    LOCALAPPDATA: "C:\\work\\AppData\\Local",
   });
   assert.equal(out[0], "C:\\tools\\jiti");
 });
