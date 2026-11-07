@@ -1538,6 +1538,37 @@ fn is_cjk_breakable(ch: char) -> bool {
     )
 }
 
+/// 把一条 **markdown 逻辑行**折成终端行，并给续行补上正确的缩进。
+///
+/// ref：`Text` 对每行加 `paddingX`（助手消息 = 1），列表项续行用
+/// `continuationPrefix = indent + 空格×标记宽度`（`markdown.ts:773-775`）；
+/// 代码块/段落/标题的续行**只补 1 列 padding**，不重复代码块那 3 空格缩进。
+#[must_use]
+pub fn wrap_markdown_line(line: &str, cols: usize) -> Vec<String> {
+    let lead_all: String = line.chars().take_while(|ch| *ch == ' ').collect();
+    let trimmed_start = line.trim_start();
+    let is_list_like = trimmed_start.starts_with("- ")
+        || trimmed_start.starts_with("* ")
+        || trimmed_start.starts_with("+ ")
+        || (trimmed_start.starts_with(|ch: char| ch.is_ascii_digit())
+            && trimmed_start.contains(". "));
+    let lead: String = if is_list_like {
+        lead_all.clone()
+    } else if line.starts_with(' ') {
+        " ".to_string()
+    } else {
+        String::new()
+    };
+    let wrap_width = cols.saturating_sub(2) + lead_all.len();
+    let mut segments = wrap_to_width(line, wrap_width);
+    for (index, segment) in segments.iter_mut().enumerate() {
+        if index > 0 && !segment.starts_with(lead.as_str()) {
+            segment.insert_str(0, &lead);
+        }
+    }
+    segments
+}
+
 pub fn wrap_to_width(text: &str, width: usize) -> Vec<String> {
     if width == 0 {
         return vec![String::new()];
@@ -2330,17 +2361,7 @@ fn render_all_cached_styled_inner(
                     // pi-tui 的 Text/Markdown 按 `width - 2 * paddingX` 排版）。
                     // 折行后**续行要补回行首内边距**（ref 的 `Text` 给每行都加 `paddingX`；
                     // 我们的 markdown 行已含 1 个前导空格，续行原本没有 ⇒ 真机会话里续行左移一格）。
-                    let lead: String = line.chars().take_while(|ch| *ch == ' ').collect();
-                    // 折行宽度要**加上行首内边距**：ref 的 `availableWidth = width - 2*paddingX`
-                    // 是不含 padding 的内容宽，而我们这里的 `line` 已经带了 1 个前导空格
-                    // （实测：不加这一格，续行比 TS 早断一个词）。
-                    let wrap_width = cols.saturating_sub(2) + lead.len();
-                    let mut segments = wrap_to_width(line, wrap_width);
-                    for (index, segment) in segments.iter_mut().enumerate() {
-                        if index > 0 && !segment.starts_with(lead.as_str()) {
-                            segment.insert_str(0, &lead);
-                        }
-                    }
+                    let mut segments = wrap_markdown_line(line, cols);
                     // 折行后 **span 要按段重新映射**：此前只在"未折行"时套 span，导致长段落里的
                     // `**粗体**`/行内代码在折行后**整段丢样式**（真实语料实测：同一行文本相同、
                     // 只有 bold/fg 差异，占差异格数的大头）。
@@ -2350,8 +2371,10 @@ fn render_all_cached_styled_inner(
                         if md_style.is_some() {
                             style_out.markdown_styles.push((lines.len(), md_style));
                         }
-                        // 在本行的原始文本里定位这一段的起点（续行前面补过 `lead`）。
+                        // 在本行的原始文本里定位这一段的起点（续行前面补过缩进）。
                         let body = if segment_index > 0 {
+                            let lead: String =
+                                wrapped.chars().take_while(|ch| *ch == ' ').collect();
                             wrapped.strip_prefix(lead.as_str()).unwrap_or(wrapped)
                         } else {
                             wrapped.as_str()

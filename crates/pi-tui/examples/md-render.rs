@@ -115,14 +115,7 @@ fn render_lines(input: &str, theme: &str, width: usize) -> Vec<String> {
     let content_width = width.saturating_sub(2);
     for (index, line) in lines.iter().enumerate() {
         let style = styles.get(index).copied().flatten();
-        // 续行补回行首内边距（与 `lib.rs` 的 Assistant 分支同口径）。
-        let lead: String = line.chars().take_while(|ch| *ch == ' ').collect();
-        let mut segments = pi_tui::wrap_to_width(line, content_width + lead.len());
-        for (index, segment) in segments.iter_mut().enumerate() {
-            if index > 0 && !segment.starts_with(lead.as_str()) {
-                segment.insert_str(0, &lead);
-            }
-        }
+        let segments = pi_tui::wrap_markdown_line(line, width);
         let un_wrapped = segments.len() == 1;
         let line_spans_all = spans_by_line.get(&index).cloned().unwrap_or_default();
         let mut cursor = 0usize;
@@ -131,6 +124,7 @@ fn render_lines(input: &str, theme: &str, width: usize) -> Vec<String> {
             let mut rendered = String::new();
             // 按段重映射 span（折行后仍然保留 `**粗体**`/行内代码的样式）。
             let body = if segment_index > 0 {
+                let lead: String = segment.chars().take_while(|ch| *ch == ' ').collect();
                 segment.strip_prefix(lead.as_str()).unwrap_or(segment)
             } else {
                 segment.as_str()
