@@ -104,7 +104,7 @@ fn normalize_terminal_output(text: &str) -> String {
 ///
 /// 上游 `visibleWidth` 会剔除 CSI/OSC/APC 序列；不剔除会把 `\x1b[31m` 这类序列的字节算进宽度，
 /// 从而误判超宽（夹具里的 SGR 内容即暴露此点）。
-fn visible_width(text: &str) -> usize {
+pub fn visible_width(text: &str) -> usize {
     let bytes = text.as_bytes();
     let mut visible = String::with_capacity(text.len());
     let mut i = 0;

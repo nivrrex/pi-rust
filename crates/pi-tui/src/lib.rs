@@ -3166,6 +3166,11 @@ fn render_table(
                 mins[i] + grow
             })
             .collect();
+        // ref `:928-935`：`totalNaturalWidth <= availableWidth` 时**直接用自然宽**（不撑满），
+        // 否则才按权重增长。此前我们无条件把余量分配掉 ⇒ 表格比 TS 宽（`T89g` 实测差 5 列）。
+        if natural.iter().sum::<usize>() + overhead <= total {
+            widths = natural.clone();
+        }
         let mut leftover = available.saturating_sub(widths.iter().sum());
         while leftover > 0 {
             let mut progressed = false;

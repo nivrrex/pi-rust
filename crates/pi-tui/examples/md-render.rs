@@ -28,8 +28,8 @@ fn main() {
     }
     let palette = pi_tui::theme::Palette::of(&pi_tui::theme::Theme::builtin(&theme));
     let (lines, styles, spans) =
-        // TS 的 `Markdown(text, paddingX=1, …)` 在 `width` 里扣掉左右各 1 列（ref
-        // `assistant-message.ts:114` + `text.ts` 的 padding 处理）⇒ 内容宽度是 `width-2`。
+        // TS 的 `Markdown.render(width)` 内部按 `width - 2*paddingX` 排版（`markdown.ts` 的
+        // `availableWidth`），外层再补 `paddingX` 空格 ⇒ 内容宽度是 `width - 2`。
         pi_tui::render_markdown_styled_with_width(
             input.trim(),
             &palette,
@@ -51,6 +51,16 @@ fn main() {
                 rendered = format!("{}{}{}", style.prefix(), rendered, style.reset());
             }
         }
-        println!("{}", serde_json::to_string(&rendered).expect("序列化"));
+        // TS 的 `Text` 会把每行补空格到可用宽度（padding 区域）；对齐到同一宽度便于逐格比较。
+        let visible = pi_tui::diff::visible_width(&rendered);
+        let padded = if visible < width.saturating_sub(2) {
+            format!(
+                "{rendered}{}",
+                " ".repeat(width.saturating_sub(2) - visible)
+            )
+        } else {
+            rendered
+        };
+        println!("{}", serde_json::to_string(&padded).expect("序列化"));
     }
 }

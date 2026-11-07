@@ -1,0 +1,18 @@
+{
+  "id": "T89g-md-table-cjk",
+  "cols": 100,
+  "rows": 40,
+  "helperExit": 0,
+  "exitCode": 0,
+  "stderr": "",
+  "mockStderr": "",
+  "requestLog": "/tmp/g-T89g-md-table-cjk/requests.jsonl",
+  "snapshotOffsets": [
+    {
+      "name": "md",
+      "offset": 8127,
+      "t": 91397.556439274
+    }
+  ],
+  "sessionDir": "/tmp/g-T89g-md-table-cjk/session"
+}
