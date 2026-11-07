@@ -3848,7 +3848,23 @@ pub fn render_markdown_styled_with_width(
                         &mut pending_blank,
                     );
                 } else {
-                    inline.push(' ');
+                    // ref `markdown.ts:638-641` 的 `applyTextWithNewlines`：段落内的**软换行
+                    // 保留为换行**（marked 的 text token 里就带 `\n`），不是折成空格。
+                    // 此前我们拼成空格 ⇒ 多行段落被并成一行（真实语料 `char` 差异的大头）。
+                    flush_inline(
+                        &mut inline,
+                        in_list_item,
+                        list_depth,
+                        quote_depth,
+                        ordered_marker.as_deref().unwrap_or("-"),
+                        &mut out,
+                        &mut styles,
+                        &mut spans,
+                        &mut code_ranges,
+                        &mut inline_styles,
+                        current,
+                        &mut pending_blank,
+                    );
                 }
             }
             Event::End(TagEnd::Paragraph) => {
