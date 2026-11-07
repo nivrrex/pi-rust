@@ -1,5 +1,6 @@
 import os, pty, sys, time, select, termios, struct, fcntl
 mode = sys.argv[1]; binpath = sys.argv[2]
+path = sys.argv[3] if len(sys.argv) > 3 else "sigterm"
 resp = {"none": [], "alacritty": [b"\x1b[?1;2c", b"\x1b[?5u"], "xterm": [b"\x1b[?1;2c"]}[mode]
 pid, fd = pty.fork()
 if pid == 0:
@@ -22,8 +23,17 @@ while time.time()-t < 12:
         if b"ctrl+o more" in out and not sent:
             pass
         if (b"(auto)" in out) and not killed:
-            try: os.kill(pid, 15)
-            except OSError: pass
+            if path == "ctrld":
+                os.write(fd, b"\x04")
+            elif path == "ctrlc2":
+                os.write(fd, b"\x03\x03")
+            elif path == "quit":
+                os.write(fd, b"/quit\r")
+            elif path == "sigterm":
+                pass
+            if path == "sigterm":
+                try: os.kill(pid, 15)
+                except OSError: pass
             killed = True
             t = time.time() - 4
 open(f"/tmp/out-{mode}.bin","wb").write(out)
