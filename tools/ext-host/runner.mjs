@@ -74,6 +74,16 @@ socket.on("close", () => {
   process.exit(0);
 });
 
+// F36/H6a：宿主异常断开（RST/EPIPE）时**静默退出 0**。此前没有 `error` 监听 ⇒ Node 把
+// `ECONNRESET` 当未捕获异常打印整段堆栈并非零退出（真机"退出时报一堆 Node 错误"）。
+socket.on("error", (error) => {
+  const code = error && error.code;
+  if (code === "ECONNRESET" || code === "EPIPE" || code === "ERR_STREAM_DESTROYED") {
+    process.exit(0);
+  }
+  process.exit(0);
+});
+
 // stdin EOF = 父进程已死（宿主不监听时也能兜底退出）。
 process.stdin.on("end", () => process.exit(0));
 process.stdin.resume();
@@ -83,7 +93,12 @@ function send(method, params) {
   return new Promise((resolve, reject) => {
     const id = nextId;
     pending.set(id, { resolve, reject });
+    try {
     socket.write(JSON.stringify({ jsonrpc: "2.0", id, method, params }) + "\n");
+  } catch {
+    // 宿主已断开：静默放弃这次请求（进程马上由 `error`/`close` 处理器退出）。
+    pending.delete(id);
+  }
   });
 }
 

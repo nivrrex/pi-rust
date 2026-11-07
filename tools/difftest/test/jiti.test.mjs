@@ -208,3 +208,36 @@ test("windows：hash 目录是符号链接时仍能读到 package.json（junctio
     fs.rmSync(root, { recursive: true, force: true });
   }
 });
+
+// —— F36/H6a：宿主断开时 runner 静默退出 0 ——
+import { spawn } from "node:child_process";
+import net from "node:net";
+
+test("runner：对端 RST 时退出码 0 且无 stderr", async () => {
+  const repo = path.resolve(path.dirname(new URL(import.meta.url).pathname), "../..");
+  // 本文件在 `tools/difftest/test/` 下 ⇒ repo 已含 `tools`，别再拼一层。
+  const runner = path.join(repo, "ext-host/runner.mjs");
+  const server = net.createServer((sock) => {
+    // 收到就立刻销毁（模拟宿主 RST）。
+    sock.destroy();
+  });
+  await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
+  const port = server.address().port;
+  const child = spawn(process.execPath, [runner], {
+    env: {
+      ...process.env,
+      PI_EXT_ENDPOINT: `127.0.0.1:${port}`,
+      PI_EXT_TOKEN: "t",
+      PI_EXT_EXTENSIONS: "[]",
+    },
+    stdio: ["pipe", "pipe", "pipe"],
+  });
+  let stderr = "";
+  child.stderr.on("data", (chunk) => {
+    stderr += String(chunk);
+  });
+  const code = await new Promise((resolve) => child.on("exit", resolve));
+  server.close();
+  assert.equal(code, 0, `退出码应为 0，实际 ${code}；stderr=${stderr}`);
+  assert.equal(stderr.trim(), "", `不应有 stderr：${stderr}`);
+});
