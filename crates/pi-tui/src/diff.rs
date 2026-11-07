@@ -207,26 +207,6 @@ fn split_trailing_controls(line: &str) -> (&str, &str) {
     (&line[..end], &line[end..])
 }
 
-/// 按 span 写一行：逐段 SGR + 文本，段间复位；最后按需补背景空格到整宽。
-/// 把字节下标收敛到**字符边界**（向下取整）：span 的偏移由调用方计算，
-/// 只要能落进多字节字符中间（例如按字节步进的 run-length 切段），这里兜底。
-fn floor_char_boundary(text: &str, index: usize) -> usize {
-    let mut index = index.min(text.len());
-    while index > 0 && !text.is_char_boundary(index) {
-        index -= 1;
-    }
-    index
-}
-
-/// 向上取整到字符边界（不越过文本末尾）。
-fn ceil_char_boundary(text: &str, index: usize) -> usize {
-    let mut index = index.min(text.len());
-    while index < text.len() && !text.is_char_boundary(index) {
-        index += 1;
-    }
-    index
-}
-
 pub fn write_spans(out: &mut String, line: &str, spans: &[crate::style::Span], width: usize) {
     // **嵌套 span 按字符合成**：`**粗体里的 `code`**` 这类场景里，外层 span 覆盖整行、
     // 内层 span 只盖中间一段。逐段顺序写会在内层 ``code`` 处丢失颜色（内层起点落在 cursor
