@@ -126,6 +126,12 @@ pub struct TuiState {
     pub usage_input: u64,
     /// 会话累计输出 token。
     pub usage_output: u64,
+    /// 会话累计缓存读 token（`R…`）。
+    pub usage_cache_read: u64,
+    /// 会话累计缓存写 token（`W…`）。
+    pub usage_cache_write: u64,
+    /// 最近一条 assistant 的缓存命中率（`CH…%`）。
+    pub usage_cache_hit_rate: Option<f64>,
     /// 会话累计费用（美元；ref `footer.ts:143-146`：为 0 时不显示）。
     pub usage_cost: f64,
     /// 底部状态行右侧（如 `0.0%/128k (auto)`）。
@@ -261,6 +267,9 @@ impl TuiState {
             paste_counter: 0,
             usage_input: 0,
             usage_output: 0,
+            usage_cache_read: 0,
+            usage_cache_write: 0,
+            usage_cache_hit_rate: None,
             usage_cost: 0.0,
             version: version.into(),
             model_scope: Vec::new(),
@@ -457,6 +466,12 @@ pub enum TuiEvent {
         input: u64,
         /// 会话累计输出 token。
         output: u64,
+        /// 会话累计缓存读 token（ref `footer.ts:134` 的 `R…`）。
+        cache_read: u64,
+        /// 会话累计缓存写 token（ref `footer.ts:135` 的 `W…`）。
+        cache_write: u64,
+        /// 最近一条 assistant 的缓存命中率（ref `footer.ts:96-101`、`:136-137` 的 `CH…%`）。
+        cache_hit_rate: Option<f64>,
         /// 会话累计费用（0 时不显示）。
         cost: f64,
         /// 上下文占用百分比（`None` = `?`）。
@@ -956,12 +971,18 @@ pub fn apply(state: &mut TuiState, event: TuiEvent) -> TuiAction {
         TuiEvent::UsageTotals {
             input,
             output,
+            cache_read,
+            cache_write,
+            cache_hit_rate,
             cost,
             percent,
             window,
         } => {
             state.usage_input = input;
             state.usage_output = output;
+            state.usage_cache_read = cache_read;
+            state.usage_cache_write = cache_write;
+            state.usage_cache_hit_rate = cache_hit_rate;
             state.usage_cost = cost;
             let percent_text = match percent {
                 Some(value) => format!("{value:.1}"),
@@ -973,6 +994,18 @@ pub fn apply(state: &mut TuiState, event: TuiEvent) -> TuiAction {
             }
             if state.usage_output > 0 {
                 parts.push(format!("↓{}", format_tokens(state.usage_output)));
+            }
+            // ref `footer.ts:134-137`：`R<n>` / `W<n>` / `CH<x.x>%`。
+            if state.usage_cache_read > 0 {
+                parts.push(format!("R{}", format_tokens(state.usage_cache_read)));
+            }
+            if state.usage_cache_write > 0 {
+                parts.push(format!("W{}", format_tokens(state.usage_cache_write)));
+            }
+            if state.usage_cache_read > 0 || state.usage_cache_write > 0 {
+                if let Some(rate) = state.usage_cache_hit_rate {
+                    parts.push(format!("CH{rate:.1}%"));
+                }
             }
             if state.usage_cost != 0.0 {
                 parts.push(format!("${:.3}", state.usage_cost));
@@ -6919,6 +6952,9 @@ mod footer_units_tests {
             TuiEvent::UsageTotals {
                 input: 89_138_380,
                 output: 10_461_099,
+                cache_read: 0,
+                cache_write: 0,
+                cache_hit_rate: None,
                 cost: 80.799,
                 percent: Some(0.1),
                 window: "200k".to_string(),

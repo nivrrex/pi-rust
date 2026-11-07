@@ -1,0 +1,61 @@
+{
+  "id": "T89i-usage-cache",
+  "description": "底栏缓存用量：R/W/CH 段（mock 返回 prompt_tokens_details.cached_tokens 与 cache_write_tokens）",
+  "provider": "openai-completions",
+  "model": "mock-model",
+  "mode": "print",
+  "prompt": "hi",
+  "tui": {
+    "cols": 100,
+    "rows": 30,
+    "snapshots": [
+      "after"
+    ],
+    "steps": [
+      {
+        "action": "waitScreen",
+        "contains": "Pi can explain",
+        "timeoutMs": 30000
+      },
+      {
+        "action": "waitStable",
+        "quietMs": 1200,
+        "timeoutMs": 25000
+      },
+      {
+        "action": "type",
+        "text": "hi\r"
+      },
+      {
+        "action": "delay",
+        "ms": 5000
+      },
+      {
+        "action": "waitStable",
+        "quietMs": 1500,
+        "timeoutMs": 20000
+      },
+      {
+        "action": "delay",
+        "ms": 600
+      },
+      {
+        "action": "snapshot",
+        "name": "after"
+      },
+      {
+        "action": "type",
+        "text": "\u0004"
+      },
+      {
+        "action": "waitExit",
+        "timeoutMs": 20000
+      }
+    ]
+  },
+  "responses": [
+    {
+      "file": "fixtures/sse/openai/usage-cache.sse"
+    }
+  ]
+}

@@ -3894,16 +3894,22 @@ pub fn run(
                             let _ = output;
                             // footer 的 `↑n ↓n $x` 取**整个会话条目**的求和（ref `footer.ts:86-105`）：
                             // 事件累加会在压缩/续写后与 TS 不一致，也会让数字"变小"。
-                            let (total_in, total_out, total_cost) = match parts.writer.as_ref() {
-                                Some(writer) => writer.lock().map_or((0, 0, 0.0), |guard| {
-                                    crate::session_writer::session_usage_totals(guard.path())
-                                }),
-                                None => (0, 0, 0.0),
+                            let totals = match parts.writer.as_ref() {
+                                Some(writer) => writer.lock().map_or_else(
+                                    |_| crate::session_writer::UsageTotals::default(),
+                                    |guard| {
+                                        crate::session_writer::session_usage_totals(guard.path())
+                                    },
+                                ),
+                                None => crate::session_writer::UsageTotals::default(),
                             };
                             let _ = tx.send(TuiEvent::UsageTotals {
-                                input: total_in,
-                                output: total_out,
-                                cost: total_cost,
+                                input: totals.input,
+                                output: totals.output,
+                                cache_read: totals.cache_read,
+                                cache_write: totals.cache_write,
+                                cache_hit_rate: totals.cache_hit_rate,
+                                cost: totals.cost,
                                 percent,
                                 window,
                             });

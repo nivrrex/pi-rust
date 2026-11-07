@@ -781,13 +781,23 @@ impl SessionWriter {
 ///
 /// 返回 `(input, output, cost)`。读不到的条目按 0 计（不 panic、不猜测）。
 #[must_use]
-pub fn session_usage_totals(path: &std::path::Path) -> (u64, u64, f64) {
+/// 会话累计用量（ref `footer.ts:86-105`）：`↑ ↓ R W $` 与**最近一条 assistant 的缓存命中率**。
+#[derive(Debug, Default, Clone, Copy)]
+pub struct UsageTotals {
+    pub input: u64,
+    pub output: u64,
+    pub cache_read: u64,
+    pub cache_write: u64,
+    pub cost: f64,
+    /// `cacheRead / (input + cacheRead + cacheWrite)`（ref `footer.ts:96-101`），仅最后一条 assistant。
+    pub cache_hit_rate: Option<f64>,
+}
+
+pub fn session_usage_totals(path: &std::path::Path) -> UsageTotals {
     let Ok(file) = pi_core::session_io::SessionFile::read(path) else {
-        return (0, 0, 0.0);
+        return UsageTotals::default();
     };
-    let mut input = 0_u64;
-    let mut output = 0_u64;
-    let mut cost = 0.0_f64;
+    let mut totals = UsageTotals::default();
     for entry in &file.entries {
         let usage = match entry {
             pi_core::session::SessionEntry::Message { message, .. } => match message {
@@ -804,10 +814,16 @@ pub fn session_usage_totals(path: &std::path::Path) -> (u64, u64, f64) {
             _other => None,
         };
         if let Some(usage) = usage {
-            input = input.saturating_add(usage.input);
-            output = output.saturating_add(usage.output);
-            cost += usage.cost.total;
+            totals.input = totals.input.saturating_add(usage.input);
+            totals.output = totals.output.saturating_add(usage.output);
+            totals.cache_read = totals.cache_read.saturating_add(usage.cache_read);
+            totals.cache_write = totals.cache_write.saturating_add(usage.cache_write);
+            totals.cost += usage.cost.total;
+            let prompt = usage.input + usage.cache_read + usage.cache_write;
+            if prompt > 0 {
+                totals.cache_hit_rate = Some(usage.cache_read as f64 / prompt as f64 * 100.0);
+            }
         }
     }
-    (input, output, cost)
+    totals
 }
