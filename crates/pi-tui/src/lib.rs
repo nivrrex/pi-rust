@@ -3461,8 +3461,6 @@ pub fn render_markdown_styled_with_width(
                 | Event::End(_)
                 | Event::InlineMath(_)
                 | Event::DisplayMath(_)
-                | Event::Html(_)
-                | Event::InlineHtml(_)
                 | Event::FootnoteReference(_)
                 | Event::TaskListMarker(_)
                 | Event::Rule => continue,
