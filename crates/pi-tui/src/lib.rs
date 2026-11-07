@@ -3010,6 +3010,31 @@ pub fn render_markdown_styled_with(input: &str, palette: &theme::Palette) -> Mar
     render_markdown_styled_with_width(input, palette, None)
 }
 
+/// 只在**非围栏代码块区域**应用 `rewrite`（围栏行自身也原样保留）。
+///
+/// 引用空行的哨兵替换必须避开代码块：代码块里的 `>` 是内容，不是引用语法。
+fn rewrite_outside_code(rewrite: impl Fn(&str) -> String, input: &str) -> String {
+    let mut out = String::with_capacity(input.len());
+    let mut in_fence = false;
+    for (index, line) in input.split('\n').enumerate() {
+        if index > 0 {
+            out.push('\n');
+        }
+        let trimmed = line.trim_start();
+        if trimmed.starts_with("```") || trimmed.starts_with("~~~") {
+            in_fence = !in_fence;
+            out.push_str(line);
+            continue;
+        }
+        if in_fence {
+            out.push_str(line);
+        } else {
+            out.push_str(&rewrite(line));
+        }
+    }
+    out
+}
+
 /// 把"只有 `>`（可带空白）的行"替换成 `> \u{1}` 哨兵（不引入 regex 依赖）。
 fn replace_quote_blank_lines(input: &str) -> String {
     let mut out = String::with_capacity(input.len());
@@ -3344,7 +3369,9 @@ pub fn render_markdown_styled_with_width(
     // ref `markdown.ts:556-570`：引用块内的空行（`>` 单独一行）会输出一个只有 ` │` 的行。
     // pulldown-cmark **不给这种行任何事件**（事件探针确认），所以先把它替换成哨兵文本，
     // 渲染时再还原成"只有前缀"的行。
-    let preprocessed = replace_quote_blank_lines(input);
+    // 哨兵只用于**引用块内**的空行：围栏代码块 / 行内代码里的 `>` 必须原样保留，
+    // 否则会泄漏成 `\u{1}`（实测：代码块里的 `>` 行被打成哨兵）。
+    let preprocessed = rewrite_outside_code(replace_quote_blank_lines, input);
     let mut table: Option<TableBuild> = None;
     for event in Parser::new_ext(&preprocessed, options) {
         // —— 表格：先把单元格文本收进状态机，`End(Table)` 时整体排版（ref `markdown.ts:839`）。
@@ -3983,6 +4010,25 @@ mod markdown_tests {
             styles[heading_index].map(|style| style.fg),
             Some(Some(palette.md_heading)),
             "标题应使用 mdHeading"
+        );
+    }
+
+    /// 引用空行的哨兵（`> \u{1}`）**不得泄漏**，也不得污染围栏代码块 / 行内代码里的 `>`。
+    #[test]
+    fn quote_blank_sentinel_never_leaks() {
+        let palette = crate::theme::Palette::of(&crate::theme::Theme::builtin("dark"));
+        let md = "行内 `a > b`\n\n```\n>\n> \n```\n\n> 引用里的 `>` 外层\n";
+        let (lines, _styles, _spans) =
+            super::render_markdown_styled_with_width(md, &palette, Some(50));
+        let joined = lines.join("\n");
+        assert!(!joined.contains('\u{1}'), "哨兵泄漏到输出：{joined:?}");
+        assert!(
+            lines.iter().any(|line| line.contains("a > b")),
+            "行内代码里的 `>` 应保留：{lines:?}"
+        );
+        assert!(
+            lines.iter().any(|line| line.trim() == ">"),
+            "围栏代码块里的 `>` 应保留：{lines:?}"
         );
     }
 
