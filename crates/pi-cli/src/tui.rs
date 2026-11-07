@@ -1153,6 +1153,8 @@ pub fn run(
             "0.0%/{} (auto)",
             pi_tui::format_tokens(context_window_of(parts_ref))
         );
+        // 可用 provider 数要同步给扩展（页脚右侧决定是否加 `(provider)` 前缀）。
+        crate::ext_tools::set_ctx_available_providers(state.available_provider_count);
     }
     if let Some(parts_ref) = parts.as_ref() {
         // ref `interactive-mode.ts:905-916`：启动屏的 `Model scope:` 行来自 scopedModels。
@@ -1180,6 +1182,8 @@ pub fn run(
                 .unwrap_or_else(|| "medium".to_string());
             state.thinking_level =
                 clamp_thinking_level(&state.available_thinking_levels, &requested);
+            // 初始思考档位同步给扩展（页脚右侧 `… • <level>`，ref `footer.ts:184-190`）。
+            crate::ext_tools::update_ctx_model(None, Some(state.thinking_level.as_str()));
         }
     }
     let initial = parts

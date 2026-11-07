@@ -1495,6 +1495,16 @@ fn build_tui_agent_parts(
             resolved.reasoning,
             resolved.context_window,
         );
+        // 初始思考档位：扩展在 `session_start` 里就把页脚渲染成静态行（本实现尚未做每帧重渲），
+        // 所以档位必须在**宿主启动前**进 ctx，否则页脚永远是 `thinking off`。
+        let initial_level = settings
+            .default_thinking_level
+            .clone()
+            .unwrap_or_else(|| if resolved.reasoning { "medium" } else { "off" }.to_string());
+        pi_cli::ext_tools::update_ctx_model(None, Some(initial_level.as_str()));
+        // 可用 provider 数（页脚右侧是否加 `(provider)` 前缀，ref `footer.ts:193-200`）。
+        pi_cli::ext_tools::set_ctx_available_providers(models_config.providers.len());
+
         // F26/S0：**必须先建 writer 并登记路径，再调用 `default_tools`**——后者会启动扩展宿主并
         // 派发 `session_start`，扩展在这个事件里 `appendEntry` 时若路径未登记，sink 会阻塞等 10s，
         // 退出时再被 join 超时打成"会话写入超时"（真机 ⑤⑥）。

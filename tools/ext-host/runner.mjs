@@ -115,6 +115,8 @@ function contextForExtension() {
     hasUI: hostCtx.hasUI,
     model: hostCtx.model,
     thinkingLevel: hostCtx.thinkingLevel,
+    // 终端宽度：扩展的页脚/组件按 `render(width)` 排版（ref `footer.ts` 传的是当前列数）。
+    width: typeof hostCtx.width === "number" ? hostCtx.width : 80,
     // ref `types.ts:1854` 的 `ctx.sessionManager`（只读子集）：宿主只给会话文件路径，
     // 条目由这里按需读文件解析（文件即事实来源，不做缓存）。
     sessionManager: {
@@ -819,7 +821,9 @@ function keybindingsStub() {
 function footerDataStub() {
   return {
     getExtensionStatuses: () => new Map(),
-    getAvailableProviderCount: () => 1,
+    // ref `footer.ts` 的 `footerData.getAvailableProviderCount()`：>1 时右侧加 `(provider)` 前缀。
+    getAvailableProviderCount: () =>
+      typeof hostCtx.availableProviderCount === "number" ? hostCtx.availableProviderCount : 1,
     getGitBranch: () => undefined,
     getCwd: () => hostCtx.cwd,
     onBranchChange: () => () => {},

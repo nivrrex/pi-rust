@@ -107,6 +107,7 @@ pub fn update_ctx_width(cols: usize) {
 /// 不是字符串）。扩展普遍读 `ctx.model?.id` / `.provider` / `.reasoning`
 /// （如实测的 pi-ai-summary 页脚），此前我们存的是字符串 ⇒ `model=undefined`、页脚丢模型名。
 pub fn set_ctx_model_object(id: &str, provider: &str, reasoning: bool, context_window: u64) {
+    set_ctx_available_providers(0);
     let Some(slot) = CTX.get() else {
         return;
     };
@@ -119,6 +120,20 @@ pub fn set_ctx_model_object(id: &str, provider: &str, reasoning: bool, context_w
         });
     }
     push_ctx();
+}
+
+/// 设 `ctx.availableProviderCount`（ref `footer.ts` 的 `footerData.getAvailableProviderCount()`
+/// 决定右侧模型名前是否加 `(provider)` 前缀）。
+pub fn set_ctx_available_providers(count: usize) {
+    let Some(slot) = CTX.get() else {
+        return;
+    };
+    if count > 0 {
+        if let Ok(mut guard) = slot.lock() {
+            guard["availableProviderCount"] = serde_json::json!(count);
+        }
+        push_ctx();
+    }
 }
 
 /// 更新 ctx 里的当前模型与思考档位（切换模型 / Ctrl+P / `/thinking` 后调用）。
@@ -165,6 +180,15 @@ fn ctx_snapshot() -> serde_json::Value {
     if let Some(id) = session_id() {
         if let Some(object) = value.as_object_mut() {
             object.insert("sessionId".to_string(), serde_json::Value::String(id));
+        }
+    }
+    // 终端宽度：扩展的页脚/组件按 `render(width)` 排版（ref `footer.ts`），而 `session_start`
+    // 在建宿主时就派发 ⇒ 每次取快照都补上当前宽度（`update_ctx_width` 的提前调用可能早于 TTY 就绪）。
+    if let Some(object) = value.as_object_mut() {
+        if !object.contains_key("width") {
+            if let Ok((cols, _)) = crossterm::terminal::size() {
+                object.insert("width".to_string(), serde_json::json!(cols as usize));
+            }
         }
     }
     value

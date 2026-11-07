@@ -1383,6 +1383,56 @@ pub fn apply(state: &mut TuiState, event: TuiEvent) -> TuiAction {
 
 /// 把字符串按显示宽度裁剪到 `width` 列（不补空格）。
 #[must_use]
+/// 按**可见宽度**截断，保留 ANSI 转义序列（扩展给的页脚/头部/widget 行自带颜色）。
+///
+/// `clamp_to_width` 把转义字节也算进宽度 ⇒ 扩展的行会被过早截断（实测：pi-ai-summary
+/// 的页脚第二行只留下 `0.0%/262k (auto)`，右侧模型名被切掉）。
+#[must_use]
+pub fn clamp_to_width_ansi(text: &str, width: usize) -> String {
+    let mut out = String::with_capacity(text.len());
+    let mut used = 0usize;
+    let bytes = text.as_bytes();
+    let mut index = 0usize;
+    while index < bytes.len() {
+        if bytes[index] == 0x1b {
+            // CSI / OSC / 其它：原样拷贝到终止字节。
+            let start = index;
+            index += 1;
+            if index < bytes.len() && bytes[index] == b'[' {
+                index += 1;
+                while index < bytes.len() && !(0x40..=0x7e).contains(&bytes[index]) {
+                    index += 1;
+                }
+                if index < bytes.len() {
+                    index += 1;
+                }
+            } else if index < bytes.len() && bytes[index] == b']' {
+                while index < bytes.len() && bytes[index] != 0x07 {
+                    index += 1;
+                }
+                if index < bytes.len() {
+                    index += 1;
+                }
+            } else if index < bytes.len() {
+                index += 1;
+            }
+            out.push_str(&text[start..index]);
+            continue;
+        }
+        let Some(ch) = text[index..].chars().next() else {
+            break;
+        };
+        let w = UnicodeWidthChar::width(ch).unwrap_or(0);
+        if used + w > width {
+            break;
+        }
+        out.push(ch);
+        used += w;
+        index += ch.len_utf8();
+    }
+    out
+}
+
 pub fn clamp_to_width(text: &str, width: usize) -> String {
     // P7-6al/F：**热路径**——旧实现每个字符都 `ch.to_string()` 再算宽度（每帧约 27 万次分配，
     // N=3000 时 render 占 35 ms）。`UnicodeWidthChar::width` 与 `UnicodeWidthStr::width(单字符)`
@@ -2735,7 +2785,8 @@ fn render_all_cached_styled_inner(
     if let Some(override_footer) = &state.footer_override {
         // 扩展接管页脚（ref `types.ts:189-193`）：用它的行替代内置的两行状态区。
         for line in override_footer {
-            lines.push(clamp_to_width(line, cols));
+            // 扩展行自带 ANSI ⇒ 必须按**可见宽度**截断。
+            lines.push(clamp_to_width_ansi(line, cols));
         }
         return lines;
     }
