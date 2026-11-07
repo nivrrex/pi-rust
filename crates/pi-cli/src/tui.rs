@@ -894,7 +894,11 @@ pub fn startup_bytes() -> &'static [u8] {
     {
         // kitty flags **5 而不是 ref 的 7**（关掉位2=上报事件类型）：抬起事件是退出残片的唯一来源，
         // 不请求它就从机制上杜绝 `0;5:3u` 一类回显。偏离登记见 `notes/decisions.md`「F4/S4 改」。
-        b"\x1b[?2004h\x1b[>5u\x1b[?u\x1b[c\x1b[?2031h\x1b[?996n\x1b[?25l"
+        // 只发 ref 有的那三段：bracketed paste、kitty push+查询、DA1；再隐藏光标。
+        // 此前额外发的 `?2031h`（in-band resize）与 `?996n`（DSR 查询）**ref 完全没有**
+        // （`terminal.ts` 全文无此二者），且 `?996n` 的应答若未被读走会留在 tty 输入队列里，
+        // 退出后被 shell 读成输入（真机"退出后方向键/输入异常"的疑似来源）。
+        b"\x1b[?2004h\x1b[>5u\x1b[?u\x1b[c\x1b[?25l"
     }
 }
 
@@ -911,7 +915,7 @@ pub fn r3_exit_bytes(kitty_pushed: bool, modify_other_keys: bool) -> String {
     if modify_other_keys {
         out.push_str("\x1b[>4;0m");
     }
-    out.push_str("\u{1b}[?2031l");
+
     out.push_str("\x1b[?25h");
     out
 }
