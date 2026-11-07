@@ -1217,14 +1217,16 @@ pub fn menu_commands_of(host: &pi_ext_host::HostHandle) -> Vec<(String, String)>
         host.commands()
             .iter()
             .map(|command| {
+                // ref `interactive-mode.ts:636-641`：`user`→`u`、`project`→`p`、其余（含 `temporary`）→`t`。
                 let tag = match command.scope.as_str() {
                     "u" | "user" => "u",
                     "p" | "project" => "p",
-                    _ => "t",
+                    "t" | "temporary" => "t",
+                    scope => scope,
                 };
                 let label = match command.description.as_deref() {
                     Some(text) if !text.is_empty() => format!("[{tag}] {text}"),
-                    _ => format!("[{tag}]"),
+                    Some(_) | None => format!("[{tag}]"),
                 };
                 (command.name.clone(), label)
             })
