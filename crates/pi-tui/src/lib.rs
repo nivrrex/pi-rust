@@ -3368,7 +3368,7 @@ pub fn render_markdown_styled_with_width(
     let mut pending_blank = false;
     // `pending_blank` 的来源是否是**段落**（ref `markdown.ts:487-497`：段落后面接列表时
     // **不补**空行；标题后面接列表才补）。
-    let mut pending_from_paragraph = std::cell::Cell::new(false);
+    let pending_from_paragraph = std::cell::Cell::new(false);
     let flush_inline = |inline: &mut String,
                         in_list_item: bool,
                         list_depth: usize,
