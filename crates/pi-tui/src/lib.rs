@@ -3366,8 +3366,11 @@ pub fn render_markdown_styled_with_width(
         } else {
             String::new()
         };
-        out.push(if in_list_item {
-            format!("{quote_prefix}{indent} {marker} {text}")
+        out.push(if in_list_item && quote_depth > 0 {
+            // 引用内列表：`quote_prefix` 末尾已是一个空格 ⇒ 标记紧接其后（` │ │ - 项`）。
+            format!("{quote_prefix}{indent}{marker} {text}")
+        } else if in_list_item {
+            format!("{indent} {marker} {text}")
         } else if quote_depth > 0 {
             format!("{quote_prefix}{text}")
         } else {
