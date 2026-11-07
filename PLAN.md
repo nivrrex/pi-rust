@@ -80,3 +80,12 @@
 - 工具：`tools/difftest/{md-oracle,md-diff,color-dump,color-classify}.mjs` + `crates/pi-tui/examples/md-render.rs`。
 - 新增入库 golden：`T89e-md-table`、`T89f-md-elements`、`T89g-md-table-cjk`。
 - 发布包 `~/archives/publish-20261107e`（buildHead/publishCommit `4bb46bf2`、publishTree `54c80ef7`，未发布）。
+
+## F35 收口
+- G0：新增 `md-cells`（逐单元格属性对拍）、`md-aggregate`（按元素聚合）、`md-oracle`/`md-render` 批量模式；
+  真实语料（30 会话 → 15181 块，抽 206 块 × dark/light × 80/120）逐格差异 **2,408,440 → 1,226,764**。
+- G1：引用空行改用**分隔线块**（pulldown 才会切断段落/列表）、引用内列表前缀、列表内代码块缩进；
+  `nested.md` 与 TS 文本层一致，既有 dark 91 / light 23 golden 全 same。
+- G2：代码块语法高亮**未实现**（ref 用 cli-highlight，需自写分词器）。
+- G4：`extensionImportUrl`（Windows `file://`）+ 符号链接/junction 单测。
+- 发布包 `~/archives/publish-20261107f`（buildHead/publishCommit `0e09987f`、publishTree `63926708`，未发布）。
