@@ -2361,7 +2361,7 @@ fn render_all_cached_styled_inner(
                     // pi-tui 的 Text/Markdown 按 `width - 2 * paddingX` 排版）。
                     // 折行后**续行要补回行首内边距**（ref 的 `Text` 给每行都加 `paddingX`；
                     // 我们的 markdown 行已含 1 个前导空格，续行原本没有 ⇒ 真机会话里续行左移一格）。
-                    let mut segments = wrap_markdown_line(line, cols);
+                    let segments = wrap_markdown_line(line, cols);
                     // 折行后 **span 要按段重新映射**：此前只在"未折行"时套 span，导致长段落里的
                     // `**粗体**`/行内代码在折行后**整段丢样式**（真实语料实测：同一行文本相同、
                     // 只有 bold/fg 差异，占差异格数的大头）。
