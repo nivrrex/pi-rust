@@ -3496,7 +3496,11 @@ pub fn render_markdown_styled_with_width(
                 // ref `markdown.ts:469-475`：H1 = `heading(bold(underline(text)))`，H2+ 只 bold。
                 current = Some(match level {
                     HeadingLevel::H1 => style::LineStyle::fg(palette.md_heading).bold().underline(),
-                    _ => style::LineStyle::fg(palette.md_heading).bold(),
+                    HeadingLevel::H2
+                    | HeadingLevel::H3
+                    | HeadingLevel::H4
+                    | HeadingLevel::H5
+                    | HeadingLevel::H6 => style::LineStyle::fg(palette.md_heading).bold(),
                 });
                 // ref `markdown.ts:482`：`headingLevel >= 3` 时**把 `### ` 前缀一起输出**（同样按标题染色），
                 // H1/H2 才去掉前缀。此前我们对所有级别都去掉了前缀。
@@ -3712,7 +3716,22 @@ pub fn render_markdown_styled_with_width(
                 let style = match &event {
                     Event::Start(Tag::Strong) => style::LineStyle::default().bold(),
                     Event::Start(Tag::Emphasis) => style::LineStyle::default().italic(),
-                    _ => style::LineStyle::default().strike(),
+                    Event::Start(Tag::Strikethrough) => style::LineStyle::default().strike(),
+                    // 上面的 `|` 分支保证这里只会命中上面三种；保持不可达分支显式，
+                    // 让 lint-banned 的通配禁令与编译器穷尽性检查同时满足。
+                    Event::Start(_)
+                    | Event::End(_)
+                    | Event::Text(_)
+                    | Event::Code(_)
+                    | Event::Html(_)
+                    | Event::InlineHtml(_)
+                    | Event::FootnoteReference(_)
+                    | Event::SoftBreak
+                    | Event::HardBreak
+                    | Event::Rule
+                    | Event::TaskListMarker(_)
+                    | Event::InlineMath(_)
+                    | Event::DisplayMath(_) => style::LineStyle::default(),
                 };
                 inline_stack.push((style, inline.len()));
             }

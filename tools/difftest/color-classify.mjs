@@ -1,9 +1,12 @@
 import fs from "node:fs";
-import { normalizeScreen } from "/root/Desktop/pi-rust/tools/difftest/compare-tui.mjs";
-import { dumpStyled } from "/root/Desktop/pi-rust/tools/difftest/color-dump.mjs";
+import path from "node:path";
+import { normalizeScreen } from "./compare-tui.mjs";
+import { dumpStyled } from "./color-dump.mjs";
 
-const goldDir = "/root/Desktop/pi-rust/golden-tui";
-const runDir = "/tmp/rg6";
+// 仓库根按本文件位置推导（禁止硬编码本机绝对路径）。
+const repo = path.resolve(path.dirname(new URL(import.meta.url).pathname), "../..");
+const goldDir = path.join(repo, "golden-tui");
+const runDir = process.env.CLASSIFY_RUN_DIR ?? "/tmp/regress-tui";
 const lines = (path) => dumpStyled(path, 100, 30).map((l) => l.replace(/^\d+│/, ""));
 let total = 0, exact = 0, offsetOnly = 0, real = 0;
 const samples = [];
