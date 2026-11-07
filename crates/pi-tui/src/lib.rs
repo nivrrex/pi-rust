@@ -3549,9 +3549,10 @@ pub fn render_markdown_styled_with_width(
             Event::End(TagEnd::List(_)) => {
                 list_depth = list_depth.saturating_sub(1);
                 list_stack.pop();
-                // ref `markdown.ts:542-548`：列表本身**不补**空行（后续空行由 `space` token 决定）；
-                // 这里置 `pending_from_paragraph = true` 让紧随其后的列表也不额外补。
-                pending_blank = false;
+                // ref `markdown.ts:542-548`：列表**不主动**补空行，但紧随其后的**段落**若与列表之间
+                // 有空白（`space` token）要补一行。靠 `pending_from_paragraph` 区分：
+                // 列表后接列表不补，列表后接段落补。
+                pending_blank = true;
                 pending_from_paragraph = true;
             }
             Event::Start(Tag::Item) => {
