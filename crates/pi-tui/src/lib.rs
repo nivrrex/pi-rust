@@ -3366,6 +3366,9 @@ pub fn render_markdown_styled_with_width(
     let quote_blank_emitted = std::cell::Cell::new(false);
     let mut code_line = String::new();
     let mut pending_blank = false;
+    // `pending_blank` 的来源是否是**段落**（ref `markdown.ts:487-497`：段落后面接列表时
+    // **不补**空行；标题后面接列表才补）。
+    let mut pending_from_paragraph = std::cell::Cell::new(false);
     let flush_inline = |inline: &mut String,
                         in_list_item: bool,
                         list_depth: usize,
@@ -3672,6 +3675,7 @@ pub fn render_markdown_styled_with_width(
                 );
                 current = None;
                 pending_blank = true;
+                pending_from_paragraph.set(false);
             }
             Event::Start(Tag::List(start)) => {
                 // ref `markdown.ts:487-497`：段落与列表之间**不补**空行（`nextTokenType === "list"`）。
@@ -3692,10 +3696,12 @@ pub fn render_markdown_styled_with_width(
                     current,
                     &mut pending_blank,
                 );
-                if pending_blank && !out.is_empty() {
+                // 段落 → 列表**不补空行**（ref `markdown.ts:487-497`）。
+                if pending_blank && !out.is_empty() && !pending_from_paragraph.get() {
                     push_md_line(&mut out, &mut styles, String::new(), None);
                 }
                 pending_blank = false;
+                pending_from_paragraph.set(false);
                 list_depth += 1;
                 list_stack.push(start);
             }
@@ -3920,6 +3926,7 @@ pub fn render_markdown_styled_with_width(
                     current,
                     &mut pending_blank,
                 );
+                pending_from_paragraph.set(true);
                 if quote_blank_emitted.get() {
                     // 刚输出的就是"引用块空行"，该段结束后不再补空行（否则比 TS 多一行）。
                     quote_blank_emitted.set(false);
