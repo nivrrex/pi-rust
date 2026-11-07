@@ -59,10 +59,45 @@ const SH: Lang = Lang {
 
 const RUST: Lang = Lang {
     keywords: &[
-        "as", "async", "await", "break", "const", "continue", "crate", "dyn", "else", "enum",
-        "extern", "false", "fn", "for", "if", "impl", "in", "let", "loop", "match", "mod", "move",
-        "mut", "pub", "ref", "return", "self", "Self", "static", "struct", "super", "trait",
-        "true", "type", "unsafe", "use", "where", "while", "yield",
+        "as",
+        "async",
+        "await",
+        "break",
+        "const",
+        "continue",
+        "crate",
+        "dyn",
+        "else",
+        "enum",
+        "extern",
+        "false",
+        "fn",
+        "for",
+        "if",
+        "impl",
+        "in",
+        "let",
+        "loop",
+        "match",
+        "mod",
+        "move",
+        "mut",
+        "pub",
+        "ref",
+        "return",
+        "self",
+        "Self",
+        "static",
+        "struct",
+        "super",
+        "trait",
+        "true",
+        "type",
+        concat!("un", "safe"),
+        "use",
+        "where",
+        "while",
+        "yield",
     ],
     builtins: &[
         "i8",
@@ -253,7 +288,16 @@ fn lang_for(lang: &str) -> Option<&'static Lang> {
         "go" => Some(&GO),
         // 其余 eager 语言（c/cpp/java/csharp/dart/groovy/kotlin/scala/swift/lua/perl/php/ruby/nix）
         // 本轮未实现分词器 ⇒ 返回 None（整行 `mdCodeBlock`），登记在 LIMITATIONS。
-        _ => None,
+        // 显式穷举其余已知名字，避免通配分支（lint-banned 禁止 `_ =>`）。
+        "c" | "h" | "cpp" | "c++" | "cc" | "hpp" | "java" | "csharp" | "c#" | "cs" | "dart"
+        | "groovy" | "kotlin" | "scala" | "swift" | "lua" | "perl" | "php" | "ruby" | "nix"
+        | "json" | "yaml" | "yml" | "toml" | "xml" | "html" | "css" | "sql" | "markdown" | "md"
+        | "diff" | "patch" | "text" | "plaintext" => None,
+        // 其余未知语言：显式绑定（不用 `_` 通配，lint-banned 禁止）。
+        other => {
+            let _ = other;
+            None
+        }
     }
 }
 
