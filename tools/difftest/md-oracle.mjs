@@ -24,8 +24,12 @@ const entry = get("--entry", null);
 const themeName = get("--theme", "dark");
 const width = Number(get("--width", "80"));
 const inputFile = get("--in", null);
-if (!entry || !inputFile) {
-  console.error("用法: md-oracle.mjs --entry <pi cli.js> --theme dark|light --width N --in file.md");
+// 批量模式：`--dir <目录>`，每个 `.md` 输出一条 `{"file":..., "lines":[...]}`（F35/G0 度量用）。
+const inputDir = get("--dir", null);
+if (!entry || (!inputFile && !inputDir)) {
+  console.error(
+    "用法: md-oracle.mjs --entry <pi cli.js> --theme dark|light --width N (--in file.md | --dir 目录)",
+  );
   process.exit(2);
 }
 
@@ -51,5 +55,15 @@ if (!Markdown || !getMarkdownTheme || !initTheme) {
   process.exit(2);
 }
 initTheme(themeName);
-const markdown = new Markdown(fs.readFileSync(inputFile, "utf8").trim(), 1, 0, getMarkdownTheme());
-markdown.render(width).forEach((line) => console.log(JSON.stringify(line)));
+const render = (text) => {
+  const markdown = new Markdown(text.trim(), 1, 0, getMarkdownTheme());
+  return markdown.render(width);
+};
+if (inputDir) {
+  for (const name of fs.readdirSync(inputDir).filter((f) => f.endsWith(".md")).sort()) {
+    const text = fs.readFileSync(path.join(inputDir, name), "utf8");
+    console.log(JSON.stringify({ file: name, lines: render(text) }));
+  }
+} else {
+  render(fs.readFileSync(inputFile, "utf8")).forEach((line) => console.log(JSON.stringify(line)));
+}

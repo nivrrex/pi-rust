@@ -9,13 +9,32 @@ fn main() {
     let mut theme = "dark".to_string();
     let mut width = 80usize;
     let mut file: Option<String> = None;
+    // 批量模式：`--dir <目录>`，每个 `.md` 输出一条 `{"file":…,"lines":[…]}`（F35/G0 度量用）。
+    let mut dir: Option<String> = None;
     let mut args = std::env::args().skip(1);
     while let Some(arg) = args.next() {
         match arg.as_str() {
             "--theme" => theme = args.next().unwrap_or_else(|| "dark".to_string()),
             "--width" => width = args.next().and_then(|v| v.parse().ok()).unwrap_or(80),
+            "--dir" => dir = args.next(),
             other => file = Some(other.to_string()),
         }
+    }
+    if let Some(dir) = dir {
+        let mut names: Vec<String> = std::fs::read_dir(&dir)
+            .expect("读目录")
+            .filter_map(Result::ok)
+            .map(|entry| entry.file_name().to_string_lossy().to_string())
+            .filter(|name| name.ends_with(".md"))
+            .collect();
+        names.sort();
+        for name in names {
+            let text = std::fs::read_to_string(std::path::Path::new(&dir).join(&name)).expect("读文件");
+            let lines = render_lines(&text, &theme, width);
+            let payload = serde_json::json!({ "file": name, "lines": lines });
+            println!("{}", serde_json::to_string(&payload).expect("序列化"));
+        }
+        return;
     }
     let mut input = String::new();
     match file {
@@ -26,7 +45,15 @@ fn main() {
                 .expect("读 stdin");
         }
     }
-    let palette = pi_tui::theme::Palette::of(&pi_tui::theme::Theme::builtin(&theme));
+    for line in render_lines(&input, &theme, width) {
+        println!("{}", serde_json::to_string(&line).expect("序列化"));
+    }
+}
+
+/// 把一段 markdown 渲染成带 SGR 的行（每行补空格到可用宽度，便于逐格比较）。
+fn render_lines(input: &str, theme: &str, width: usize) -> Vec<String> {
+    let mut out = Vec::new();
+    let palette = pi_tui::theme::Palette::of(&pi_tui::theme::Theme::builtin(theme));
     let (lines, styles, spans) =
         // TS 的 `Markdown.render(width)` 内部按 `width - 2*paddingX` 排版（`markdown.ts` 的
         // `availableWidth`），外层再补 `paddingX` 空格 ⇒ 内容宽度是 `width - 2`。
@@ -61,6 +88,7 @@ fn main() {
         } else {
             rendered
         };
-        println!("{}", serde_json::to_string(&padded).expect("序列化"));
+        out.push(padded);
     }
+    out
 }
