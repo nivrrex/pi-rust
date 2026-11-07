@@ -319,7 +319,7 @@ pub struct ExtHost {
     wire: std::sync::Arc<Wire>,
     handshake: Handshake,
     tools: Vec<ToolSpec>,
-    commands: Vec<String>,
+    commands: Vec<crate::handshake::CommandSpec>,
     events: Vec<String>,
     /// 扩展注册的 flag（`registerFlag`）。
     flags: Vec<crate::handshake::FlagSpec>,
@@ -547,7 +547,7 @@ impl ExtHost {
 
     /// 已注册的命令名（本批只用于观测/计数，未接分发）。
     #[must_use]
-    pub fn commands(&self) -> &[String] {
+    pub fn commands(&self) -> &[crate::handshake::CommandSpec] {
         &self.commands
     }
 

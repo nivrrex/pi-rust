@@ -34,9 +34,27 @@ const [host, portText] = endpoint.split(":");
 let nextId = 0;
 const pending = new Map();
 const tools = new Map();
+// 扩展开命令：`{ name, description, scope }`（ref `types.ts:1326-1332` 的 `RegisteredCommand`）。
+// 宿主据此在前缀菜单里显示 `[<tag>] <description>`（`interactive-mode.ts:631-661`）。
 const commands = [];
 // 命令名 → handler（`registerCommand(name, {handler})`，ref `types.ts` 的 ExtensionCommand）。
 const commandHandlers = new Map();
+// 反射 ref `resource-loader.ts:807-846` 的 scope 判定：
+//   <agentDir>/extensions/...   → user（tag `u`）
+//   <cwd>/.pi/extensions/...    → project（tag `p`）
+//   其它                          → temporary（tag `t`）
+const agentDir = process.env.PI_CODING_AGENT_DIR ?? "";
+const agentExtRoot = agentDir ? path.join(path.resolve(agentDir), "extensions") : "";
+const projectExtRoot = path.join(process.cwd(), ".pi", "extensions");
+function scopeTagForPath(extensionPath) {
+  const resolved = path.resolve(extensionPath);
+  const under = (root) => Boolean(root) && (resolved === root || resolved.startsWith(`${root}${path.sep}`));
+  if (under(agentExtRoot)) return "u";
+  if (under(projectExtRoot)) return "p";
+  return "t";
+}
+// 当前正在执行工厂的扩展路径（`registerCommand` 无路径参数，靠它定位来源）。
+let currentExtensionPath = "";
 // `registerFlag` 注册的 flag（名 → {type, default}）与宿主解析好的实际值。
 const flagSpecs = new Map();
 let flagValues = {};
@@ -437,7 +455,9 @@ async function dispatch(frame) {
   }
   if (method === "ext.command.invoke") {
     const name = params?.commandName;
-    const handler = commandHandlers.get(name);
+    // 宿主传的是 invocationName（重名时带 `:N`）；回落到底层注册名。
+    const baseName = typeof name === "string" ? name.replace(/:\d+$/, "") : name;
+    const handler = commandHandlers.get(name) ?? commandHandlers.get(baseName);
     if (!handler) {
       respond(id, undefined, { code: -32601, message: `unknown command ${name}` });
       return;
@@ -672,7 +692,14 @@ const pi = {
   },
   registerCommand(name, definition) {
     if (typeof name !== "string") return;
-    if (!commands.includes(name)) commands.push(name);
+    const description = typeof definition?.description === "string" ? definition.description : undefined;
+    if (!commands.some((command) => command.name === name)) {
+      commands.push({
+        name,
+        description,
+        scope: scopeTagForPath(currentExtensionPath || process.cwd()),
+      });
+    }
     if (definition && typeof definition.handler === "function") {
       commandHandlers.set(name, definition.handler);
     }
@@ -746,7 +773,7 @@ const pi = {
   },
   setActiveTools() {},
   getCommands() {
-    return commands.map((name) => ({ name, source: "extension" }));
+    return commands.map((command) => ({ name: command.name, description: command.description, source: "extension" }));
   },
   async setModel() {
     noteNotImplemented("pi.setModel");
@@ -915,7 +942,9 @@ async function main() {
         loadErrors.push({ path: extensionPath, message: "no default export factory" });
         continue;
       }
+      currentExtensionPath = extensionPath;
       await factory(pi);
+      currentExtensionPath = "";
     } catch (error) {
       process.stderr.write(`[ext-host] ${extensionPath}: ${error?.stack ?? error}\n`);
       // 单个扩展加载失败不拖垮其它扩展（ref 也是逐个报错）。
@@ -944,6 +973,26 @@ async function main() {
     });
   }
 
+  // 同名命令按 ref `runner.ts:741-772` 的规则加 `:N` 后缀生成 invocationName；
+  // 菜单显示与 `/cmd` 分发都用它（重名的两个扩展各自可用）。
+  const resolvedCommands = (() => {
+    const total = new Map();
+    for (const command of commands) total.set(command.name, (total.get(command.name) ?? 0) + 1);
+    const seen = new Map();
+    const taken = new Set();
+    return commands.map((command) => {
+      const occurrence = (seen.get(command.name) ?? 0) + 1;
+      seen.set(command.name, occurrence);
+      let invocationName = (total.get(command.name) ?? 0) > 1 ? `${command.name}:${occurrence}` : command.name;
+      let suffix = occurrence;
+      while (taken.has(invocationName)) {
+        suffix += 1;
+        invocationName = `${command.name}:${suffix}`;
+      }
+      taken.add(invocationName);
+      return { ...command, invocationName };
+    });
+  })();
   await send("ext.ready", {
     tools: [...tools.values()].map((tool) => ({
       name: tool.name,
@@ -952,7 +1001,7 @@ async function main() {
       promptSnippet: tool.promptSnippet,
       promptGuidelines: tool.promptGuidelines ?? [],
     })),
-    commands,
+    commands: resolvedCommands,
     events,
     // 新增可选字段（F19）：旧宿主不认识就忽略，新宿主据此渲染 `[Extension issues]`。
     loadErrors,

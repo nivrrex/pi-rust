@@ -929,6 +929,12 @@ fn start_host(agent_dir: &Path, cwd: &Path) -> Option<pi_ext_host::HostHandle> {
     // 两阶段解析的第二步：扩展已 registerFlag，现在才能校验命令行里的未知 flag。
     resolve_flags(&host);
     let _ = SPECS.set(host.tools().to_vec());
+    // 扩展开命令进斜杠菜单（ref `interactive-mode.ts:745-756`）。**在这里发**而不是在
+    // `session_start` 线程里：TS 的扩展在 TUI 起来之前就注册完命令，晚发会让首帧的
+    // `/` 计数少一条（实测 `(1/26)` vs TS `(1/27)`）。
+    if let Some(tx) = UI_TX.get() {
+        let _ = tx.send(pi_tui::TuiEvent::ExtensionCommands(menu_commands_of(&host)));
+    }
     let _ = EXT_ENTRIES.set(extensions.clone());
     host.set_ctx(ctx_snapshot());
     // UI 上行：宿主 actor 把 `host.ui.*` 帧送进这个 channel，再转成 TuiEvent
@@ -1149,8 +1155,47 @@ pub enum InputOutcome {
 pub fn command_names() -> Vec<String> {
     HOST.get()
         .and_then(|slot| slot.as_ref())
-        .map(|host| host.commands().to_vec())
+        .map(|host| {
+            host.commands()
+                .iter()
+                .map(|command| command.name.clone())
+                .collect()
+        })
         .unwrap_or_default()
+}
+
+/// 斜杠补全菜单用的扩展命令：`(name, "[tag] description")`。
+///
+/// 拼装规则照 ref `interactive-mode.ts:645-661` 的 `prefixAutocompleteDescription`：
+/// 有描述 ⇒ `[<tag>] <desc>`，无描述 ⇒ `[<tag>]`。
+#[must_use]
+pub fn menu_commands() -> Vec<(String, String)> {
+    HOST.get()
+        .and_then(|slot| slot.as_ref())
+        .map(menu_commands_of)
+        .unwrap_or_default()
+}
+
+/// 从**指定**宿主取菜单条目（`start_host` 里 `HOST` 尚未写入时用，避免拿到空表）。
+#[must_use]
+pub fn menu_commands_of(host: &pi_ext_host::HostHandle) -> Vec<(String, String)> {
+    {
+        host.commands()
+            .iter()
+            .map(|command| {
+                let tag = match command.scope.as_str() {
+                    "u" | "user" => "u",
+                    "p" | "project" => "p",
+                    _ => "t",
+                };
+                let label = match command.description.as_deref() {
+                    Some(text) if !text.is_empty() => format!("[{tag}] {text}"),
+                    _ => format!("[{tag}]"),
+                };
+                (command.name.clone(), label)
+            })
+            .collect()
+    }
 }
 
 /// 尝试把 `/name args` 交给扩展命令（ref `agent-session.ts:1766-1789`）。

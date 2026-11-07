@@ -48,6 +48,9 @@ pub const SPINNER_INTERVAL: std::time::Duration = std::time::Duration::from_mill
 /// TUI 的可变状态（纯数据）。
 #[derive(Debug, Clone, PartialEq)]
 pub struct TuiState {
+    /// 扩展注册的斜杠命令：`(name, "[tag] description")`（ref `interactive-mode.ts:745-756`）。
+    /// 由 pi-cli 在握手后注入；菜单与计数都把它算进去。
+    pub extension_commands: Vec<(String, String)>,
     /// 扩展通过 `ctx.ui.setStatus` 设置的状态段（key → 文本；ref `interactive-mode.ts:2203`）。
     pub extension_status: std::collections::BTreeMap<String, String>,
     /// 扩展自定义面板的行（`None` = 无面板）；键盘由 pi-cli 转发给扩展。
@@ -247,6 +250,7 @@ impl TuiState {
         status: impl Into<String>,
     ) -> Self {
         Self {
+            extension_commands: Vec::new(),
             extension_status: std::collections::BTreeMap::new(),
             extension_widgets: std::collections::BTreeMap::new(),
             footer_override: None,
@@ -393,6 +397,8 @@ pub enum TuiEvent {
     ExtensionPaths(Vec<String>),
     /// 扩展加载问题（启动屏 `[Extension issues]` 段）。
     ExtensionIssues(Vec<String>),
+    /// 扩展注册的斜杠命令（`(name, "[tag] description")`；握手后注入一次）。
+    ExtensionCommands(Vec<(String, String)>),
     /// 扩展 `ctx.ui.setWidget`（ref `types.ts:176`）：`lines=None` 表示清除该键。
     ExtensionWidget {
         /// 组件键。
@@ -688,6 +694,12 @@ pub fn apply(state: &mut TuiState, event: TuiEvent) -> TuiAction {
         }
         TuiEvent::ExtensionIssues(issues) => {
             state.extension_issues = issues;
+            TuiAction::Redraw
+        }
+        TuiEvent::ExtensionCommands(commands) => {
+            state.extension_commands = commands;
+            // 命令表变了 ⇒ 已打开的菜单要按新表重算（否则 `/` 计数还是旧的）。
+            refresh_completion(state);
             TuiAction::Redraw
         }
         TuiEvent::ExtensionWidget {
@@ -1037,8 +1049,7 @@ pub fn apply(state: &mut TuiState, event: TuiEvent) -> TuiAction {
             // `/` 触发补全弹层（T14 实测；输入任何其它内容后自动关闭）。
             // P7-6am：补全在**输入以 `/` 开头且未出现空格**时保持打开（原来只在恰好等于 "/" 时打开，
             // 所以输入 `/s` 后菜单立刻消失 —— 用户真机反馈的"没有自动补全"）。
-            state.completion_open = should_open_completion(&state.input);
-            state.completion_selected = 0;
+            refresh_completion(state);
             TuiAction::Redraw
         }
         TuiEvent::CursorLeft => {
@@ -1135,22 +1146,22 @@ pub fn apply(state: &mut TuiState, event: TuiEvent) -> TuiAction {
             if state.completion_open && state.input.starts_with('/') && !state.input.contains(' ') {
                 let typed = state.input.trim_start_matches('/');
                 // 选中的是菜单里高亮那一项（↑/↓ 可移动）；菜单里没有对应项时退回"前缀匹配/首项"。
-                let matches = completion_matches(&state.input);
+                let matches = completion_matches_with(&state.input, &state.extension_commands);
                 let selected = matches
                     .get(
                         state
                             .completion_selected
                             .min(matches.len().saturating_sub(1)),
                     )
-                    .map(|(name, _)| (*name, ()))
+                    .map(|(name, _)| name.clone())
                     .or_else(|| {
                         matches
                             .iter()
                             .find(|(name, _)| name.starts_with(typed))
-                            .map(|(name, _)| (*name, ()))
+                            .map(|(name, _)| name.clone())
                     })
-                    .or_else(|| matches.first().map(|(name, _)| (*name, ())));
-                if let Some((name, ())) = selected {
+                    .or_else(|| matches.first().map(|(name, _)| name.clone()));
+                if let Some(name) = selected {
                     state.input = format!("/{name} ");
                     state.cursor = state.input.chars().count();
                     state.completion_open = false;
@@ -1165,7 +1176,7 @@ pub fn apply(state: &mut TuiState, event: TuiEvent) -> TuiAction {
         TuiEvent::HistoryPrev => {
             // 补全菜单打开时，↑/↓ 移动**菜单选中项**（不翻历史）——ref `editor.ts:763-766`。
             if state.completion_open {
-                let total = completion_matches(&state.input).len();
+                let total = completion_matches_with(&state.input, &state.extension_commands).len();
                 if total > 0 {
                     state.completion_selected = if state.completion_selected == 0 {
                         total - 1
@@ -1208,7 +1219,7 @@ pub fn apply(state: &mut TuiState, event: TuiEvent) -> TuiAction {
         TuiEvent::HistoryNext => {
             // 同 ↑：菜单打开时移动菜单选中项（ref `editor.ts:763-766`）。
             if state.completion_open {
-                let total = completion_matches(&state.input).len();
+                let total = completion_matches_with(&state.input, &state.extension_commands).len();
                 if total > 0 {
                     state.completion_selected = (state.completion_selected + 1) % total;
                 }
@@ -1345,10 +1356,10 @@ pub fn apply(state: &mut TuiState, event: TuiEvent) -> TuiAction {
             // ref `editor.ts:788-800`：补全菜单打开时，Enter 与 Tab 一样是"接受选中项"，
             // **不提交**（提交要等菜单关闭后再按一次）。
             if state.completion_open && state.input.starts_with('/') && !state.input.contains(' ') {
-                let matches = completion_matches(&state.input);
+                let matches = completion_matches_with(&state.input, &state.extension_commands);
                 if !matches.is_empty() {
                     let index = state.completion_selected.min(matches.len() - 1);
-                    let (name, _) = matches[index];
+                    let name = matches[index].0.clone();
                     // 接受补全**等于当前输入**（`/tree` → `/tree `）时没有可"接受"的内容，
                     // 这时 Enter 走提交（`T04`/`T18` 的 golden 就是这一步打开面板）。
                     if format!("/{name}") != state.input.trim_end() {
@@ -2795,7 +2806,7 @@ fn render_all_cached_styled_inner(
     // 首项带 `→ ` 标记，名称列宽 15，末行为 `(1/N)` 计数。条目取自 TS 的 built-in 命令表
     // （该表在 pi-tui 内联 bundle 里，非 ref 源码）⇒ 这里按 golden 逐字对齐前 5 项与计数。
     if state.completion_open {
-        let matches = crate::completion_matches(&state.input);
+        let matches = crate::completion_matches_with(&state.input, &state.extension_commands);
         let selected = state
             .completion_selected
             .min(matches.len().saturating_sub(1));
@@ -5101,43 +5112,73 @@ fn remove_range(state: &mut TuiState, start: usize, end: usize) {
     }
 }
 
-/// 按当前输入重算补全菜单开关（`should_open_completion` 是纯函数，这里只写入状态）。
+/// 按当前输入重算补全菜单开关（`should_open_completion_with` 是纯函数，这里只写入状态）。
 fn refresh_completion(state: &mut TuiState) {
-    state.completion_open = should_open_completion(&state.input);
+    let open = should_open_completion_with(&state.input, &state.extension_commands);
+    state.completion_open = open;
     state.completion_selected = 0;
 }
 
-/// 是否显示斜杠命令补全菜单。
+/// 是否显示斜杠命令补全菜单（把扩展命令计入匹配）。
 ///
 /// 规则（由 golden 反推）：输入以 `/` 开头、不含空格、**有匹配项**，且
 /// 输入**尚未精确等于**某个命令名——否则像 `/session` 这样已经打全的命令，
 /// Enter 应该是"提交命令"而不是"接受补全"（T04/T18 的 golden 依赖这一点）。
 #[must_use]
-fn should_open_completion(input: &str) -> bool {
+fn should_open_completion_with(input: &str, extension_commands: &[(String, String)]) -> bool {
     if !input.starts_with('/') || input.contains(' ') {
         return false;
     }
     // TS 在 `/tree`（**恰好等于命令名**）时菜单仍然可见（`golden-tui/T68-completion-backspace`
     // 帧 `after-tree` 里 `→ tree …` 那行在），所以这里不再按"精确匹配"关闭；
     // "Enter 该提交还是该接受补全"由 Enter 分支自己判断（见 `accepts_nothing`）。
-    !completion_matches(input).is_empty()
+    !completion_matches_with(input, extension_commands).is_empty()
 }
 
 /// 按输入过滤斜杠命令：前缀匹配优先，其次包含匹配（ref 的 fuzzy 过滤的保守子集）。
+///
+/// 只含内置命令（测试与无扩展场景用）；带扩展命令的路径见 [`completion_matches_with`]。
 #[must_use]
-pub fn completion_matches(input: &str) -> Vec<(&'static str, &'static str)> {
+pub fn completion_matches(input: &str) -> Vec<(String, String)> {
+    completion_matches_with(input, &[])
+}
+
+/// 同 [`completion_matches`]，但把扩展注册的命令一并纳入。
+///
+/// ref `interactive-mode.ts:683-790` 的菜单是 `[内置, prompt 模板, 扩展命令, 技能]` 四段拼接，
+/// 扩展项**按内建名过滤**（同名不重复出现在菜单里，`:750-756`）。
+/// 顺序照 ref：内置在前，扩展在后（同类内部保持注册顺序）。
+#[must_use]
+pub fn completion_matches_with(
+    input: &str,
+    extension_commands: &[(String, String)],
+) -> Vec<(String, String)> {
     let query = input.trim_start_matches('/').to_ascii_lowercase();
-    if query.is_empty() {
-        return SLASH_COMMANDS.to_vec();
-    }
-    let mut prefix: Vec<(&'static str, &'static str)> = SLASH_COMMANDS
+    let builtin_names: Vec<String> = SLASH_COMMANDS
         .iter()
-        .copied()
-        .filter(|(name, _)| name.to_ascii_lowercase().starts_with(&query))
+        .map(|(name, _)| (*name).to_string())
         .collect();
-    let mut contains: Vec<(&'static str, &'static str)> = SLASH_COMMANDS
+    let mut all: Vec<(String, String)> = SLASH_COMMANDS
         .iter()
-        .copied()
+        .map(|(name, description)| ((*name).to_string(), (*description).to_string()))
+        .collect();
+    for (name, description) in extension_commands {
+        // 与内建命令同名 ⇒ 不进菜单（ref `:665-679` 还会报一条冲突诊断，本实现只跳过）。
+        if builtin_names.iter().any(|builtin| builtin == name) {
+            continue;
+        }
+        all.push((name.clone(), description.clone()));
+    }
+    if query.is_empty() {
+        return all;
+    }
+    let mut prefix: Vec<(String, String)> = all
+        .iter()
+        .filter(|(name, _)| name.to_ascii_lowercase().starts_with(&query))
+        .cloned()
+        .collect();
+    let mut contains: Vec<(String, String)> = all
+        .into_iter()
         .filter(|(name, _)| {
             let lower = name.to_ascii_lowercase();
             !lower.starts_with(&query) && lower.contains(&query)
@@ -6944,6 +6985,24 @@ mod footer_units_tests {
     }
 
     /// footer 里的 ↑/↓ 必须用同一套单位（不是原始数字）。
+    #[test]
+    fn completion_with_extension_commands_prefix_matches() {
+        let ext = vec![
+            (
+                "zz-echo".to_string(),
+                "[u] Echo back the given args".to_string(),
+            ),
+            ("zz-todo".to_string(), "[u] Show the todo panel".to_string()),
+        ];
+        use crate::completion_matches_with;
+        let matches = completion_matches_with("/zz", &ext);
+        assert_eq!(matches.len(), 2, "got {matches:?}");
+        assert_eq!(matches[0].0, "zz-echo");
+        assert!(crate::should_open_completion_with("/zz", &ext));
+        // 空查询：全部内置 + 两个扩展
+        assert_eq!(completion_matches_with("/", &ext).len(), 26);
+    }
+
     #[test]
     fn footer_status_uses_compact_units() {
         let mut state = TuiState::new("0.87.1", "/tmp/work", "0.0%/200k (auto)");

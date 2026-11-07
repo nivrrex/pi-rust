@@ -151,7 +151,11 @@ fn matrix_over_real_extensions() {
         "extensions_loaded": loaded,
         "tools": records,
         "renders": renders,
-        "commands": host.commands(),
+        "commands": host
+            .commands()
+            .iter()
+            .map(|command| command.name.clone())
+            .collect::<Vec<_>>(),
         "events": host.events(),
     });
     let text = serde_json::to_string_pretty(&report).expect("序列化");

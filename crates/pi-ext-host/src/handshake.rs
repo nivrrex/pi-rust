@@ -43,6 +43,18 @@ pub struct ToolSpec {
     pub prompt_guidelines: Vec<String>,
 }
 
+/// 一个注册好的扩展命令（ref `types.ts:1326-1332` 的 `RegisteredCommand` 子集）。
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CommandSpec {
+    /// 触发的名字（重名时带 `:N` 后缀，ref `runner.ts:757-767`）。
+    pub name: String,
+    /// 菜单里显示的描述（**不含**来源标签，标签由宿主按 scope 拼）。
+    pub description: Option<String>,
+    /// 来源 scope 标签（`u` = user、`p` = project、`t` = temporary；
+    /// ref `interactive-mode.ts:631-654` 的 `getAutocompleteSourceTag`）。
+    pub scope: String,
+}
+
 /// 一个注册好的 flag（`registerFlag(name, {type, default})`，ref `agent-session-services.ts:92-96`）。
 #[derive(Debug, Clone, PartialEq)]
 pub struct FlagSpec {
@@ -110,8 +122,8 @@ pub enum Step {
     Ready {
         /// 工具列表。
         tools: Vec<ToolSpec>,
-        /// 扩展声明的其它注册（命令/flag/事件名），本批只记录不实现。
-        commands: Vec<String>,
+        /// 扩展注册的命令（含描述与来源 scope）。
+        commands: Vec<CommandSpec>,
         /// 订阅的事件名。
         events: Vec<String>,
         /// 扩展注册的 flag。
@@ -191,7 +203,7 @@ impl Handshake {
                     ));
                 }
                 let tools = parse_tools(params.get("tools"))?;
-                let commands = parse_string_list(params.get("commands"), "commands")?;
+                let commands = parse_commands(params.get("commands"))?;
                 let events = parse_string_list(params.get("events"), "events")?;
                 let flags = parse_flags(params.get("flags"))?;
                 // F19：单个扩展的加载失败（可选字段；旧 runner 不报 ⇒ 空）。
@@ -294,6 +306,55 @@ fn parse_string_list(value: Option<&Value>, field: &str) -> Result<Vec<String>, 
     }
 }
 
+/// 解析 `ext.ready.commands`。
+///
+/// 两种形态都接受：纯字符串数组（旧 runner）与 `{name, description?, scope?}` 对象数组。
+/// 旧形态没有描述/scope ⇒ description 为 `None`、scope 回落 `t`（ref 的 temporary）。
+fn parse_commands(value: Option<&Value>) -> Result<Vec<CommandSpec>, HandshakeError> {
+    let items = match value {
+        None | Some(Value::Null) => return Ok(Vec::new()),
+        Some(Value::Array(items)) => items,
+        Some(_) => {
+            return Err(HandshakeError::InvalidPayload(
+                "commands must be an array".to_string(),
+            ))
+        }
+    };
+    items
+        .iter()
+        .map(|item| {
+            if let Some(name) = item.as_str() {
+                return Ok(CommandSpec {
+                    name: name.to_string(),
+                    description: None,
+                    scope: "t".to_string(),
+                });
+            }
+            let name = item
+                .get("name")
+                .and_then(Value::as_str)
+                .ok_or_else(|| {
+                    HandshakeError::InvalidPayload("commands items need a string name".to_string())
+                })?
+                .to_string();
+            let description = item
+                .get("description")
+                .and_then(Value::as_str)
+                .map(str::to_string);
+            let scope = item
+                .get("scope")
+                .and_then(Value::as_str)
+                .unwrap_or("t")
+                .to_string();
+            Ok(CommandSpec {
+                name,
+                description,
+                scope,
+            })
+        })
+        .collect()
+}
+
 fn parse_tools(value: Option<&Value>) -> Result<Vec<ToolSpec>, HandshakeError> {
     let items = match value {
         None | Some(Value::Null) => return Ok(Vec::new()),
@@ -389,7 +450,10 @@ mod tests {
             } => {
                 assert_eq!(tools.len(), 1);
                 assert_eq!(tools[0].name, "echo");
-                assert_eq!(commands, vec!["greet".to_string()]);
+                assert_eq!(commands.len(), 1);
+                assert_eq!(commands[0].name, "greet");
+                assert_eq!(commands[0].description, None);
+                assert_eq!(commands[0].scope, "t");
                 assert_eq!(events, vec!["session_start".to_string()]);
             }
             other => panic!("期望 Ready，实际 {other:?}"),

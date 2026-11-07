@@ -62,7 +62,11 @@ async fn main() {
         // 计数口径与 notes/p9-0/usage-matrix.md 对齐：工具数 / 命令名 / 事件名。
         let report = serde_json::json!({
             "tools": host.tools().iter().map(|tool| tool.name.clone()).collect::<Vec<_>>(),
-            "commands": host.commands(),
+            "commands": host
+                .commands()
+                .iter()
+                .map(|command| command.name.clone())
+                .collect::<Vec<_>>(),
             "events": host.events(),
             "pid": host.pid(),
         });

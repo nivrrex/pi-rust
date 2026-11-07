@@ -88,7 +88,7 @@ fn tab_completion_matches_ref_oracle() {
         // Rust 的选中项固定取「第一个匹配」；因此只用**首个匹配等于夹具 value** 的用例与 ref 比对，
         // 其余用例用来验证"菜单未打开 / 不在匹配集时保持原样"。
         let matches = completion_matches(&case.input);
-        let first = matches.first().map(|(name, _)| *name);
+        let first = matches.first().map(|(name, _)| name.as_str());
         let menu_open = case.input.starts_with('/') && !case.input.contains(' ');
         let (expected_text, expected_cursor) = match first {
             Some(name) if menu_open => (format!("/{name} "), name.chars().count() + 2),

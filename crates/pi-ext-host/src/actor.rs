@@ -120,7 +120,7 @@ pub struct HostHandle {
     pid: Option<u32>,
     /// 已注册工具（不可变快照，避免"调用中锁住 ⇒ 列不出工具"）。
     tools: Vec<crate::handshake::ToolSpec>,
-    commands: Vec<String>,
+    commands: Vec<crate::handshake::CommandSpec>,
     events: Vec<String>,
     /// 扩展注册的 flag（`registerFlag`）。
     flags: Vec<crate::handshake::FlagSpec>,
@@ -163,7 +163,7 @@ struct HostMeta {
     port: u16,
     pid: Option<u32>,
     tools: Vec<crate::handshake::ToolSpec>,
-    commands: Vec<String>,
+    commands: Vec<crate::handshake::CommandSpec>,
     events: Vec<String>,
     flags: Vec<crate::handshake::FlagSpec>,
     load_errors: Vec<(String, String)>,
@@ -205,7 +205,7 @@ impl HostHandle {
 
     /// 已注册命令名（仅观测）。
     #[must_use]
-    pub fn commands(&self) -> &[String] {
+    pub fn commands(&self) -> &[crate::handshake::CommandSpec] {
         &self.commands
     }
 
