@@ -578,3 +578,8 @@ ref 的对应实现见 `interactive-mode.ts:2541`/`:2543`（`showExtensionNotify
 12. **F36 未完成项**：H4（渲染钩子按需取行 + 缓存，取代"注册时渲染一次"）只写了设计未实现；
     H6b（退出尾帧是否重复渲染页脚）未在真机确认。H3/H5 已完成（widget 内边距、`R/W/CH` 段）。
     推翻条件：按 PLAN 逐项完成后移除本条。
+
+13. **F37 未完成**：J2（退出尾帧页脚重复，Windows 现象）、J3（`/todo` 菜单与启动屏 `Model scope` 行）、
+    J4（渲染钩子按需渲染，F36 plan 方案 A）、J5（T89h 引用块块树重写）均未做。
+    J1 的"`^[[A`"结论：pi-rs 退出序列在三种终端应答配置下与 TS 完全一致、无遗留模式 ⇒ 需从 shell 侧取证
+    （`printf '\e[?u' | cat -v`、`stty -a`、Alacritty 里 `cat -v` 后按 ↑ 的原始字节）。

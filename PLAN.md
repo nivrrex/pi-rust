@@ -103,3 +103,10 @@
   新增 `T89i-usage-cache` golden（与 TS 逐字符一致）。
 - H4（渲染钩子按需取行）：**只有设计**（见 `notes/p9-f36/plan.md`），未实现；H6b/H6c 未单独验证。
 - 发布包 `~/archives/publish-20261107g`（buildHead/publishCommit `7db9c3b1`、publishTree `d03ba767`，未发布）。
+
+## F37 收口（部分）
+- J1：移除 ref 没有的 `?2031h`/`?996n`/`?2031l`；新增 `tools/difftest/term-sim.py` 终端应答模拟台，
+  三种配置（none / alacritty / xterm）× 两实现的退出模式配对**完全一致**，无遗留模式；
+  四条退出路径实测：Ctrl+D、`/quit`、SIGTERM 复位齐全，Ctrl+C×2 不退出（与 ref 一致）。
+- J2–J5 未做。发布包 `~/archives/publish-20261107h`（buildHead/publishCommit `ac4cd21c`、
+  publishTree `f4f1d761`，未发布）。
