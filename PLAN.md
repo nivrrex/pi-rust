@@ -86,6 +86,8 @@
   真实语料（30 会话 → 15181 块，抽 206 块 × dark/light × 80/120）逐格差异 **2,408,440 → 1,226,764**。
 - G1：引用空行改用**分隔线块**（pulldown 才会切断段落/列表）、引用内列表前缀、列表内代码块缩进；
   `nested.md` 与 TS 文本层一致，既有 dark 91 / light 23 golden 全 same。
-- G2：代码块语法高亮**未实现**（ref 用 cli-highlight，需自写分词器）。
+- G2：新增 `crates/pi-tui/src/syntax.rs`（sh/rust/python/js/ts/go 轻量分词，覆盖 ref eager 语言集中
+  实现得到的 6 种；其余整行 `mdCodeBlock`），按 `theme.ts:1036-1064` 的 `buildCliHighlightTheme`
+  映射到 `syntaxKeyword/syntaxType/syntaxString/...`；标点/运算符不产生 token（ref 映射到默认色）。
 - G4：`extensionImportUrl`（Windows `file://`）+ 符号链接/junction 单测。
-- 发布包 `~/archives/publish-20261107f`（buildHead/publishCommit `0e09987f`、publishTree `63926708`，未发布）。
+- 发布包 `~/archives/publish-20261107f`（buildHead/publishCommit `e0970427`、publishTree `f6f42383`，未发布）。

@@ -567,3 +567,10 @@ ref 的对应实现见 `interactive-mode.ts:2541`/`:2543`（`showExtensionNotify
     ④**代码块高亮**：TS 走 `theme.highlightCode`（`markdown.ts:523`）带语法高亮，我们是单色；
     ⑤**段落与列表的空行**：TS 在段落/列表前后补空行（`markdown.ts:487-497`），我们少/多一处。
     推翻条件：上述五类逐类修完后 `md-diff` 报 0 差异。
+
+11. **代码块语法高亮只覆盖 6 种语言**（F35/G2）：ref 用 `highlight.js`（`utils/syntax-highlight.ts:1-45`
+    eager 注册 bash/c/cpp/csharp/dart/go/groovy/java/javascript/kotlin/lua/nix/perl/php/python/ruby/
+    rust/scala/swift/typescript）；我们自写分词器只覆盖 **sh/bash、rust、python、js/ts、go**，
+    其余语言整行 `mdCodeBlock`（与 ref 的"未注册语言"表现一致，但与"已注册但未实现"不一致）。
+    已对拍的语言（`md-corpus` 合成样例）：rust/sh 逐格 0 差异，python/js 各剩 1~2 处（函数参数
+    `params` 类与 `literal` 类的映射差异）。推翻条件：为剩余语言补分词器并逐格对拍为 0。
