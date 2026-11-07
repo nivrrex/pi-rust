@@ -3104,9 +3104,14 @@ fn replace_quote_blank_lines(input: &str) -> String {
             out.push('\n');
         }
         let trimmed = line.trim();
-        let is_blank_quote =
-            trimmed.starts_with('>') && trimmed.trim_start_matches('>').trim().is_empty();
-        if is_blank_quote {
+        // `>` 单独成行（含嵌套 `> >`）：整行只有 `>` 与空格。
+        let only_quotes = !trimmed.is_empty() && trimmed.chars().all(|ch| ch == '>' || ch == ' ');
+        if only_quotes {
+            // 深度 d 的空引用行 ⇒ 保留 d-1 层 `> `，最后一层放哨兵段落。
+            let depth = trimmed.chars().filter(|ch| *ch == '>').count();
+            for _ in 1..depth {
+                out.push_str("> ");
+            }
             out.push_str("> \u{1}");
         } else {
             out.push_str(line);
@@ -3382,7 +3387,8 @@ pub fn render_markdown_styled_with_width(
         // 引用块的空行：只输出前缀（哨兵 `\u{1}`，见预处理）。
         if text == "\u{1}" && quote_depth > 0 {
             inline.clear();
-            out.push(" │ ".repeat(quote_depth).trim_end().to_string());
+            // 每层 ` │`（竖线前一个空格，竖线后**不带**尾随空格；TS 逐行实测 ` │ │`）。
+            out.push(" │".repeat(quote_depth));
             styles.push(Some(style::LineStyle::default().italic()));
             *pending_blank = false;
             quote_blank_emitted.set(true);
