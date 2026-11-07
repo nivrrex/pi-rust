@@ -3135,8 +3135,8 @@ fn text_width(text: &str) -> usize {
 fn render_table(
     state: &TableBuild,
     width: Option<usize>,
-    palette: &theme::Palette,
-) -> Vec<(String, Option<style::LineStyle>)> {
+    _palette: &theme::Palette,
+) -> Vec<(String, Option<style::LineStyle>, Vec<style::Span>)> {
     let columns = state
         .header
         .len()
@@ -3175,7 +3175,7 @@ fn render_table(
                     .collect::<Vec<_>>()
                     .join(" | ");
                 for line in wrap_to_width(&joined, total.max(1)) {
-                    out.push((format!(" {line}"), None));
+                    out.push((format!(" {line}"), None, Vec::new()));
                 }
             }
             return out;
@@ -3271,10 +3271,12 @@ fn render_table(
         let cells: Vec<String> = widths.iter().map(|w| "─".repeat(*w)).collect();
         format!("{left}─{}─{right}", cells.join(&format!("─{mid}─")))
     };
-    let mut out: Vec<(String, Option<style::LineStyle>)> = Vec::new();
-    out.push((format!(" {}", rule('┌', '┬', '┐')), None));
+    let mut out: Vec<(String, Option<style::LineStyle>, Vec<style::Span>)> = Vec::new();
+    out.push((format!(" {}", rule('┌', '┬', '┐')), None, Vec::new()));
     let push_row =
-        |cells: &Vec<String>, bold: bool, out: &mut Vec<(String, Option<style::LineStyle>)>| {
+        |cells: &Vec<String>,
+         bold: bool,
+         out: &mut Vec<(String, Option<style::LineStyle>, Vec<style::Span>)>| {
             let wrapped: Vec<Vec<String>> = (0..columns)
                 .map(|index| wrap_to_width(&get(cells, index), widths[index].max(1)))
                 .collect();
@@ -3288,24 +3290,37 @@ fn render_table(
                     })
                     .collect();
                 let line = format!(" │ {} │", parts.join(" │ "));
-                let style = if bold {
-                    Some(style::LineStyle::fg(palette.text).bold())
-                } else {
-                    None
-                };
-                out.push((line, style));
+                // ref `markdown.ts:958-966`：表头**只对单元格内容加粗**（不含 `│` 分隔符）。
+                let mut spans = Vec::new();
+                if bold {
+                    // `line = " │ " + parts.join(" │ ") + " │"`：`│` 是 3 字节 ⇒ 前缀 5 字节、
+                    // 段间隔也是 5 字节。用**字节偏移逐段累加**（不能用显示宽度）。
+                    let mut offset = 5usize;
+                    for (index, part) in parts.iter().enumerate() {
+                        if index > 0 {
+                            offset += 5;
+                        }
+                        spans.push(style::Span::new(
+                            offset,
+                            offset + part.len(),
+                            style::LineStyle::default().bold(),
+                        ));
+                        offset += part.len();
+                    }
+                }
+                out.push((line, None, spans));
             }
         };
     push_row(&state.header, true, &mut out);
     let separator = format!(" {}", rule('├', '┼', '┤'));
-    out.push((separator.clone(), None));
+    out.push((separator.clone(), None, Vec::new()));
     for (index, row) in state.rows.iter().enumerate() {
         push_row(row, false, &mut out);
         if index + 1 < state.rows.len() {
-            out.push((separator.clone(), None));
+            out.push((separator.clone(), None, Vec::new()));
         }
     }
-    out.push((format!(" {}", rule('└', '┴', '┘')), None));
+    out.push((format!(" {}", rule('└', '┴', '┘')), None, Vec::new()));
     out
 }
 
@@ -3441,9 +3456,27 @@ pub fn render_markdown_styled_with_width(
             format!(" {text}")
         });
         if quote_depth > 0 {
-            let line_style = current.unwrap_or_default().italic();
+            // ref `markdown.ts:557-565`：`│ ` 前缀是 `quoteBorder`（gray，**不斜体**），
+            // 正文是 `quote(italic(text))`（gray + 斜体）。此前整行都用 italic 且无前景色。
             styles.pop();
-            styles.push(Some(line_style));
+            styles.push(None);
+            // **字节**偏移：`│` 是 3 字节、其后空格 1 字节 ⇒ 每层 `1 + 4*depth`。
+            // 用 2*depth 会把 `│` 切成两半，导致内层 span 覆盖到前缀上（整行被染成斜体）。
+            let prefix_end = 1 + 4 * quote_depth;
+            let line_index = out.len() - 1;
+            let line_len = out[line_index].len();
+            line_spans.push(style::Span::new(
+                1,
+                prefix_end,
+                style::LineStyle::fg((0x80, 0x80, 0x80)),
+            ));
+            if prefix_end < line_len {
+                line_spans.push(style::Span::new(
+                    prefix_end,
+                    line_len,
+                    style::LineStyle::fg((0x80, 0x80, 0x80)).italic(),
+                ));
+            }
         }
         if !line_spans.is_empty() {
             spans.push((out.len() - 1, line_spans));
@@ -3519,9 +3552,13 @@ pub fn render_markdown_styled_with_width(
                 }
                 Event::End(TagEnd::Table) => {
                     if let Some(state) = table.take() {
-                        for (line, style) in render_table(&state, width, palette) {
+                        for (line, style, line_spans) in render_table(&state, width, palette) {
+                            let line_index = out.len();
                             out.push(line);
                             styles.push(style);
+                            if !line_spans.is_empty() {
+                                spans.push((line_index, line_spans));
+                            }
                         }
                         pending_blank = true;
                     }
@@ -3596,7 +3633,8 @@ pub fn render_markdown_styled_with_width(
                     &mut out,
                     &mut styles,
                     format!(" {}", "─".repeat(rule_width)),
-                    Some(style::LineStyle::fg(palette.dim)),
+                    // ref `dark.json` 的 `mdHr = gray (#808080)`（不是 `dim`）。
+                    Some(style::LineStyle::fg((0x80, 0x80, 0x80))),
                 );
                 pending_blank = true;
             }
@@ -4103,7 +4141,7 @@ mod markdown_tests {
     fn markdown_renders_gfm_table_with_borders() {
         let palette = crate::theme::Palette::of(&crate::theme::Theme::builtin("light"));
         let md = "| 位置 | 原状 |\n| --- | --- |\n| 二章 | 长句叙述 |\n\n### 未改动\n";
-        let (lines, styles, _spans) =
+        let (lines, styles, spans) =
             super::render_markdown_styled_with_width(md, &palette, Some(40));
         // 助手消息 `outputPad = 1`：表格每行带 1 列左内边距（与 TS 逐行对拍）。
         assert!(lines[0].starts_with(" ┌"), "首行是上边框：{:?}", lines[0]);
@@ -4118,14 +4156,20 @@ mod markdown_tests {
                 .any(|line| line.contains("二章") && line.contains("长句叙述")),
             "数据行应在一行内：{lines:?}"
         );
-        // 表头加粗：找含"位置"的那一行，样式必须是 bold。
+        // 表头加粗：ref `markdown.ts:958-966` 只对**单元格内容**加粗（不含 `│` 分隔符），
+        // 因此样式走 span 而不是整行 `styles`。
         let header_index = lines
             .iter()
             .position(|line| line.contains("位置"))
             .expect("表头行");
+        let header_spans = spans
+            .iter()
+            .find(|(index, _)| *index == header_index)
+            .map(|(_, list)| list.clone())
+            .unwrap_or_default();
         assert!(
-            styles[header_index].is_some_and(|style| style.bold),
-            "表头必须加粗"
+            header_spans.iter().any(|span| span.style.bold),
+            "表头单元格必须加粗（span）"
         );
         // `### 未改动` 不能被并进表格段落，必须渲染成标题（带 md_heading 色 + 粗体）。
         let heading_index = lines
