@@ -15,6 +15,9 @@ const entry = get("--entry", null);
 const theme = get("--theme", "dark");
 const width = get("--width", "80");
 const input = get("--in", null);
+// TS 的 `Markdown.render(width)` 与 TUI 内实际渲染在**空行**上不同（paddingY/裁切层面），
+// 而空行语义已由 TUI golden（`T05` 等）锁定、不能改。分类时用 `--ignore-blank` 只比内容行。
+const ignoreBlank = argv.includes("--ignore-blank");
 const repo = path.resolve(path.dirname(new URL(import.meta.url).pathname), "../..");
 
 if (!entry || !input) {
@@ -73,10 +76,12 @@ function cells(text) {
 }
 const sgrOnly = (text) => JSON.stringify(cells(text));
 
+const ts = ignoreBlank ? tsRaw.filter((line) => strip(line) !== "") : tsRaw;
+const rs = ignoreBlank ? rsRaw.filter((line) => strip(line) !== "") : rsRaw;
 let differences = 0;
-for (let index = 0; index < Math.max(tsRaw.length, rsRaw.length); index += 1) {
-  const a = tsRaw[index] ?? "";
-  const b = rsRaw[index] ?? "";
+for (let index = 0; index < Math.max(ts.length, rs.length); index += 1) {
+  const a = ts[index] ?? "";
+  const b = rs[index] ?? "";
   if (a === b) continue;
   const textSame = strip(a) === strip(b);
   if (textSame && sgrOnly(a) === sgrOnly(b)) continue;
@@ -87,5 +92,7 @@ for (let index = 0; index < Math.max(tsRaw.length, rsRaw.length); index += 1) {
     console.log(`RS ${JSON.stringify(b)}`);
   }
 }
-console.log(`[md-diff] lines ts=${tsRaw.length} rs=${rsRaw.length} different=${differences}`);
+console.log(
+  `[md-diff] lines ts=${ts.length} rs=${rs.length} different=${differences}${ignoreBlank ? " (ignore-blank)" : ""}`,
+);
 process.exit(differences === 0 ? 0 : 1);

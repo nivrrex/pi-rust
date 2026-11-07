@@ -3240,8 +3240,6 @@ pub fn render_markdown_styled_with_width(
     let quote_blank_emitted = std::cell::Cell::new(false);
     let mut code_line = String::new();
     let mut pending_blank = false;
-    // 空行来源：ref `markdown.ts:487-497` 里**段落**后面接列表不补空行，**标题**后面要补。
-    let mut pending_from_paragraph = false;
     let flush_inline = |inline: &mut String,
                         in_list_item: bool,
                         list_depth: usize,
@@ -3283,6 +3281,7 @@ pub fn render_markdown_styled_with_width(
             1
         };
         let mut line_spans: Vec<style::Span> = Vec::new();
+
         if in_list_item && !text.is_empty() {
             // ` - <text>`：`-` 与它后面那个空格都染 accent（TS 逐格实测 c1/c2）。
             line_spans.push(style::Span::new(
@@ -3313,6 +3312,8 @@ pub fn render_markdown_styled_with_width(
         }
         // ref `markdown.ts:758-775`：缩进 `"    ".repeat(depth)`，符号 `- `；续行缩进到
         // 符号之后（`continuationPrefix`）。此前嵌套列表既没有缩进、还会被并进上一段。
+        // ref `markdown.ts:556-570`：引用行的 ` │ ` 前缀与正文**分别着色**（前缀 `quote` 灰、
+        // 正文 `quote+italic`）。我们把前缀单列一段 span，行首那个空格不带任何样式。
         let quote_prefix = if quote_depth > 0 {
             format!(" {}", "│ ".repeat(quote_depth))
         } else {
@@ -3517,7 +3518,6 @@ pub fn render_markdown_styled_with_width(
                 );
                 current = None;
                 pending_blank = true;
-                pending_from_paragraph = false;
             }
             Event::Start(Tag::List(start)) => {
                 // ref `markdown.ts:487-497`：段落与列表之间**不补**空行（`nextTokenType === "list"`）。
@@ -3538,11 +3538,10 @@ pub fn render_markdown_styled_with_width(
                     current,
                     &mut pending_blank,
                 );
-                if pending_blank && !pending_from_paragraph && !out.is_empty() {
+                if pending_blank && !out.is_empty() {
                     push_md_line(&mut out, &mut styles, String::new(), None);
                 }
                 pending_blank = false;
-                pending_from_paragraph = false;
                 list_depth += 1;
                 list_stack.push(start);
             }
@@ -3553,7 +3552,6 @@ pub fn render_markdown_styled_with_width(
                 // 有空白（`space` token）要补一行。靠 `pending_from_paragraph` 区分：
                 // 列表后接列表不补，列表后接段落补。
                 pending_blank = true;
-                pending_from_paragraph = true;
             }
             Event::Start(Tag::Item) => {
                 in_list_item = true;
@@ -3725,7 +3723,6 @@ pub fn render_markdown_styled_with_width(
                     current,
                     &mut pending_blank,
                 );
-                pending_from_paragraph = true;
                 if quote_blank_emitted.get() {
                     // 刚输出的就是"引用块空行"，该段结束后不再补空行（否则比 TS 多一行）。
                     quote_blank_emitted.set(false);
