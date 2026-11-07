@@ -526,6 +526,14 @@ ref 的对应实现见 `interactive-mode.ts:2541`/`:2543`（`showExtensionNotify
     不能反过来动它。推翻条件：这几类样式在不动 `golden-tui` 的前提下对齐（例如只在
     `md-render` example 侧模拟 TS 的 padding/分段，不改进程内渲染）。
 
+10a. **引用块与列表的空行/缩进语义（F34/M1 新增语料）**：`tools/difftest/md-corpus/nested.md`
+    （嵌套引用 + 引用内列表 + 列表内代码块 + 任务列表）对拍 13 行全差，代表：
+    - TS 在引用内**每层**都重画 `│ `，空引用行也画出 ` │`；我们的引用内多/少一行、列表项与引用前缀
+      顺序不同（TS 是 ` │ │ - 引用里的列表`，我们拆成了两行）；
+    - 任务列表 `- [ ]`：TS 渲染成 `- [ ] …`，我们目前把标记吞进段落。
+    这类差异**不能靠改渲染修**（会打回 `T89f` 等既有 golden），已按上条结论搁置。
+    推翻条件：先按 ref 重录受影响 golden（需授权）或把这些差异限制在 example 侧。
+
 10b. **markdown 直渲染对拍尚未收敛（初版记录）**：新增 `tools/difftest/md-oracle.mjs`（TS 侧直渲染，
     构造参数照 ref `assistant-message.ts:114`、主题 `theme.ts:1170`，必须 `FORCE_COLOR=3` 否则
     chalk 会关色）、`crates/pi-tui/examples/md-render.rs`（pi-rs 侧同输入输出）与
