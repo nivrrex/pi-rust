@@ -3356,9 +3356,6 @@ pub fn render_markdown_styled_with_width(
     let mut current: Option<style::LineStyle> = None;
     let mut inline = String::new();
     let mut in_list_item = false;
-    // 当前列表项里是否出现过 `Paragraph`（"松列表"）：ref 的 `space` token 会在项与项之间
-    // 输出空行，而 pulldown 不产生 `space` 事件 ⇒ 用"项内有段落"近似松列表。
-    let mut item_had_paragraph = false;
     let mut ordered_marker: Option<String> = None;
     // 列表嵌套深度（`Start(List)` 时 +1）。ref `markdown.ts:758`：`indent = "    ".repeat(depth)`。
     let mut list_depth: usize = 0;
@@ -3729,11 +3726,7 @@ pub fn render_markdown_styled_with_width(
             }
             Event::Start(Tag::Item) => {
                 in_list_item = true;
-                item_had_paragraph = false;
-                // 松列表在上一项结束时置了 `pending_blank`：这里是**项间空行**，不能清掉。
-                if !pending_blank {
-                    pending_blank = false;
-                }
+                pending_blank = false;
                 // 有序列表：把序号写进 inline 前缀（ref `markdown.ts:765-774` 的 `1. ` 形态）。
                 ordered_marker = match list_stack.last_mut() {
                     Some(Some(next)) => {
@@ -3760,10 +3753,6 @@ pub fn render_markdown_styled_with_width(
                     &mut pending_blank,
                 );
                 in_list_item = false;
-                // 松列表（项内有段落）⇒ 项之间补一行空行（ref 的 `space` token）。
-                if item_had_paragraph && list_depth > 0 {
-                    pending_blank = true;
-                }
             }
             Event::Start(Tag::CodeBlock(kind)) => {
                 in_code_block = true;
@@ -3931,11 +3920,6 @@ pub fn render_markdown_styled_with_width(
                         current,
                         &mut pending_blank,
                     );
-                }
-            }
-            Event::Start(Tag::Paragraph) => {
-                if in_list_item {
-                    item_had_paragraph = true;
                 }
             }
             Event::End(TagEnd::Paragraph) => {
