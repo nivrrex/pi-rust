@@ -3587,6 +3587,12 @@ pub fn render_markdown_styled_with_width(
     let mut list_depth: usize = 0;
     // 每层列表是否有序与下一个序号（`Tag::List(Some(start))`）；无序层为 `None`。
     let mut list_stack: Vec<Option<u64>> = Vec::new();
+    // 每层列表是否 **loose**（ref `markdown.ts:800-802`：`token.loose && !isLastItem` 时补空行）。
+    // pulldown-cmark 在 tight 列表里**省略** `Paragraph` 标签、loose 里保留 ⇒
+    // "列表项内出现 `Paragraph`"即 loose（CommonMark 的 tight/loose 定义）。
+    let mut list_loose: Vec<bool> = Vec::new();
+    // 上一项结束时打的"下一项前补空行"标记；下一项开始时才补（末项不补）。
+    let mut pending_loose_blank = false;
     let mut in_code_block = false;
     let mut fence_line;
     // 代码块在**列表内**时的额外缩进（ref `markdown.ts:521` 的 `codeBlockIndent = "  "`；
@@ -3945,14 +3951,22 @@ pub fn render_markdown_styled_with_width(
                 pending_blank = false;
                 list_depth += 1;
                 list_stack.push(start);
+                list_loose.push(false);
             }
             Event::End(TagEnd::List(_)) => {
                 list_depth = list_depth.saturating_sub(1);
                 list_stack.pop();
+                list_loose.pop();
+                // 末项之后不再补 loose 空行（ref 只对 `!isLastItem` 补）。
+                pending_loose_blank = false;
                 // ref `markdown.ts:542-548`：列表**不主动**补空行；后续空行由 `space` token 决定。
                 pending_blank = true;
             }
             Event::Start(Tag::Item) => {
+                if pending_loose_blank {
+                    push_md_line(&mut out, &mut styles, String::new(), None);
+                    pending_loose_blank = false;
+                }
                 in_list_item = true;
                 pending_blank = false;
                 // 有序列表：把序号写进 inline 前缀（ref `markdown.ts:765-774` 的 `1. ` 形态）。
@@ -3981,6 +3995,16 @@ pub fn render_markdown_styled_with_width(
                     &mut pending_blank,
                 );
                 in_list_item = false;
+                // ref `markdown.ts:800-802`：loose 列表项之间补一行空行。
+                pending_loose_blank = list_loose.last().copied().unwrap_or(false);
+            }
+            Event::Start(Tag::Paragraph) => {
+                // tight 列表里 pulldown 不产生 `Paragraph`；出现即说明该层是 loose。
+                if in_list_item {
+                    if let Some(last) = list_loose.last_mut() {
+                        *last = true;
+                    }
+                }
             }
             Event::Start(Tag::CodeBlock(kind)) => {
                 in_code_block = true;
