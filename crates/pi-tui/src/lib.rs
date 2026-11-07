@@ -3219,6 +3219,10 @@ pub fn render_markdown_styled_with_width(
     // 行内多色段（列表符号 `- `、行内代码），按**行索引**记录。
     let mut spans: Vec<(usize, Vec<style::Span>)> = Vec::new();
     let mut code_ranges: Vec<(usize, usize)> = Vec::new();
+    // 行内强调/删除线/链接：`(start, end, style)`，按字节偏移记录（ref `markdown.ts:660-700`）。
+    let mut inline_styles: Vec<(usize, usize, style::LineStyle)> = Vec::new();
+    // 打开中的强调栈（`**`/`*`/`~~` 可能嵌套）。
+    let mut inline_stack: Vec<(style::LineStyle, usize)> = Vec::new();
     let mut current: Option<style::LineStyle> = None;
     let mut inline = String::new();
     let mut in_list_item = false;
@@ -3245,6 +3249,7 @@ pub fn render_markdown_styled_with_width(
                         styles: &mut Vec<Option<style::LineStyle>>,
                         spans: &mut Vec<(usize, Vec<style::Span>)>,
                         code_ranges: &mut Vec<(usize, usize)>,
+                        inline_styles: &mut Vec<(usize, usize, style::LineStyle)>,
                         current: Option<style::LineStyle>,
                         pending_blank: &mut bool| {
         let text = inline.trim_end().to_string();
@@ -3283,6 +3288,16 @@ pub fn render_markdown_styled_with_width(
                 prefix_len,
                 style::LineStyle::fg(palette.md_list_bullet),
             ));
+        }
+        for (start, end, extra) in inline_styles.drain(..) {
+            let end = end.min(text.len());
+            if start < end {
+                line_spans.push(style::Span::new(
+                    prefix_len + start,
+                    prefix_len + end,
+                    extra,
+                ));
+            }
         }
         for (start, end) in code_ranges.drain(..) {
             let end = end.min(text.len());
@@ -3480,6 +3495,7 @@ pub fn render_markdown_styled_with_width(
                     &mut styles,
                     &mut spans,
                     &mut code_ranges,
+                    &mut inline_styles,
                     current,
                     &mut pending_blank,
                 );
@@ -3499,6 +3515,7 @@ pub fn render_markdown_styled_with_width(
                     &mut styles,
                     &mut spans,
                     &mut code_ranges,
+                    &mut inline_styles,
                     current,
                     &mut pending_blank,
                 );
@@ -3538,6 +3555,7 @@ pub fn render_markdown_styled_with_width(
                     &mut styles,
                     &mut spans,
                     &mut code_ranges,
+                    &mut inline_styles,
                     current,
                     &mut pending_blank,
                 );
@@ -3605,6 +3623,25 @@ pub fn render_markdown_styled_with_width(
                     inline.push_str(&text);
                 }
             }
+            // 行内强调（ref `markdown.ts:660-700`）：`strong`=bold、`emphasis`=italic、
+            // `strikethrough`=删除线（我们用 dim+italic 近似，见 LIMITATIONS）。
+            Event::Start(Tag::Strong)
+            | Event::Start(Tag::Emphasis)
+            | Event::Start(Tag::Strikethrough) => {
+                let style = match &event {
+                    Event::Start(Tag::Strong) => style::LineStyle::default().bold(),
+                    Event::Start(Tag::Emphasis) => style::LineStyle::default().italic(),
+                    _ => style::LineStyle::default().dim(),
+                };
+                inline_stack.push((style, inline.len()));
+            }
+            Event::End(TagEnd::Strong)
+            | Event::End(TagEnd::Emphasis)
+            | Event::End(TagEnd::Strikethrough) => {
+                if let Some((style, start)) = inline_stack.pop() {
+                    inline_styles.push((start, inline.len(), style));
+                }
+            }
             Event::Code(text) => {
                 let start = inline.len();
                 inline.push_str(&text);
@@ -3641,6 +3678,7 @@ pub fn render_markdown_styled_with_width(
                         &mut styles,
                         &mut spans,
                         &mut code_ranges,
+                        &mut inline_styles,
                         current,
                         &mut pending_blank,
                     );
@@ -3659,6 +3697,7 @@ pub fn render_markdown_styled_with_width(
                     &mut styles,
                     &mut spans,
                     &mut code_ranges,
+                    &mut inline_styles,
                     current,
                     &mut pending_blank,
                 );
@@ -3684,6 +3723,7 @@ pub fn render_markdown_styled_with_width(
         &mut styles,
         &mut spans,
         &mut code_ranges,
+        &mut inline_styles,
         current,
         &mut pending_blank,
     );

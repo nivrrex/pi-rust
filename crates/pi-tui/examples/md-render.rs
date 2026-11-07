@@ -21,7 +21,9 @@ fn main() {
     match file {
         Some(path) => input = std::fs::read_to_string(path).expect("读输入"),
         None => {
-            std::io::stdin().read_to_string(&mut input).expect("读 stdin");
+            std::io::stdin()
+                .read_to_string(&mut input)
+                .expect("读 stdin");
         }
     }
     let palette = pi_tui::theme::Palette::of(&pi_tui::theme::Theme::builtin(&theme));
@@ -38,7 +40,7 @@ fn main() {
             rendered.push_str(line);
         }
         // 整行样式（标题/引用/代码块）作为兜底：没有逐段 span 时整行染色。
-        if spans_by_line.get(&index).is_none() {
+        if !spans_by_line.contains_key(&index) {
             if let Some(style) = style {
                 rendered = format!("{}{}{}", style.prefix(), rendered, style.reset());
             }
