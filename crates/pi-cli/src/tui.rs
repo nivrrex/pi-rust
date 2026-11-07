@@ -34,6 +34,17 @@ pub struct TerminalGuard {
 /// 就会被 shell 读走并回显成 `0;5:3u`（F3 复现：抬起事件晚 ≥60 ms 时必现）。
 static KITTY_ACTIVE: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 
+/// 是否开过 modifyOtherKeys（`\x1b[>4;2m`）。
+///
+/// F36/H1：此前退出恒写 `r3_exit_bytes(true, false)` ⇒ **开了不关**。终端在退出后仍把
+/// 修饰键转成 `CSI > 4 ; m` 形态，方向键会变成 `^[[A` 之类回显（真机反馈）。
+static MODIFY_OTHER_KEYS_ACTIVE: std::sync::atomic::AtomicBool =
+    std::sync::atomic::AtomicBool::new(false);
+
+fn modify_other_keys_was_active() -> bool {
+    MODIFY_OTHER_KEYS_ACTIVE.load(std::sync::atomic::Ordering::SeqCst)
+}
+
 fn kitty_was_active() -> bool {
     KITTY_ACTIVE.load(std::sync::atomic::Ordering::SeqCst)
 }
@@ -86,7 +97,7 @@ impl TerminalGuard {
         // 顺序：先关 bracketed paste、再显示光标、最后离开备用屏幕并关 raw mode。
         // `r3` 没进过备用屏幕 ⇒ 不写 `LeaveAlternateScreen`（否则会把主屏内容清掉/切屏）。
         // r3 走 ref 的 stop 顺序（含 kitty pop）；R1/R2 保持原字节不变。
-        let bytes = r3_exit_bytes(true, false);
+        let bytes = r3_exit_bytes(true, modify_other_keys_was_active());
         let _ = out.write_all(bytes.as_bytes());
         let _ = out.flush();
         // 退出前给输入线程一个**短宽限期**（30 ms），让它把终端对我们查询的应答
@@ -6068,6 +6079,11 @@ fn forward_sequence(
         match action {
             Action::Consume => return true, // 协商应答被消费，不产生键事件
             Action::Write(bytes) => {
+                if bytes == pi_tui::term_negotiate::MODIFY_OTHER_KEYS_ON {
+                    MODIFY_OTHER_KEYS_ACTIVE.store(true, std::sync::atomic::Ordering::SeqCst);
+                } else if bytes == pi_tui::term_negotiate::MODIFY_OTHER_KEYS_OFF {
+                    MODIFY_OTHER_KEYS_ACTIVE.store(false, std::sync::atomic::Ordering::SeqCst);
+                }
                 let mut out = std::io::stdout();
                 let _ = std::io::Write::write_all(&mut out, bytes.as_bytes());
                 let _ = std::io::Write::flush(&mut out);

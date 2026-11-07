@@ -33,9 +33,12 @@ pub const DESIRED_KITTY_FLAGS: u32 = 5;
 
 const SYNC_START: &str = "\u{1b}[?2004h";
 const SYNC_STOP: &str = "\u{1b}[?2004l";
-const KITTY_POP: &str = "\u{1b}[<u";
-const MODIFY_OTHER_KEYS_ON: &str = "\u{1b}[>4;2m";
-const MODIFY_OTHER_KEYS_OFF: &str = "\u{1b}[>4;0m";
+/// kitty 键盘协议 pop（`\x1b[<u`）。
+pub const KITTY_POP: &str = "\u{1b}[<u";
+/// 开启 modifyOtherKeys（`\x1b[>4;2m`）。
+pub const MODIFY_OTHER_KEYS_ON: &str = "\u{1b}[>4;2m";
+/// 关闭 modifyOtherKeys + `\x1b[>4;0m`）。
+pub const MODIFY_OTHER_KEYS_OFF: &str = "\u{1b}[>4;0m";
 
 /// 状态机的输出动作。
 #[derive(Debug, Clone, PartialEq, Eq)]
