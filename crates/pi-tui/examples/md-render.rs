@@ -51,6 +51,51 @@ fn main() {
     }
 }
 
+/// 按字符合成样式：行级样式打底、span 覆盖，行首空格不染色。输出 SGR 串。
+fn paint_with_base(
+    text: &str,
+    base: Option<pi_tui::style::LineStyle>,
+    spans: &[pi_tui::style::Span],
+) -> String {
+    use pi_tui::style::LineStyle;
+    let mut out = String::new();
+    let mut current: Option<LineStyle> = None;
+    let visible_start = text.len() - text.trim_start_matches(' ').len();
+    for (offset, ch) in text.char_indices() {
+        let mut style = if offset >= visible_start { base } else { None };
+        for span in spans {
+            if offset >= span.start && offset < span.end {
+                style = Some(match (style, span.style) {
+                    (Some(base), extra) => LineStyle {
+                        fg: extra.fg.or(base.fg),
+                        bg: extra.bg.or(base.bg),
+                        bold: base.bold || extra.bold,
+                        dim: base.dim || extra.dim,
+                        italic: base.italic || extra.italic,
+                        underline: base.underline || extra.underline,
+                        strike: base.strike || extra.strike,
+                    },
+                    (None, extra) => extra,
+                });
+            }
+        }
+        if style != current {
+            if current.is_some() {
+                out.push_str("\u{1b}[0m");
+            }
+            if let Some(style) = style {
+                out.push_str(&style.prefix());
+            }
+            current = style;
+        }
+        out.push(ch);
+    }
+    if current.is_some() {
+        out.push_str("\u{1b}[0m");
+    }
+    out
+}
+
 /// 把一段 markdown 渲染成带 SGR 的行（每行补空格到可用宽度，便于逐格比较）。
 fn render_lines(input: &str, theme: &str, width: usize) -> Vec<String> {
     let mut out = Vec::new();
@@ -116,10 +161,12 @@ fn render_lines(input: &str, theme: &str, width: usize) -> Vec<String> {
                 pi_tui::diff::write_spans(&mut rendered, segment, &mapped, 0);
             }
             if rendered.is_empty() {
-                rendered = match style {
-                    Some(style) => format!("{}{}{}", style.prefix(), segment, style.reset()),
-                    None => segment.clone(),
-                };
+                // 未被 span 覆盖的字符也要带上**行级样式**（标题/引用/代码块），但**行首空格
+                // 不染色**（TS 的 padding 区不带样式，逐格实测 `0-0:-/-`）。
+                rendered = paint_with_base(segment, style, &[]);
+            } else if let Some(base) = style {
+                // span 只覆盖部分字符：其余字符补行级样式。
+                rendered = paint_with_base(segment, Some(base), &mapped);
             }
             let visible = pi_tui::diff::visible_width(&rendered);
             let padded = if visible < content_width {
