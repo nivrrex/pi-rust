@@ -73,3 +73,10 @@
 - Windows：`PATH` 同时找 `node`/`node.exe`（`find_node_in_path` 纯函数 + 单测）。
 - frontmatter：复杂 YAML 只跳过该键、不再整条报错。
 - regress 新增 `STYLE_CHECK=1`（接入既有 compare-style，默认关闭）。
+
+## F34 收口
+- Windows：jiti 覆盖 `%LOCALAPPDATA%\pnpm\global\<ver>\<hash>` 等布局（多 hash 取最新）、失败提示列全候选；node 查找双后缀。
+- Markdown：GFM 表格列宽按 ref 用自然宽、行内强调/删除线逐段染色、H1 underline、任务列表标记、列表内代码块缩进、HTML 按纯文本。
+- 工具：`tools/difftest/{md-oracle,md-diff,color-dump,color-classify}.mjs` + `crates/pi-tui/examples/md-render.rs`。
+- 新增入库 golden：`T89e-md-table`、`T89f-md-elements`、`T89g-md-table-cjk`。
+- 发布包 `~/archives/publish-20261107e`（buildHead/publishCommit `4bb46bf2`、publishTree `54c80ef7`，未发布）。
