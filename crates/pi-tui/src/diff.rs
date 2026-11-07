@@ -228,36 +228,60 @@ fn ceil_char_boundary(text: &str, index: usize) -> usize {
 }
 
 pub fn write_spans(out: &mut String, line: &str, spans: &[crate::style::Span], width: usize) {
-    let mut cursor = 0_usize;
-    let mut last_background = None;
+    // **嵌套 span 按字符合成**：`**粗体里的 `code`**` 这类场景里，外层 span 覆盖整行、
+    // 内层 span 只盖中间一段。逐段顺序写会在内层 ``code`` 处丢失颜色（内层起点落在 cursor
+    // 之前被整段跳过）。这里先为每个字符求出合并后的样式，再按样式游程输出。
+    let mut styles: Vec<Option<crate::style::LineStyle>> = Vec::new();
+    let mut offsets: Vec<usize> = Vec::new();
+    for (offset, _) in line.char_indices() {
+        offsets.push(offset);
+    }
+    offsets.push(line.len());
+    let char_count = offsets.len().saturating_sub(1);
+    styles.resize(char_count, None);
     for span in spans {
-        if span.end <= cursor {
-            continue;
+        for index in 0..char_count {
+            let from = offsets[index];
+            let to = offsets[index + 1];
+            if to <= span.start || from >= span.end {
+                continue;
+            }
+            styles[index] = Some(match (styles[index], span.style) {
+                (Some(base), extra) => crate::style::LineStyle {
+                    fg: extra.fg.or(base.fg),
+                    bg: extra.bg.or(base.bg),
+                    bold: base.bold || extra.bold,
+                    dim: base.dim || extra.dim,
+                    italic: base.italic || extra.italic,
+                    underline: base.underline || extra.underline,
+                    strike: base.strike || extra.strike,
+                },
+                (None, extra) => extra,
+            });
         }
-        if span.start > cursor {
-            // P8e-16 修复：span 的字节偏移可能落在多字节字符中间
-            // （真机崩溃：`end byte index 79 is not a char boundary; inside '…'`），
-            // 切片前统一收敛到字符边界。
-            let gap_end = ceil_char_boundary(line, span.start);
-            out.push_str(&line[cursor..gap_end]);
-        }
-        let start = floor_char_boundary(line, span.start.max(cursor));
-        if start >= line.len() {
-            break;
-        }
-        let end = ceil_char_boundary(line, span.end.min(line.len()));
-        out.push_str(&span.style.prefix());
-        out.push_str(&line[start..end]);
-        out.push_str(span.style.reset());
-        if span.style.bg.is_some() {
-            last_background = Some(span.style);
-        }
-        cursor = end;
     }
-    if cursor < line.len() {
-        out.push_str(&line[cursor..]);
+    let mut last_background = None;
+    let mut current: Option<crate::style::LineStyle> = None;
+    for index in 0..char_count {
+        let style = styles[index];
+        if style != current {
+            if current.is_some() {
+                out.push_str("\u{1b}[0m");
+            }
+            if let Some(style) = style {
+                out.push_str(&style.prefix());
+                if style.bg.is_some() {
+                    last_background = Some(style);
+                }
+            }
+            current = style;
+        }
+        out.push_str(&line[offsets[index]..offsets[index + 1]]);
     }
-    // 末尾补空格：背景色或 `dim` 属性在 TS 里覆盖到整行（Text 的 padding/属性）。
+    if current.is_some() {
+        out.push_str("\u{1b}[0m");
+    }
+    // 末尾补空格：背景色覆盖到整行（Text 的 padding）。
     if let Some(style) = last_background {
         let used = visible_width(line);
         if used < width {
