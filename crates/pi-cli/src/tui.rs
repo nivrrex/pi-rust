@@ -1096,6 +1096,36 @@ fn login_provider_items(
 /// 登录成功后重建 agent 部件的回调（无模型启动时 `parts` 为 None，登录后要用新凭据建出来）。
 pub type RebuildParts = Box<dyn Fn() -> Option<(std::sync::Arc<AgentParts>, String)> + Send + Sync>;
 
+/// F38/K4：扩展 UI 的状态摘要（用量/模型/思考档/主题/展开态/错误态）。
+///
+/// 摘要改变 ⇒ 重跑扩展的 `render(width)`；相同则命中 runner 侧缓存，不重复渲染。
+fn ext_ui_digest(state: &pi_tui::TuiState) -> u64 {
+    use std::hash::{Hash, Hasher};
+    let mut hasher = std::collections::hash_map::DefaultHasher::new();
+    state.status.hash(&mut hasher);
+    state.model.hash(&mut hasher);
+    state.model_provider.hash(&mut hasher);
+    state.thinking_level.hash(&mut hasher);
+    state.theme_name.hash(&mut hasher);
+    state.tools_expanded.hash(&mut hasher);
+    state.usage_input.hash(&mut hasher);
+    state.usage_output.hash(&mut hasher);
+    state.usage_cache_read.hash(&mut hasher);
+    state.usage_cache_write.hash(&mut hasher);
+    state.retrying.hash(&mut hasher);
+    state.extension_issues.hash(&mut hasher);
+    state.extension_status.hash(&mut hasher);
+    // 会话内容（回合推进/工具结果/助手文本）也要算进摘要：ref 是**每帧**调 `render(width)`，
+    // 扩展常在 render 里读自增计数（`turn_end` 等），只按用量/模型做键会让它停在旧值。
+    state.transcript.len().hash(&mut hasher);
+    state.working.hash(&mut hasher);
+    if let Some(last) = state.transcript.last() {
+        std::mem::discriminant(last).hash(&mut hasher);
+        format!("{last:?}").len().hash(&mut hasher);
+    }
+    hasher.finish()
+}
+
 pub fn run(
     mut state: TuiState,
     mut parts: Option<std::sync::Arc<AgentParts>>,
@@ -1268,6 +1298,10 @@ pub fn run(
     let mut last_draw: Option<std::time::Instant> = None;
     // Ctrl+O 之后需要按新的展开态重跑扩展的 renderResult。
     let mut needs_expanded_rerender = false;
+    // F38/K4：扩展 UI（页脚 / widget）的按需重渲染。`(width, digest)` 相同的状态不重复请求；
+    // 请求在**后台线程**发出（渲染 RPC 有 200ms 上限，不得阻塞主循环），结果回到事件队列。
+    let mut last_ui_render_key: Option<(usize, u64)> = None;
+    let mut ui_render_pending = false;
     // ref `interactive-mode.ts:4116-4124` `handleCtrlC()`：距上一次 Ctrl+C 不足 500 ms 时
     // 第二次 Ctrl+C 触发 `shutdown()`，否则只清编辑器并记录时刻。
     let mut last_ctrl_c: Option<std::time::Instant> = None;
@@ -1395,6 +1429,50 @@ pub fn run(
                 );
             }
             dirty = true;
+        }
+        // F38/K4：状态变化时按需让扩展重渲染页脚/widget（缓存键 `(width, digest)`）。
+        // 只在**已经有**扩展接管的场景请求，没装渲染类扩展时行为与之前完全一致。
+        let has_ext_ui = state.footer_override.is_some() || !state.extension_widgets.is_empty();
+        if has_ext_ui && !ui_render_pending {
+            let digest = ext_ui_digest(&state);
+            let key = (cols, digest);
+            if last_ui_render_key != Some(key) {
+                last_ui_render_key = Some(key);
+                ui_render_pending = true;
+                let widget_keys: Vec<String> = state.extension_widgets.keys().cloned().collect();
+                let has_footer = state.footer_override.is_some();
+                std::thread::spawn(move || {
+                    if has_footer {
+                        if let Some(lines) = crate::ext_tools::render_ui_block(
+                            "footer",
+                            "",
+                            cols,
+                            &format!("{digest}"),
+                        ) {
+                            crate::ext_tools::emit_ui_event(pi_tui::TuiEvent::FooterOverride(
+                                Some(lines),
+                            ));
+                        }
+                    }
+                    for key in widget_keys {
+                        if let Some(lines) = crate::ext_tools::render_ui_block(
+                            "widget",
+                            &key,
+                            cols,
+                            &format!("{digest}"),
+                        ) {
+                            // 重渲染结果来自组件工厂 ⇒ 不加内边距（组件自带排版）。
+                            crate::ext_tools::emit_ui_event(pi_tui::TuiEvent::ExtensionWidget {
+                                key: key.clone(),
+                                lines: Some(lines),
+                                placement: "belowEditor".to_string(),
+                                from_lines: false,
+                            });
+                        }
+                    }
+                    crate::ext_tools::emit_ui_event(pi_tui::TuiEvent::UiRenderDone);
+                });
+            }
         }
         let render_ready = last_draw.is_none_or(|last| last.elapsed() >= min_render_interval);
         if dirty && render_ready {
@@ -1631,6 +1709,7 @@ pub fn run(
                     | TuiEvent::SkillLabels(_)
                     | TuiEvent::ExtensionPaths(_)
                     | TuiEvent::ExtensionCommands(_)
+                    | TuiEvent::UiRenderDone
                     | TuiEvent::ExtensionIssues(_)
                     | TuiEvent::FooterOverride(_)
                     | TuiEvent::HeaderOverride(_)
@@ -1766,6 +1845,7 @@ pub fn run(
                                 | TuiEvent::SkillLabels(_)
                                 | TuiEvent::ExtensionPaths(_)
                                 | TuiEvent::ExtensionCommands(_)
+                                | TuiEvent::UiRenderDone
                                 | TuiEvent::ExtensionIssues(_)
                                 | TuiEvent::FooterOverride(_)
                                 | TuiEvent::HeaderOverride(_)
@@ -3224,6 +3304,12 @@ pub fn run(
                     // 面板打开时，其它按键保持原样交给后续流程
                     _other => {}
                 }
+            }
+            // F38/K4：一轮扩展 UI 重渲染结束 ⇒ 允许下一轮状态变化再触发。
+            if matches!(event, TuiEvent::UiRenderDone) {
+                ui_render_pending = false;
+                dirty = true;
+                continue;
             }
             // ref `interactive-mode.ts:4116-4124`：Ctrl+C 双击（500 ms 窗口）退出。
             // 首次 Ctrl+C 只清编辑器并记时刻；窗口内第二次即 shutdown。
@@ -5106,6 +5192,24 @@ impl pi_core::agent::EventSink for TuiEventSink {
                 );
                 None
             }
+            AgentEvent::TurnEnd {
+                message,
+                tool_results,
+            } => {
+                // ref `agent-session.ts:1075-1080`：`turn_end` 不直接派发事件，
+                // 但 `_turnIndex` 自增；扩展侧计数常用的 `turn_end` 事件由边界派发路径发。
+                // 本实现无 boundary 机制 ⇒ 在这里补发一个最小 `turn_end`（载荷 `{type, message, toolResults}`），
+                // 让扩展的自增计数/统计与 TS 同步（否则页脚类扩展永远停在 n=0）。
+                crate::ext_tools::emit_event(
+                    "turn_end",
+                    serde_json::json!({
+                        "type": "turn_end",
+                        "message": serde_json::to_value(message).unwrap_or(serde_json::Value::Null),
+                        "toolResults": serde_json::to_value(tool_results).unwrap_or(serde_json::Value::Null),
+                    }),
+                );
+                None
+            }
             AgentEvent::EntryAppended { .. }
             | AgentEvent::CompactionStart { .. }
             | AgentEvent::CompactionEnd { .. }
@@ -5113,7 +5217,6 @@ impl pi_core::agent::EventSink for TuiEventSink {
             | AgentEvent::SummarizationRetryAttemptStart { .. }
             | AgentEvent::SummarizationRetryFinished
             | AgentEvent::TurnStart
-            | AgentEvent::TurnEnd { .. }
             | AgentEvent::QueueUpdate
             | AgentEvent::MessageStart { .. }
             | AgentEvent::ToolExecutionUpdate { .. }

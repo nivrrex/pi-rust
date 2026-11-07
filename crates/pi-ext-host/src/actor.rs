@@ -52,6 +52,14 @@ enum Cmd {
         width: usize,
         reply: Sender<Result<Option<Value>, HostError>>,
     },
+    /// 重渲染扩展 UI（页脚/widget）：`kind` 为 `footer` 或 `widget`。
+    RenderUi {
+        kind: String,
+        key: String,
+        width: usize,
+        digest: String,
+        reply: Sender<Result<Option<Vec<String>>, HostError>>,
+    },
     /// 设置宿主动作通道（`host.action.call`）。
     SetActionSink {
         sink: Option<std::sync::mpsc::Sender<crate::client::ActionCall>>,
@@ -392,6 +400,26 @@ impl HostHandle {
         })
     }
 
+    /// 按需重渲染扩展 UI（F38/K4）。
+    ///
+    /// `digest` 是宿主算的状态摘要（用量/模型/主题/展开态/错误态）；相同 `(width, digest)`
+    /// 在 runner 侧命中缓存，不会重复跑组件 render。
+    pub fn render_ui(
+        &self,
+        kind: &str,
+        key: &str,
+        width: usize,
+        digest: &str,
+    ) -> Result<Option<Vec<String>>, HostError> {
+        self.call(|reply| Cmd::RenderUi {
+            kind: kind.to_string(),
+            key: key.to_string(),
+            width,
+            digest: digest.to_string(),
+            reply,
+        })
+    }
+
     /// 设置宿主动作通道（`createBashToolDefinition` 的执行）。
     pub fn set_action_sink(
         &self,
@@ -573,6 +601,16 @@ fn actor_main(
             } => {
                 let result =
                     runtime.block_on(host.invoke_render(&tool_name, &phase, payload, width));
+                let _ = reply.send(result);
+            }
+            Cmd::RenderUi {
+                kind,
+                key,
+                width,
+                digest,
+                reply,
+            } => {
+                let result = runtime.block_on(host.invoke_render_ui(&kind, &key, width, &digest));
                 let _ = reply.send(result);
             }
             Cmd::SetActionSink { sink } => {

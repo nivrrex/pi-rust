@@ -980,10 +980,12 @@ fn start_host(agent_dir: &Path, cwd: &Path) -> Option<pi_ext_host::HostHandle> {
                         key,
                         lines,
                         placement,
+                        from_lines,
                     } => pi_tui::TuiEvent::ExtensionWidget {
                         key,
                         lines,
                         placement,
+                        from_lines,
                     },
                 };
                 if ui_tx.send(event).is_err() {
@@ -1137,6 +1139,38 @@ pub fn render_tool_block(
     let host = HOST.get().and_then(|slot| slot.as_ref()).cloned()?;
     let frame = host.render(tool_name, phase, payload, width).ok()??;
     flatten_render_frame(&frame, width)
+}
+
+/// 按需重渲染扩展 UI（F38/K4）：返回 `None` 表示没有扩展接管/渲染失败，调用方回落原生渲染。
+///
+/// `digest` 为宿主算的状态摘要；`(kind, key, width, digest)` 相同的请求在 runner 侧命中缓存。
+/// 失败会记一条 `[Extension issues]`（同一扩展只记一次，避免每帧刷屏）。
+#[must_use]
+pub fn render_ui_block(kind: &str, key: &str, width: usize, digest: &str) -> Option<Vec<String>> {
+    let host = HOST.get().and_then(|slot| slot.as_ref()).cloned()?;
+    match host.render_ui(kind, key, width, digest) {
+        Ok(lines) => lines,
+        Err(error) => {
+            note_render_failure(kind, &error.to_string());
+            None
+        }
+    }
+}
+
+/// 渲染钩子失败只记一次（ref `interactive-mode.ts:1874-1894` 的 `[Extension issues]`）。
+fn note_render_failure(kind: &str, message: &str) {
+    use std::sync::Mutex;
+    static SEEN: std::sync::OnceLock<Mutex<std::collections::BTreeSet<String>>> =
+        std::sync::OnceLock::new();
+    let slot = SEEN.get_or_init(|| Mutex::new(std::collections::BTreeSet::new()));
+    let key = format!("{kind}: {message}");
+    let first = slot
+        .lock()
+        .map(|mut guard| guard.insert(key.clone()))
+        .unwrap_or(false);
+    if first {
+        record_issue(format!("{kind} 渲染失败，已回落内置渲染：{message}"));
+    }
 }
 
 /// `input` 钩子的结果（ref `types.ts:952-975` 的 `InputEventResult`）。

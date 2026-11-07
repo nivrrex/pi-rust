@@ -54,6 +54,7 @@ fn widget_factory_render_lines_reach_the_host() {
             key,
             lines: Some(widget_lines),
             placement,
+            ..
         } = frame
         {
             assert_eq!(key, "factory");

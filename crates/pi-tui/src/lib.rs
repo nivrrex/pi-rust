@@ -64,8 +64,8 @@ pub struct TuiState {
     pub header_override: Option<Vec<String>>,
     /// 扩展 `setFooter` 给的替代页脚（`None` = 内置两行状态区）。
     pub footer_override: Option<Vec<String>>,
-    /// 扩展 widget（key → (placement, 行文本)），渲染在编辑器上方/下方（ref `types.ts:176`）。
-    pub extension_widgets: std::collections::BTreeMap<String, (String, Vec<String>)>,
+    /// 扩展 widget（key → 位置 + 行），渲染在编辑器上方/下方（ref `types.ts:176`）。
+    pub extension_widgets: std::collections::BTreeMap<String, WidgetEntry>,
     /// 重试退避进行中（见 `TuiEvent::RetryState`）。
     pub retrying: bool,
     /// 工具输出是否全部展开（ref `interactive-mode.ts:475` 默认 `false`；
@@ -158,6 +158,17 @@ pub struct TuiState {
     pub transcript: Vec<TranscriptItem>,
     /// agent loop 是否正在运行（对应 golden 里的 `Working` 行）。
     pub working: bool,
+}
+
+/// 一个扩展 widget 的渲染数据（ref `interactive-mode.ts:2318-2333`）。
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct WidgetEntry {
+    /// `aboveEditor` / `belowEditor`。
+    pub placement: String,
+    /// 已渲染的行。
+    pub lines: Vec<String>,
+    /// 是否来自字符串数组（⇒ 每行加 1 列内边距）。
+    pub from_lines: bool,
 }
 
 /// 会话区的一项（**纯数据**）。
@@ -404,6 +415,8 @@ pub enum TuiEvent {
     ExtensionIssues(Vec<String>),
     /// 扩展注册的斜杠命令（`(name, "[tag] description")`；握手后注入一次）。
     ExtensionCommands(Vec<(String, String)>),
+    /// F38/K4：一轮扩展 UI 重渲染已完成（宿主用来清 pending 标志；不改变内容）。
+    UiRenderDone,
     /// 扩展 `ctx.ui.setWidget`（ref `types.ts:176`）：`lines=None` 表示清除该键。
     ExtensionWidget {
         /// 组件键。
@@ -412,6 +425,9 @@ pub enum TuiEvent {
         lines: Option<Vec<String>>,
         /// `aboveEditor` / `belowEditor`。
         placement: String,
+        /// 是否来自字符串数组（⇒ 每行加 1 列内边距，ref `interactive-mode.ts:2326-2328` 的
+        /// `new Text(line, 1, 0)`）；组件工厂自带排版，不加。
+        from_lines: bool,
     },
     /// 扩展 `ctx.ui.custom` 打开自定义面板（ref `types.ts:201-215`）。
     CustomOpen(Vec<String>),
@@ -701,6 +717,7 @@ pub fn apply(state: &mut TuiState, event: TuiEvent) -> TuiAction {
             state.extension_issues = issues;
             TuiAction::Redraw
         }
+        TuiEvent::UiRenderDone => TuiAction::Redraw,
         TuiEvent::ExtensionCommands(commands) => {
             state.extension_commands = commands;
             // 命令表变了 ⇒ 已打开的菜单要按新表重算（否则 `/` 计数还是旧的）。
@@ -711,10 +728,18 @@ pub fn apply(state: &mut TuiState, event: TuiEvent) -> TuiAction {
             key,
             lines,
             placement,
+            from_lines,
         } => {
             match lines {
                 Some(lines) => {
-                    state.extension_widgets.insert(key, (placement, lines));
+                    state.extension_widgets.insert(
+                        key,
+                        WidgetEntry {
+                            placement,
+                            lines,
+                            from_lines,
+                        },
+                    );
                 }
                 None => {
                     state.extension_widgets.remove(&key);
@@ -2800,17 +2825,21 @@ fn render_all_cached_styled_inner(
     // 扩展 widget（ref `types.ts:176` 的 `aboveEditor` / `belowEditor`）：
     // 按 key 升序，逐行左对齐（扩展自己负责颜色，本实现只画文本）。
     {
-        let mut widgets: Vec<(&String, &(String, Vec<String>))> =
-            state.extension_widgets.iter().collect();
+        let mut widgets: Vec<(&String, &WidgetEntry)> = state.extension_widgets.iter().collect();
         widgets.sort_by(|a, b| a.0.cmp(b.0));
-        for (_, (placement, widget_lines)) in widgets {
-            if placement != "belowEditor" {
+        for (_, widget) in widgets {
+            if widget.placement != "belowEditor" {
                 continue;
             }
-            // ref `interactive-mode.ts:2326-2328`：每行是 `new Text(line, 1, 0)` ⇒ 前导 1 列内边距；
-            // 且 `Text` 组件自带**每行后的空行**（逐行实测：` Todo …` / `` / `  ▶ …` / ``）。
-            for line in widget_lines {
-                lines.push(clamp_to_width_ansi(&format!(" {line}"), cols));
+            // ref `interactive-mode.ts:2318-2333`：
+            // - 字符串数组 ⇒ 每行 `new Text(line, 1, 0)`，**前导 1 列内边距**；
+            // - 组件工厂 ⇒ 组件自己排版（渲染结果按原样输出，不再补内边距）。
+            for line in &widget.lines {
+                if widget.from_lines {
+                    lines.push(clamp_to_width_ansi(&format!(" {line}"), cols));
+                } else {
+                    lines.push(clamp_to_width_ansi(line, cols));
+                }
             }
         }
     }
@@ -7192,6 +7221,7 @@ mod extension_widget_tests {
                     "widget-line-2".to_string(),
                 ]),
                 placement: "belowEditor".to_string(),
+                from_lines: true,
             },
         );
         let screen = render(&state, 80, 30);
@@ -7212,6 +7242,7 @@ mod extension_widget_tests {
                 key: "remote".to_string(),
                 lines: None,
                 placement: "belowEditor".to_string(),
+                from_lines: true,
             },
         );
         let screen = render(&state, 80, 30);

@@ -55,6 +55,28 @@ function scopeTagForPath(extensionPath) {
 }
 // 当前正在执行工厂的扩展路径（`registerCommand` 无路径参数，靠它定位来源）。
 let currentExtensionPath = "";
+
+// F38/K4：渲染钩子按需重渲染。
+// ref 的 `ctx.ui.setFooter(factory)` / `setWidget(key, factory)` 是**每帧调用组件 `render(width)`**
+// （`components/footer.ts`、`interactive-mode.ts:2394-2422`）。此前我们只在注册时渲染一次，
+// 宽度/用量/展开态变化都不刷新。这里保留工厂并按宿主请求重渲染。
+let footerFactory = null;
+const widgetFactories = new Map();
+// 渲染结果缓存：`<kind>|<key>|<width>|<digest>` → lines。digest 由宿主给出（见 tui.rs 的 state_digest）。
+const renderCache = new Map();
+const RENDER_CACHE_LIMIT = 64;
+
+function cacheKey(kind, key, width, digest) {
+  return `${kind}|${key}|${width}|${digest}`;
+}
+
+function rememberRender(key, lines) {
+  if (renderCache.size >= RENDER_CACHE_LIMIT) {
+    const oldest = renderCache.keys().next();
+    if (!oldest.done) renderCache.delete(oldest.value);
+  }
+  renderCache.set(key, lines);
+}
 // `registerFlag` 注册的 flag（名 → {type, default}）与宿主解析好的实际值。
 const flagSpecs = new Map();
 let flagValues = {};
@@ -223,31 +245,41 @@ function contextForExtension() {
         if (typeof content === "function") {
           // 组件工厂：调用一次工厂，**只接受** `render()` 返回字符串数组的组件
           // （pi-remote-control 的 QR 就是这种形态）；其它形态显式报错，不静默降级。
+          widgetFactories.set(String(key ?? ""), content);
           const themeStub = makeThemeStub();
           const component = content({ requestRender() {} }, themeStub);
-          const rendered = component?.render?.();
+          // 宽度：ref 每帧用终端宽度渲染；注册时先按当前宽度渲染一次。
+          const rendered = component?.render?.(Number(hostCtx.width ?? 80));
           if (!Array.isArray(rendered)) {
             throw new Error("pi-ext-host: ctx.ui.setWidget 工厂返回的组件不支持 render() -> string[]");
           }
           return send("host.ui.setWidget", {
             key: String(key ?? ""),
             lines: rendered.map((line) => String(line)),
+            fromLines: false,
             ...(options?.placement ? { placement: String(options.placement) } : {}),
           });
         }
+        if (typeof content === "function") widgetFactories.set(String(key ?? ""), content);
+        else widgetFactories.delete(String(key ?? ""));
         return send("host.ui.setWidget", {
           key: String(key ?? ""),
           lines: Array.isArray(content) ? content.map((line) => String(line)) : null,
+          fromLines: Array.isArray(content),
           ...(options?.placement ? { placement: String(options.placement) } : {}),
         });
       },
       // ref `types.ts:189-193`：`setFooter(factory | undefined)`。工厂只接受
       // `render() -> string[]` 的组件（与 setWidget 同一降级口径）；`undefined` 恢复内置页脚。
       setFooter: (factory) => {
-        if (factory === undefined) return send("host.ui.setFooter", { lines: null });
+        if (factory === undefined) {
+          footerFactory = null;
+          return send("host.ui.setFooter", { lines: null });
+        }
         if (typeof factory !== "function") {
           throw new Error("pi-ext-host: ctx.ui.setFooter 只接受工厂函数或 undefined");
         }
+        footerFactory = factory;
         const component = factory({ requestRender() {} }, makeThemeStub(), footerDataStub());
         // 宽度：ref 的页脚每帧用**终端宽度**渲染（`footer.ts` 的 `render(width)`）。
         // 此前这里不传宽度 ⇒ 扩展里的 `truncateToWidth(x, undefined)` 把 cwd 截成 `...`、
@@ -450,6 +482,40 @@ async function dispatch(frame) {
           reason: String(error && error.message ? error.message : error),
         },
       });
+    }
+    return;
+  }
+  if (method === "ext.render.footer" || method === "ext.render.widget") {
+    // F38/K4：按宿主给的 `width` 与 `digest` 重跑组件 `render(width)`。
+    // 结果按 `(kind, key, width, digest)` 缓存（同一状态不重复跑）；超时/抛错由宿主兜底。
+    const kind = method === "ext.render.footer" ? "footer" : "widget";
+    const key = kind === "footer" ? "" : String(params?.key ?? "");
+    const width = Number(params?.width ?? 80) || 80;
+    const digest = String(params?.digest ?? "");
+    const cached = renderCache.get(cacheKey(kind, key, width, digest));
+    if (cached) {
+      respond(id, { lines: cached, cached: true });
+      return;
+    }
+    const factory = kind === "footer" ? footerFactory : widgetFactories.get(key);
+    if (typeof factory !== "function") {
+      respond(id, { lines: null });
+      return;
+    }
+    try {
+      const rendered =
+        kind === "footer"
+          ? factory({ requestRender() {} }, makeThemeStub(), footerDataStub())?.render?.(width)
+          : factory({ requestRender() {} }, makeThemeStub())?.render?.(width);
+      if (!Array.isArray(rendered)) {
+        respond(id, { lines: null, error: "render() did not return string[]" });
+        return;
+      }
+      const lines = rendered.map((line) => String(line));
+      rememberRender(cacheKey(kind, key, width, digest), lines);
+      respond(id, { lines });
+    } catch (error) {
+      respond(id, { lines: null, error: String(error?.message ?? error) });
     }
     return;
   }

@@ -32,6 +32,9 @@ pub enum UiFrame {
         lines: Option<Vec<String>>,
         /// `aboveEditor` / `belowEditor`（缺省 `aboveEditor`）。
         placement: String,
+        /// 是否来自**字符串数组**（ref 把每行包成 `new Text(line, 1, 0)` ⇒ 前导 1 列内边距）；
+        /// 组件工厂的行由组件自己排版，**不加**内边距（`interactive-mode.ts:2318-2333`）。
+        from_lines: bool,
     },
     /// `host.ui.setFooter`：`lines` 为 `None` 表示恢复内置页脚（ref `types.ts:189-193`）。
     SetFooter {
@@ -434,6 +437,38 @@ impl ExtHost {
     #[must_use]
     pub fn pid(&self) -> Option<u32> {
         self.pid
+    }
+
+    /// 按需重渲染扩展 UI（F38/K4）：`kind` 为 `footer` / `widget`。
+    ///
+    /// 超时 200ms（ref 的每帧渲染是同步的，宿主侧必须有上限）；超时/报错由调用方回落原生渲染。
+    pub async fn invoke_render_ui(
+        &mut self,
+        kind: &str,
+        key: &str,
+        width: usize,
+        digest: &str,
+    ) -> Result<Option<Vec<String>>, HostError> {
+        let method = if kind == "footer" {
+            "ext.render.footer"
+        } else {
+            "ext.render.widget"
+        };
+        let response = self
+            .call(
+                method,
+                json!({ "key": key, "width": width, "digest": digest }),
+                Duration::from_millis(200),
+            )
+            .await?;
+        Ok(response.get("lines").and_then(|lines| {
+            lines.as_array().map(|items| {
+                items
+                    .iter()
+                    .map(|item| item.as_str().unwrap_or_default().to_string())
+                    .collect()
+            })
+        }))
     }
 
     /// 调用扩展注册的命令（ref `agent-session.ts:1766-1789`）。
@@ -1021,6 +1056,13 @@ impl ExtHost {
                     .and_then(Value::as_str)
                     .unwrap_or("aboveEditor")
                     .to_string();
+                // ref `interactive-mode.ts:2318-2333`：字符串数组与组件工厂的排版不同，
+                // 由 runner 声明来源（`fromLines`），宿主据此决定是否补 1 列内边距。
+                let from_lines = incoming
+                    .params
+                    .get("fromLines")
+                    .and_then(Value::as_bool)
+                    .unwrap_or(false);
                 let _ = state
                     .lock()
                     .ok()
@@ -1031,6 +1073,7 @@ impl ExtHost {
                             key,
                             lines,
                             placement,
+                            from_lines,
                         })
                     });
                 encode_response(incoming.id, Ok(Value::Null))
