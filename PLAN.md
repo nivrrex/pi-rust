@@ -97,5 +97,9 @@
 - H2：扩展 ctx 补齐 `width` / `availableProviderCount` / `thinkingLevel` / **Model 对象**（ref `types.ts:327`），
   页脚 override 行按**可见宽度**截断并保留 ANSI ⇒ 底栏 `(provider) model • level` 与 TS 一致。
 - H6a：runner 对 socket RST/EPIPE 静默退出 0。
-- 未完成：H3（/todo 与 Todo 部件）、H4（渲染钩子按需取行）、H5（缓存命中用量）、H6b/H6c、H8 全量收口。
-- 发布包 `~/archives/publish-20261107g`（buildHead/publishCommit `403269b5`、publishTree `f29c4904`，未发布）。
+- H3：扩展 `setWidget` 行按 ref 加 1 列内边距（`new Text(line,1,0)`），belowEditor widget 与 TS 逐行一致；
+  合成夹具 `tools/difftest/fixtures/todo-widget-ext.ts`。
+- H5：底栏补 `R…/W…/CH…%`（ref `footer.ts:96-101/134-137`），会话累计读 `usage.cache_read/cache_write`；
+  新增 `T89i-usage-cache` golden（与 TS 逐字符一致）。
+- H4（渲染钩子按需取行）：**只有设计**（见 `notes/p9-f36/plan.md`），未实现；H6b/H6c 未单独验证。
+- 发布包 `~/archives/publish-20261107g`（buildHead/publishCommit `7db9c3b1`、publishTree `d03ba767`，未发布）。
