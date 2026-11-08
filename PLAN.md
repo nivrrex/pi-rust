@@ -146,3 +146,10 @@
   （`ExtHost::drop` 只 `start_kill`）。属已确认偏离，但夹具下无可观测 tty 后果 ⇒ N3 未实施。
 - N4：`[Context]` 改为单行紧凑列表（ref `formatCompactList(..., {sort:false})`），多文件行数与 TS 一致；
   新增 golden `T103-context-path`。
+
+## F41（HEAD 见 git）
+- 根因：扩展宿主的 stdout/stderr 继承 pty，Node 退出时 `uv_tty_reset_mode` 把 termios 写回 cooked
+  ⇒ shell 已设 raw 后又被改回，首个按键字面回显 `^[[A`。
+- 修法：宿主 stdio 全改管道（stdout/stderr 转发到宿主 stderr）+ 退出顺序对齐 ref
+  （等 `session_shutdown` → 等宿主退出 → 恢复终端）。用例 `p9_f41_host_no_tty` 改前 FAILED。
+- 退出耗时 55.8 → 55.9 ms（TS 60.3 ms）；golden T01/T05/T16/T90/T100/T103/T98/T89i/T96 全 same。

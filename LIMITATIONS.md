@@ -588,7 +588,7 @@ ref 的对应实现见 `interactive-mode.ts:2541`/`:2543`（`showExtensionNotify
     ref 里扩展与 TUI 同进程所以生效；我们扩展在独立 node 进程，补丁对 Rust 渲染零影响。
     需要对「宿主把工具行渲染委托给 runner」的通道（约 200–300 行，跨 runner/Rust/tui），未实施。
 
-15. **F39 未完成（缺项：M0 工具行委托、M1e 归因数量）**。
+15. **F40 未完成（缺项：N3）**；F41 已定位并修复该缺项的根因（见 17）。F39 未完成（缺项：M0 工具行委托、M1e 归因数量）。
     退出后 `^[[A`：`restore()` 的 drain idle 已对齐 ref `terminal.ts:384` 的 `idleMs=50`（原 150 ms），
     退出收尾从 161 ms 降到 60 ms；但**真机（二进制 `e62e986`）退出后立刻按上键仍出现 `^[[A`**，
     即该修改**不是主因**。drain 50 ms 保留。
@@ -600,3 +600,14 @@ ref 的对应实现见 `interactive-mode.ts:2541`/`:2543`（`showExtensionNotify
     投递到独立线程队列即返回（`ext_tools.rs:53-67`），不等处理器完成、也不等宿主退出；
     ref 是 `await emit(event)`（`core/extensions/runner.ts:254-263`，由
     `interactive-mode.ts:4170` 的 `runtimeHost.dispose()` 等待）。N3 因"未给明确机制"未实施。
+
+17. **`^[[A` 的根因与修复（F41）**：真机 strace 显示 pi-rs 恢复 cooked → 5.8 ms 后 pi-rs 退出 →
+    12.5 ms 后**宿主 node** 对 fd 1/2 各做一次 `TCSETS`（写回 `ICANON|ECHO`）→ 20.3 ms 后 node 退出。
+    根因：宿主 node 的 stdout/stderr **继承了 pty**（`crates/pi-ext-host/src/client.rs` 原为
+    `stdout(inherit)/stderr(inherit)`），Node/libuv 在进程退出时会对 tty 做 `uv_tty_reset_mode`
+    写回启动时保存的 cooked 模式；此刻 shell 早已把 tty 设为 raw ⇒ 用户首个按键被内核字面回显。
+    修法：①宿主 stdio 全改管道，stdout/stderr 由宿主转发到自身 stderr（日志不丢）；
+    ②退出顺序对齐 ref：等 `session_shutdown` 处理器（≤1s）→ 关宿主并等其退出（≤1s，超时按 PID kill）
+    → 再恢复终端。用例 `crates/pi-cli/tests/p9_f41_host_no_tty.rs`（改前 FAILED）。
+    影响面：扩展再也看不到 `process.stdout.isTTY`/`columns` 为真（已 grep 现有 10 个扩展，无依赖）；
+    Node 侧的 `console.log` 之类 stray stdout 会被转到 stderr 而非终端 stdout。
