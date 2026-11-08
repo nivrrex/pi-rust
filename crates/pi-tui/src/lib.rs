@@ -1676,10 +1676,14 @@ pub fn display_width(text: &str) -> usize {
 #[must_use]
 /// ref `utils.ts` 的 `cjkBreakRegex` 覆盖范围：CJK 汉字/假名/谚文与全角标点等。
 fn is_cjk_breakable(ch: char) -> bool {
+    // ref `utils.ts:789-812` 的 `cjkBreakRegex` **只覆盖脚本**：
+    // `\p{Script_Extensions=Han|Hiragana|Katakana|Hangul|Bopomofo}`。
+    // **全角标点（U+FF00–FFEF）与 CJK 符号标点（U+3000–303F）不在其中** ⇒ 它们
+    // 不单独成 token，而是并入相邻的 word token（`splitIntoTokensWithAnsi` 的 `word` 分支）。
+    // 此前把这些区间也算作断点，导致断点位置整体左/右移 1–2 格（真机 T2 的奇偶现象）。
     matches!(ch as u32,
         0x1100..=0x11FF      // 谚文字母
         | 0x2E80..=0x2EFF    // CJK 部首补充
-        | 0x3000..=0x303F    // CJK 符号与标点
         | 0x3040..=0x30FF    // 平假名 / 片假名
         | 0x3400..=0x4DBF    // CJK 扩展 A
         | 0x4E00..=0x9FFF    // CJK 统一表意
@@ -1687,7 +1691,6 @@ fn is_cjk_breakable(ch: char) -> bool {
         | 0xAC00..=0xD7AF    // 谚文音节
         | 0xF900..=0xFAFF    // CJK 兼容表意
         | 0xFE30..=0xFE4F    // CJK 兼容形式
-        | 0xFF00..=0xFFEF    // 全角字符
         | 0x20000..=0x2FA1F  // CJK 扩展 B+
     )
 }
@@ -1752,29 +1755,36 @@ pub fn wrap_markdown_line(line: &str, cols: usize) -> Vec<String> {
         || trimmed_start.starts_with("+ ")
         || (trimmed_start.starts_with(|ch: char| ch.is_ascii_digit())
             && trimmed_start.contains(". "));
-    // ref `markdown.ts:758-781`：列表项的**首行前缀**是
-    // `indent + listBullet(marker)`（marker 含 `- ` / `1. ` 与任务标记），
-    // **续行前缀**是 `indent + " ".repeat(visibleWidth(marker))` ⇒ 悬挂缩进到内容起始列。
-    // 此前列表续行只沿用行首的 1 个空格（`lead_all`），于是续行顶格到 ` ` —— 真机上
-    // CJK 长句折行后与首行明显不对齐（TS `    格。` vs 我们 ` 格。`）。
+    // ref `markdown.ts:758-785` 的列表渲染：
+    //   `firstPrefix = indent + listBullet(marker)`、`itemWidth = width - visibleWidth(firstPrefix)`、
+    //   `continuationPrefix = indent + " ".repeat(visibleWidth(marker))`；
+    //   正文先按 `itemWidth` 折行，再给每段加上对应前缀。
+    // 因此**列表行的折行宽度必须扣掉 marker**（`cols - 2 - marker`），
+    // 续行前缀是 marker 宽度的空格。此前统一按 `cols-2(+lead)` 折，列表行每行多塞 1–2 格，
+    // 全角标点被留在行尾、末尾宽字符被终端自动换行挤到最左（真机 T2）。
+    let marker_len = if is_list_like {
+        list_marker_len(&line[lead_all.len()..])
+    } else {
+        0
+    };
+    // 内容区宽度：`Markdown(..., paddingX=1)` 按 `cols - 2` 排版；
+    // 行首那 `lead_all` 个空格是 `paddingX` 之外的缩进（列表 indent），要加回来。
+    let content_width = cols.saturating_sub(2) + lead_all.len();
+    let wrap_width = cols.saturating_sub(2);
+    let mut segments = wrap_to_width(line, wrap_width + if is_list_like { 0 } else { lead_all.len() });
     let lead: String = if is_list_like {
-        // 首行的"正文起始列"= 行首缩进 + marker 宽度（marker 由 ` - ` / ` 1. ` 之类构成）。
-        let indent_len = lead_all.len();
-        let rest = &line[indent_len..];
-        let marker_len = list_marker_len(rest);
         format!("{}{}", lead_all, " ".repeat(marker_len))
     } else if line.starts_with(' ') {
         " ".to_string()
     } else {
         String::new()
     };
-    let wrap_width = cols.saturating_sub(2) + lead_all.len();
-    let mut segments = wrap_to_width(line, wrap_width);
     for (index, segment) in segments.iter_mut().enumerate() {
         if index > 0 && !segment.starts_with(lead.as_str()) {
             segment.insert_str(0, &lead);
         }
     }
+    let _ = trimmed_start;
     segments
 }
 
@@ -1785,73 +1795,95 @@ pub fn wrap_to_width(text: &str, width: usize) -> Vec<String> {
     if UnicodeWidthStr::width(text) <= width {
         return vec![text.to_string()];
     }
-    let mut out = Vec::new();
+    // ref `utils.ts:876-962` 的 `wrapSingleLine`：**按 token 折行**。
+    // token 切分照 `splitIntoTokensWithAnsi`：CJK 单字自成 token（`cjkBreakRegex`，
+    // `:789-812`）、连续空格为一个 space token、其余合成不可分的 word token。
+    // 判定是 `currentVisibleLength + tokenVisibleLength > width` ⇒ 恰好等于 width 允许。
+    let tokens = tokens_for_wrap(text);
+    let mut out: Vec<String> = Vec::new();
     let mut current = String::new();
     let mut used = 0usize;
-    let mut last_space: Option<(usize, usize)> = None; // (字节偏移, 宽度)
-    for ch in text.chars() {
-        let w = UnicodeWidthChar::width(ch).unwrap_or(0);
-        if used + w > width {
-            // 恰好填满后遇到**空格**时，这个空格就是换行点：直接断行并丢掉它，
-            // 不能回退到上一个空格（否则会白白少放一个词，见 T30 的描述折行差异）。
-            if ch == ' ' {
-                out.push(std::mem::take(&mut current));
+    for (kind, token) in tokens {
+        let token_width = UnicodeWidthStr::width(token.as_str());
+        if token_width > width && kind != TokenKind::Space {
+            if !current.is_empty() {
+                out.push(current.trim_end().to_string());
+                current.clear();
                 used = 0;
-                last_space = None;
-                continue;
             }
-            match last_space {
-                // `byte == 0` 表示这一行**以空格开头**（助手消息的 padding）；在它上面断行会
-                // 产出一个空行并丢掉前导空格（真实会话实测：段落首行变成空白行）。
-                Some((byte, _space_width)) if byte > 0 && !current.is_empty() => {
-                    let rest = current[byte..].to_string();
-                    current.truncate(byte);
-                    out.push(current.trim_end().to_string());
-                    current = rest.trim_start().to_string();
-                    used = UnicodeWidthStr::width(current.as_str());
-                    if used + w <= width {
-                        last_space = None;
-                        current.push(ch);
-                        used += w;
-                        continue;
-                    }
-                    out.push(std::mem::take(&mut current));
-                    used = 0;
-                    last_space = None;
-                    current.push(ch);
-                    used += w;
+            let mut chunk = String::new();
+            let mut chunk_width = 0usize;
+            for ch in token.chars() {
+                let w = UnicodeWidthChar::width(ch).unwrap_or(0);
+                if chunk_width + w > width && !chunk.is_empty() {
+                    out.push(std::mem::take(&mut chunk));
+                    chunk_width = 0;
                 }
-                other => {
-                    let _ = other;
-                    if !current.is_empty() {
-                        out.push(std::mem::take(&mut current));
-                    }
-                    used = 0;
-                    last_space = None;
-                    current.push(ch);
-                    used += w;
-                }
+                chunk.push(ch);
+                chunk_width += w;
             }
+            current = chunk;
+            used = chunk_width;
             continue;
         }
-        if ch == ' ' {
-            last_space = Some((current.len(), used));
+        if used + token_width > width && used > 0 {
+            out.push(current.trim_end().to_string());
+            current.clear();
+            used = 0;
+            if kind == TokenKind::Space {
+                continue;
+            }
         }
-        current.push(ch);
-        used += w;
-        // ref `utils.ts:789-812` 的 `cjkBreakRegex`：**CJK 字符本身就是断点**（可以逐字符折行），
-        // 只有拉丁词才作为整体不可分。此前我们只在空格处断行 ⇒ 中日韩段落每行都短一截
-        // （真实语料实测：TS 行宽 78、我们 61）。
-        if is_cjk_breakable(ch) {
-            last_space = Some((current.len(), used));
-        }
+        current.push_str(token.as_str());
+        used += token_width;
     }
     if !current.is_empty() {
-        out.push(current);
+        out.push(current.trim_end().to_string());
     }
     if out.is_empty() {
         out.push(String::new());
     }
+    out
+}
+
+/// token 种类（照 ref `splitIntoTokensWithAnsi` 的 `space` / `word`，CJK 单字符按 `word` 处理）。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum TokenKind {
+    /// 连续空格。
+    Space,
+    /// 不可分的词（含单个 CJK 字符）。
+    Word,
+}
+
+/// 把文本切成折行用的 token（ref `utils.ts:876-890` 的 `splitIntoTokensWithAnsi`）。
+fn tokens_for_wrap(text: &str) -> Vec<(TokenKind, String)> {
+    let mut out: Vec<(TokenKind, String)> = Vec::new();
+    let mut word = String::new();
+    let flush = |word: &mut String, out: &mut Vec<(TokenKind, String)>| {
+        if !word.is_empty() {
+            out.push((TokenKind::Word, std::mem::take(word)));
+        }
+    };
+    for ch in text.chars() {
+        if ch == ' ' {
+            flush(&mut word, &mut out);
+            match out.last_mut() {
+                Some((TokenKind::Space, existing)) => existing.push(ch),
+                _ => out.push((TokenKind::Space, ch.to_string())),
+            }
+            continue;
+        }
+        if is_cjk_breakable(ch) {
+            // ref `splitIntoTokensWithAnsi`：CJK 字符自成 token；但**非 CJK 字符**
+            //（含全角标点 `（）；：` 等，它们的 Script 是 Common，不在 `cjkBreakRegex` 里）
+            // 会并入当前 word token。因此 `）后续` 是 word `）` + CJK `后` + `续`…
+            flush(&mut word, &mut out);
+            out.push((TokenKind::Word, ch.to_string()));
+            continue;
+        }
+        word.push(ch);
+    }
+    flush(&mut word, &mut out);
     out
 }
 
