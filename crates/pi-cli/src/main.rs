@@ -1482,6 +1482,12 @@ fn build_tui_agent_parts(
                 writer.set_chain(pi_cli::ext_tools::session_chain());
                 pi_cli::ext_tools::set_session_file(writer.path());
                 pi_cli::ext_tools::set_session_id(writer.session_id());
+                // F44/S2：恢复路径**不写 system 条目** ⇒ `append_system_message` 里那次
+                // `flush_pending_session_start()` 永远不执行，扩展收不到 `session_start`。
+                // 结果是 `-c` 后 `[Extensions]` 段与 Todo 部件都缺失（真机现象；
+                // `pi-handoff-gate` 正是在 `session_start` 里 `reconstructTodo` + `setWidget`）。
+                // 这里显式 flush（幂等）：宿主已在 `default_tools` 里启动，只差派发。
+                pi_cli::ext_tools::flush_pending_session_start();
                 Some(std::sync::Arc::new(std::sync::Mutex::new(writer)))
             }
             Err(error) => {

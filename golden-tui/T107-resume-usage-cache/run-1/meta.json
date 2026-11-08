@@ -1,0 +1,18 @@
+{
+  "id": "T107-resume-usage-cache",
+  "cols": 100,
+  "rows": 34,
+  "helperExit": 0,
+  "exitCode": 0,
+  "stderr": "",
+  "mockStderr": "",
+  "requestLog": "/tmp/s2h-pi-ts/requests.jsonl",
+  "snapshotOffsets": [
+    {
+      "name": "after",
+      "offset": 4381,
+      "t": 92119.951051201
+    }
+  ],
+  "sessionDir": "/tmp/s2h-pi-ts/session"
+}

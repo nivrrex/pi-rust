@@ -465,6 +465,9 @@ fn refresh_model_window(
             } else {
                 None
             },
+            cache_read: state.usage_cache_read,
+            cache_write: state.usage_cache_write,
+            cache_hit_rate: state.usage_cache_hit_rate,
         },
     );
 }
@@ -1232,9 +1235,11 @@ pub fn run(
         state.transcript.extend(transcript_from_messages(&initial));
     }
     // `-c` 续写：footer 的用量/费用要**接着会话累计**（T61 golden：`↑200 ↓40 $0.000`）。
+    // F44/S2：恢复路径改用**带缓存字段**的累加器（此前用 `settings_selector::session_usage`，
+    // 它只有 input/output/cost ⇒ `-c` 后底栏缺 `R`/`W`/`CH`）。
     let resumed_usage = parts.as_ref().and_then(|parts| {
         let path = parts.resumed_path.as_ref()?;
-        crate::settings_selector::session_usage(path).ok()
+        Some(crate::session_writer::session_usage_totals(path))
     });
     // 最近一条 assistant 的 `calculateContextTokens(usage)`（含 cache；**不是**历史累加）。
     let last_assistant_input = initial
@@ -1374,6 +1379,9 @@ pub fn run(
                     } else {
                         Some(totals.cost)
                     },
+                    cache_read: totals.cache_read,
+                    cache_write: totals.cache_write,
+                    cache_hit_rate: totals.cache_hit_rate,
                 },
             );
         }
@@ -2458,6 +2466,9 @@ pub fn run(
                                                         },
                                                         auto: true,
                                                         cost: None,
+                                                        cache_read: 0,
+                                                        cache_write: 0,
+                                                        cache_hit_rate: None,
                                                     });
                                                 }
                                             });
@@ -2547,6 +2558,9 @@ pub fn run(
                                                 window,
                                                 auto: true,
                                                 cost: None,
+                                                cache_read: 0,
+                                                cache_write: 0,
+                                                cache_hit_rate: None,
                                             },
                                         );
                                     }
@@ -2603,9 +2617,11 @@ pub fn run(
                                         // `↑10 ↓2 $0.000 …`：输入/输出/费用都来自会话里的 assistant 消息）。
                                         if let Some(parts) = parts.as_ref() {
                                             let window_tokens = context_window_of(parts);
-                                            if let Ok(totals) =
-                                                crate::settings_selector::session_usage(&path)
                                             {
+                                                let totals =
+                                                    crate::session_writer::session_usage_totals(
+                                                        &path,
+                                                    );
                                                 let _ = apply(
                                                     &mut state,
                                                     TuiEvent::Usage {
@@ -2622,6 +2638,9 @@ pub fn run(
                                                         } else {
                                                             Some(totals.cost)
                                                         },
+                                                        cache_read: totals.cache_read,
+                                                        cache_write: totals.cache_write,
+                                                        cache_hit_rate: totals.cache_hit_rate,
                                                     },
                                                 );
                                             }
@@ -3714,6 +3733,9 @@ pub fn run(
                                         window,
                                         auto: true,
                                         cost: None,
+                                        cache_read: 0,
+                                        cache_write: 0,
+                                        cache_hit_rate: None,
                                     });
                                 }
                                 let _ = bash_tx.send(pi_tui::TuiEvent::BashDone {
@@ -5107,6 +5129,22 @@ impl pi_core::agent::EventSink for TuiEventSink {
                         window,
                         auto: true,
                         cost: None,
+                        cache_read: assistant.usage.cache_read,
+                        cache_write: assistant.usage.cache_write,
+                        cache_hit_rate: pi_ai::calculate_context_tokens(&assistant.usage)
+                            .checked_div(
+                                assistant.usage.input
+                                    + assistant.usage.cache_read
+                                    + assistant.usage.cache_write,
+                            )
+                            .map(|_| {
+                                assistant.usage.cache_read as f64
+                                    / (assistant.usage.input
+                                        + assistant.usage.cache_read
+                                        + assistant.usage.cache_write)
+                                        .max(1) as f64
+                                    * 100.0
+                            }),
                     })
                 }
                 other => {

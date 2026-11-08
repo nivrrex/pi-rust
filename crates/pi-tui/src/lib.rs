@@ -539,6 +539,13 @@ pub enum TuiEvent {
         /// 累计费用（美元）。`None` = 不显示（实时运行时的 usage 事件不带费用，
         /// 只有 resume/continue 从会话里累加出来时才带）。
         cost: Option<f64>,
+        /// 累计缓存读/写（F44/S2）：`R`/`W`/`CH` 三段。
+        /// 恢复会话时由 `session_writer::session_usage_totals` 提供；实时回合由 `UsageTotals` 提供。
+        cache_read: u64,
+        /// 累计缓存写。
+        cache_write: u64,
+        /// 缓存命中率百分比（ref `footer.ts:96-101`）。
+        cache_hit_rate: Option<f64>,
     },
     /// agent loop：是否正在运行（golden 里对应 `Working` 行）。
     Working(bool),
@@ -972,7 +979,17 @@ pub fn apply(state: &mut TuiState, event: TuiEvent) -> TuiAction {
             window,
             auto,
             cost,
+            cache_read,
+            cache_write,
+            cache_hit_rate,
         } => {
+            // F44/S2：恢复会话时也要带上缓存用量（此前恢复路径只累加 input/output/cost，
+            // 于是底栏缺 `R`/`W`/`CH` —— 真机 `-c` 后的现象）。
+            if cache_read > 0 || cache_write > 0 {
+                state.usage_cache_read = cache_read;
+                state.usage_cache_write = cache_write;
+                state.usage_cache_hit_rate = cache_hit_rate;
+            }
             // footer 的用量口径（实测对齐，见 T45/T70）：
             // - 有 usage 的一轮 ⇒ **替换**为这一轮的值（ref 的 `usageTotals` 在该场景等于本轮值）；
             // - 没有 usage 的一轮（失败/中止）⇒ **保留**已有值，不能被清零。
@@ -996,6 +1013,19 @@ pub fn apply(state: &mut TuiState, event: TuiEvent) -> TuiAction {
             }
             if state.usage_output > 0 {
                 parts.push(format!("↓{}", format_tokens(state.usage_output)));
+            }
+            // F44/S2：恢复会话时也要显示 `R`/`W`/`CH`（ref `footer.ts:134-137`）。
+            // 此前只有 `UsageTotals` 分支拼这三段，恢复路径走的是 `Usage` 事件 ⇒ `-c` 后缺它们。
+            if state.usage_cache_read > 0 {
+                parts.push(format!("R{}", format_tokens(state.usage_cache_read)));
+            }
+            if state.usage_cache_write > 0 {
+                parts.push(format!("W{}", format_tokens(state.usage_cache_write)));
+            }
+            if state.usage_cache_read > 0 || state.usage_cache_write > 0 {
+                if let Some(rate) = state.usage_cache_hit_rate {
+                    parts.push(format!("CH{rate:.1}%"));
+                }
             }
             // 照 `footer.ts:132-135/150-155`：`↑n ↓n x%/Nk (auto)`；无用量时只有百分比段。
             let percent_text = match percent {
@@ -4800,6 +4830,9 @@ mod markdown_tests {
                 window: "128k".to_string(),
                 auto: true,
                 cost: None,
+                cache_read: 0,
+                cache_write: 0,
+                cache_hit_rate: None,
             },
         );
         assert_eq!(state.status, "↑10 ↓2 0.0%/128k (auto)");
@@ -4812,6 +4845,9 @@ mod markdown_tests {
                 window: "128k".to_string(),
                 auto: false,
                 cost: None,
+                cache_read: 0,
+                cache_write: 0,
+                cache_hit_rate: None,
             },
         );
         // 随后一条 usage=0 的消息（`-c` 后新起一轮失败）**不得**把已有用量清零。
