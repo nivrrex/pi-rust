@@ -1869,7 +1869,9 @@ fn tokens_for_wrap(text: &str) -> Vec<(TokenKind, String)> {
             flush(&mut word, &mut out);
             match out.last_mut() {
                 Some((TokenKind::Space, existing)) => existing.push(ch),
-                _ => out.push((TokenKind::Space, ch.to_string())),
+                Some((TokenKind::Word, _)) | None => {
+                    out.push((TokenKind::Space, ch.to_string()));
+                }
             }
             continue;
         }
