@@ -113,8 +113,12 @@ impl TerminalGuard {
         // （`startup_bytes` 里 push flags=5，位2 关闭），这里保留 F3 的 drain 作为**兜底**：
         // 若终端仍上报事件（非合规终端，或不理 flags 的终端），150 ms 后仍会照原路径退出。
         // 取舍与偏离登记见 `notes/decisions.md`「F4/S4 改：选方案 B」。
+        // F39/M2：idle 窗口此前是 **150 ms**（F3 当时的"兜底"取值），比 ref 的 50 ms 宽 3 倍 ⇒
+        // 进程从"最后一次写 tty"到真正返回要 160 ms（TS 40 ms，实测时间线）。
+        // 这段时间里 tty 仍是 raw：用户退出后立刻按下的键会**排队等待**，返回后才被 shell 读走。
+        // 按 ref `terminal.ts:384` 的 `drainInput(maxMs = 1000, idleMs = 50)` 改回 50 ms。
         if kitty_was_active() {
-            drain_pending_input(1000, 150);
+            drain_pending_input(1000, 50);
         } else {
             std::thread::sleep(std::time::Duration::from_millis(30));
         }
