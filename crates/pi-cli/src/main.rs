@@ -1516,9 +1516,11 @@ fn build_tui_agent_parts(
     } else {
         None
     };
-    let initial_messages: Vec<pi_ai::message::Message> = resumed_path
+    let resumed_file = resumed_path
         .as_ref()
-        .and_then(|path| pi_core::session_io::SessionFile::read(path).ok())
+        .and_then(|path| pi_core::session_io::SessionFile::read(path).ok());
+    let initial_messages: Vec<pi_ai::message::Message> = resumed_file
+        .as_ref()
         .map(|file| {
             file.entries
                 .iter()
@@ -1534,6 +1536,32 @@ fn build_tui_agent_parts(
                 .collect()
         })
         .unwrap_or_default();
+    // F47/W2：恢复会话时扩展可见的 `ctx.getContextUsage()` 必须来自**会话历史**。
+    // ref `core/agent-session.ts:3858-3895`：`getContextUsage()` 用
+    // `estimateProjectedContextTokens(projection, branch)` 算 tokens，再除 `contextWindow`
+    // —— 它是**从会话分支重算**的，不是进程内计数。pi-rs 的恢复分支此前只写了 `ctx.model`
+    // （F46），`ctx.usage` 停在启动占位 `{tokens:0, percent:0.0}` ⇒ 扩展页脚 `0.0%`（真机）。
+    // 口径与原生页脚/压缩判定同一处：最后一条**未中止/未失败** assistant 的
+    // `calculateContextTokens(usage)`（`compaction.ts:170-183`）。
+    let resumed_context_tokens: Option<u64> = resumed_file.as_ref().and_then(|file| {
+        file.entries.iter().rev().find_map(|entry| match entry {
+            pi_core::session::SessionEntry::Message {
+                message: pi_ai::message::Message::Assistant(assistant),
+                ..
+            } => {
+                let usable = !matches!(
+                    assistant.stop_reason,
+                    pi_ai::StopReason::Aborted | pi_ai::StopReason::Error
+                );
+                let tokens = pi_ai::calculate_context_tokens(&assistant.usage);
+                (usable && tokens > 0).then_some(tokens)
+            }
+            other => {
+                let _ = other;
+                None
+            }
+        })
+    });
     let writer = if parsed.no_session {
         None
     } else if let Some(path) = resumed_path.as_ref() {
@@ -1555,6 +1583,28 @@ fn build_tui_agent_parts(
                     resolved.reasoning,
                     resolved.context_window,
                 );
+                // F47/W2：**用量与 provider 计数同样要在恢复分支补齐**（新建会话分支早已设过）。
+                // 缺 usage ⇒ 扩展页脚 `0.0%/197k`；缺 providerCount ⇒ 右侧缺 `(provider)` 前缀
+                // （ref `footer.ts:193-200`、`interactive-mode.ts:5091-5099` 的
+                // `uniqueProviders.size`）。
+                if resolved.context_window > 0 {
+                    match resumed_context_tokens {
+                        Some(tokens) => {
+                            let percent = tokens as f64 / resolved.context_window as f64 * 100.0;
+                            pi_cli::ext_tools::update_ctx_usage(
+                                Some(tokens),
+                                resolved.context_window,
+                                Some(percent),
+                            );
+                        }
+                        None => pi_cli::ext_tools::update_ctx_usage(
+                            Some(0),
+                            resolved.context_window,
+                            Some(0.0),
+                        ),
+                    }
+                }
+                pi_cli::ext_tools::set_ctx_available_providers(models_config.providers.len());
                 // F44/S2：恢复路径**不写 system 条目** ⇒ `append_system_message` 里那次
                 // `flush_pending_session_start()` 永远不执行，扩展收不到 `session_start`。
                 // 结果是 `-c` 后 `[Extensions]` 段与 Todo 部件都缺失（真机现象；
@@ -1586,7 +1636,12 @@ fn build_tui_agent_parts(
             .unwrap_or_else(|| if resolved.reasoning { "medium" } else { "off" }.to_string());
         pi_cli::ext_tools::update_ctx_model(None, Some(initial_level.as_str()));
         // 可用 provider 数（页脚右侧是否加 `(provider)` 前缀，ref `footer.ts:193-200`）。
-        pi_cli::ext_tools::set_ctx_available_providers(models_config.providers.len());
+        // **只数有凭据的 provider**（ref `interactive-mode.ts:5091-5099` 取可用模型快照的
+        // provider 去重数，见 `runtime::available_provider_count`）。
+        pi_cli::ext_tools::set_ctx_available_providers(pi_cli::runtime::available_provider_count(
+            &models_config,
+            &paths.agent_dir,
+        ));
 
         // F26/S0：**必须先建 writer 并登记路径，再调用 `default_tools`**——后者会启动扩展宿主并
         // 派发 `session_start`，扩展在这个事件里 `appendEntry` 时若路径未登记，sink 会阻塞等 10s，
@@ -1757,8 +1812,23 @@ fn build_tui_agent_parts(
         cwd: cwd.to_string_lossy().to_string(),
         session_dir: paths.session_dir.clone(),
         available_models,
+        // 页脚 `(provider)` 前缀只数**有凭据**的 provider（ref `interactive-mode.ts:5091-5099`
+        // 取可用模型快照的 provider 去重数；没凭据的 provider 不进快照）。
         provider_names: {
-            let mut names: Vec<String> = models_config.providers.keys().cloned().collect();
+            let auth_text =
+                std::fs::read_to_string(paths.agent_dir.join("auth.json")).unwrap_or_default();
+            let mut names: Vec<String> = models_config
+                .providers
+                .iter()
+                .filter(|(name, provider)| {
+                    provider
+                        .get("apiKey")
+                        .and_then(|value| value.as_str())
+                        .is_some_and(|key| !key.trim().is_empty())
+                        || pi_cli::runtime::auth_json_api_key(&auth_text, name).is_some()
+                })
+                .map(|(name, _)| name.clone())
+                .collect();
             names.sort();
             names
         },

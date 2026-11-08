@@ -227,6 +227,34 @@ fn stored_api_key(provider: &str) -> Option<String> {
     auth_json_api_key(&text, provider)
 }
 
+/// 页脚右侧 `(provider)` 前缀用的**可用 provider 数**。
+///
+/// ref `interactive-mode.ts:5091-5099` 的 `updateAvailableProviderCount()` 取的是
+/// 模型运行时快照里 **可用**（有凭据）模型的 provider 去重数，不是 `models.json` 的
+/// provider 条目数：没有凭据的 provider 不进快照。此前 pi-rs 直接用
+/// `models_config.providers.len()` ⇒ 多算了没凭据的 provider ⇒ 本应显示 `auto` 时
+/// 多出 `(mw-auto)`（T108 golden 是真机同源的 `auto`；实测该环境下未配置凭据的
+/// provider 在 TS 侧被丢弃并打 `No models match pattern` 警告）。
+#[must_use]
+pub fn available_provider_count(
+    config: &pi_ai::config::ModelsConfig,
+    agent_dir: &std::path::Path,
+) -> usize {
+    let auth_text = std::fs::read_to_string(agent_dir.join("auth.json")).unwrap_or_default();
+    config
+        .providers
+        .iter()
+        .filter(|(name, provider)| {
+            // `providers.<id>.apiKey`（ref `core/model-config.ts:232`）或 `auth.json` 里的条目。
+            provider
+                .get("apiKey")
+                .and_then(|value| value.as_str())
+                .is_some_and(|key| !key.trim().is_empty())
+                || auth_json_api_key(&auth_text, name).is_some()
+        })
+        .count()
+}
+
 /// `/login` 的 provider 候选：`models.json` 里配置过的 ∪ 内置目录里的（去重、按名排序）。
 ///
 /// ref 遍历的是**运行时 registry**（含内置 provider），所以零配置的新机器也能 `/login`。
