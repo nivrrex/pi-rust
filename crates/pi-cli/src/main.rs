@@ -196,6 +196,11 @@ fn main() -> ExitCode {
                 cwd.to_string_lossy().to_string(),
                 "0.0%/0 (auto)",
             );
+            // F44/S4：页脚 cwd 的家目录缩写要用到它（ref `footer.ts:115-121` 的
+            // `formatDisplayPath`）。此前 `home` 被解析出来却**从未写进 state** ⇒
+            // 页脚永远显示完整路径（真机：TS `~\Desktop\OA-Mails`、我们显示全路径）。
+            // `home_from` 已按 `HOME` → `USERPROFILE`（Windows）→ 其它回落解析。
+            state.home = Some(home.clone());
             // `/login` 的 provider 列表必须在没有可用模型（parts=None）时也可用，
             // 故直接写到 state 上（`run()` 里若 parts 存在会用同一份覆盖，等价）。
             state.agent_dir = paths.agent_dir.clone();

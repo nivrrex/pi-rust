@@ -4744,13 +4744,24 @@ fn draw(
             }
         }
     }
+    // F44/S3：启动标题只写一次（见下方 pending_title 分支）。
+    static TITLE_WRITTEN: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+    let mut title_written = TITLE_WRITTEN.load(std::sync::atomic::Ordering::SeqCst);
+    let _ = &mut title_written;
     // W3：与 TS 一致，把整屏重绘包在**同步更新**序列里（`\x1b[?2026h` … `\x1b[?2026l`）。
     // 作用：① 终端不会显示半张画面；② 录制的原始流因此有**帧边界**，比较时才能把截断点
     // 回退到完整帧的结尾（见 notes/reports/P7-4c-trim-diag.md 与 notes/decisions.md）。
-    // 扩展 `ctx.ui.setTitle`（ref `types.ts:199`）：在帧内写 OSC 2 设置终端标题。
+    // 扩展 `ctx.ui.setTitle`（ref `types.ts:199`）与**启动时的默认标题**
+    // （ref `interactive-mode.ts:1065-1073`）：在帧内写 OSC 0。
+    // 启动默认标题只在首帧写一次（`title_written` 闸门），之后由扩展调用覆盖。
     if let Some(title) = state.pending_title.borrow_mut().take() {
         buffer.push_str(&title_osc(&title));
+        title_written = true;
+    } else if !title_written {
+        buffer.push_str(&title_osc(&startup_title(&state.cwd)));
+        title_written = true;
     }
+    TITLE_WRITTEN.store(title_written, std::sync::atomic::Ordering::SeqCst);
     let payload = buffer; // r3：`diff_render` 已自带同步区，不能再包一层
     let build_ms = build_ms.get();
     let diff_ms = started.elapsed().as_millis();
@@ -4886,12 +4897,27 @@ fn compose_overlay(lines: &mut Vec<String>, overlay: &[String], cols: usize, row
     }
 }
 
+/// 启动时设置终端标题（ref `interactive-mode.ts:1065-1073` + `terminal.ts:520-523`）。
+///
+/// 格式：`${APP_TITLE} - ${cwdBasename}`；有会话名时再插入 ` - ${sessionName}`。
+/// `APP_TITLE` 在无 `piConfigName` 时是 `π`（ref `config.ts:503`），与 golden 里的
+/// `\x1b]0;π - work\x07` 一致。
+fn startup_title(cwd: &str) -> String {
+    let base = std::path::Path::new(cwd)
+        .file_name()
+        .map(|name| name.to_string_lossy().to_string())
+        .unwrap_or_else(|| cwd.to_string());
+    format!("π - {base}")
+}
+
 fn title_osc(title: &str) -> String {
     let safe: String = title
         .chars()
         .filter(|ch| !matches!(ch, '\u{7}' | '\u{1b}') && !ch.is_control())
         .collect();
-    format!("\u{1b}]2;{safe}\u{7}")
+    // ref `terminal.ts:520-523`：`process.stdout.write("\x1b]0;" + title + "\x07")` —— **OSC 0**
+    // （同时设图标名与窗口标题）。此前用 OSC 2，Windows 的 conhost/部分终端只认 0。
+    format!("\u{1b}]0;{safe}\u{7}")
 }
 
 fn write_frame(out: &mut impl std::io::Write, payload: &str) -> std::io::Result<()> {
@@ -7858,12 +7884,13 @@ mod login_panel_window_tests {
 mod title_osc_tests {
     use super::title_osc;
 
-    /// ref `types.ts:199` 的 `setTitle`：`ESC ]2;<title>BEL`，并过滤 ESC/BEL 防注入。
+    /// ref `terminal.ts:520-523` 的 `setTitle`：`ESC ]0;<title>BEL`（**OSC 0**，
+    /// 同时设图标名与窗口标题；此前用 OSC 2，Windows 的 conhost 不认），并过滤 ESC/BEL 防注入。
     #[test]
     fn title_osc_bytes_and_filtering() {
-        assert_eq!(title_osc("pi - demo"), "\u{1b}]2;pi - demo\u{7}");
-        assert_eq!(title_osc("a\u{1b}]0;evil\u{7}b"), "\u{1b}]2;a]0;evilb\u{7}");
-        assert_eq!(title_osc("x\u{9}y"), "\u{1b}]2;xy\u{7}");
+        assert_eq!(title_osc("pi - demo"), "\u{1b}]0;pi - demo\u{7}");
+        assert_eq!(title_osc("a\u{1b}]0;evil\u{7}b"), "\u{1b}]0;a]0;evilb\u{7}");
+        assert_eq!(title_osc("x\u{9}y"), "\u{1b}]0;xy\u{7}");
     }
 }
 
