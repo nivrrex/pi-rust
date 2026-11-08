@@ -229,6 +229,11 @@ function contextForExtension() {
       return hostCtx.usage ?? undefined;
     },
     ui: {
+      // ref `types.ts:276-282`：`ctx.ui.theme` 是**当前主题对象**（扩展用它上色，
+      // 例如 `pi-handoff-gate` 的 Todo 面板：`ctx.ui.theme.fg(role, text)`）。
+      // 缺失时扩展抛 `Cannot read properties of undefined`，被自身的 try/catch 吞掉 ⇒
+      // 面板静默不显示（F39/M0 实测：TS 有 Todo 面板、pi-rs 完全没有）。
+      theme: makeThemeStub(),
       // ref `types.ts:284` / `interactive-mode.ts:2585`：工具输出是否展开。
       getToolsExpanded: () => hostCtx.toolsExpanded === true,
       setToolsExpanded: (expanded) =>
