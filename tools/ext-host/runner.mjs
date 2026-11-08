@@ -943,12 +943,86 @@ function footerDataStub() {
   };
 }
 
+// ref `theme/theme.ts:154-235` 的 256 色量化（`rgbTo256`）：终端不支持真彩时，
+// theme 把 `#rrggbb` 换成 xterm-256 索引（`\x1b[38;5;Nm`），而不是继续发真彩。
+// 扩展的 `ctx.ui.theme.fg(...)` 走同一份 theme，所以 TUI 里扩展面板的颜色也必须降级，
+// 否则同一面板在 TS 是 `i143`、在我们这里是真彩（F45/T4：`✓ 全部完成` 偏黄绿）。
+// ref `theme/theme.ts:125-199` 的**精确**实现（CUBE_VALUES / GRAY_VALUES / 加权距离 /
+// 「spread < 10 才考虑灰阶」）。照抄而不是自创近似：近似会把 `#b5bd68` 算成 i247，
+// 而 ref 给 i143（真机 T4 的 `✓ 全部完成` 颜色差）。
+const CUBE_VALUES = [0, 95, 135, 175, 215, 255];
+const GRAY_VALUES = Array.from({ length: 24 }, (_, i) => 8 + i * 10);
+
+function findClosestCubeIndex(value) {
+  let minDist = Infinity;
+  let minIdx = 0;
+  for (let i = 0; i < CUBE_VALUES.length; i += 1) {
+    const dist = Math.abs(value - CUBE_VALUES[i]);
+    if (dist < minDist) {
+      minDist = dist;
+      minIdx = i;
+    }
+  }
+  return minIdx;
+}
+
+function findClosestGrayIndex(gray) {
+  let minDist = Infinity;
+  let minIdx = 0;
+  for (let i = 0; i < GRAY_VALUES.length; i += 1) {
+    const dist = Math.abs(gray - GRAY_VALUES[i]);
+    if (dist < minDist) {
+      minDist = dist;
+      minIdx = i;
+    }
+  }
+  return minIdx;
+}
+
+function colorDistance(r1, g1, b1, r2, g2, b2) {
+  const dr = r1 - r2;
+  const dg = g1 - g2;
+  const db = b1 - b2;
+  return dr * dr * 0.299 + dg * dg * 0.587 + db * db * 0.114;
+}
+
+function rgbTo256(r, g, b) {
+  const rIdx = findClosestCubeIndex(r);
+  const gIdx = findClosestCubeIndex(g);
+  const bIdx = findClosestCubeIndex(b);
+  const cubeIndex = 16 + 36 * rIdx + 6 * gIdx + bIdx;
+  const cubeDist = colorDistance(r, g, b, CUBE_VALUES[rIdx], CUBE_VALUES[gIdx], CUBE_VALUES[bIdx]);
+
+  const gray = Math.round(0.299 * r + 0.587 * g + 0.114 * b);
+  const grayIdx = findClosestGrayIndex(gray);
+  const grayValue = GRAY_VALUES[grayIdx];
+  const grayIndex = 232 + grayIdx;
+  const grayDist = colorDistance(r, g, b, grayValue, grayValue, grayValue);
+
+  const spread = Math.max(r, g, b) - Math.min(r, g, b);
+  if (spread < 10 && grayDist < cubeDist) {
+    return grayIndex;
+  }
+  return cubeIndex;
+}
+
+/** 真彩 SGR → 256 色 SGR（`38;2;r;g;b` → `38;5;N`，背景同理）。 */
+function degradeTo256(ansi) {
+  return ansi
+    .replace(/\u001b\[38;2;(\d+);(\d+);(\d+)m/g, (_, r, g, b) => `\u001b[38;5;${rgbTo256(Number(r), Number(g), Number(b))}m`)
+    .replace(/\u001b\[48;2;(\d+);(\d+);(\d+)m/g, (_, r, g, b) => `\u001b[48;5;${rgbTo256(Number(r), Number(g), Number(b))}m`);
+}
+
 function makeThemeStub() {
+  // `hostCtx.trueColor` 由宿主按 ref `terminal-image.ts:73-74` 的能力判定传入；
+  // 缺省按**支持**处理（下面的判定失败时退回真彩，保持既有行为）。
+  const trueColor = hostCtx.trueColor !== false;
   return {
     fg: (color, text) => {
       const ansi = shimTheme.FG_COLORS[color];
       if (!ansi) throw new Error(`Unknown theme color: ${color}`);
-      return `${ansi}${String(text ?? "")}${shimTheme.RESET_FG}`;
+      const painted = trueColor ? ansi : degradeTo256(ansi);
+      return `${painted}${String(text ?? "")}${shimTheme.RESET_FG}`;
     },
     bg: (_color, text) => String(text ?? ""),
     bold: (text) => String(text ?? ""),

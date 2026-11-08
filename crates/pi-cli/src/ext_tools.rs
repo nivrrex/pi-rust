@@ -79,6 +79,9 @@ pub fn configure_ctx(cwd: &std::path::Path, mode: &str, has_ui: bool) {
             "cwd": cwd.display().to_string(),
             "mode": mode,
             "hasUI": has_ui,
+            // ref `terminal-image.ts:73-74` 的真彩能力提示；扩展的 `theme.fg` 据此决定
+            // 走真彩还是 256 色（F45/T4）。
+            "trueColor": pi_tui::style::truecolor_supported(),
             "model": serde_json::Value::Null,
             "thinkingLevel": serde_json::Value::Null,
         }))
@@ -88,6 +91,7 @@ pub fn configure_ctx(cwd: &std::path::Path, mode: &str, has_ui: bool) {
         guard["cwd"] = serde_json::Value::String(cwd.display().to_string());
         guard["mode"] = serde_json::Value::String(mode.to_string());
         guard["hasUI"] = serde_json::Value::Bool(has_ui);
+        guard["trueColor"] = serde_json::Value::Bool(pi_tui::style::truecolor_supported());
     }
     push_ctx();
 }

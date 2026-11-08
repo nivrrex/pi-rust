@@ -1381,14 +1381,18 @@ fn build_tui_agent_parts(
             let mut found: Option<(String, String)> = None;
             for entry in &file.entries {
                 match entry {
-                    pi_core::session::SessionEntry::ModelChange { provider, model_id, .. } => {
+                    pi_core::session::SessionEntry::ModelChange {
+                        provider, model_id, ..
+                    } => {
                         found = Some((provider.clone(), model_id.clone()));
                     }
-                    pi_core::session::SessionEntry::Message { message, .. } => {
-                        if let pi_ai::message::Message::Assistant(assistant) = message {
-                            found = Some((assistant.provider.clone(), assistant.model.clone()));
-                        }
+                    pi_core::session::SessionEntry::Message {
+                        message: pi_ai::message::Message::Assistant(assistant),
+                        ..
+                    } => {
+                        found = Some((assistant.provider.clone(), assistant.model.clone()));
                     }
+                    pi_core::session::SessionEntry::Message { .. } => {}
                     _other => {}
                 }
             }

@@ -1767,11 +1767,12 @@ pub fn wrap_markdown_line(line: &str, cols: usize) -> Vec<String> {
     } else {
         0
     };
-    // 内容区宽度：`Markdown(..., paddingX=1)` 按 `cols - 2` 排版；
-    // 行首那 `lead_all` 个空格是 `paddingX` 之外的缩进（列表 indent），要加回来。
-    let content_width = cols.saturating_sub(2) + lead_all.len();
-    let wrap_width = cols.saturating_sub(2);
-    let mut segments = wrap_to_width(line, wrap_width + if is_list_like { 0 } else { lead_all.len() });
+    // 可用宽（实测对齐 TS）：`cols - 2` 是 `Markdown(..., paddingX=1)` 的内容区，
+    // 行首 `lead_all` 个空格属于**缩进**、要加回来。列表项的 marker 已包含在该行文本里，
+    // 但 ref 的 `itemWidth` 是「内容区 − marker」后再拼回 marker ⇒ 两者相抵，不再额外扣减。
+    let wrap_width = cols.saturating_sub(2).saturating_add(lead_all.len());
+    let _ = marker_len;
+    let mut segments = wrap_to_width(line, wrap_width);
     let lead: String = if is_list_like {
         format!("{}{}", lead_all, " ".repeat(marker_len))
     } else if line.starts_with(' ') {
@@ -1809,7 +1810,6 @@ pub fn wrap_to_width(text: &str, width: usize) -> Vec<String> {
             if !current.is_empty() {
                 out.push(current.trim_end().to_string());
                 current.clear();
-                used = 0;
             }
             let mut chunk = String::new();
             let mut chunk_width = 0usize;
