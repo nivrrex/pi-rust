@@ -1359,7 +1359,45 @@ fn build_tui_agent_parts(
     let settings = load_settings(paths)?;
     // F20：把 settings.json 的 `shellPath` 交给 bash 工具（ref `settings-manager.ts:1010`）。
     pi_core::tools::shell_resolve::set_shell_path(settings.shell_path.as_deref());
-    let (provider_name, model_id) = match resolve_startup_model(parsed, &settings, paths) {
+    // F45/T3：**恢复会话时优先用会话里记录的模型**。ref `core/session-manager.ts:418-434`
+    // 的 `getSessionContextSettings()`：沿分支取**最后一个** `model_change`，或最后一条
+    // assistant 消息的 `message.provider/model`（两者取更晚者）。
+    // 此前 pi-rs 的恢复分支完全不读它 ⇒ 底栏右侧退回 settings 的模型（真机 `no-model`/
+    // 错误模型），而 `getContextUsage()` 依赖 `state.model.contextWindow`，占比也随之变 0.0%。
+    let resumed_model: Option<(String, String)> = parsed
+        .session
+        .as_deref()
+        .map(std::path::PathBuf::from)
+        .or_else(|| {
+            (parsed.continue_session || parsed.resume).then(|| {
+                pi_cli::session_writer::newest_session_file(
+                    &paths.session_dir,
+                    continue_cwd_filter(paths, cwd),
+                )
+            })?
+        })
+        .and_then(|path| pi_core::session_io::SessionFile::read(&path).ok())
+        .and_then(|file| {
+            let mut found: Option<(String, String)> = None;
+            for entry in &file.entries {
+                match entry {
+                    pi_core::session::SessionEntry::ModelChange { provider, model_id, .. } => {
+                        found = Some((provider.clone(), model_id.clone()));
+                    }
+                    pi_core::session::SessionEntry::Message { message, .. } => {
+                        if let pi_ai::message::Message::Assistant(assistant) = message {
+                            found = Some((assistant.provider.clone(), assistant.model.clone()));
+                        }
+                    }
+                    _other => {}
+                }
+            }
+            found
+        });
+    let (provider_name, model_id) = match resumed_model
+        .map(Ok)
+        .unwrap_or_else(|| resolve_startup_model(parsed, &settings, paths))
+    {
         Ok(pair) => pair,
         Err(error) => {
             // ref 允许 `model === undefined` 进入交互模式（footer 显示 `no-model`），
