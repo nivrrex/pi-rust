@@ -1748,6 +1748,13 @@ fn list_marker_len(rest: &str) -> usize {
 }
 
 pub fn wrap_markdown_line(line: &str, cols: usize) -> Vec<String> {
+    // ref `markdown.ts:758-790` 的列表渲染结构，逐步照做：
+    //   `firstPrefix = indent + listBullet(marker)`（本实现的行里已含它，行首另有 1 列 padding）
+    //   `itemWidth   = availableWidth - visibleWidth(firstPrefix)`
+    //   `continuationPrefix = indent + " ".repeat(visibleWidth(marker))`
+    //   **正文先按 itemWidth 折行，再给每一段拼回对应前缀**。
+    // 直接对整行折行会让「续行前缀 + 正文」超出 `cols`，终端自己换行把行尾字符挤到
+    // 下一行最左（真机 Windows 135 列下的列表项溢出）；扣太多又会比 TS 提前断行。
     let lead_all: String = line.chars().take_while(|ch| *ch == ' ').collect();
     let trimmed_start = line.trim_start();
     let is_list_like = trimmed_start.starts_with("- ")
@@ -1755,38 +1762,31 @@ pub fn wrap_markdown_line(line: &str, cols: usize) -> Vec<String> {
         || trimmed_start.starts_with("+ ")
         || (trimmed_start.starts_with(|ch: char| ch.is_ascii_digit())
             && trimmed_start.contains(". "));
-    // ref `markdown.ts:758-785` 的列表渲染：
-    //   `firstPrefix = indent + listBullet(marker)`、`itemWidth = width - visibleWidth(firstPrefix)`、
-    //   `continuationPrefix = indent + " ".repeat(visibleWidth(marker))`；
-    //   正文先按 `itemWidth` 折行，再给每段加上对应前缀。
-    // 因此**列表行的折行宽度必须扣掉 marker**（`cols - 2 - marker`），
-    // 续行前缀是 marker 宽度的空格。此前统一按 `cols-2(+lead)` 折，列表行每行多塞 1–2 格，
-    // 全角标点被留在行尾、末尾宽字符被终端自动换行挤到最左（真机 T2）。
-    let marker_len = if is_list_like {
-        list_marker_len(&line[lead_all.len()..])
-    } else {
-        0
-    };
-    // 可用宽（实测对齐 TS）：`cols - 2` 是 `Markdown(..., paddingX=1)` 的内容区，
-    // 行首 `lead_all` 个空格属于**缩进**、要加回来。列表项的 marker 已包含在该行文本里，
-    // 但 ref 的 `itemWidth` 是「内容区 − marker」后再拼回 marker ⇒ 两者相抵，不再额外扣减。
-    let wrap_width = cols.saturating_sub(2).saturating_add(lead_all.len());
-    let _ = marker_len;
-    let mut segments = wrap_to_width(line, wrap_width);
-    let lead: String = if is_list_like {
-        format!("{}{}", lead_all, " ".repeat(marker_len))
-    } else if line.starts_with(' ') {
-        " ".to_string()
-    } else {
-        String::new()
-    };
-    for (index, segment) in segments.iter_mut().enumerate() {
-        if index > 0 && !segment.starts_with(lead.as_str()) {
-            segment.insert_str(0, &lead);
-        }
+    // 内容区宽（`Markdown(..., paddingX=1)` ⇒ `cols - 2`）。
+    let content_width = cols.saturating_sub(2);
+    if !is_list_like {
+        let width = content_width.saturating_add(lead_all.len());
+        return wrap_to_width(line, width);
     }
-    let _ = trimmed_start;
-    segments
+    let marker_len = list_marker_len(&line[lead_all.len()..]);
+    // 首行前缀（已在 `line` 里）：`lead_all + marker`；续行前缀等宽空格。
+    let body_start = lead_all.len() + marker_len;
+    let body = line.get(body_start..).unwrap_or_default();
+    let item_width = content_width.saturating_sub(marker_len).max(1);
+    // 首行前缀保持原样（`" 1. "`），续行用等宽空格（ref 的 `continuationPrefix`）。
+    let first_prefix = line.get(..body_start).unwrap_or_default().to_string();
+    let continuation = format!("{}{}", lead_all, " ".repeat(marker_len));
+    wrap_to_width(body, item_width)
+        .into_iter()
+        .enumerate()
+        .map(|(index, segment)| {
+            if index == 0 {
+                format!("{first_prefix}{segment}")
+            } else {
+                format!("{continuation}{segment}")
+            }
+        })
+        .collect()
 }
 
 pub fn wrap_to_width(text: &str, width: usize) -> Vec<String> {

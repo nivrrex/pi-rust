@@ -60,3 +60,21 @@
   runner 在 `fg()` 里按需把 `38;2;r;g;b` 量化成 `38;5;N`（照抄 ref 的 `rgbTo256`，
   自创近似会算成 i247）。
 - 改后：`i143` 与 TS **完全一致**；golden `T109-todo-alldone` 入库（`same`）。
+
+## T2 补（真机复测"没啥变化"后的二轮修复）
+- 用户反馈：装了 `acfaf6f` 后 Windows 135 列下仍溢出。`md-diff` 在 120–140 列都是 0，
+  说明**问题不在 markdown 断点**，而在「渲染出的行宽超过列数」。
+- 新用例 `crates/pi-tui/tests/t_width_cap.rs`：对一条与真机同构的合成长句
+  （`【】（）；、%/` 数字 英文 粗体 行内代码 + `1. ` 前缀）断言
+  `render_all()` 的**每一行** `visible_width <= cols`（80/90/100/110/120/125/130/133/135/140）。
+  **改前 FAILED**：`cols=80 第 3 行宽 82 超出`。
+- 根因：`wrap_markdown_line` 是对**整行**（已含 `" 1. "` 前缀）折行、再给续行**插入**前缀 ⇒
+  `续行前缀 + 正文` 超出行宽。ref 的顺序相反：先按 `itemWidth` 折正文，再给**每一段**拼前缀
+  （`markdown.ts:758-790`：`firstPrefix` / `continuationPrefix` / `itemWidth`）。
+- 修法（照 ref 顺序重写 `wrap_markdown_line`）：
+  列表行拆成 `first_prefix`（原样）+ `body`，`itemWidth = (cols-2) - marker`，
+  正文按 `itemWidth` 折行后，首行拼 `first_prefix`、续行拼等宽空格。
+  非列表行保持 `cols-2+lead`。
+- 结果：`t_width_cap` 通过；`md-diff --ignore-blank` 在 **78/79/80/81/82/90/100/110/120/130/135/140/160**
+  全部宽度下 `list-after-para` 与 `list-hang` 均 `different=0`（此前 80/81 等奇偶宽度会差 1 格）。
+- golden 全 same：T89e/f/g/h、T106、T76、T05、T01。
