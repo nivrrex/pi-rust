@@ -446,7 +446,8 @@ impl ExtHost {
                             match $pipe.read(&mut buffer).await {
                                 Ok(0) | Err(_) => break,
                                 Ok(count) => {
-                                    let text = String::from_utf8_lossy(&buffer[..count]).to_string();
+                                    let text =
+                                        String::from_utf8_lossy(&buffer[..count]).to_string();
                                     match target.as_deref() {
                                         Some(path) => append_log(path, &text),
                                         None => eprint!("{text}"),

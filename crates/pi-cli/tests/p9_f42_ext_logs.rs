@@ -142,9 +142,6 @@ fn extension_logs_do_not_pollute_the_tui_screen() {
         "stderr-after-300ms",
         "stdout-after-300ms",
     ] {
-        assert!(
-            log.contains(marker),
-            "扩展日志丢了 `{marker}`：{log:?}"
-        );
+        assert!(log.contains(marker), "扩展日志丢了 `{marker}`：{log:?}");
     }
 }

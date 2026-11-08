@@ -35,8 +35,8 @@ fn options(node: &std::path::Path) -> HostOptions {
         extensions: vec![repo_root().join("tools/ext-host/fixtures/echo-ext.mjs")],
         cwd: repo_root(),
         env: Vec::new(),
+        log_path: None,
     }
-    log_path: None,
 }
 
 /// 进程是否还在（僵尸也算"在"：`/proc/<pid>` 存在即算没退出）。

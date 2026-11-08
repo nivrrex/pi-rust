@@ -42,8 +42,8 @@ fn options(node: &str) -> HostOptions {
         extensions: vec![fixture()],
         cwd: repo_root(),
         env: Vec::new(),
+        log_path: None,
     }
-    log_path: None,
 }
 
 /// 正常路径：注册两个工具、调用回显、调用抛错工具。

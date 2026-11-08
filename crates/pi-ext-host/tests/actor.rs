@@ -35,8 +35,8 @@ fn options(node: &std::path::Path) -> HostOptions {
         extensions: vec![repo_root().join("tools/ext-host/fixtures/echo-ext.mjs")],
         cwd: repo_root(),
         env: Vec::new(),
+        log_path: None,
     }
-    log_path: None,
 }
 
 /// 同步调用（调用线程没有 tokio 运行时）。
