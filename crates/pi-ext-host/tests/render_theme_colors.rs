@@ -32,6 +32,7 @@ fn unknown_theme_color_falls_back_to_unsupported() {
         cwd: repo_root(),
         env: Vec::new(),
         log_path: None,
+        log_sink: None,
     })
     .expect("宿主应能启动");
     let frame = host

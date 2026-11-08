@@ -32,6 +32,7 @@ fn set_footer_lines_reach_the_host() {
         cwd: repo_root(),
         env: Vec::new(),
         log_path: None,
+        log_sink: None,
     })
     .expect("宿主应能启动");
     let (tx, rx) = std::sync::mpsc::channel();

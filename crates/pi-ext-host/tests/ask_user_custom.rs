@@ -43,6 +43,7 @@ fn ask_user_runs_through_custom_panel() {
             agent_dir.display().to_string(),
         )],
         log_path: None,
+        log_sink: None,
     })
     .expect("宿主应能启动");
     let (tx, rx) = std::sync::mpsc::channel();

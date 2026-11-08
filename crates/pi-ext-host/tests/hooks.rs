@@ -35,6 +35,7 @@ async fn host_with(fixture: &str) -> Option<ExtHost> {
         cwd: repo_root(),
         env: Vec::new(),
         log_path: None,
+        log_sink: None,
     };
     Some(ExtHost::start(options).await.expect("宿主应能启动"))
 }

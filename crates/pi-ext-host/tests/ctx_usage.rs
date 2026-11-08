@@ -34,6 +34,7 @@ fn context_usage_reaches_the_extension() {
         cwd: repo_root(),
         env: vec![("PI_EXT_TEST_LOG".to_string(), log.display().to_string())],
         log_path: None,
+        log_sink: None,
     })
     .expect("宿主应能启动");
     host.set_ctx(serde_json::json!({

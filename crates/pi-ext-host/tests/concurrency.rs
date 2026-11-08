@@ -34,6 +34,7 @@ fn start() -> Option<HostHandle> {
             cwd: repo_root(),
             env: Vec::new(),
             log_path: None,
+            log_sink: None,
         })
         .expect("宿主应能启动"),
     )

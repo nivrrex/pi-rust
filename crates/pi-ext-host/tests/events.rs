@@ -33,6 +33,7 @@ async fn start(node: &std::path::Path, log: &std::path::Path) -> ExtHost {
         cwd: repo_root(),
         env: vec![("PI_EXT_TEST_LOG".to_string(), log.display().to_string())],
         log_path: None,
+        log_sink: None,
     };
     ExtHost::start(options).await.expect("宿主应能启动")
 }

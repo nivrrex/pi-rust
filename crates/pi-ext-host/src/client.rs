@@ -133,6 +133,10 @@ pub struct HostOptions {
     pub cwd: PathBuf,
     /// 额外的环境变量（例如 `PI_CODING_AGENT_DIR`）。
     pub env: Vec<(String, String)>,
+    /// 本实例的内存日志缓冲（F44/S0）：宿主把每一行同时存入它，退出时只输出这里的内容。
+    ///
+    /// `None` = 非 TUI 模式（日志直接写宿主 stderr，不需要缓冲）。
+    pub log_sink: Option<std::sync::Arc<crate::logbuf::LogBuffer>>,
     /// 子进程 stdout/stderr 的转发去向（F42/Q2）。
     ///
     /// `None` = 直接写宿主自己的 stderr（print/rpc 等非 TUI 模式）；
@@ -343,7 +347,12 @@ pub struct ExtHost {
 ///
 /// 用追加而不是覆盖：一个会话里宿主只启动一次，但 `/reload` 等路径可能再次启动；
 /// 追加能保住历史。写失败时退回 stderr（宁可脏画面，也不静默丢日志）。
-fn append_log(path: &std::path::Path, text: &str) {
+/// 追加**一整行**到日志文件（`O_APPEND` + 单次 `write_all`）。
+///
+/// F44/S0：多实例并发写同一文件时，按整行一次写可避免半行交错（`O_APPEND` 保证
+/// 每次 write 落在文件末尾且不被拆分穿插；行长超过 PIPE_BUF 的极端情形仍可能与另一次
+/// 写入交错，登记为已知限制）。
+fn append_line(path: &std::path::Path, line: &str) {
     use std::io::Write;
     if let Some(parent) = path.parent() {
         let _ = std::fs::create_dir_all(parent);
@@ -354,9 +363,9 @@ fn append_log(path: &std::path::Path, text: &str) {
         .open(path);
     match opened {
         Ok(mut file) => {
-            let _ = file.write_all(text.as_bytes());
+            let _ = file.write_all(line.as_bytes());
         }
-        Err(_) => eprint!("{text}"),
+        Err(_) => eprint!("{line}"),
     }
 }
 
@@ -430,13 +439,44 @@ impl ExtHost {
         // F42/Q2：**TUI 模式下不能写宿主 stderr** —— 那会把扩展日志（`[remote-control] …`）
         // 直接打进画面，穿插在 `[Extensions]` 段与分隔线之间。此时改写到 `log_path`
         // （`<agentDir>/extensions.log`），由调用方在退出时一次性输出。
+        // F44/S0：两条转发任务把行送进**同一个 mpsc 通道**，由单一写任务串行处理：
+        //   ①按整行 `O_APPEND` 追加写日志文件（多实例并发时不会半行交错）；
+        //   ②同时把同一行存进本实例的内存缓冲，供退出时只输出自己的日志。
+        // 串行化的必要性：此前两条任务各自 `append_log`，行与行之间可能交错；
+        // 而且退出时按"文件偏移"取增量会把别的实例写进来的行一并带出。
         let log_target = options.log_path.clone();
+        let (line_tx, line_rx) = tokio::sync::mpsc::unbounded_channel::<String>();
+        if let Some(path) = log_target.clone() {
+            let sink = options.log_sink.clone();
+            tokio::spawn(async move {
+                let mut rx = line_rx;
+                let mut pending = String::new();
+                while let Some(chunk) = rx.recv().await {
+                    pending.push_str(&chunk);
+                    // 按**整行**落盘：只有看到换行才写，避免把半行推给并发读者。
+                    while let Some(index) = pending.find('\n') {
+                        let line: String = pending.drain(..=index).collect();
+                        append_line(&path, &line);
+                        if let Some(sink) = sink.as_ref() {
+                            sink.push(&line);
+                        }
+                    }
+                }
+                if !pending.is_empty() {
+                    append_line(&path, &pending);
+                    if let Some(sink) = sink.as_ref() {
+                        sink.push(&pending);
+                    }
+                }
+            });
+        }
         for (label, stream) in [
             ("stderr", child.stderr.take().map(StreamKind::Err)),
             ("stdout", child.stdout.take().map(StreamKind::Out)),
         ] {
             let Some(stream) = stream else { continue };
             let target = log_target.clone();
+            let line_tx = line_tx.clone();
             tokio::spawn(async move {
                 use tokio::io::AsyncReadExt;
                 let mut buffer = [0u8; 4096];
@@ -449,7 +489,11 @@ impl ExtHost {
                                     let text =
                                         String::from_utf8_lossy(&buffer[..count]).to_string();
                                     match target.as_deref() {
-                                        Some(path) => append_log(path, &text),
+                                        Some(_path) => {
+                                            if line_tx.send(text).is_err() {
+                                                break;
+                                            }
+                                        }
                                         None => eprint!("{text}"),
                                     }
                                 }
@@ -464,6 +508,7 @@ impl ExtHost {
                 let _ = label;
             });
         }
+        drop(line_tx);
         // 3) 等子进程连上（超时后杀掉，避免留下孤儿）。
         let accept = tokio::time::timeout(Duration::from_millis(10_000), listener.accept()).await;
         let stream: TcpStream = match accept {

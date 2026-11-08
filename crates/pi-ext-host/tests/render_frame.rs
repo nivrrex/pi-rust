@@ -33,6 +33,7 @@ fn render_hooks_serialize_to_frames() {
         cwd: repo_root(),
         env: Vec::new(),
         log_path: None,
+        log_sink: None,
     })
     .expect("宿主应能启动");
 

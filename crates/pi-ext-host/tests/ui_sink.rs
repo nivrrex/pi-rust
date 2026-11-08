@@ -32,6 +32,7 @@ fn notify_and_status_reach_the_sink() {
         cwd: repo_root(),
         env: Vec::new(),
         log_path: None,
+        log_sink: None,
     })
     .expect("宿主应能启动");
     let (tx, rx) = std::sync::mpsc::channel();

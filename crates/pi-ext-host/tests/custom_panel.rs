@@ -34,6 +34,7 @@ fn custom_panel_opens_accepts_keys_and_returns_done() {
         cwd: repo_root(),
         env: vec![("PI_EXT_TEST_LOG".to_string(), log.display().to_string())],
         log_path: None,
+        log_sink: None,
     })
     .expect("宿主应能启动");
     let (tx, rx) = std::sync::mpsc::channel();

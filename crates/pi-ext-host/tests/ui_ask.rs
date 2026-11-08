@@ -36,6 +36,7 @@ fn ui_asks_roundtrip_through_the_frontend() {
         cwd: repo_root(),
         env: vec![("PI_EXT_TEST_LOG".to_string(), log.display().to_string())],
         log_path: None,
+        log_sink: None,
     })
     .expect("宿主应能启动");
     // 扩展只有在 `ctx.hasUI` 为真时才会走面板（ref `runner.ts:320-325` 的 noOpUIContext）。

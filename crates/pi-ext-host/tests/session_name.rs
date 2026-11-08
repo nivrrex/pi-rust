@@ -34,6 +34,7 @@ fn session_name_is_undefined_without_naming_support() {
         cwd: repo_root(),
         env: vec![("PI_EXT_TEST_LOG".to_string(), log.display().to_string())],
         log_path: None,
+        log_sink: None,
     })
     .expect("宿主应能启动");
     host.emit(

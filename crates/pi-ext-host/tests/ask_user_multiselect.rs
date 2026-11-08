@@ -40,6 +40,7 @@ fn harness() -> Option<(HostHandle, std::sync::mpsc::Receiver<UiFrame>)> {
             agent_dir.display().to_string(),
         )],
         log_path: None,
+        log_sink: None,
     })
     .ok()?;
     let (tx, rx) = std::sync::mpsc::channel();

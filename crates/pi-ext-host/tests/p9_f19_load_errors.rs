@@ -69,6 +69,7 @@ async fn broken_extensions_report_load_errors_and_good_one_still_loads() {
             agent.display().to_string(),
         )],
         log_path: None,
+        log_sink: None,
     })
     .expect("宿主应能启动");
 

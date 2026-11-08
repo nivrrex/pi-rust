@@ -51,6 +51,7 @@ async fn main() {
         cwd: std::env::current_dir().unwrap_or_else(|_| PathBuf::from(".")),
         env: Vec::new(),
         log_path: None,
+        log_sink: None,
     };
     let mut host = match pi_ext_host::ExtHost::start(options).await {
         Ok(host) => host,

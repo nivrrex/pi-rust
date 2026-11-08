@@ -40,6 +40,7 @@ fn options(node: &std::path::Path) -> HostOptions {
         cwd: repo_root(),
         env: Vec::new(),
         log_path: None,
+        log_sink: None,
     }
 }
 

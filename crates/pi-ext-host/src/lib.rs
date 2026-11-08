@@ -9,6 +9,7 @@
 pub mod actor;
 pub mod client;
 pub mod handshake;
+pub mod logbuf;
 pub mod protocol;
 pub mod tool;
 

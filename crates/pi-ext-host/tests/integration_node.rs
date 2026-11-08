@@ -43,6 +43,7 @@ fn options(node: &str) -> HostOptions {
         cwd: repo_root(),
         env: Vec::new(),
         log_path: None,
+        log_sink: None,
     }
 }
 

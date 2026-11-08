@@ -74,6 +74,7 @@ fn matrix_over_real_extensions() {
             agent_dir.display().to_string(),
         )],
         log_path: None,
+        log_sink: None,
     })
     .expect("宿主应能启动（9 个真实扩展）");
 
