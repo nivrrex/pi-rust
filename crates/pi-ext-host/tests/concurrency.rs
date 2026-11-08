@@ -128,6 +128,7 @@ fn no_pending_requests_left_after_invoke_returns() {
         cwd: repo_root(),
         env: Vec::new(),
         log_path: None,
+        log_sink: None,
     })
     .expect("宿主应能启动");
     let (tx, rx) = std::sync::mpsc::channel();
@@ -181,6 +182,7 @@ fn custom_input_started_before_invoke_is_delivered() {
         cwd: repo_root(),
         env: Vec::new(),
         log_path: None,
+        log_sink: None,
     })
     .expect("宿主应能启动");
     let (tx, rx) = std::sync::mpsc::channel();
