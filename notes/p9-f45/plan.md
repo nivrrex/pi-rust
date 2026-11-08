@@ -78,3 +78,18 @@
 - 结果：`t_width_cap` 通过；`md-diff --ignore-blank` 在 **78/79/80/81/82/90/100/110/120/130/135/140/160**
   全部宽度下 `list-after-para` 与 `list-hang` 均 `different=0`（此前 80/81 等奇偶宽度会差 1 格）。
 - golden 全 same：T89e/f/g/h、T106、T76、T05、T01。
+
+## T3/T4 在 Windows 截图里"没变化"的核查
+- 二进制核对：`--version` 报 `commit acfaf6f`，而 T3（`4fab837`）与 T4（`d14cf6f` 的
+  `runner.mjs` +76 行、`ctx.trueColor`）**都在 `acfaf6f` 之前**，即该二进制包含两者。
+- 但截图仍是 `no-model` + `0.0%` + 黄绿的 Todo ⇒ 只能是**那次运行的会话里没有任何
+  `model_change` 且 assistant 消息也没带 `provider/model`**（T3 会回落到 settings），
+  或者截图是旧进程。
+- 补测：构造「无 `model_change`、只有 assistant 带 `provider/model`」的会话（更接近真实）：
+  TS 与 pi-rs 都正确显示 `auto` / 上下文占比一致；差别只剩 provider 前缀
+  （`(mw-auto)` 仅当可用 provider > 1，属既有 `availableProviderCount` 行为、与本批无关）。
+- T4 的另一层：**Windows 下 `truecolor` 恒为 true**（ref `terminal-image.ts:127-130`：
+  `isWindowsConsole` ⇒ `trueColor: true`），所以 Windows 上「按能力降级到 256 色」不会触发，
+  Todo 会以真彩 `#b5bd68` 显示。而参考截图（TS）里是 i143 —— 说明 **TS 那次跑在非 Windows**
+  或 `COLORTERM` 未设的环境。两者色值视觉接近（143=(175,175,95) vs (181,189,104)），
+  差异属"真彩 vs 256 色降级"，不是逻辑错误；Windows 真机两侧应一致。
