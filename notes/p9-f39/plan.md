@@ -21,8 +21,35 @@
       - 结果：T98 逐格差异 **11 → 1 行**（剩余 1 行为夹具路径不同，非样式差异）；
         T99 **6 → 2 行**（1 行同路径差异，1 行 `pi v…` 行的 dim 属性）。
       - 既有 golden 无回归：T01/T05/T90/T100/T91/T92/T89f 全 same。
-- [ ] M2 退出后首个按键字面回显 `^[[A`
-- [ ] M3 收口
+- [x] M2 退出后首个按键字面回显 `^[[A`（时间线取证 + 收尾窗口修复）
+      - 夹具 `tools/difftest/exit-timeline.py`：同一 pty 上先跑被测程序，返回时刻为 t=0，
+        记录最后写 tty 时刻、`/proc/*/cmdline` 里的 `runner.mjs` 存活（每 25 ms）、
+        termios 快照（t=0 以及 shell 设 raw 后 0–500 ms 每 10 ms）、以及"不改 termios 时写入 `ESC[A`"
+        是否被字面回显。
+      - 时间线（abbrev）：
+        | 指标 | TS | pi-rs 改前 | pi-rs 改后 |
+        | --- | --- | --- | --- |
+        | 最后一次写 tty → 进程返回 | 40.2 ms | **161.1 ms** | **60.3 ms** |
+        | 退出时 termios | cooked（echo/icanon/isig/iexten 全开） | 同 | 同 |
+        | `runner.mjs` 在 500 ms 内存活 | 无 | 无 | 无 |
+        | 不改 termios 时写 `ESC[A` | `^[[A`（字面回显） | `^[[A` | `^[[A` |
+        | shell 设 raw 后 500 ms 内被改回 | 否 | 否 | 否 |
+      - 结论：**候选②成立**——`restore()` 的 drain idle 窗口是 **150 ms**（F3 时代的兜底值），
+        是 ref `terminal.ts:384` `drainInput(maxMs=1000, idleMs=50)` 的 3 倍；这段时间 tty **仍是 raw**，
+        用户退出后立刻按的键会在队列里等，返回后被 shell 读走/回显。宿主晚退出（候选①）不存在
+        （两侧都没有 `runner.mjs` 残留）；应答残留（候选③）两侧一致且为零。
+      - 修法：idle 150 → 50 ms（`crates/pi-cli/src/tui.rs:121`）。
+      - 新测 `crates/pi-cli/tests/p9_f39_exit_timeline.rs`：改前 FAILED（gap 160.7 ms），改后连跑 3 次通过；
+        另断言"退出后 500 ms 内无 `runner.mjs` 存活""shell 设 raw 后 termios 不被改回"。
+      - 既有 golden 无回归：T01/T05/T90/T89i/T100 全 same。
+- [x] M3 收口（不做发布包）
+      - L2 全量：workspace **1082 passed / 0 failed**；clippy 0；`lint-banned` OK；
+        precommit **11/11**；regress **dark 100/0/22**、**light 23/0/1**；
+        privacy-scan 干净（`tmp/realcfg` 已删）；readonly 一致；check-orphans 0；
+        `git status` 仅 `?? AGENTS.md`。
+      - 连带修正：`p9_f3_kitty_release.rs` 的两个用例原先钉 60/120 ms —— 那是 F3 时代
+        idle 放宽到 150 ms 的产物。按 ref 收回 50 ms 后改为 40/45 ms（窗口内仍被吃掉，
+        窗口外泄漏是 **ref 的既有行为**，不是本实现引入）。
 
 ## M0 补报 F38（K3b 真实 pi-handoff-gate）——**F38 未做，本批补做**
 - 夹具：`scenarios-tui/T101-real-hg-todo.json`，扩展内容为 `~/.pi/agent/extensions/{pi-handoff-gate,pi-ai-summary}`

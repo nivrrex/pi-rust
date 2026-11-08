@@ -57,14 +57,20 @@ fn kitty_release_after_exit_does_not_leak_to_the_shell() {
     assert_no_fragment(&run_helper(600, false));
 }
 
-/// 非合规终端（不加区分地发抬起事件）：F3 的兜底 drain 仍要吃掉 60 ms 的迟到抬起。
+/// 非合规终端（不加区分地发抬起事件）：兜底 drain 要吃掉 **idle 窗口内**的迟到抬起。
+///
+/// F39/M2：这里原先钉的是 60 ms / 120 ms —— 那是 F3 时代把 idle 放宽到 150 ms 的产物。
+/// ref `terminal.ts:384` 是 `drainInput(maxMs = 1000, idleMs = 50)`，150 ms 让"退出后 tty 仍归
+/// pi-rs 所有"的窗口变成 TS 的 4 倍（实测 161 ms vs 40 ms），用户退出后立刻按的键被排队、
+/// 返回后由 shell 回显成 `^[[A`。按 ref 收回 50 ms 后，**窗口外**（>50 ms）的迟到抬起会
+/// 与 ref 一样泄漏——这是 ref 的既有行为，不是本实现引入的回归。
 #[test]
 fn hostile_terminal_is_covered_by_the_fallback_drain() {
-    assert_no_fragment(&run_helper(60, true));
+    assert_no_fragment(&run_helper(40, true));
 }
 
-/// 空闲窗口的下界钉在这里：200 ms 的迟到抬起必须仍被吃掉（窗口从 150 提到 250 之后）。
+/// 窗口内（< 50 ms）的迟到抬起必须被吃掉。
 #[test]
 fn late_release_within_the_idle_window_is_still_drained() {
-    assert_no_fragment(&run_helper(120, true));
+    assert_no_fragment(&run_helper(45, true));
 }
