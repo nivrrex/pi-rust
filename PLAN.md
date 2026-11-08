@@ -125,3 +125,15 @@
 - 收口数字（cargo clean 后全量）：workspace **1081/0**、clippy 0、precommit **11/11**、
   regress **dark 98/0/21**、**light 23/0/1**、privacy-scan 干净、readonly 一致、check-orphans 0。
 - 发布包 `~/archives/publish-20261107i`（buildHead/publishCommit `12c8e73e`、publishTree `498dcc9f`，未发布）。
+
+## F39 收口（HEAD a075a5cc）
+- M0：**F38 的 K3b/K4 真实扩展对拍当时未做，本批补做**。真实 `pi-handoff-gate` 副本：Todo 部件
+  原先完全缺失，根因是 runner 的 `ctx.ui` 缺 `theme`（ref `types.ts:276-282`），扩展 `ctx.ui.theme.fg()`
+  抛错被自身 try/catch 吞掉；补齐后与 TS 一致。真实 `pi-ai-summary` 的工具行/thinking 行是
+  **原型补丁**（改 `ToolExecutionComponent.prototype.render`），跨进程架构下不生效 —— 需单列批次。
+- M1：启动屏 `[Skills]`/`[Extensions]` 与提示行的"着色后折行"对齐 TS（非末行补齐整宽、span 覆盖
+  前导空格、键位续行 muted、`pi v…` 行 dim）；逐格差异 T98 11→1、T99 6→2（剩余为夹具路径差异）。
+- M2：`restore()` 的 drain idle 150→50 ms（ref `terminal.ts:384`），退出收尾 161→60 ms；
+  新增 `tools/difftest/exit-timeline.py` 与 `p9_f39_exit_timeline.rs`（改前 gap 160.7 ms FAILED）。
+- M3：workspace **1082/0**、clippy 0、precommit **11/11**、regress **dark 100/0/22**、**light 23/0/1**、
+  privacy 干净、readonly 一致、orphans 0；**本批不出发布包**。
