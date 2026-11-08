@@ -1810,6 +1810,35 @@ fn push_dim_wrapped(
     }
 }
 
+/// 与 [`push_compact_list`] 相同，但**保持传入顺序**（ref 的 `formatCompactList(..., {sort:false})`）。
+fn push_compact_list_raw(
+    lines: &mut Vec<String>,
+    items: &[String],
+    cols: usize,
+) -> std::ops::Range<usize> {
+    let labels: Vec<&str> = items
+        .iter()
+        .map(|item| item.trim())
+        .filter(|item| !item.is_empty())
+        .collect();
+    let start = lines.len();
+    if labels.is_empty() {
+        return start..start;
+    }
+    let joined = format!("  {}", labels.join(", "));
+    let wrapped: Vec<String> = wrap_to_width(&joined, cols);
+    let last = wrapped.len().saturating_sub(1);
+    for (index, line) in wrapped.iter().enumerate() {
+        if index < last {
+            let pad = cols.saturating_sub(UnicodeWidthStr::width(line.as_str()));
+            lines.push(format!("{line}{}", " ".repeat(pad)));
+        } else {
+            lines.push(line.clone());
+        }
+    }
+    start..lines.len()
+}
+
 fn push_compact_list(
     lines: &mut Vec<String>,
     items: &[String],
@@ -2231,16 +2260,27 @@ fn render_all_cached_styled_inner(
         // `this.loadedResourcesContainer.addChild(new Spacer(1));`（在 `addLoadedSection("Context", …)` `:1784` 之前）。
         lines.push(String::new());
         lines.push("[Context]".to_string());
-        for path in &state.context_files {
-            // ref `:1340-1349` 的 `formatContextPath`：**cwd 下 ⇒ 相对路径**（`AGENTS.md`），
-            // 否则 `:1322-1332` 的 `formatDisplayPath` 把家目录缩成 `~`
-            // （全局文件因此是 `~/.pi/agent/AGENTS.md`，而不是 basename）。
-            let shown = context_display_path(path, &state.cwd, state.home.as_deref());
-            lines.push(clamp_to_width(&format!("  {shown}"), cols));
-            // ref `interactive-mode.ts:1771-1774`：`theme.fg("dim", "  " + path)` 逐行套色。
+        // ref `interactive-mode.ts:1776-1783`：折叠态是 `formatCompactList(paths, {sort:false})`
+        // —— 即 **一行**、`  ` 前缀、`", "` 连接，超宽由 `Text` 折行（续行不加缩进）。
+        // 此前我们每个文件单独一行，与 TS 不同（真机 `[Context]` 段行数不一致）。
+        {
+            let shown: Vec<String> = state
+                .context_files
+                .iter()
+                .map(|path| context_display_path(path, &state.cwd, state.home.as_deref()))
+                .collect();
+            let range = push_compact_list_raw(&mut lines, &shown, cols);
             styles.resize(lines.len(), None);
-            if let Some(slot) = styles.last_mut() {
-                *slot = Some(style::LineStyle::fg(style_out.palette.dim));
+            for index in range {
+                let len = lines[index].len();
+                style_out.spans.markdown.push((
+                    index,
+                    vec![style::Span::new(
+                        1,
+                        len,
+                        style::LineStyle::fg(style_out.palette.dim),
+                    )],
+                ));
             }
         }
         lines.push(String::new());

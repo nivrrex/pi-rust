@@ -1,0 +1,18 @@
+{
+  "id": "T103-context-path-home-cwd",
+  "cols": 100,
+  "rows": 30,
+  "helperExit": 0,
+  "exitCode": 0,
+  "stderr": "",
+  "mockStderr": "",
+  "requestLog": "/tmp/n4s-pi-ts/requests.jsonl",
+  "snapshotOffsets": [
+    {
+      "name": "start",
+      "offset": 3376,
+      "t": 71079.192465185
+    }
+  ],
+  "sessionDir": "/tmp/n4s-pi-ts/session"
+}

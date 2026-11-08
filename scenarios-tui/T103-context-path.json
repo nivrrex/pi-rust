@@ -1,0 +1,49 @@
+{
+ "id": "T103-context-path-home-cwd",
+ "description": "N4：cwd 在 $HOME 下的 [Context] 路径缩写（ref interactive-mode.ts:1322-1349 + 1776-1783 的单行紧凑列表）",
+ "provider": "openai-completions",
+ "model": "mock-model",
+ "mode": "print",
+ "prompt": "hi",
+ "files": {},
+ "agentFiles": {
+  "AGENTS.md": "# global\n"
+ },
+ "responses": [
+  {
+   "file": "fixtures/sse/openai/text-basic.sse"
+  }
+ ],
+ "tui": {
+  "cols": 100,
+  "rows": 30,
+  "snapshots": [
+   "start"
+  ],
+  "steps": [
+   {
+    "action": "waitScreen",
+    "contains": "Pi can explain",
+    "timeoutMs": 40000
+   },
+   {
+    "action": "waitStable",
+    "quietMs": 1200,
+    "timeoutMs": 20000
+   },
+   {
+    "action": "snapshot",
+    "name": "start"
+   },
+   {
+    "action": "type",
+    "text": "\u0004"
+   },
+   {
+    "action": "waitStable",
+    "quietMs": 500,
+    "timeoutMs": 10000
+   }
+  ]
+ }
+}
