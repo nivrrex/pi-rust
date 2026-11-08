@@ -611,3 +611,19 @@ ref 的对应实现见 `interactive-mode.ts:2541`/`:2543`（`showExtensionNotify
     → 再恢复终端。用例 `crates/pi-cli/tests/p9_f41_host_no_tty.rs`（改前 FAILED）。
     影响面：扩展再也看不到 `process.stdout.isTTY`/`columns` 为真（已 grep 现有 10 个扩展，无依赖）；
     Node 侧的 `console.log` 之类 stray stdout 会被转到 stderr 而非终端 stdout。
+
+18. **F44/S0 并发日志的已知窗口**：`extensions.log` 的启动截断用「读尾部 → 写临时文件 →
+    `rename`」，在"读"到"rename"之间其他实例写入的少量行会随旧 inode 丢弃（每次截断最多
+    丢弃该窗口内的行）。日志本身另有**每实例内存缓冲**（256 KiB，丢最旧并提示丢弃行数），
+    因此退出输出不会混入别的实例的行。推翻条件：改为按实例分段写不同文件（会改变
+    "单文件可 grep"的现有用法，需先确认）。
+19. **F44/S4 Windows 路径规则未验证**：页脚 cwd 缩写依赖 `home_from` 的
+    `HOME` → `USERPROFILE` 回落（`crates/pi-cli/src/runtime.rs:31-50`，ref
+    `interactive-mode.ts:1322-1332` 的 `formatDisplayPath` 用 `os.homedir()`）。Linux 上
+    「只设 `USERPROFILE`」与「设 `HOME`」两种情形均已对拍一致；**Windows 下
+    `\` 分隔符、盘符大小写、`USERPROFILE` 含非 ASCII** 未验证。推翻条件：Windows 真机
+    显示仍为完整路径或出现 `~\Desktop\…` 与实际不符。
+20. **F44/S3 Windows 终端标题未验证**：改用 OSC 0（ref `terminal.ts:520-523`）后 Linux pty
+    已与 TS 一致；Windows conhost 是否需额外 `ENABLE_VIRTUAL_TERMINAL_PROCESSING`
+    （crossterm 的 `supports_ansi()` 已尝试开启，失败忽略）未验证。推翻条件：Windows 真机
+    仍显示 cmd 默认标题。

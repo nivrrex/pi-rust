@@ -153,3 +153,11 @@
 - 修法：宿主 stdio 全改管道（stdout/stderr 转发到宿主 stderr）+ 退出顺序对齐 ref
   （等 `session_shutdown` → 等宿主退出 → 恢复终端）。用例 `p9_f41_host_no_tty` 改前 FAILED。
 - 退出耗时 55.8 → 55.9 ms（TS 60.3 ms）；golden T01/T05/T16/T90/T100/T103/T98/T89i/T96 全 same。
+
+## F44
+- S0：扩展日志按实例隔离（宿主单写入任务 + 每实例 256 KiB 缓冲；整行 `O_APPEND`）。
+- S1：markdown 列表续行悬挂缩进（`markdown.ts:758-781`）；S1b 实测两侧都不补空行，不改。
+- S2：`-c` 恢复补 `R/W/CH`（改用 `session_usage_totals` + `Usage` 分支拼三段）与 Todo 部件
+  （恢复分支不写 system ⇒ 补一次 `flush_pending_session_start`）。
+- S3：终端标题 OSC 2 → 0，且启动即写 `π - <cwd 名>`。
+- S4：页脚 cwd 缩写补 `state.home`（此前 `home` 解析后从未赋值）。
