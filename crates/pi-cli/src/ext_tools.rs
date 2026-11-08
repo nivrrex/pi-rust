@@ -859,15 +859,71 @@ pub fn extension_log_path(agent_dir: &Path) -> std::path::PathBuf {
     agent_dir.join("extensions.log")
 }
 
-/// 退出时把扩展日志**一次性**输出到 stderr（TUI 模式）。
+/// 本次会话的日志文件起始偏移（`None` = 还没启动宿主/没有日志文件）。
 ///
-/// 输出后**不删除**文件：用户可能要回看历史；下一个会话继续追加。
-pub fn flush_extension_log(agent_dir: &Path) {
+/// F43/R1：退出时只输出**偏移之后**的内容。此前输出整个文件 ⇒ 连跑 N 次会话时，
+/// 第 N+1 次退出会把前 N 次的日志全部重打一遍（真机：5 次启动后第 6 次退出输出全量）。
+/// 用**偏移**而不是"实例内缓冲"的理由见 `notes/p9-f43/plan.md`：宿主日志由宿主侧
+/// 两个读取任务异步写文件，进程内缓冲需要在 stdout/stderr 两条并发流之间加锁与排序，
+/// 且会改变"文件即事实来源"的语义；偏移法不引入共享状态，也能天然覆盖并发多实例
+/// （每个实例只读自己那一段，哪怕别的实例也在追加）。
+static LOG_OFFSET: OnceLock<std::sync::Mutex<u64>> = OnceLock::new();
+
+/// 日志文件**上限**（超过则在启动时截断，见 [`prepare_extension_log`]）。
+const LOG_MAX_BYTES: u64 = 1024 * 1024;
+/// 截断后保留的尾部字节数。
+const LOG_KEEP_BYTES: u64 = 256 * 1024;
+
+/// 记录当前日志文件长度作为本次会话的起点，并做**容量治理**。
+///
+/// 必须在宿主启动**之前**调用（宿主一启动就会往文件里写）。
+pub fn prepare_extension_log(agent_dir: &Path) -> u64 {
     let path = extension_log_path(agent_dir);
-    let Ok(text) = std::fs::read_to_string(&path) else {
+    if let Some(parent) = path.parent() {
+        let _ = std::fs::create_dir_all(parent);
+    }
+    let mut offset = std::fs::metadata(&path).map(|meta| meta.len()).unwrap_or(0);
+    // 无限增长治理：超过 1 MiB 时截断为最近 256 KiB（保留尾部，丢掉最旧的部分）。
+    if offset > LOG_MAX_BYTES {
+        if let Ok(bytes) = std::fs::read(&path) {
+            let keep_from = bytes.len().saturating_sub(LOG_KEEP_BYTES as usize);
+            if let Ok(text) = std::str::from_utf8(&bytes[keep_from..]) {
+                // 从下一个换行开始，避免把一个 UTF-8 行切断后残留半行。
+                let trimmed = match text.find('\n') {
+                    Some(index) => &text[index + 1..],
+                    None => text,
+                };
+                let _ = std::fs::write(&path, trimmed);
+                offset = trimmed.len() as u64;
+            }
+        }
+    }
+    let slot = LOG_OFFSET.get_or_init(|| std::sync::Mutex::new(offset));
+    if let Ok(mut guard) = slot.lock() {
+        *guard = offset;
+    }
+    offset
+}
+
+/// 退出时把**本次会话新增**的扩展日志输出到 stderr（TUI 模式）。
+///
+/// 起点是 [`prepare_extension_log`] 记录的偏移；输出后**不删除**文件：
+/// 用户可能要回看历史，下一个会话继续追加。
+pub fn flush_extension_log(agent_dir: &Path) {
+    use std::io::{Read, Seek, SeekFrom};
+    let path = extension_log_path(agent_dir);
+    let offset = LOG_OFFSET
+        .get()
+        .and_then(|slot| slot.lock().ok().map(|guard| *guard))
+        .unwrap_or(0);
+    let Ok(mut file) = std::fs::File::open(&path) else {
         return;
     };
-    if text.trim().is_empty() {
+    if file.seek(SeekFrom::Start(offset)).is_err() {
+        return;
+    }
+    let mut text = String::new();
+    if file.read_to_string(&mut text).is_err() || text.trim().is_empty() {
         return;
     }
     eprint!("{text}");
@@ -939,6 +995,9 @@ fn start_host(agent_dir: &Path, cwd: &Path) -> Option<pi_ext_host::HostHandle> {
     // F42/Q2：**TUI 模式**把扩展日志写文件（退出时一次性输出到 stderr），
     // 否则日志会穿插进画面。print/rpc 等非 TUI 模式仍直接转发到宿主 stderr。
     let log_path = if has_ui_frontend() {
+        // 先记下本次会话的起点偏移（F43/R1），再做容量治理；顺序不能反：
+        // 截断后偏移要跟着变，否则退出时会漏掉本次开头的一段。
+        let _ = prepare_extension_log(agent_dir);
         Some(extension_log_path(agent_dir))
     } else {
         None

@@ -3020,7 +3020,13 @@ pub fn run(
                     None => {
                         let _ = apply(
                             &mut state,
-                            TuiEvent::Status("No agent messages to copy yet.".to_string()),
+                            // ref `interactive-mode.ts:6392` 走 `showError`（`:4463-4467`）：
+                            // 文案带 `Error: ` 前缀、用 error 色（不是 dim 的状态行）。
+                            // 复用 `ExtensionNotice{kind:"error"}` 这条既有路径，它已经按 ref 加了前缀。
+                            TuiEvent::ExtensionNotice {
+                                message: "No agent messages to copy yet.".to_string(),
+                                kind: Some("error".to_string()),
+                            },
                         );
                     }
                 }
