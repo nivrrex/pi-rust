@@ -1,0 +1,10 @@
+data: {"id": "chatcmpl-mock", "object": "chat.completion.chunk", "created": 1700000000, "model": "mock-model", "choices": [{"index": 0, "delta": {"role": "assistant", "content": ""}, "finish_reason": null}]}
+
+data: {"id": "chatcmpl-mock", "object": "chat.completion.chunk", "created": 1700000000, "model": "mock-model", "choices": [{"index": 0, "delta": {"content": "这段是新段落，紧跟后面是一个有序列表，用来验证段落与列表之间是否补空行。\n\n1. 第一项是一个很长的中文句子，用来验证列表项在窄终端折行之后的续行是否悬挂缩进到内"}, "finish_reason": null}]}
+
+data: {"id": "chatcmpl-mock", "object": "chat.completion.chunk", "created": 1700000000, "model": "mock-model", "choices": [{"index": 0, "delta": {"content": "容起始列的位置，而不是顶格。\n2. 第二项同样很长，包含中文与英文混排 mixed content，用来确认续行的缩进列与第一项一致。\n3. 第三项短。\n\n这里又"}, "finish_reason": null}]}
+
+data: {"id": "chatcmpl-mock", "object": "chat.completion.chunk", "created": 1700000000, "model": "mock-model", "choices": [{"index": 0, "delta": {"content": "是一段紧跟列表之后的段落，用来验证列表结束后是否补空行。\n\n- 无序第一项，同样是一句很长的中文，需要折行才能看清续行的缩进行为是否正确。\n- 无序第二项，短。\n"}, "finish_reason": null}]}
+
+data: {"id": "chatcmpl-mock", "object": "chat.completion.chunk", "created": 1700000000, "model": "mock-model", "choices": [{"index": 0, "delta": {"content": ""}, "finish_reason": "stop"}]}
+

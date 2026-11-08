@@ -1668,6 +1668,52 @@ fn is_cjk_breakable(ch: char) -> bool {
 /// `continuationPrefix = indent + 空格×标记宽度`（`markdown.ts:773-775`）；
 /// 代码块/段落/标题的续行**只补 1 列 padding**，不重复代码块那 3 空格缩进。
 #[must_use]
+/// 列表项的 marker 宽度（`- ` / `1. ` / 含任务标记 `[x] ` 的形态）。
+///
+/// ref `markdown.ts:764-781`：`marker = bullet + taskMarker`，续行缩进
+/// `" ".repeat(visibleWidth(marker))`。这里只数**可见字符**宽度（marker 都是 ASCII）。
+fn list_marker_len(rest: &str) -> usize {
+    // 无序：`- ` / `* ` / `+ `
+    if let Some(first) = rest.chars().next() {
+        if matches!(first, '-' | '*' | '+') {
+            let mut width = 0usize;
+            let mut seen_space = false;
+            for ch in rest.chars() {
+                width += 1;
+                if ch == ' ' {
+                    seen_space = true;
+                    break;
+                }
+            }
+            if !seen_space {
+                return 1;
+            }
+            // 任务标记 `[ ] ` / `[x] ` 也算进 marker（ref 的 `taskMarker`）。
+            let tail = &rest[width..];
+            if tail.starts_with('[') {
+                if let Some(close) = tail.find(']') {
+                    let marker = &tail[..=close];
+                    if marker.len() == 3 {
+                        let after = &tail[close + 1..];
+                        let extra = if after.starts_with(' ') { 1 } else { 0 };
+                        return width + marker.len() + extra;
+                    }
+                }
+            }
+            return width;
+        }
+    }
+    // 有序：`1. ` / `12. `
+    let digits: usize = rest.chars().take_while(|ch| ch.is_ascii_digit()).count();
+    if digits > 0 {
+        let tail = &rest[digits..];
+        if tail.starts_with(". ") || tail.starts_with(") ") {
+            return digits + 2;
+        }
+    }
+    1
+}
+
 pub fn wrap_markdown_line(line: &str, cols: usize) -> Vec<String> {
     let lead_all: String = line.chars().take_while(|ch| *ch == ' ').collect();
     let trimmed_start = line.trim_start();
@@ -1676,8 +1722,17 @@ pub fn wrap_markdown_line(line: &str, cols: usize) -> Vec<String> {
         || trimmed_start.starts_with("+ ")
         || (trimmed_start.starts_with(|ch: char| ch.is_ascii_digit())
             && trimmed_start.contains(". "));
+    // ref `markdown.ts:758-781`：列表项的**首行前缀**是
+    // `indent + listBullet(marker)`（marker 含 `- ` / `1. ` 与任务标记），
+    // **续行前缀**是 `indent + " ".repeat(visibleWidth(marker))` ⇒ 悬挂缩进到内容起始列。
+    // 此前列表续行只沿用行首的 1 个空格（`lead_all`），于是续行顶格到 ` ` —— 真机上
+    // CJK 长句折行后与首行明显不对齐（TS `    格。` vs 我们 ` 格。`）。
     let lead: String = if is_list_like {
-        lead_all.clone()
+        // 首行的"正文起始列"= 行首缩进 + marker 宽度（marker 由 ` - ` / ` 1. ` 之类构成）。
+        let indent_len = lead_all.len();
+        let rest = &line[indent_len..];
+        let marker_len = list_marker_len(rest);
+        format!("{}{}", lead_all, " ".repeat(marker_len))
     } else if line.starts_with(' ') {
         " ".to_string()
     } else {
