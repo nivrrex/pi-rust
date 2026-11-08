@@ -1765,8 +1765,14 @@ pub fn wrap_markdown_line(line: &str, cols: usize) -> Vec<String> {
     // 内容区宽（`Markdown(..., paddingX=1)` ⇒ `cols - 2`）。
     let content_width = cols.saturating_sub(2);
     if !is_list_like {
-        let width = content_width.saturating_add(lead_all.len());
-        return wrap_to_width(line, width);
+        // ref 的 `Markdown(..., paddingX=1)`：**每一行**（含续行）都带 1 列前导 padding。
+        // 旧实现把 padding 并进首行宽度（`content_width + lead_all.len()`），续行就少了那一列
+        // ——真实会话的长段落折行后比 TS 左移 1 列（实测 `md-diff` 报 `组，次要=…` vs ` 组，次要=…`）。
+        let body = line.strip_prefix(lead_all.as_str()).unwrap_or(line);
+        return wrap_to_width(body, content_width)
+            .into_iter()
+            .map(|segment| format!("{lead_all}{segment}"))
+            .collect();
     }
     let marker_len = list_marker_len(&line[lead_all.len()..]);
     // 首行前缀（已在 `line` 里）：`lead_all + marker`；续行前缀等宽空格。
@@ -3868,6 +3874,10 @@ pub fn render_markdown_styled_with_width(
     let mut quote_depth: usize = 0;
     // 刚输出过"引用块空行哨兵"（该段结束后不该再补空行，否则比 TS 多一行）。
     let quote_blank_emitted = std::cell::Cell::new(false);
+    // 本列表项内**已经输出过首行** ⇒ 后续行用 `continuationPrefix`（等宽空格、不带标记）。
+    // ref `markdown.ts:758-781`：`firstPrefix` 只给第一行，其余行是 `continuationPrefix`。
+    // 触发场景：`- 甲\n乙`（懒续行）与 loose 列表项内的第二段。
+    let item_continuation = std::cell::Cell::new(false);
     let mut code_line = String::new();
     let mut pending_blank = false;
     let flush_inline = |inline: &mut String,
@@ -3906,6 +3916,7 @@ pub fn render_markdown_styled_with_width(
         // 这两段只能**按列染色**，整行染色会把正文一起染掉，所以走 span。
         let indent = "    ".repeat(list_depth.saturating_sub(1));
         let marker_width = marker.chars().count() + 1;
+        let continuation = in_list_item && item_continuation.get();
         let prefix_len = if in_list_item {
             indent.len() + 1 + marker_width
         } else {
@@ -3913,7 +3924,7 @@ pub fn render_markdown_styled_with_width(
         };
         let mut line_spans: Vec<style::Span> = Vec::new();
 
-        if in_list_item && !text.is_empty() {
+        if in_list_item && !text.is_empty() && !continuation {
             // ` - <text>`：`-` 与它后面那个空格都染 accent（TS 逐格实测 c1/c2）。
             line_spans.push(style::Span::new(
                 indent.len() + 1,
@@ -3952,7 +3963,13 @@ pub fn render_markdown_styled_with_width(
         };
         out.push(if in_list_item && quote_depth > 0 {
             // 引用内列表：`quote_prefix` 末尾已是一个空格 ⇒ 标记紧接其后（` │ │ - 项`）。
-            format!("{quote_prefix}{indent}{marker} {text}")
+            if continuation {
+                format!("{quote_prefix}{indent}{}{text}", " ".repeat(marker_width))
+            } else {
+                format!("{quote_prefix}{indent}{marker} {text}")
+            }
+        } else if continuation {
+            format!("{indent} {}{text}", " ".repeat(marker_width))
         } else if in_list_item {
             format!("{indent} {marker} {text}")
         } else if quote_depth > 0 {
@@ -3987,6 +4004,9 @@ pub fn render_markdown_styled_with_width(
             spans.push((out.len() - 1, line_spans));
         }
         styles.push(current);
+        if in_list_item {
+            item_continuation.set(true);
+        }
     };
     let _ = HeadingLevel::H1;
     // ref `packages/tui/src/components/markdown.ts:550`/`:839`：表格按容器宽度分配列宽并用
@@ -4000,7 +4020,41 @@ pub fn render_markdown_styled_with_width(
     // 否则会泄漏成 `\u{1}`（实测：代码块里的 `>` 行被打成哨兵）。
     let preprocessed = rewrite_outside_code(replace_quote_blank_lines, input);
     let mut table: Option<TableBuild> = None;
-    for event in Parser::new_ext(&preprocessed, options) {
+    // F47/W1：**用源码偏移判断"块间是否有空行"**（等价于 marked 的 `space` token）。
+    //
+    // ref `markdown.ts` 每个 `case` 都是「`nextTokenType && nextTokenType !== "space"` 才补空行」，
+    // 只有 `paragraph` 多一个 `!== "list"` 例外（`:487-497`）。pulldown 的事件流里**没有**
+    // space token，但 `into_offset_iter` 给出的 range 之间能取到源码切片：
+    //   `段\n- 甲`   ⇒ 上一块 `End` 的 `range.end` 到下一块 `Start` 的 `range.start` 是 `""`
+    //   `段\n\n- 甲` ⇒ 是 `"\n"`（实测，见本批 plan）
+    // 因此「gap 里含换行」≡「TS 的 space token 存在」≡ 该块后的空行应当保留。
+    // F46 的三种做法都只动事件序列、拿不到这个信息，所以必然二选一地打回既有 golden。
+    let mut gap_has_blank = false;
+    let mut prev_block_end: Option<usize> = None;
+    let mut prev_block_was_paragraph = false;
+    for (event, range) in Parser::new_ext(&preprocessed, options).into_offset_iter() {
+        // 记录"上一块结束 → 本块开始"之间是否隔着空行（只在块起始事件上更新语义）。
+        if matches!(event, Event::Start(_)) {
+            if let Some(prev_end) = prev_block_end {
+                let gap = preprocessed.get(prev_end..range.start).unwrap_or_default();
+                gap_has_blank = gap.contains('\n');
+            }
+        }
+        // 块级结束：记录位置与"上一块是不是 paragraph"（ref 的唯一例外条件用它）。
+        if let Event::End(end) = &event {
+            if matches!(
+                end,
+                TagEnd::Paragraph
+                    | TagEnd::Heading(_)
+                    | TagEnd::CodeBlock
+                    | TagEnd::BlockQuote(_)
+                    | TagEnd::List(_)
+                    | TagEnd::Table
+            ) {
+                prev_block_end = Some(range.end);
+                prev_block_was_paragraph = matches!(end, TagEnd::Paragraph);
+            }
+        }
         // —— 表格：先把单元格文本收进状态机，`End(Table)` 时整体排版（ref `markdown.ts:839`）。
         if table.is_some() {
             match &event {
@@ -4188,6 +4242,7 @@ pub fn render_markdown_styled_with_width(
                 );
                 current = None;
                 pending_blank = true;
+                prev_block_end = Some(range.end);
             }
             Event::Start(Tag::List(start)) => {
                 // ref `markdown.ts:487-497`：段落与列表之间**不补**空行（`nextTokenType === "list"`）。
@@ -4208,7 +4263,11 @@ pub fn render_markdown_styled_with_width(
                     current,
                     &mut pending_blank,
                 );
-                if pending_blank && !out.is_empty() {
+                // F47/W1：ref `markdown.ts:487-497` —— `paragraph` 的块后空行只在
+                // `nextTokenType !== "list" && !== "space"` 时补。`gap_has_blank` 就是
+                // marked 那个 `space` token 的等价物（见 `into_offset_iter` 处的注释）。
+                let tight_para_list = prev_block_was_paragraph && !gap_has_blank;
+                if pending_blank && !tight_para_list && !out.is_empty() {
                     push_md_line(&mut out, &mut styles, String::new(), None);
                 }
                 pending_blank = false;
@@ -4226,6 +4285,7 @@ pub fn render_markdown_styled_with_width(
                 pending_blank = true;
             }
             Event::Start(Tag::Item) => {
+                item_continuation.set(false);
                 if pending_loose_blank {
                     push_md_line(&mut out, &mut styles, String::new(), None);
                     pending_loose_blank = false;
@@ -4321,6 +4381,7 @@ pub fn render_markdown_styled_with_width(
                 code_lang.clear();
                 in_code_block = false;
                 pending_blank = true;
+                prev_block_end = Some(range.end);
             }
             Event::Text(text) => {
                 if in_code_block {
