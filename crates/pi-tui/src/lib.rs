@@ -1772,20 +1772,75 @@ pub fn wrap_to_width(text: &str, width: usize) -> Vec<String> {
 
 /// 启动屏紧凑列表（ref `:1710-1716` 的 `formatCompactList` + `Text` 折行）：
 /// 先 trim/过滤空项、按名字排序，再拼成 `  a, b, c` 并在 `cols` 处**折行**（续行不加缩进）。
-fn push_compact_list(lines: &mut Vec<String>, items: &[String], cols: usize) {
+/// 追加一段"紧凑列表"（`  a, b, c`，超宽折行）。
+///
+/// 返回**本次追加的行区间**：这些行整段是 `dim`（ref `formatCompactList` 把
+/// `theme.fg("dim", ...)` 套在**整串**上再折行 ⇒ 续行同样带色，`utils.ts:851-874`
+/// 的 `wrapTextWithAnsi` 会把 ANSI 状态延续到后续行）。
+/// 追加一段**着色后折行**的文本行（启动屏提示/onboarding）。
+///
+/// ref 用 `Text` + `wrapTextWithAnsi`（`utils.ts:851-874`）：中间行**不带闭合 SGR**，
+/// 所以行尾补位空格仍是该行颜色；最后一行保留原始 `\x1b[39m`，其后补位不染色。
+/// 这里把非末行补齐到 `cols`，并用 span 覆盖**整行**（含前导空格，ref 的 `paddingX=1`
+/// 也在染色范围内），从而与 TS 逐格一致。
+fn push_dim_wrapped(
+    lines: &mut Vec<String>,
+    spans: &mut LineSpans,
+    text: &str,
+    cols: usize,
+    palette: &theme::Palette,
+) {
+    let wrapped = wrap_to_width(text, cols.saturating_sub(2));
+    let last = wrapped.len().saturating_sub(1);
+    for (index, line) in wrapped.iter().enumerate() {
+        let rendered = format!(" {line}");
+        let rendered = if index < last {
+            let pad = cols.saturating_sub(UnicodeWidthStr::width(rendered.as_str()));
+            format!("{rendered}{}", " ".repeat(pad))
+        } else {
+            rendered
+        };
+        let len = rendered.len();
+        // 前导 1 列（`Text` 的 paddingX）**不染色**：TS 逐格实测 col0 为默认色。
+        spans.push((
+            lines.len(),
+            vec![style::Span::new(1, len, style::LineStyle::fg(palette.dim))],
+        ));
+        lines.push(rendered);
+    }
+}
+
+fn push_compact_list(
+    lines: &mut Vec<String>,
+    items: &[String],
+    cols: usize,
+) -> std::ops::Range<usize> {
     let mut labels: Vec<&str> = items
         .iter()
         .map(|item| item.trim())
         .filter(|item| !item.is_empty())
         .collect();
     labels.sort_unstable();
+    let start = lines.len();
     if labels.is_empty() {
-        return;
+        return start..start;
     }
     let joined = format!("  {}", labels.join(", "));
-    for wrapped in wrap_to_width(&joined, cols) {
-        lines.push(wrapped);
+    let wrapped: Vec<String> = wrap_to_width(&joined, cols);
+    // ref `utils.ts:851-874` 的 `wrapTextWithAnsi`：**中间行不带闭合 SGR**（只有最后一行留着
+    // 原始的 `\x1b[39m`），所以中间行的行尾补位空格仍处于 dim 状态 ⇒ TS 逐格实测
+    // "中间行 0..cols 全 dim、末行正文之后不染色"。这里把**非末行**补齐到整宽，
+    // 让整行（含补位空格）落进同一段样式。
+    let last = wrapped.len().saturating_sub(1);
+    for (index, line) in wrapped.iter().enumerate() {
+        if index < last {
+            let pad = cols.saturating_sub(UnicodeWidthStr::width(line.as_str()));
+            lines.push(format!("{line}{}", " ".repeat(pad)));
+        } else {
+            lines.push(line.clone());
+        }
     }
+    start..lines.len()
 }
 
 /// `[Context]` 段的路径显示（ref `interactive-mode.ts:1340-1349` 的 `formatContextPath`）：
@@ -1907,7 +1962,9 @@ fn apply_chrome_styles(
             continue;
         }
         if trimmed.starts_with("pi v") {
-            *slot = Some(LineStyle::fg(palette.accent).bold());
+            // ref `:958`：`theme.bold(theme.fg("accent", APP_NAME)) + theme.fg("dim", " v…")`。
+            // 整行同时带 bold 与 dim（TS 逐格实测 `1-2:i109/b/d`、`3-10:i241/d`）。
+            *slot = Some(LineStyle::fg(palette.dim).bold().dim());
             continue;
         }
         if trimmed.contains("%/") && trimmed.contains('k') || trimmed.starts_with('/') {
@@ -2126,11 +2183,23 @@ fn render_all_cached_styled_inner(
             }
             lines.push(String::new());
         } else {
-            for wrapped in wrap_to_width(
-                "escape interrupt · ctrl+c/ctrl+d clear/exit · / commands · ! bash · ctrl+o more",
-                cols.saturating_sub(2),
-            ) {
-                lines.push(format!(" {wrapped}"));
+            {
+                // 该行是**多色分段**（`dim`/`muted` 交替，由 `header_spans` 逐段着色），
+                // 这里只负责折行；非末行补齐到整宽，让最后一段延续到行尾（ref 中间行不闭合 SGR）。
+                let wrapped = wrap_to_width(
+                    "escape interrupt · ctrl+c/ctrl+d clear/exit · / commands · ! bash · ctrl+o more",
+                    cols.saturating_sub(2),
+                );
+                let last = wrapped.len().saturating_sub(1);
+                for (index, line) in wrapped.iter().enumerate() {
+                    let rendered = format!(" {line}");
+                    if index < last {
+                        let pad = cols.saturating_sub(UnicodeWidthStr::width(rendered.as_str()));
+                        lines.push(format!("{rendered}{}", " ".repeat(pad)));
+                    } else {
+                        lines.push(rendered);
+                    }
+                }
             }
             // ref `:991-994`
             lines.push(clamp_to_width(
@@ -2144,12 +2213,13 @@ fn render_all_cached_styled_inner(
         // 此前用 `clamp_to_width(cols)` 直接截断，窄终端（80 列）会丢掉尾巴而原版是折行。
         // 折行后**每段都保留 1 列左内边距**（ref 的 Text padding 对每个视觉行都生效，
         // 实测 TS 续行是 ` extend Pi.`，不是顶格）。
-        for wrapped in wrap_to_width(
+        push_dim_wrapped(
+            &mut lines,
+            &mut style_out.spans.markdown,
             "Pi can explain its own features and look up its docs. Ask it how to use or extend Pi.",
-            cols.saturating_sub(2),
-        ) {
-            lines.push(format!(" {wrapped}"));
-        }
+            cols,
+            style_out.palette,
+        );
         lines.push(String::new());
     }
     // ref `showLoadedResources`（`interactive-mode.ts:1697-1712`）：`showListing = verbose || !quietStartup`，
@@ -2167,6 +2237,11 @@ fn render_all_cached_styled_inner(
             // （全局文件因此是 `~/.pi/agent/AGENTS.md`，而不是 basename）。
             let shown = context_display_path(path, &state.cwd, state.home.as_deref());
             lines.push(clamp_to_width(&format!("  {shown}"), cols));
+            // ref `interactive-mode.ts:1771-1774`：`theme.fg("dim", "  " + path)` 逐行套色。
+            styles.resize(lines.len(), None);
+            if let Some(slot) = styles.last_mut() {
+                *slot = Some(style::LineStyle::fg(style_out.palette.dim));
+            }
         }
         lines.push(String::new());
         if state.transcript.is_empty() && state.panel.is_none() {
@@ -2189,7 +2264,24 @@ fn render_all_cached_styled_inner(
     // ref `:1793-1797`：`[Skills]` 段位于 `[Context]` 与 `[Extensions]` 之间（用户真机实测顺序）。
     if show_listing && !state.skill_labels.is_empty() {
         lines.push("[Skills]".to_string());
-        push_compact_list(&mut lines, &state.skill_labels, cols);
+        let range = push_compact_list(&mut lines, &state.skill_labels, cols);
+        // ref `formatCompactList` 把 `theme.fg("dim", ...)` 套在**整串**上再折行
+        // （`interactive-mode.ts:1712-1717` + `utils.ts:851-874` 的 `wrapTextWithAnsi`
+        // 会把 ANSI 状态延续到续行）⇒ 每一行（含续行）都是 dim。
+        styles.resize(lines.len(), None);
+        for index in range {
+            // 用 span 而不是行级样式：行级样式会跳过**前导空格**（正文段落的 padding 规则），
+            // 而 ref 的 `theme.fg("dim", "  a, b")` 把这两个空格也算在着色范围内（逐格实测 col0 dim）。
+            let len = lines[index].len();
+            style_out.spans.markdown.push((
+                index,
+                vec![style::Span::new(
+                    0,
+                    len,
+                    style::LineStyle::fg(style_out.palette.dim),
+                )],
+            ));
+        }
         lines.push(String::new());
     }
     if show_listing && !state.extension_labels.is_empty() {
@@ -2222,7 +2314,19 @@ fn render_all_cached_styled_inner(
                 lines.push(clamp_to_width(&format!("    {shown}"), cols));
             }
         } else {
-            push_compact_list(&mut lines, &state.extension_labels, cols);
+            let range = push_compact_list(&mut lines, &state.extension_labels, cols);
+            styles.resize(lines.len(), None);
+            for index in range {
+                let len = lines[index].len();
+                style_out.spans.markdown.push((
+                    index,
+                    vec![style::Span::new(
+                        0,
+                        len,
+                        style::LineStyle::fg(style_out.palette.dim),
+                    )],
+                ));
+            }
         }
         // 折叠态：段末两个空行（TS 录制 T90/T95 快照）；展开态：一个（展开态的头部自己带了一行）。
         lines.push(String::new());
@@ -5890,6 +5994,7 @@ fn header_spans(lines: &[String], palette: &theme::Palette) -> Vec<Vec<style::Sp
     const KEY_TOKENS: [&str; 5] = ["escape", "ctrl+c/ctrl+d", "/", "!", "ctrl+o"];
     let mut out: Vec<Vec<style::Span>> = Vec::new();
     let mut in_context_section = false;
+    let mut in_keyhint_section = false;
     for line in lines {
         let trimmed = line.trim_start();
         // `[Context]`/`[branch]` 段：**连前导空格一起染色**（TS 实测 `  AGENTS.md`
@@ -5917,6 +6022,7 @@ fn header_spans(lines: &[String], palette: &theme::Palette) -> Vec<Vec<style::Sp
         }
         if trimmed.is_empty() {
             in_context_section = false;
+            in_keyhint_section = false;
         }
         if trimmed.starts_with("pi v") {
             let lead = line.len() - trimmed.len();
@@ -5936,7 +6042,20 @@ fn header_spans(lines: &[String], palette: &theme::Palette) -> Vec<Vec<style::Sp
             out.push(spans);
             continue;
         }
+        // 键位提示的**续行**（窄终端折行）：ref 的整行是一个 `Text`，折行后每段沿用同样的
+        // "键名 dim / 其余 muted"规则；续行里没有键名 ⇒ 全 muted（TS 逐格实测 `more` 为 i244）。
+        // `Press ctrl+o …` 是**另一行**、不是续行（折行后颜色回到 dim i241），遇到就结束本段。
+        if in_keyhint_section && !trimmed.is_empty() && !trimmed.starts_with("Press ctrl+o") {
+            let lead = line.len() - trimmed.len();
+            out.push(vec![style::Span::new(
+                lead,
+                line.len(),
+                LineStyle::fg(palette.muted),
+            )]);
+            continue;
+        }
         if trimmed.starts_with("escape interrupt") {
+            in_keyhint_section = true;
             // 键名 dim、其余 muted：按 KEY_TOKENS 出现位置切段。
             let mut spans = Vec::new();
             let mut keyed = vec![false; line.len() + 1];
