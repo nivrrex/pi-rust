@@ -334,6 +334,14 @@ pub struct ExtHost {
     state: std::sync::Arc<std::sync::Mutex<HostState>>,
 }
 
+/// 宿主子进程 stdout/stderr 的两种管道（转发到宿主 stderr 用）。
+enum StreamKind {
+    /// `stderr`
+    Err(tokio::process::ChildStderr),
+    /// `stdout`
+    Out(tokio::process::ChildStdout),
+}
+
 impl ExtHost {
     /// 启动并完成握手 + 注册收集。
     pub async fn start(options: HostOptions) -> Result<Self, HostError> {
@@ -372,10 +380,15 @@ impl ExtHost {
                 "PI_EXT_PROTOCOL",
                 std::env::var("PI_EXT_PROTOCOL").unwrap_or_else(|_| PROTOCOL_VERSION.to_string()),
             )
-            // stdout/stderr **不接管**：扩展日志照常进宿主的终端（协议走 TCP，互不影响）。
+            // **宿主不得持有 tty**（F41/P2①）：真机 strace 显示，node 退出时会对继承来的
+            // fd 1/2 各做一次 `TCSETS`，把 termios **写回启动时保存的 cooked 模式**；而此刻
+            // shell 早已把 tty 设为 raw ⇒ 用户退出后的第一个按键被内核字面回显成 `^[[A`。
+            // 因此：stdin 用管道（EOF 即父进程已死，runner 靠它兜底退出），stdout 用管道
+            // 吞掉协议外的杂散输出，stderr 也走管道并由宿主**转发到自己的 stderr**
+            // （扩展日志不丢，只是不再直接写 tty）。
             .stdin(std::process::Stdio::piped())
-            .stdout(std::process::Stdio::inherit())
-            .stderr(std::process::Stdio::inherit())
+            .stdout(std::process::Stdio::piped())
+            .stderr(std::process::Stdio::piped())
             .kill_on_drop(true);
         for (key, value) in &options.env {
             command.env(key, value);
@@ -385,7 +398,34 @@ impl ExtHost {
             .map_err(|error| HostError::Spawn(error.to_string()))?;
         let pid = child.id();
         let stdin = child.stdin.take();
-
+        // stderr 走管道后必须**转发**到宿主自己的 stderr（扩展日志/告警原来直接写 tty，
+        // 改成管道会静默丢弃）。stdout 只可能承载协议外的杂散输出，一并转到 stderr，
+        // 避免污染宿主的正常输出。转发用 tokio 的异步读取（`ChildStdout` 是 async 流）。
+        for (label, stream) in [
+            ("stderr", child.stderr.take().map(StreamKind::Err)),
+            ("stdout", child.stdout.take().map(StreamKind::Out)),
+        ] {
+            let Some(stream) = stream else { continue };
+            tokio::spawn(async move {
+                use tokio::io::AsyncReadExt;
+                let mut buffer = [0u8; 4096];
+                match stream {
+                    StreamKind::Err(mut pipe) => loop {
+                        match pipe.read(&mut buffer).await {
+                            Ok(0) | Err(_) => break,
+                            Ok(count) => eprint!("{}", String::from_utf8_lossy(&buffer[..count])),
+                        }
+                    },
+                    StreamKind::Out(mut pipe) => loop {
+                        match pipe.read(&mut buffer).await {
+                            Ok(0) | Err(_) => break,
+                            Ok(count) => eprint!("{}", String::from_utf8_lossy(&buffer[..count])),
+                        }
+                    },
+                }
+                let _ = label;
+            });
+        }
         // 3) 等子进程连上（超时后杀掉，避免留下孤儿）。
         let accept = tokio::time::timeout(Duration::from_millis(10_000), listener.accept()).await;
         let stream: TcpStream = match accept {

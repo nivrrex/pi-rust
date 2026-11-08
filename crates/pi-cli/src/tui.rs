@@ -4450,9 +4450,15 @@ pub fn run(
         let _ = out.write_all(stop.as_bytes());
         let _ = out.flush();
     }
-    // ref `dispose()`（`agent-session-runtime.ts:404-411`）：退出前派发
-    // `session_shutdown{reason:"quit"}`，扩展的清理逻辑（脱敏缓存、后台任务）才跑得到。
-    crate::ext_tools::emit_session_shutdown("quit", None);
+    // F41/P2②：退出顺序对齐 ref `interactive-mode.ts:4148-4178`
+    //   `drainInput` → `stop()`（写复位 + 关 raw）→ `await runtimeHost.dispose()`
+    // 但 ref 的 `dispose()` 会**等待** `session_shutdown` 处理器与宿主退出；我们此前只是
+    // 投递到队列就恢复终端 ⇒ 宿主 node 可能在 shell 接管之后才退出，退出时对继承来的 tty
+    // 做 `uv_tty_reset_mode`（写回 cooked），使 shell 里首个按键被字面回显成 `^[[A`。
+    // 现在的顺序：派发并等待 `session_shutdown`（≤1s）→ 关宿主并等待退出（≤1s，超时按 PID kill）
+    // → 恢复终端 → 打印 resume 行。新增的等待在无扩展/扩展干净时是毫秒级。
+    crate::ext_tools::emit_session_shutdown_sync("quit", None, std::time::Duration::from_secs(1));
+    crate::ext_tools::shutdown_host(std::time::Duration::from_secs(1));
     guard.restore();
     // 退出后打印**恢复会话**提示（ref 退出路径同款文案，见 T01 golden 尾部）：
     // `\x1b[2mTo resume this session:\x1b[22m pi --session-dir <dir> --session <id>`。

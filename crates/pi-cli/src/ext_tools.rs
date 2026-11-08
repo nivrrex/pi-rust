@@ -1339,12 +1339,57 @@ pub fn emit_before_agent_start(prompt: &str, system_prompt: &str) -> BeforeAgent
 /// 与 `:404-411` 的 `dispose`）：`{type, reason, targetSessionFile?}`，
 /// reason 取值 `new` / `resume` / `quit`。
 pub fn emit_session_shutdown(reason: &str, target: Option<&std::path::Path>) {
+    emit_session_shutdown_sync(reason, target, std::time::Duration::from_secs(1));
+}
+
+/// 同步派发 `session_shutdown` 并**等待处理器完成**（上限 `timeout`）。
+///
+/// ref 是 `await emit(event)`（`core/extensions/runner.ts:254-263`，由
+/// `interactive-mode.ts` 的 `runtimeHost.dispose()` 等待）；我们原来的 `emit_event` 只是
+/// 投递到队列就返回 ⇒ 退出时扩展的清理可能与 shell 接管并发。这里按 ref 等到完成，
+/// 让"派发并等待 → 关宿主并等待 → 恢复终端"的顺序可以成立。
+///
+/// 超时只打一条 stderr，不阻塞退出（ref 也没有硬超时，1s 是我们对"卡死扩展"的保护）。
+pub fn emit_session_shutdown_sync(
+    reason: &str,
+    target: Option<&std::path::Path>,
+    timeout: std::time::Duration,
+) {
+    let Some(host) = HOST.get().and_then(|slot| slot.as_ref()).cloned() else {
+        return;
+    };
     let payload = serde_json::json!({
         "type": "session_shutdown",
         "reason": reason,
         "targetSessionFile": target.map(|path| path.display().to_string()),
     });
-    emit_event("session_shutdown", payload);
+    if let Err(error) = host.emit("session_shutdown", payload, timeout) {
+        eprintln!("pi-rs: 扩展事件 session_shutdown 分发失败：{error}");
+    }
+}
+
+/// 关闭扩展宿主并**等待其进程退出**（上限 `timeout`；超时按 PID kill）。
+///
+/// 宿主 node 若晚于 pi-rs 退出，Node 会在退出时对继承来的 tty 做 `uv_tty_reset_mode`
+/// （F41/P2① 已切断继承，这里再保证"退出前等它走完"，双保险）。
+pub fn shutdown_host(timeout: std::time::Duration) {
+    let Some(host) = HOST.get().and_then(|slot| slot.as_ref()).cloned() else {
+        return;
+    };
+    let pid = host.pid();
+    let started = std::time::Instant::now();
+    host.shutdown();
+    // `HostHandle::shutdown` 内部最多等 5s；这里按批次的 1s 上限补偿：
+    // 若已超时且子进程仍在，按 PID kill（不 pkill）。
+    if started.elapsed() >= timeout {
+        if let Some(pid) = pid {
+            eprintln!("pi-rs: 扩展宿主 {pid} 超时未退出，按 PID 清理");
+            let _ = std::process::Command::new("kill")
+                .arg("-9")
+                .arg(pid.to_string())
+                .status();
+        }
+    }
 }
 
 /// `user_bash` 的三种返回（ref `runner.ts:1154-1170`）。
