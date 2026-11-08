@@ -582,3 +582,21 @@ ref 的对应实现见 `interactive-mode.ts:2541`/`:2543`（`showExtensionNotify
     J4（渲染钩子按需渲染，F36 plan 方案 A）、J5（T89h 引用块块树重写）均未做。
     J1 的"`^[[A`"结论：pi-rs 退出序列在三种终端应答配置下与 TS 完全一致、无遗留模式 ⇒ 需从 shell 侧取证
     （`printf '\e[?u' | cat -v`、`stty -a`、Alacritty 里 `cat -v` 后按 ↑ 的原始字节）。
+
+14. **F38 未完成**：K5 已关闭（见 10a-2），但「真实 `pi-ai-summary` 的折叠工具行/thinking 行」仍未对齐——
+    该扩展是对 `ToolExecutionComponent.prototype.render` / `AssistantMessageComponent.prototype` 打**原型补丁**，
+    ref 里扩展与 TUI 同进程所以生效；我们扩展在独立 node 进程，补丁对 Rust 渲染零影响。
+    需要对「宿主把工具行渲染委托给 runner」的通道（约 200–300 行，跨 runner/Rust/tui），未实施。
+
+15. **F39 未完成（缺项：M0 工具行委托、M1e 归因数量）**。
+    退出后 `^[[A`：`restore()` 的 drain idle 已对齐 ref `terminal.ts:384` 的 `idleMs=50`（原 150 ms），
+    退出收尾从 161 ms 降到 60 ms；但**真机（二进制 `e62e986`）退出后立刻按上键仍出现 `^[[A`**，
+    即该修改**不是主因**。drain 50 ms 保留。
+
+16. **F40 N1/N2 结论**：用真实 10 个扩展（脱敏副本）在 pty 夹具里逐项对拍（10 全开 / `-ne` / 逐个单开，
+    各 3 次），**pi-rs 返回时该 pty 上没有任何存活子孙进程、termios 也没有被改回、`ESC[A` 不被字面回显**，
+    与 TS 一致 ⇒ 夹具仍缺真机变量（Alacritty 自身行规程/回显、真实 shell 的 readline 时序）。
+    已确认的**代码偏离**（但夹具下无可观测后果）：pi-rs 的 `session_shutdown` 经 `enqueue_emit`
+    投递到独立线程队列即返回（`ext_tools.rs:53-67`），不等处理器完成、也不等宿主退出；
+    ref 是 `await emit(event)`（`core/extensions/runner.ts:254-263`，由
+    `interactive-mode.ts:4170` 的 `runtimeHost.dispose()` 等待）。N3 因"未给明确机制"未实施。

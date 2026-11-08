@@ -137,3 +137,12 @@
   新增 `tools/difftest/exit-timeline.py` 与 `p9_f39_exit_timeline.rs`（改前 gap 160.7 ms FAILED）。
 - M3：workspace **1082/0**、clippy 0、precommit **11/11**、regress **dark 100/0/22**、**light 23/0/1**、
   privacy 干净、readonly 一致、orphans 0；**本批不出发布包**。
+
+## F40 取证与 N4（HEAD 63f58051）
+- N1：真实 10 扩展 × {全开, -ne, 逐个单开} × 3 次，pty 夹具下**未复现**（无存活子孙、termios 未变、无回显）。
+  夹具 `tools/difftest/pty-exit-probe.py`（2ms/10ms 粒度采样 + 占 tty 进程扫描 + `ESC[A` 回显探测）。
+- N2：ref 顺序是 `drainInput` → `stop()` → `await runtimeHost.dispose()`（内含 `await emitSessionShutdownEvent`）
+  → resume 行 → exit；pi-rs 的 `session_shutdown` 走 `enqueue_emit` **投递即返回**、不等宿主退出
+  （`ExtHost::drop` 只 `start_kill`）。属已确认偏离，但夹具下无可观测 tty 后果 ⇒ N3 未实施。
+- N4：`[Context]` 改为单行紧凑列表（ref `formatCompactList(..., {sort:false})`），多文件行数与 TS 一致；
+  新增 golden `T103-context-path`。
