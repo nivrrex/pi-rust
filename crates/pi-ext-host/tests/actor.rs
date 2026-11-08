@@ -36,6 +36,7 @@ fn options(node: &std::path::Path) -> HostOptions {
         cwd: repo_root(),
         env: Vec::new(),
     }
+    log_path: None,
 }
 
 /// 同步调用（调用线程没有 tokio 运行时）。

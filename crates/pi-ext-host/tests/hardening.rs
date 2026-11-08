@@ -40,6 +40,7 @@ fn options(node: &std::path::Path) -> HostOptions {
         cwd: repo_root(),
         env: Vec::new(),
     }
+    log_path: None,
 }
 
 /// 令牌必须经环境变量传给子进程，**不得**出现在 argv（`/proc/<pid>/cmdline`）。

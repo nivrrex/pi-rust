@@ -68,6 +68,7 @@ async fn broken_extensions_report_load_errors_and_good_one_still_loads() {
             "PI_CODING_AGENT_DIR".to_string(),
             agent.display().to_string(),
         )],
+        log_path: None,
     })
     .expect("宿主应能启动");
 

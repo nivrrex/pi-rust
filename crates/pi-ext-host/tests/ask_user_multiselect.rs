@@ -39,6 +39,7 @@ fn harness() -> Option<(HostHandle, std::sync::mpsc::Receiver<UiFrame>)> {
             "PI_CODING_AGENT_DIR".to_string(),
             agent_dir.display().to_string(),
         )],
+        log_path: None,
     })
     .ok()?;
     let (tx, rx) = std::sync::mpsc::channel();

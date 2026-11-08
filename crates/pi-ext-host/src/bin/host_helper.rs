@@ -50,6 +50,7 @@ async fn main() {
         extensions,
         cwd: std::env::current_dir().unwrap_or_else(|_| PathBuf::from(".")),
         env: Vec::new(),
+        log_path: None,
     };
     let mut host = match pi_ext_host::ExtHost::start(options).await {
         Ok(host) => host,

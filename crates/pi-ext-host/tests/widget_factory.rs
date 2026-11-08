@@ -31,6 +31,7 @@ fn widget_factory_render_lines_reach_the_host() {
         extensions: vec![repo_root().join("tools/ext-host/fixtures/widgetfactory-ext.mjs")],
         cwd: repo_root(),
         env: Vec::new(),
+        log_path: None,
     })
     .expect("宿主应能启动");
     let (tx, rx) = std::sync::mpsc::channel();

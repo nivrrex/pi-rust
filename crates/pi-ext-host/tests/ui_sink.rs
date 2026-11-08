@@ -31,6 +31,7 @@ fn notify_and_status_reach_the_sink() {
         extensions: vec![repo_root().join("tools/ext-host/fixtures/ui-ext.mjs")],
         cwd: repo_root(),
         env: Vec::new(),
+        log_path: None,
     })
     .expect("宿主应能启动");
     let (tx, rx) = std::sync::mpsc::channel();

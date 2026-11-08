@@ -845,6 +845,37 @@ fn materialize_embedded_runner() -> Option<std::path::PathBuf> {
     .clone()
 }
 
+/// 是否有 UI 前端（TUI）。宿主日志的去向按它决定（F42/Q2）。
+fn has_ui_frontend() -> bool {
+    UI_TX.get().is_some()
+}
+
+/// 扩展日志文件路径（F42/Q2）：`<agentDir>/extensions.log`。
+///
+/// **只在 TUI 模式使用**：宿主 node 的 stdout/stderr 会被转发到这里，而不是宿主 stderr，
+/// 否则日志会穿插进 TUI 画面。路径基于配置目录，不硬编码绝对路径。
+#[must_use]
+pub fn extension_log_path(agent_dir: &Path) -> std::path::PathBuf {
+    agent_dir.join("extensions.log")
+}
+
+/// 退出时把扩展日志**一次性**输出到 stderr（TUI 模式）。
+///
+/// 输出后**不删除**文件：用户可能要回看历史；下一个会话继续追加。
+pub fn flush_extension_log(agent_dir: &Path) {
+    let path = extension_log_path(agent_dir);
+    let Ok(text) = std::fs::read_to_string(&path) else {
+        return;
+    };
+    if text.trim().is_empty() {
+        return;
+    }
+    eprint!("{text}");
+    if !text.ends_with('\n') {
+        eprintln!();
+    }
+}
+
 /// 返回扩展工具（首次调用时启动宿主）。失败时返回空列表并打印警告。
 #[must_use]
 pub fn extension_tools(agent_dir: &Path, cwd: &Path) -> Vec<Arc<dyn Tool>> {
@@ -905,12 +936,20 @@ fn start_host(agent_dir: &Path, cwd: &Path) -> Option<pi_ext_host::HostHandle> {
     if let Some(home) = std::env::var_os("HOME") {
         env.push(("HOME".to_string(), home.to_string_lossy().to_string()));
     }
+    // F42/Q2：**TUI 模式**把扩展日志写文件（退出时一次性输出到 stderr），
+    // 否则日志会穿插进画面。print/rpc 等非 TUI 模式仍直接转发到宿主 stderr。
+    let log_path = if has_ui_frontend() {
+        Some(extension_log_path(agent_dir))
+    } else {
+        None
+    };
     let options = pi_ext_host::HostOptions {
         node,
         runner,
         extensions: extensions.clone(),
         cwd: cwd.to_path_buf(),
         env,
+        log_path,
     };
     // actor：宿主由专用线程独占（`notes/decisions.md` 的 "扩展宿主 actor 化"）。
     let host = match pi_ext_host::HostHandle::start(options) {

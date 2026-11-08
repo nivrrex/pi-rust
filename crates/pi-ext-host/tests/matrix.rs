@@ -73,6 +73,7 @@ fn matrix_over_real_extensions() {
             "PI_CODING_AGENT_DIR".to_string(),
             agent_dir.display().to_string(),
         )],
+        log_path: None,
     })
     .expect("宿主应能启动（9 个真实扩展）");
 

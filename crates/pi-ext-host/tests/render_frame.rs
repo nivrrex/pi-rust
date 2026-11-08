@@ -32,6 +32,7 @@ fn render_hooks_serialize_to_frames() {
         extensions: vec![repo_root().join("tools/ext-host/fixtures/render-ext.mjs")],
         cwd: repo_root(),
         env: Vec::new(),
+        log_path: None,
     })
     .expect("宿主应能启动");
 

@@ -43,6 +43,7 @@ fn options(node: &str) -> HostOptions {
         cwd: repo_root(),
         env: Vec::new(),
     }
+    log_path: None,
 }
 
 /// 正常路径：注册两个工具、调用回显、调用抛错工具。

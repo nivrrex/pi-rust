@@ -50,6 +50,7 @@ fn bash_tool_executes_through_host_action() {
         extensions: vec![ext],
         cwd: repo_root(),
         env: Vec::new(),
+        log_path: None,
     })
     .expect("宿主应能启动");
     // 假宿主：直接回固定结果，验证"请求确实以宿主动作帧送达"。

@@ -36,6 +36,7 @@ fn options(node: &std::path::Path) -> HostOptions {
         cwd: repo_root(),
         env: Vec::new(),
     }
+    log_path: None,
 }
 
 /// 进程是否还在（僵尸也算"在"：`/proc/<pid>` 存在即算没退出）。

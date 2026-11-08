@@ -35,6 +35,7 @@ fn custom_input_is_delivered_while_invoke_is_in_flight() {
         extensions: vec![repo_root().join("tools/ext-host/fixtures/custom_invoke-ext.mjs")],
         cwd: repo_root(),
         env: Vec::new(),
+        log_path: None,
     })
     .expect("宿主应能启动");
     let (tx, rx) = std::sync::mpsc::channel();

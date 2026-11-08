@@ -133,6 +133,11 @@ pub struct HostOptions {
     pub cwd: PathBuf,
     /// 额外的环境变量（例如 `PI_CODING_AGENT_DIR`）。
     pub env: Vec<(String, String)>,
+    /// 子进程 stdout/stderr 的转发去向（F42/Q2）。
+    ///
+    /// `None` = 直接写宿主自己的 stderr（print/rpc 等非 TUI 模式）；
+    /// `Some(path)` = 追加到该文件（TUI 模式，避免日志穿插进画面）。
+    pub log_path: Option<PathBuf>,
 }
 
 /// 宿主错误。
@@ -334,6 +339,27 @@ pub struct ExtHost {
     state: std::sync::Arc<std::sync::Mutex<HostState>>,
 }
 
+/// 把一段输出**追加**到日志文件（TUI 模式下扩展日志的去向）。
+///
+/// 用追加而不是覆盖：一个会话里宿主只启动一次，但 `/reload` 等路径可能再次启动；
+/// 追加能保住历史。写失败时退回 stderr（宁可脏画面，也不静默丢日志）。
+fn append_log(path: &std::path::Path, text: &str) {
+    use std::io::Write;
+    if let Some(parent) = path.parent() {
+        let _ = std::fs::create_dir_all(parent);
+    }
+    let opened = std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(path);
+    match opened {
+        Ok(mut file) => {
+            let _ = file.write_all(text.as_bytes());
+        }
+        Err(_) => eprint!("{text}"),
+    }
+}
+
 /// 宿主子进程 stdout/stderr 的两种管道（转发到宿主 stderr 用）。
 enum StreamKind {
     /// `stderr`
@@ -398,30 +424,41 @@ impl ExtHost {
             .map_err(|error| HostError::Spawn(error.to_string()))?;
         let pid = child.id();
         let stdin = child.stdin.take();
-        // stderr 走管道后必须**转发**到宿主自己的 stderr（扩展日志/告警原来直接写 tty，
-        // 改成管道会静默丢弃）。stdout 只可能承载协议外的杂散输出，一并转到 stderr，
-        // 避免污染宿主的正常输出。转发用 tokio 的异步读取（`ChildStdout` 是 async 流）。
+        // stderr 走管道后必须**转发**（扩展日志/告警原来直接写 tty，改成管道会静默丢弃）。
+        // stdout 只可能承载协议外的杂散输出，一并转发，避免污染宿主的正常输出。
+        //
+        // F42/Q2：**TUI 模式下不能写宿主 stderr** —— 那会把扩展日志（`[remote-control] …`）
+        // 直接打进画面，穿插在 `[Extensions]` 段与分隔线之间。此时改写到 `log_path`
+        // （`<agentDir>/extensions.log`），由调用方在退出时一次性输出。
+        let log_target = options.log_path.clone();
         for (label, stream) in [
             ("stderr", child.stderr.take().map(StreamKind::Err)),
             ("stdout", child.stdout.take().map(StreamKind::Out)),
         ] {
             let Some(stream) = stream else { continue };
+            let target = log_target.clone();
             tokio::spawn(async move {
                 use tokio::io::AsyncReadExt;
                 let mut buffer = [0u8; 4096];
+                macro_rules! pump {
+                    ($pipe:expr) => {
+                        loop {
+                            match $pipe.read(&mut buffer).await {
+                                Ok(0) | Err(_) => break,
+                                Ok(count) => {
+                                    let text = String::from_utf8_lossy(&buffer[..count]).to_string();
+                                    match target.as_deref() {
+                                        Some(path) => append_log(path, &text),
+                                        None => eprint!("{text}"),
+                                    }
+                                }
+                            }
+                        }
+                    };
+                }
                 match stream {
-                    StreamKind::Err(mut pipe) => loop {
-                        match pipe.read(&mut buffer).await {
-                            Ok(0) | Err(_) => break,
-                            Ok(count) => eprint!("{}", String::from_utf8_lossy(&buffer[..count])),
-                        }
-                    },
-                    StreamKind::Out(mut pipe) => loop {
-                        match pipe.read(&mut buffer).await {
-                            Ok(0) | Err(_) => break,
-                            Ok(count) => eprint!("{}", String::from_utf8_lossy(&buffer[..count])),
-                        }
-                    },
+                    StreamKind::Err(mut pipe) => pump!(pipe),
+                    StreamKind::Out(mut pipe) => pump!(pipe),
                 }
                 let _ = label;
             });

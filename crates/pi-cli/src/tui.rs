@@ -4460,6 +4460,11 @@ pub fn run(
     crate::ext_tools::emit_session_shutdown_sync("quit", None, std::time::Duration::from_secs(1));
     crate::ext_tools::shutdown_host(std::time::Duration::from_secs(1));
     guard.restore();
+    // F42/Q2：TUI 模式下扩展日志写的是文件（避免穿插进画面），退出时**一次性**输出到 stderr。
+    // 必须在 `guard.restore()` 之后：否则日志会被刚才那一帧的 diff 重绘覆盖掉。
+    if let Some(parts) = parts.as_ref() {
+        crate::ext_tools::flush_extension_log(&parts.agent_dir);
+    }
     // 退出后打印**恢复会话**提示（ref 退出路径同款文案，见 T01 golden 尾部）：
     // `\x1b[2mTo resume this session:\x1b[22m pi --session-dir <dir> --session <id>`。
     // 之前完全没有这行，样式级对拍里那 23 格就是它。

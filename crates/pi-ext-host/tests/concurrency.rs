@@ -33,6 +33,7 @@ fn start() -> Option<HostHandle> {
             extensions: vec![repo_root().join("tools/ext-host/fixtures/echo-ext.mjs")],
             cwd: repo_root(),
             env: Vec::new(),
+            log_path: None,
         })
         .expect("宿主应能启动"),
     )
@@ -125,6 +126,7 @@ fn no_pending_requests_left_after_invoke_returns() {
         extensions: vec![repo_root().join("tools/ext-host/fixtures/custom_invoke-ext.mjs")],
         cwd: repo_root(),
         env: Vec::new(),
+        log_path: None,
     })
     .expect("宿主应能启动");
     let (tx, rx) = std::sync::mpsc::channel();
@@ -177,6 +179,7 @@ fn custom_input_started_before_invoke_is_delivered() {
         extensions: vec![repo_root().join("tools/ext-host/fixtures/custom_invoke-ext.mjs")],
         cwd: repo_root(),
         env: Vec::new(),
+        log_path: None,
     })
     .expect("宿主应能启动");
     let (tx, rx) = std::sync::mpsc::channel();

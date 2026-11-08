@@ -55,6 +55,7 @@ fn request_secret_masks_and_does_not_leak() {
             ),
             ("HOME".to_string(), home.display().to_string()),
         ],
+        log_path: None,
     })
     .expect("宿主应能启动");
     let (tx, rx) = std::sync::mpsc::channel();

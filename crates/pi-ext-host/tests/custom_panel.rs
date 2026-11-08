@@ -33,6 +33,7 @@ fn custom_panel_opens_accepts_keys_and_returns_done() {
         extensions: vec![repo_root().join("tools/ext-host/fixtures/custom-ext.mjs")],
         cwd: repo_root(),
         env: vec![("PI_EXT_TEST_LOG".to_string(), log.display().to_string())],
+        log_path: None,
     })
     .expect("宿主应能启动");
     let (tx, rx) = std::sync::mpsc::channel();

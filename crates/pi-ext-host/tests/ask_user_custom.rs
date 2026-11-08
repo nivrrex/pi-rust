@@ -42,6 +42,7 @@ fn ask_user_runs_through_custom_panel() {
             "PI_CODING_AGENT_DIR".to_string(),
             agent_dir.display().to_string(),
         )],
+        log_path: None,
     })
     .expect("宿主应能启动");
     let (tx, rx) = std::sync::mpsc::channel();

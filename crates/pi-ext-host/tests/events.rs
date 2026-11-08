@@ -32,6 +32,7 @@ async fn start(node: &std::path::Path, log: &std::path::Path) -> ExtHost {
         extensions: vec![repo_root().join("tools/ext-host/fixtures/event-ext.mjs")],
         cwd: repo_root(),
         env: vec![("PI_EXT_TEST_LOG".to_string(), log.display().to_string())],
+        log_path: None,
     };
     ExtHost::start(options).await.expect("宿主应能启动")
 }

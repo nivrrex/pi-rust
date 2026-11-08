@@ -31,6 +31,7 @@ fn unknown_theme_color_falls_back_to_unsupported() {
         extensions: vec![repo_root().join("tools/ext-host/fixtures/render-unknown-color-ext.mjs")],
         cwd: repo_root(),
         env: Vec::new(),
+        log_path: None,
     })
     .expect("宿主应能启动");
     let frame = host

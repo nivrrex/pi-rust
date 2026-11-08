@@ -34,6 +34,7 @@ async fn host_with(fixture: &str) -> Option<ExtHost> {
         extensions: vec![repo_root().join("tools/ext-host/fixtures").join(fixture)],
         cwd: repo_root(),
         env: Vec::new(),
+        log_path: None,
     };
     Some(ExtHost::start(options).await.expect("宿主应能启动"))
 }
