@@ -1017,9 +1017,13 @@ function makeThemeStub() {
   // `hostCtx.trueColor` 由宿主按 ref `terminal-image.ts:73-74` 的能力判定传入；
   // 缺省按**支持**处理（下面的判定失败时退回真彩，保持既有行为）。
   const trueColor = hostCtx.trueColor !== false;
+  // F46/U3：**必须按当前主题取色表**（`settings.json` 的 `theme`，宿主经 ctx 传入）。
+  // 此前固定用 dark 表 ⇒ light 主题下扩展仍拿深色调色板（真机 `✓ 全部完成` 呈 #b5bd68 而非
+  // light 的 #588458，ref `theme/theme.ts:529` 按主题名取对应主题对象）。
+  const palette = shimTheme.fgColorsFor(hostCtx.themeName) ?? shimTheme.FG_COLORS;
   return {
     fg: (color, text) => {
-      const ansi = shimTheme.FG_COLORS[color];
+      const ansi = palette[color];
       if (!ansi) throw new Error(`Unknown theme color: ${color}`);
       const painted = trueColor ? ansi : degradeTo256(ansi);
       return `${painted}${String(text ?? "")}${shimTheme.RESET_FG}`;

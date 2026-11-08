@@ -82,6 +82,8 @@ pub fn configure_ctx(cwd: &std::path::Path, mode: &str, has_ui: bool) {
             // ref `terminal-image.ts:73-74` 的真彩能力提示；扩展的 `theme.fg` 据此决定
             // 走真彩还是 256 色（F45/T4）。
             "trueColor": pi_tui::style::truecolor_supported(),
+            // 当前主题名（`settings.json` 的 `theme`）：扩展的 `theme.fg` 据此选浅/深色表（F46/U3）。
+            "themeName": "dark",
             "model": serde_json::Value::Null,
             "thinkingLevel": serde_json::Value::Null,
         }))
@@ -103,6 +105,21 @@ pub fn update_ctx_width(cols: usize) {
     };
     if let Ok(mut guard) = slot.lock() {
         guard["width"] = serde_json::json!(cols);
+    }
+    push_ctx();
+}
+
+/// 更新 ctx 里的当前主题名（`settings.json` 的 `theme`）。
+///
+/// 扩展的 `theme.fg(...)` 据此选浅/深色表（F46/U3）：ref `theme/theme.ts:529` 按主题名取
+/// 对应主题对象；此前宿主固定用 dark 表 ⇒ light 主题下扩展的颜色全错（真机 `✓ 全部完成`
+/// 呈深色 `#b5bd68`）。必须在扩展宿主渲染页脚**之前**调用。
+pub fn update_ctx_theme(name: &str) {
+    let Some(slot) = CTX.get() else {
+        return;
+    };
+    if let Ok(mut guard) = slot.lock() {
+        guard["themeName"] = serde_json::Value::String(name.to_string());
     }
     push_ctx();
 }

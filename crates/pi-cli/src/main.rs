@@ -165,6 +165,20 @@ fn main() -> ExitCode {
         if let Ok((cols, _)) = crossterm::terminal::size() {
             pi_cli::ext_tools::update_ctx_width(cols as usize);
         }
+        // 主题名也要在**建宿主之前**写进 ctx：扩展的 `theme.fg()` 按它选浅/深色表（F46/U3）。
+        let agent_dir = pi_cli::runtime::resolve_paths(
+            &|key| std::env::var(key).ok(),
+            pi_cli::runtime::home_from(&|key| std::env::var(key).ok()).as_str(),
+            parsed.session_dir.as_deref(),
+            &cwd,
+        )
+        .agent_dir;
+        let theme_name = std::fs::read_to_string(agent_dir.join("settings.json"))
+            .ok()
+            .and_then(|text| pi_cli::settings::parse(&text).ok())
+            .and_then(|settings| settings.theme)
+            .unwrap_or_else(|| pi_tui::theme::DEFAULT_NAME.to_string());
+        pi_cli::ext_tools::update_ctx_theme(&theme_name);
     }
     match mode {
         AppMode::PrintText => run_print(&parsed, false),
@@ -1529,6 +1543,18 @@ fn build_tui_agent_parts(
                 writer.set_chain(pi_cli::ext_tools::session_chain());
                 pi_cli::ext_tools::set_session_file(writer.path());
                 pi_cli::ext_tools::set_session_id(writer.session_id());
+                // F46/U2：**恢复分支也必须把模型写进扩展 ctx**。此前只有「新建会话」分支调用
+                // `set_ctx_model_object`，`-c`/`--session` 走的是这里 ⇒ 扩展读到的 `ctx.model`
+                // 一直是 null ⇒ 扩展页脚显示 `no-model`、拿不到 `contextWindow` 而算成 `0.0%`
+                // （ref `pi-ai-summary/src/footer-cny.ts:274/342`：
+                //  `(ctx.model as any)?.contextWindow ?? 0`、`model?.id || "no-model"`）。
+                // 原生页脚的模型名走 `state.model`，所以真机上**只有扩展页脚**表现为 no-model。
+                pi_cli::ext_tools::set_ctx_model_object(
+                    &model_id,
+                    &provider_name,
+                    resolved.reasoning,
+                    resolved.context_window,
+                );
                 // F44/S2：恢复路径**不写 system 条目** ⇒ `append_system_message` 里那次
                 // `flush_pending_session_start()` 永远不执行，扩展收不到 `session_start`。
                 // 结果是 `-c` 后 `[Extensions]` 段与 Todo 部件都缺失（真机现象；
