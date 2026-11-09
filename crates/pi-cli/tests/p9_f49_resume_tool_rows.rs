@@ -2,8 +2,10 @@
 //! 展开态 `ctrl+o` 能看到 diff / bash 输出 / report_to_user 的 kind）。
 //!
 //! 根因（`crates/pi-cli/src/tui.rs` 的 `transcript_from_messages`）：
+//!
 //! 1. `Content::ToolCall` 分支把 `output`/`is_error`/`result_payload` 全部写死 `None`；
 //! 2. `Message::ToolResult` 落到"忽略"分支（`tui.rs:273-277`）。
+//!
 //! 于是恢复出来的工具行既没有结果正文、也没有 `isError`，折叠行拿不到 `result`，
 //! 展开态只剩一行路径（真机：edit 无 diff、bash 无输出、report_to_user 只有 `done`）。
 //!
@@ -13,7 +15,7 @@
 
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::process::Command;
 
 fn repo_root() -> PathBuf {
@@ -57,9 +59,9 @@ fn session_jsonl(cwd: &str) -> String {
     lines.push(
         r#"{"type":"model_change","id":"e1","parentId":null,"timestamp":"2026-01-01T00:00:00.000Z","provider":"p","modelId":"m"}"#.to_string(),
     );
-    lines.push(format!(
-        r#"{{"type":"message","id":"u1","parentId":"e1","timestamp":"2026-01-01T00:00:00.000Z","message":{{"role":"user","content":[{{"type":"text","text":"跑五个合成工具"}}],"timestamp":1}}}}"#
-    ));
+    lines.push(
+        r#"{"type":"message","id":"u1","parentId":"e1","timestamp":"2026-01-01T00:00:00.000Z","message":{"role":"user","content":[{"type":"text","text":"跑五个合成工具"}],"timestamp":1}}"#.to_string(),
+    );
     let mut content = String::from(r#"[{"type":"text","text":"依次执行："}"#);
     for (id, name, args) in calls {
         content.push_str(&format!(
