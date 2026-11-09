@@ -638,6 +638,20 @@ impl ExtHost {
                 out.push((id, lines));
             }
         }
+        // 逐行的错误：回 `lines:null`（回落原生渲染）之外，把原因交给调用方记录，
+        // 否则"扩展在某宽度下抛错"会表现成"折叠功能偶尔不生效"，无从定位（F51 实测）。
+        if std::env::var_os("PI_TOOL_ROW_ERRORS").is_some() {
+            if let Some(items) = response.get("rows").and_then(|value| value.as_array()) {
+                for item in items {
+                    if let Some(error) = item.get("error").and_then(|value| value.as_str()) {
+                        eprintln!(
+                            "[tool-row] {} -> {error}",
+                            item.get("id").and_then(|value| value.as_str()).unwrap_or("-")
+                        );
+                    }
+                }
+            }
+        }
         if out.is_empty() {
             if let Some(error) = response.get("error").and_then(|value| value.as_str()) {
                 return Err(HostError::Protocol(format!("ext.render.tool: {error}")));
