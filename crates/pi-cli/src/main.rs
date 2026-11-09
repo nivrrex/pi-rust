@@ -1519,22 +1519,16 @@ fn build_tui_agent_parts(
     let resumed_file = resumed_path
         .as_ref()
         .and_then(|path| pi_core::session_io::SessionFile::read(path).ok());
+    // F49/Y1：恢复渲染只取 **`buildContextEntries`** 的结果，不是文件里的全部条目。
+    // ref `core/session-manager.ts:476-509`：从最后一条 `compaction` 起（含其
+    // `firstKeptEntryId` 之后保留的条目、以及 compaction 之后的全部条目）。
+    // `renderInitialMessages()`（`interactive-mode.ts:4056-4062`）渲染的正是它 ⇒ 压缩前的
+    // 历史既不在上下文里、也不该出现在屏幕上。
+    // 旧实现直接用 `file.entries` 的全部 message：一个压缩过 23 次、95 MB 的会话要渲染
+    // 56k 条、50 万行、写出 50 MB（真机实测首帧 47 秒；TS 同会话只 1.8 MB、3 秒）。
     let initial_messages: Vec<pi_ai::message::Message> = resumed_file
         .as_ref()
-        .map(|file| {
-            file.entries
-                .iter()
-                .filter_map(|entry| match entry {
-                    pi_core::session::SessionEntry::Message { message, .. } => {
-                        Some(message.clone())
-                    }
-                    other => {
-                        let _ = other;
-                        None
-                    }
-                })
-                .collect()
-        })
+        .map(pi_core::session_io::SessionFile::context_messages)
         .unwrap_or_default();
     // F47/W2：恢复会话时扩展可见的 `ctx.getContextUsage()` 必须来自**会话历史**。
     // ref `core/agent-session.ts:3858-3895`：`getContextUsage()` 用

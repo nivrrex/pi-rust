@@ -9,6 +9,7 @@ use std::io::Write;
 use std::path::{Path, PathBuf};
 
 use crate::session::{parse_line, SessionEntry, SessionHeader, SessionLine};
+use pi_ai::message::Message;
 
 /// 读写会话文件时的失败。
 #[derive(Debug, thiserror::Error)]
@@ -68,6 +69,80 @@ pub struct SessionFile {
     pub header: SessionHeader,
     /// 其余 entry（按文件顺序）。
     pub entries: Vec<SessionEntry>,
+}
+
+impl SessionFile {
+    /// ref `packages/coding-agent/src/core/session-manager.ts:476-509` 的
+    /// `buildContextEntries`：**只取最后一次 `compaction` 及其之后**的条目，并且从该
+    /// compaction 的 `firstKeptEntryId` 起保留（system 消息除外）。
+    ///
+    /// 为什么恢复渲染必须用它（F49/Y1）：`renderInitialMessages()`
+    /// （`interactive-mode.ts:4056-4062`）渲染的是 `buildContextEntries()` 的结果。
+    /// 压缩前的历史**不再进入上下文**，因此也不应被渲染 —— 一个压缩过 23 次、95 MB 的会话
+    /// 若把全部 56k 条都渲染出来，首帧就要写 50 MB（实测 47 秒；TS 同会话 1.8 MB、3 秒）。
+    #[must_use]
+    pub fn context_entries(&self) -> Vec<&SessionEntry> {
+        context_entries(&self.entries)
+    }
+
+    /// 同 [`Self::context_entries`]，但只取 message。
+    #[must_use]
+    pub fn context_messages(&self) -> Vec<Message> {
+        Self::messages_of(&self.entries)
+    }
+
+    /// 便捷入口：从条目切片算 `buildContextEntries` 的 message 子集。
+    #[must_use]
+    pub fn messages_of(entries: &[SessionEntry]) -> Vec<Message> {
+        context_entries(entries)
+            .into_iter()
+            .filter_map(|entry| match entry {
+                SessionEntry::Message { message, .. } => Some(message.clone()),
+                _other => None,
+            })
+            .collect()
+    }
+}
+
+/// ref `session-manager.ts:476-509` 的实现（纯函数，便于单测）。
+///
+/// 语义：沿**文件顺序**取到最后一个 `compaction` 为止；
+/// 从该 compaction 的 `firstKeptEntryId` 起保留条目（`system` 消息除外），
+/// 再接上 compaction 自身与它之后的全部条目。
+#[must_use]
+pub fn context_entries(entries: &[SessionEntry]) -> Vec<&SessionEntry> {
+    let Some(last) = entries
+        .iter()
+        .rposition(|entry| matches!(entry, SessionEntry::Compaction { .. }))
+    else {
+        return entries.iter().collect();
+    };
+    let SessionEntry::Compaction {
+        first_kept_entry_id,
+        ..
+    } = &entries[last]
+    else {
+        return entries.iter().collect();
+    };
+    let mut out: Vec<&SessionEntry> = vec![&entries[last]];
+    let mut found_first_kept = false;
+    for entry in &entries[..last] {
+        if entry.id() == Some(first_kept_entry_id.as_str()) {
+            found_first_kept = true;
+        }
+        let is_system_message = matches!(
+            entry,
+            SessionEntry::Message {
+                message: Message::System { .. },
+                ..
+            }
+        );
+        if found_first_kept && !is_system_message {
+            out.push(entry);
+        }
+    }
+    out.extend(entries[last + 1..].iter());
+    out
 }
 
 /// `branch_summary` 拼进 user 消息时的前缀——**逐字照抄**

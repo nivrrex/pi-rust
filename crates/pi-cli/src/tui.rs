@@ -4974,22 +4974,15 @@ fn title_osc(title: &str) -> String {
     format!("\u{1b}]0;{safe}\u{7}")
 }
 
+/// 测试用入口：把一帧按 [`write_frame`] 的规则写到任意 `Write`（`p9_f49_write_chunks` 用）。
+#[doc(hidden)]
+pub fn write_frame_for_test(out: &mut impl std::io::Write, payload: &str) -> std::io::Result<()> {
+    write_frame(out, payload)
+}
+
 fn write_frame(out: &mut impl std::io::Write, payload: &str) -> std::io::Result<()> {
-    let bytes = payload.as_bytes();
-    let mut start = 0_usize;
-    // 当前块内最后一个换行之后的位置（切点候选）。
-    let mut cut = 0_usize;
-    for (index, byte) in bytes.iter().enumerate() {
-        if *byte == b'\n' {
-            cut = index + 1;
-        }
-        if index + 1 - start >= WRITE_CHUNK && cut > start {
-            out.write_all(&bytes[start..cut])?;
-            start = cut;
-        }
-    }
-    if start < bytes.len() {
-        out.write_all(&bytes[start..])?;
+    for chunk in pi_tui::diff::split_writes(payload, WRITE_CHUNK) {
+        out.write_all(chunk.as_bytes())?;
     }
     out.flush()
 }

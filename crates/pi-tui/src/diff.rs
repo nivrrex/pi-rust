@@ -451,6 +451,57 @@ fn position_hardware_cursor(
 ///
 /// # Errors
 /// 任一行可见宽度 > `width` 时返回 [`DiffRenderError::LineTooWide`]（对应上游抛错路径）。
+/// 单次写出的**字节**上限（ref `tui-main-screen.ts:9` `MAX_RENDER_WRITE_CHARS = 1024 * 1024`）。
+pub const MAX_RENDER_WRITE_CHARS: usize = 1024 * 1024;
+
+/// 把一帧的完整字节按 ref `BoundedTerminalWriter.append()`（`tui-main-screen.ts:31-58`）
+/// 的规则切成若干块，供调用方**逐块写出**。
+///
+/// 为什么必须切块（F49/Y1）：首帧要写出整段历史（ref 同样如此，见 `:277-300`）。若把
+/// 十几 MB 拼成一个 `String` 再一次 `write_all`，终端在整个拼接期间收不到任何字节
+/// （体感"从头刷一遍、几分钟不出画面"），内存峰值也等于整屏。ref 的做法是缓冲满 1 MiB
+/// 就 `flush()`，边算边写。
+///
+/// 切点**绝不落在转义序列中间**：只在 `\x1b` 之前切（CSI/OSC 都以 `\x1b` 起头），
+/// 并避免切开 UTF-8 多字节序列（按 `char_indices` 走）。
+#[must_use]
+pub fn split_writes(frame: &str, limit: usize) -> Vec<&str> {
+    if limit == 0 || frame.len() <= limit {
+        return vec![frame];
+    }
+    let mut out: Vec<&str> = Vec::new();
+    let mut start = 0usize;
+    // 本块内最近一次"可以安全切"的偏移：换行之后，或一个 `\x1b` 之前。
+    // 关键（F49/Y1）：**不能把"块内出现过换行"当作切块前提** —— 单行超过上限时旧实现会
+    // 一路退化成一次超大 `write_all`（真实 95 MB 会话首帧单次写 50 MB、耗时 59 秒）。
+    // 这里没有安全点时也照切，只保证不切断 UTF-8 序列（`char_indices` 给的边界必然安全）。
+    let mut safe: Option<usize> = None;
+    for (index, ch) in frame.char_indices() {
+        if ch == '\x1b' && index > start {
+            safe = Some(index);
+        }
+        if ch == '\n' {
+            safe = Some(index + 1);
+        }
+        if index - start >= limit {
+            // 优先切在安全点（且要落在当前块内），否则切在当前位置。
+            let cut = match safe {
+                Some(value) if value > start => value,
+                Some(_) | None => index,
+            };
+            if cut > start {
+                out.push(&frame[start..cut]);
+                start = cut;
+                safe = None;
+            }
+        }
+    }
+    if start < frame.len() {
+        out.push(&frame[start..]);
+    }
+    out
+}
+
 pub fn diff_render(
     state: &mut DiffState,
     lines: &[String],
