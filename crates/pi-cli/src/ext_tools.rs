@@ -1290,6 +1290,9 @@ pub fn render_ui_block(kind: &str, key: &str, width: usize, digest: &str) -> Opt
 /// 历史工具行越多重绘次数越多（真机"从头到尾反复刷新"）。
 ///
 /// 返回值按输入顺序给出 `(toolCallId, 行)`；`None` = 该行没有扩展接管（原生渲染）。
+/// 一批工具行的渲染结果：`rows` 是逐行结果，`failed` = 整批失败（超时/协议错误）。
+pub type ToolRowBatch = (Vec<(String, Option<Vec<String>>)>, bool);
+
 /// 一批工具行的渲染结果，外加"**这一批整体失败**"的标记（超时/协议错误）。
 ///
 /// 失败时调用方必须把该批的 id 从去重表里**移除**，否则这批行会永久停在原生块上
@@ -1298,7 +1301,7 @@ pub fn render_ui_block(kind: &str, key: &str, width: usize, digest: &str) -> Opt
 pub fn render_tool_rows(
     rows: Vec<(String, serde_json::Value)>,
     width: usize,
-) -> (Vec<(String, Option<Vec<String>>)>, bool) {
+) -> ToolRowBatch {
     let ids: Vec<String> = rows.iter().map(|(id, _)| id.clone()).collect();
     let Some(host) = HOST.get().and_then(|slot| slot.as_ref()).cloned() else {
         return (rows.into_iter().map(|(id, _)| (id, None)).collect(), false);
