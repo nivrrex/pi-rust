@@ -70,9 +70,7 @@ fn strip(text: &str) -> (String, bool) {
         let Some(ch) = text[index..].chars().next() else {
             break;
         };
-        if ch == '\n' || ch == '\r' || ch == '\t' {
-            bad = true;
-        } else if ch.is_control() {
+        if ch == '\n' || ch == '\r' || ch == '\t' || ch.is_control() {
             bad = true;
         }
         out.push(ch);
