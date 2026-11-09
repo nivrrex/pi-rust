@@ -195,6 +195,14 @@ fn produced_tail(
 /// （`[{"type":"text","text":"…"}]`），两种都要显示（`message.ts` 的 `UserMessage` 联合）。
 fn transcript_from_messages(messages: &[pi_ai::message::Message]) -> Vec<pi_tui::TranscriptItem> {
     let mut out = Vec::new();
+    // F49/Y2：`toolResult` 必须**按 `toolCallId` 配对**回填到对应的工具行。
+    // ref `interactive-mode.ts:3982-4010`：`renderSessionItems` 建
+    // `ToolExecutionComponent` 时把它放进 `renderedPendingTools`（键是 `content.id`），
+    // 之后遇到 `message.role === "toolResult"` 就 `renderedPendingTools.get(message.toolCallId)`
+    // 再 `updateResult(message)`。
+    // 旧实现两条都缺：`ToolCall` 分支把 `output/is_error/result_payload` 全写死 `None`，
+    // `ToolResult` 落到"忽略"分支 ⇒ 恢复后 edit 无 diff、bash 无输出、report_to_user 只有 `done`。
+    let mut pending: std::collections::BTreeMap<String, usize> = std::collections::BTreeMap::new();
     for message in messages {
         match message {
             pi_ai::message::Message::User { content, .. } => {
@@ -231,7 +239,10 @@ fn transcript_from_messages(messages: &[pi_ai::message::Message]) -> Vec<pi_tui:
                             }
                         }
                         pi_ai::types::Content::ToolCall {
-                            name, arguments, ..
+                            id: call_id,
+                            name,
+                            arguments,
+                            ..
                         } => {
                             push_text(&mut text, &mut out_items);
                             out_items.push(pi_tui::TranscriptItem::ToolCall {
@@ -253,9 +264,12 @@ fn transcript_from_messages(messages: &[pi_ai::message::Message]) -> Vec<pi_tui:
                                 name: name.clone(),
                                 summary: {
                                     let value = serde_json::Value::Object(arguments.clone());
-                                    tool_summary(&value)
+                                    tool_summary_for(name, &value)
                                 },
                             });
+                            // 登记以便后续 `toolResult` 按 id 配对（ref 的
+                            // `renderedPendingTools.set(content.id, component)`）。
+                            pending.insert(call_id.clone(), out_items.len() - 1 + out.len());
                         }
                         pi_ai::types::Content::Image { .. } => {}
                     }
@@ -270,8 +284,61 @@ fn transcript_from_messages(messages: &[pi_ai::message::Message]) -> Vec<pi_tui:
             }
             // `bashExecution`（`!` 命令记录）：TUI 的 bash 渲染组件尚未实现（F9 批次），
             // `-c` 重放时暂不显示；会话读写与上下文投影已按 ref 处理。
+            // F49/Y2：结果回填（ref `interactive-mode.ts:3995-4010`）。
+            pi_ai::message::Message::ToolResult {
+                tool_call_id,
+                content,
+                is_error,
+                extra,
+                ..
+            } => {
+                let Some(index) = pending.remove(tool_call_id) else {
+                    continue;
+                };
+                let Some(pi_tui::TranscriptItem::ToolCall {
+                    output,
+                    is_error: flag,
+                    result_payload,
+                    ..
+                }) = out.get_mut(index)
+                else {
+                    continue;
+                };
+                // 正文：`content` 里的 text 块按换行拼接（ref `render-utils.ts` 的
+                // `getTextOutput` 同口径）。
+                let mut parts: Vec<String> = Vec::new();
+                for block in content {
+                    if let pi_ai::message::ToolResultContent::Text { text, .. } = block {
+                        parts.push(text.clone());
+                    }
+                }
+                *output = Some(parts.join("\n"));
+                *flag = *is_error;
+                // `details`（含 edit 的 diff、bash 的 exitCode）必须一起带过去：
+                // 折叠行与展开态都靠它（扩展侧读 `result.details`）。
+                *result_payload = Some(
+                    serde_json::json!({
+                        "content": content
+                            .iter()
+                            .map(|block| match block {
+                                pi_ai::message::ToolResultContent::Text { text, .. } =>
+                                    serde_json::json!({ "type": "text", "text": text }),
+                                pi_ai::message::ToolResultContent::Image { .. } =>
+                                    serde_json::json!({ "type": "text", "text": "" }),
+                            })
+                            .collect::<Vec<_>>(),
+                        "isError": *is_error,
+                        // `details` 是**扁平**进条目对象的（`#[serde(flatten)] extra`），
+                        // ref 的 `result.details` 就取自这里（edit 的 diff、bash 的 exitCode）。
+                        "details": extra
+                            .get("details")
+                            .cloned()
+                            .unwrap_or(serde_json::Value::Null),
+                    })
+                    .to_string(),
+                );
+            }
             pi_ai::message::Message::System { .. }
-            | pi_ai::message::Message::ToolResult { .. }
             | pi_ai::message::Message::Custom { .. }
             | pi_ai::message::Message::BashExecution { .. }
             | pi_ai::message::Message::BranchSummary { .. }
@@ -5146,6 +5213,33 @@ fn tool_row_request(state: &pi_tui::TuiState, index: usize) -> Option<ToolRowReq
     })
 }
 
+/// 工具行的参数摘要（`name <summary>` 与折叠行的 target 都用它）。
+///
+/// F49/Y2：**按工具名取字段**，不能取"第一个字符串值"。`arguments` 经
+/// `serde_json::Map`（BTreeMap）反序列化后键序被重排，`edit {path, old, new}` 会先取到
+/// `new` ⇒ 恢复出的工具行显示 `edit B` 而不是 `edit alpha.txt`（真机"工具行只有一行路径"
+/// 的同一处）。ref 的工具行参数由各工具自己的 `renderCall` 决定（`read/edit/write/ls`
+/// 取路径、`bash` 取 command、`grep` 取 pattern…），这里取同一批字段。
+fn tool_summary_for(name: &str, args: &serde_json::Value) -> String {
+    let field = |key: &str| {
+        args.get(key)
+            .and_then(|value| value.as_str())
+            .map(str::to_string)
+    };
+    let picked = match name {
+        "read" | "edit" | "write" | "ls" | "todo" => field("path").or_else(|| field("filePath")),
+        "bash" | "powershell" => field("command"),
+        "grep" => field("pattern"),
+        "find" | "fffind" => field("pattern").or_else(|| field("glob")),
+        "report_to_user" => field("kind"),
+        _other => None,
+    };
+    if let Some(text) = picked {
+        return text;
+    }
+    tool_summary(args)
+}
+
 fn tool_summary(args: &serde_json::Value) -> String {
     if let Some(object) = args.as_object() {
         for value in object.values() {
@@ -5333,7 +5427,7 @@ impl pi_core::agent::EventSink for TuiEventSink {
             } => Some(TuiEvent::ToolCall {
                 id: tool_call_id,
                 name: tool_name.clone(),
-                summary: tool_summary(&args),
+                summary: tool_summary_for(&tool_name, &args),
                 args_json: Some(args.to_string()),
                 // 扩展 `renderCall` 的降级行（无渲染器/不支持时 `None` ⇒ 内置渲染）。
                 // 宽度在渲染层再裁剪，这里给一个足够大的值，避免提前截断丢失内容。
