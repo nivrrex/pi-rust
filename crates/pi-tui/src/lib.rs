@@ -944,8 +944,8 @@ pub fn apply(state: &mut TuiState, event: TuiEvent) -> TuiAction {
                 took,
                 result_render_lines,
                 result_payload,
-                // F51：结果回填补**不**清 `collapsed_row`（见下方注释）。
-                collapsed_row: _,
+                // F51：结果回填补**不**清 `collapsed_row`（见下方注释），
+                // 因此这里不再解构该字段。
                 ..
             }) = target
             {
