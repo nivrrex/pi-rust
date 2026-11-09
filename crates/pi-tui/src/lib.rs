@@ -3181,7 +3181,14 @@ fn render_all_cached_styled_inner(
                 } else if let Some(body) = output.as_deref().filter(|_| !hide_collapsed) {
                     let body = body.trim_end_matches('\n');
                     if !body.is_empty() {
-                        lines.push(String::new());
+                        // F51/Z0：**没有渲染器**的工具（`Generic`）在 ref 里走
+                        // `tool-execution.ts:421-432` 的 `formatToolExecution`：
+                        // `名字` + (`\n\n` + JSON) + `\n` + 正文 —— 结果正文**紧跟**在
+                        // 名字/参数块之后，**没有**额外的空行。有渲染器的工具（bash/edit/…）
+                        // 才是"头部 + 空行 + 正文"。
+                        if !matches!(native, NativeTool::Generic) {
+                            lines.push(String::new());
+                        }
                         let all: Vec<&str> = body.split('\n').collect();
                         let shell = name == "bash" || name == "powershell";
                         let preview = if shell { 5 } else { 10 };
