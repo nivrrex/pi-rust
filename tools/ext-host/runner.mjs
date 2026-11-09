@@ -490,6 +490,67 @@ async function dispatch(frame) {
     }
     return;
   }
+  if (method === "ext.render.tool") {
+    // F48/X3：把工具行渲染委托给扩展的**原型补丁**（ref 机制见
+    // `pi-ai-summary/src/adapters/tool-render.ts:246-252`：扩展直接替换
+    // `ToolExecutionComponent.prototype.render`）。
+    //
+    // 判定「有没有人接管」：默认 `render()` 返回 `null`（见 shim）。仍是默认实现
+    // ⇒ 回 `lines:null`，Rust 走原生渲染，输出与没有本分支时**逐字节相同**。
+    const proto = shimCodingAgent.ToolExecutionComponent?.prototype;
+    if (typeof proto?.render !== "function" || proto.render === undefined) {
+      respond(id, { lines: null, error: "ToolExecutionComponent.prototype.render 不可用" });
+      return;
+    }
+    // 默认实现（`render.length === 0` 且 prototype 上的方法与未被替换时）无法靠函数身份
+    // 判断——扩展可能包一层。用**返回值形状**判定：默认实现恒返回 `null`。
+    const width = Number(params?.width ?? 80) || 80;
+    const digest = String(params?.digest ?? "");
+    const key = String(params?.toolCallId ?? params?.toolName ?? "");
+    const cached = renderCache.get(cacheKey("tool", key, width, digest));
+    if (cached) {
+      respond(id, { lines: cached, cached: true });
+      return;
+    }
+    try {
+      const row = new shimCodingAgent.ToolExecutionComponent(
+        String(params?.toolName ?? ""),
+        key,
+        params?.args ?? undefined,
+        {},
+        undefined,
+        undefined,
+        hostCtx.cwd,
+      );
+      row.isPartial = params?.isPartial !== false;
+      row.expanded = params?.expanded === true;
+      row.result = params?.result ?? undefined;
+      const startedAt = Number(params?.startedAt);
+      const endedAt = Number(params?.endedAt);
+      row.rendererState = {
+        ...(Number.isFinite(startedAt) ? { startedAt } : {}),
+        ...(Number.isFinite(endedAt) ? { endedAt } : {}),
+      };
+      // ref `:307`：渲染前先 `updateDisplay()`（扩展常把它当作缓存失效点）。
+      if (typeof row.updateDisplay === "function") row.updateDisplay();
+      const rendered = row.render(width);
+      if (rendered === null || rendered === undefined) {
+        // 没人接管（默认实现）⇒ Rust 原生渲染。
+        respond(id, { lines: null });
+        return;
+      }
+      if (!Array.isArray(rendered)) {
+        respond(id, { lines: null, error: "render() 未返回 string[]" });
+        return;
+      }
+      const lines = rendered.map((line) => String(line));
+      rememberRender(cacheKey("tool", key, width, digest), lines);
+      respond(id, { lines });
+    } catch (error) {
+      respond(id, { lines: null, error: String(error?.message ?? error) });
+    }
+    return;
+  }
   if (method === "ext.render.footer" || method === "ext.render.widget") {
     // F38/K4：按宿主给的 `width` 与 `digest` 重跑组件 `render(width)`。
     // 结果按 `(kind, key, width, digest)` 缓存（同一状态不重复跑）；超时/抛错由宿主兜底。

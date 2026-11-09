@@ -1281,6 +1281,33 @@ pub fn render_ui_block(kind: &str, key: &str, width: usize, digest: &str) -> Opt
     }
 }
 
+/// 把工具行渲染委托给扩展的原型补丁（F48/X3）；`None` = 没有扩展接管，调用方走原生渲染。
+///
+/// `digest` 是调用方算的状态摘要（`isPartial/expanded/isError/args/result` 的摘要），
+/// 宿主按 `(toolCallId, width, digest)` 命中缓存，避免同一状态重复跨进程请求。
+#[must_use]
+pub fn render_tool_row(
+    payload: serde_json::Value,
+    width: usize,
+    digest: &str,
+) -> Option<Vec<String>> {
+    let host = HOST.get().and_then(|slot| slot.as_ref()).cloned()?;
+    let mut body = payload;
+    if let Some(object) = body.as_object_mut() {
+        object.insert(
+            "digest".to_string(),
+            serde_json::Value::String(digest.to_string()),
+        );
+    }
+    match host.render_tool(body, width) {
+        Ok(lines) => lines,
+        Err(error) => {
+            note_render_failure("tool", &error.to_string());
+            None
+        }
+    }
+}
+
 /// 渲染钩子失败只记一次（ref `interactive-mode.ts:1874-1894` 的 `[Extension issues]`）。
 fn note_render_failure(kind: &str, message: &str) {
     use std::sync::Mutex;

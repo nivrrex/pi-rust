@@ -594,6 +594,40 @@ impl ExtHost {
         }))
     }
 
+    /// 把**工具行**渲染委托给扩展的原型补丁（F48/X3）。
+    ///
+    /// ref 机制：`pi-ai-summary/src/adapters/tool-render.ts:246-252` 直接替换
+    /// `ToolExecutionComponent.prototype.render`。宿主在 runner 里构造同名行对象、
+    /// 调它的 `render(width)`，把行文本回传给 Rust。
+    ///
+    /// 超时 200ms（与 footer/widget 同口径：ref 的每帧渲染是同步的，宿主侧必须有上限）。
+    /// `Ok(None)` = 没有扩展接管 ⇒ 调用方走原生渲染。
+    pub async fn invoke_render_tool(
+        &mut self,
+        params: Value,
+        width: usize,
+    ) -> Result<Option<Vec<String>>, HostError> {
+        let mut body = params;
+        if let Some(object) = body.as_object_mut() {
+            object.insert("width".to_string(), json!(width));
+        }
+        let response = self
+            .call("ext.render.tool", body, Duration::from_millis(200))
+            .await?;
+        if let Some(lines) = response.get("lines").and_then(|lines| lines.as_array()) {
+            return Ok(Some(
+                lines
+                    .iter()
+                    .map(|item| item.as_str().unwrap_or_default().to_string())
+                    .collect(),
+            ));
+        }
+        if let Some(error) = response.get("error").and_then(|value| value.as_str()) {
+            return Err(HostError::Protocol(format!("ext.render.tool: {error}")));
+        }
+        Ok(None)
+    }
+
     /// 调用扩展注册的命令（ref `agent-session.ts:1766-1789`）。
     pub async fn invoke_command(
         &mut self,

@@ -833,7 +833,9 @@ impl AgentLoop {
                         }
                         None => ToolResult {
                             content: vec![crate::tools::tool::ToolResultBlock::Text {
-                                text: format!("Unknown tool: {name}"),
+                                // ref `packages/agent/src/agent-loop.ts:714`：
+                                // `createErrorToolResult(`Tool ${toolCall.name} not found`)`。
+                                text: format!("Tool {name} not found"),
                             }],
                             is_error: true,
                             details: None,

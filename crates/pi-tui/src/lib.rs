@@ -230,6 +230,13 @@ pub enum TranscriptItem {
         name: String,
         /// 已格式化的参数摘要（如 `input.txt`）。
         summary: String,
+        /// **参数原值**（`AgentEvent::ToolExecutionStart.args` 的 JSON 文本）。
+        ///
+        /// 扩展的折叠行要按工具取字段（`pi-ai-summary/src/format.ts:68-107` 的
+        /// `formatToolTarget`：`read/edit/write/ls` 取路径、`bash` 取 command、
+        /// `grep` 取 pattern…），只给 `summary`（首个人类可读值）不够。
+        /// `None` = 该路径没有原值（例如从会话重放且原消息未带 arguments）。
+        args_json: Option<String>,
         /// 结果正文（`None` = 还在跑）。ref 里由 `renderResult` 决定展示，
         /// 折叠/展开见 `tool-execution.ts:40,166-170` 与 `renderers/bash.ts:18,86-97`。
         output: Option<String>,
@@ -248,6 +255,11 @@ pub enum TranscriptItem {
         /// 结果载荷（`{content, details}` 的 JSON）：Ctrl+O 切换后据此**重新**请求渲染
         /// （ref `tool-execution.ts:352`：`expanded` 在渲染时传入）。
         result_payload: Option<String>,
+        /// **折叠单行**：扩展通过原型补丁（`ToolExecutionComponent.prototype.render`）
+        /// 给出的行（F48）。`Some` 时**替代**下面的原生块渲染（含底色、块内空行与结果区）；
+        /// `None` 时输出与引入该字段前**逐字节相同**。
+        /// ref 机制见 `pi-ai-summary/src/adapters/tool-render.ts:246-252`。
+        collapsed_row: Option<Vec<String>>,
     },
 }
 
@@ -417,6 +429,16 @@ pub enum TuiEvent {
     ExtensionCommands(Vec<(String, String)>),
     /// F38/K4：一轮扩展 UI 重渲染已完成（宿主用来清 pending 标志；不改变内容）。
     UiRenderDone,
+    /// F48/X3：扩展通过原型补丁给出的**工具行折叠**结果。
+    ///
+    /// `lines = None` 表示"没有扩展接管"或"展开态" ⇒ 清空折叠行、回到原生块渲染。
+    /// 按 `id` 回填（同一回合多个工具调用必须各自归属，不能取最后一条）。
+    ToolRowRender {
+        /// 工具调用 id（`ToolCall.id`）。
+        id: String,
+        /// 折叠行；`None` = 回到原生渲染。
+        lines: Option<Vec<String>>,
+    },
     /// 扩展 `ctx.ui.setWidget`（ref `types.ts:176`）：`lines=None` 表示清除该键。
     ExtensionWidget {
         /// 组件键。
@@ -521,6 +543,8 @@ pub enum TuiEvent {
         name: String,
         /// 参数摘要（如 `input.txt`）。
         summary: String,
+        /// 参数原值（JSON 文本）；扩展折叠行按工具取字段时用。
+        args_json: Option<String>,
         /// 扩展 `renderCall` 的降级行（`None` = 用内置渲染）。
         render_lines: Option<Vec<String>>,
     },
@@ -731,6 +755,22 @@ pub fn apply(state: &mut TuiState, event: TuiEvent) -> TuiAction {
             refresh_completion(state);
             TuiAction::Redraw
         }
+        TuiEvent::ToolRowRender { id, lines } => {
+            if let Some(TranscriptItem::ToolCall {
+                collapsed_row,
+                id: existing,
+                ..
+            }) = state.transcript.iter_mut().rev().find(
+                |item| matches!(item, TranscriptItem::ToolCall { id: want, .. } if want == &id),
+            ) {
+                let _ = existing;
+                *collapsed_row = lines;
+                TuiAction::Redraw
+            } else {
+                // 找不到对应工具行（例如已滚出历史）⇒ 什么都不做，仍重绘一次即可。
+                TuiAction::Redraw
+            }
+        }
         TuiEvent::ExtensionWidget {
             key,
             lines,
@@ -859,6 +899,9 @@ pub fn apply(state: &mut TuiState, event: TuiEvent) -> TuiAction {
                 took,
                 result_render_lines,
                 result_payload,
+                // F48/X3：结果回填改变 `isPartial/isError/result` ⇒ 折叠行必须清掉重建
+                // （否则屏幕上停在请求发出时那一帧的 `· run`）。上层随后按新 digest 重新请求。
+                collapsed_row,
                 ..
             }) = target
             {
@@ -867,6 +910,7 @@ pub fn apply(state: &mut TuiState, event: TuiEvent) -> TuiAction {
                 *result_payload = payload;
                 *flag = is_error;
                 *took = started_at.map(|start| start.elapsed());
+                *collapsed_row = None;
             }
             TuiAction::Redraw
         }
@@ -956,18 +1000,22 @@ pub fn apply(state: &mut TuiState, event: TuiEvent) -> TuiAction {
             id,
             name,
             summary,
+            args_json,
             render_lines,
         } => {
             state.transcript.push(TranscriptItem::ToolCall {
                 id,
                 name,
                 summary,
+                args_json,
                 output: None,
                 is_error: false,
                 started_at: Some(std::time::Instant::now()),
                 render_lines,
                 result_render_lines: None,
                 result_payload: None,
+                // 折叠行由上层（pi-cli）在状态变化后请求并回填（`TuiEvent::ToolRowRender`）。
+                collapsed_row: None,
                 took: None,
             });
             TuiAction::Redraw
@@ -2193,6 +2241,13 @@ fn item_style(
         // 不是 muted（#808080 → 244）。`compare-style` 实测 TS 侧为 i241。
         TranscriptItem::Status(_) => Some(LineStyle::fg(palette.dim)),
         TranscriptItem::BranchSummary { .. } => Some(LineStyle::fg(palette.accent)),
+        // F48/X3：扩展原型补丁给出的折叠行**自带颜色**（`theme.fg(...)`），不得再叠
+        // `toolSuccessBg`/`toolErrorBg` 底色 —— TS 侧折叠行是**无背景**的（真机截图与
+        // `T116` golden 逐格实测）。返回 `None` ⇒ 终端默认样式，行内 SGR 由扩展行自带。
+        TranscriptItem::ToolCall {
+            collapsed_row: Some(_),
+            ..
+        } => None,
         TranscriptItem::ToolCall { name, is_error, .. } => {
             let background = if *is_error {
                 palette.tool_error_bg
@@ -2597,7 +2652,18 @@ fn render_all_cached_styled_inner(
         );
         // P7-6o(续4)/W0：每条聊天条目前的段落空行（`Hint` 例外：ref 直接 addChild 紧贴前一条）。ref `chatContainer` 级
         // `addChild(new Spacer(1))`（如 `interactive-mode.ts:3678/3768/3775/3787/3800/3964/3979/4021`）。
-        lines.push(String::new());
+        // F48/X3：折叠工具行**没有**自己的前导空行（TS 侧补丁把整块含原 `Spacer(1)`
+        // 一起替换掉了；`T116` golden：段落之后下一行就是第一个工具行）。
+        let collapsed_tool_row = matches!(
+            item,
+            TranscriptItem::ToolCall {
+                collapsed_row: Some(_),
+                ..
+            }
+        );
+        if !collapsed_tool_row {
+            lines.push(String::new());
+        }
         match item {
             // `!` / `!!` 命令块（ref `components/bash-execution.ts:44-59`）：
             // 上边框 + ` $ <command>` + 输出/运行态 + 下边框。
@@ -2817,8 +2883,35 @@ fn render_all_cached_styled_inner(
                 took,
                 render_lines,
                 result_render_lines,
+                collapsed_row,
                 ..
             } => {
+                // F48/X3：扩展用**原型补丁**接管了工具行（`ToolExecutionComponent.prototype.render`）
+                // ⇒ 用它的单行折叠结果**替代**整个原生块：没有底色、没有块内空行、
+                // 没有结果区与折叠提示（ref 语义见 `pi-ai-summary/src/adapters/tool-render.ts`：
+                // 补丁只在 `expanded === false` 时生效，展开态返回 `undefined` 让我们走原生）。
+                if let Some(row) = collapsed_row {
+                    // 折叠行**紧贴上一行**：普通条目前那一行空行要去掉（TS 侧工具行之间
+                    // 没有任何空行，见 `T116` golden）。`item_style` 里折叠行也返回 `None`
+                    // ⇒ 不叠工具块底色。
+                    // 折叠行前**不要空行**：上一条（助手正文）渲染完会留一行空行，
+                    // 而 TS 侧补丁把这些行紧贴在正文下面（`T116` golden：段落 r18 之后
+                    // r19 就是第一个工具行，工具行之间也连续）。
+                    if lines
+                        .last()
+                        .map(|line| line.trim().is_empty())
+                        .unwrap_or(false)
+                    {
+                        lines.pop();
+                        if !styles.is_empty() {
+                            styles.pop();
+                        }
+                    }
+                    for line in row {
+                        lines.push(clamp_to_width_ansi(line, cols));
+                    }
+                    continue;
+                }
                 // 扩展 `renderCall` 给了降级行 ⇒ 用它们替代默认的 ` name summary` 行
                 // （ref `tool-execution.ts:110-118`：有渲染器时用组件的 contentBox）。
                 if let Some(extension_lines) = render_lines {
@@ -4613,6 +4706,8 @@ mod render_cache_span_tests {
             render_lines: None,
             result_render_lines: None,
             result_payload: None,
+            args_json: None,
+            collapsed_row: None,
         });
         state
     }
@@ -4655,6 +4750,8 @@ mod tool_block_style_tests {
             started_at: None,
             result_render_lines: None,
             result_payload: None,
+            args_json: None,
+            collapsed_row: None,
             took: None,
             render_lines: None,
         }
@@ -4975,6 +5072,8 @@ mod markdown_tests {
             render_lines: None,
             result_render_lines: None,
             result_payload: None,
+            args_json: None,
+            collapsed_row: None,
         });
         let lines = super::render(&state, 100, 30);
         let text = lines.join("\n");
@@ -7705,6 +7804,8 @@ mod render_hook_tests {
             render_lines: None,
             result_render_lines: Some(vec!["rendered-result".to_string()]),
             result_payload: None,
+            args_json: None,
+            collapsed_row: None,
         });
         let screen = render(&state, 80, 30);
         assert!(screen.iter().any(|line| line.contains("rendered-result")));
@@ -7732,6 +7833,8 @@ mod render_hook_tests {
             took: None,
             render_lines: Some(vec!["rendered-by-extension".to_string()]),
             result_payload: None,
+            args_json: None,
+            collapsed_row: None,
         });
         let screen = render(&state, 80, 30);
         assert!(screen
@@ -7755,6 +7858,8 @@ mod render_hook_tests {
             render_lines: None,
             result_render_lines: None,
             result_payload: None,
+            args_json: None,
+            collapsed_row: None,
         });
         let screen = render(&state, 80, 30);
         assert!(screen.iter().any(|line| line.contains("read input.txt")));

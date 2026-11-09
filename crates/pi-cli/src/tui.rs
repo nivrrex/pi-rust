@@ -243,6 +243,13 @@ fn transcript_from_messages(messages: &[pi_ai::message::Message]) -> Vec<pi_tui:
                                 render_lines: None,
                                 result_render_lines: None,
                                 result_payload: None,
+                                // 恢复/重放的工具行同样要经折叠路径：上层在重放完成后
+                                // 统一请求一次（见 `tool_row_request`）。
+                                collapsed_row: None,
+                                // 会话消息里带着工具调用的参数 ⇒ 折叠行能按工具取字段。
+                                args_json: Some(
+                                    serde_json::Value::Object(arguments.clone()).to_string(),
+                                ),
                                 name: name.clone(),
                                 summary: {
                                     let value = serde_json::Value::Object(arguments.clone());
@@ -1311,6 +1318,13 @@ pub fn run(
     // 请求在**后台线程**发出（渲染 RPC 有 200ms 上限，不得阻塞主循环），结果回到事件队列。
     let mut last_ui_render_key: Option<(usize, u64)> = None;
     let mut ui_render_pending = false;
+    // F48/X3：工具行折叠的按需重渲染。键是 `(toolCallId, cols, digest)`——digest 涵盖
+    // `isPartial/expanded/isError/args/result`，任一变化才重新跨进程请求；
+    // 请求同样在**后台线程**发出（200ms 上限），结果经 `TuiEvent::ToolRowRender` 回填。
+    let mut tool_row_keys: std::collections::BTreeMap<String, (usize, u64)> =
+        std::collections::BTreeMap::new();
+    let mut tool_row_pending: std::collections::BTreeSet<String> =
+        std::collections::BTreeSet::new();
     // ref `interactive-mode.ts:4116-4124` `handleCtrlC()`：距上一次 Ctrl+C 不足 500 ms 时
     // 第二次 Ctrl+C 触发 `shutdown()`，否则只清编辑器并记录时刻。
     let mut last_ctrl_c: Option<std::time::Instant> = None;
@@ -1486,6 +1500,38 @@ pub fn run(
                 });
             }
         }
+        // F48/X3：工具行的折叠渲染（扩展原型补丁）。只在**状态真的变了**时请求。
+        //
+        // 与 footer/widget 同一套模式：主循环只算 digest 与做差，跨进程请求丢到后台线程，
+        // 结果通过事件队列回填 ⇒ 不阻塞任何一帧。
+        {
+            let bounds = state.transcript.len();
+            for index in 0..bounds {
+                let ToolRowRequest {
+                    id,
+                    payload,
+                    digest,
+                } = match tool_row_request(&state, index) {
+                    Some(request) => request,
+                    None => continue,
+                };
+                let key = (cols, digest);
+                if tool_row_keys.get(&id) == Some(&key) || tool_row_pending.contains(&id) {
+                    continue;
+                }
+                tool_row_keys.insert(id.clone(), key);
+                tool_row_pending.insert(id.clone());
+                let id_for_thread = id.clone();
+                std::thread::spawn(move || {
+                    let lines =
+                        crate::ext_tools::render_tool_row(payload, cols, &format!("{digest}"));
+                    crate::ext_tools::emit_ui_event(pi_tui::TuiEvent::ToolRowRender {
+                        id: id_for_thread,
+                        lines,
+                    });
+                });
+            }
+        }
         let render_ready = last_draw.is_none_or(|last| last.elapsed() >= min_render_interval);
         if dirty && render_ready {
             last_draw = Some(std::time::Instant::now());
@@ -1579,6 +1625,12 @@ pub fn run(
             }
             if matches!(event, TuiEvent::CtrlO) {
                 needs_expanded_rerender = true;
+                // ctrl+o 改变 `expanded` ⇒ 所有工具行都要重新按新展开态请求
+                // （ref `interactive-mode.ts:4401-4417` 对每个子组件 `setExpanded`）。
+                tool_row_keys.clear();
+            }
+            if let TuiEvent::ToolRowRender { id, .. } = &event {
+                tool_row_pending.remove(id);
             }
             // 扩展 UI 询问挂起时，按键只服务于面板（ref `extension-selector.ts:96-112`）。
             // 扩展自定义面板（`ctx.ui.custom`）：按键原样转发给扩展组件，
@@ -1729,6 +1781,7 @@ pub fn run(
                     | TuiEvent::CustomOpen(_)
                     | TuiEvent::OverlayOpen(_)
                     | TuiEvent::ExtensionWidget { .. }
+                    | TuiEvent::ToolRowRender { .. }
                     | TuiEvent::AssistantNotice(_)
                     | TuiEvent::ThemeName(_)
                     | TuiEvent::ClearStatus
@@ -1828,6 +1881,7 @@ pub fn run(
                                 TuiEvent::CtrlD => sel.reset_filter(),
                                 TuiEvent::Char(_)
                                 | TuiEvent::ThemeName(_)
+                                | TuiEvent::ToolRowRender { .. }
                                 | TuiEvent::CtrlP
                                 | TuiEvent::CtrlS
                                 | TuiEvent::CtrlN
@@ -5019,6 +5073,86 @@ fn stamp_timestamp(message: &mut pi_ai::message::Message) {
 }
 
 /// 从工具参数 JSON 里取一个可读摘要：优先第一个字符串值，否则紧凑 JSON（空对象则空串）。
+/// 一次工具行折叠请求所需的全部输入（F48/X3）。
+///
+/// 字段对齐 ref `ToolExecutionComponent` 的私有状态（`tool-execution.ts:67-96`）：
+/// 渲染时硬编码在组件里的 `toolName/toolCallId/args/expanded/isPartial/result` +
+/// `rendererState.{startedAt,endedAt}`。`digest` 是这些值的摘要，用于"状态没变就不请求"。
+pub(crate) struct ToolRowRequest {
+    pub(crate) id: String,
+    pub(crate) payload: serde_json::Value,
+    pub(crate) digest: u64,
+}
+
+/// 从 transcript 的一条条目算出工具行请求；非工具条目/缺 id 时返回 `None`。
+fn tool_row_request(state: &pi_tui::TuiState, index: usize) -> Option<ToolRowRequest> {
+    use std::hash::{Hash as _, Hasher as _};
+    let pi_tui::TranscriptItem::ToolCall {
+        id,
+        name,
+        output,
+        is_error,
+        args_json,
+        result_payload,
+        collapsed_row,
+        started_at,
+        took,
+        ..
+    } = state.transcript.get(index)?
+    else {
+        return None;
+    };
+    if id.is_empty() {
+        return None;
+    }
+    let is_partial = output.is_none() && result_payload.is_none();
+    let expanded = state.tools_expanded;
+    let mut hasher = std::collections::hash_map::DefaultHasher::new();
+    id.hash(&mut hasher);
+    name.hash(&mut hasher);
+    expanded.hash(&mut hasher);
+    is_partial.hash(&mut hasher);
+    is_error.hash(&mut hasher);
+    output.hash(&mut hasher);
+    result_payload.hash(&mut hasher);
+    collapsed_row.is_some().hash(&mut hasher);
+    took.hash(&mut hasher);
+    started_at.is_some().hash(&mut hasher);
+    let digest = hasher.finish();
+    Some(ToolRowRequest {
+        id: id.clone(),
+        payload: serde_json::json!({
+            "toolCallId": id,
+            "toolName": name,
+            "args": args_json
+                .as_deref()
+                .and_then(|text| serde_json::from_str::<serde_json::Value>(text).ok()),
+            "result": result_payload
+                .as_deref()
+                .and_then(|text| serde_json::from_str::<serde_json::Value>(text).ok()),
+            "isPartial": is_partial,
+            "expanded": expanded,
+            "startedAt": std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|value| value.as_millis() as u64)
+                .unwrap_or(0)
+                .saturating_sub(
+                    started_at
+                        .map(|instant| instant.elapsed().as_millis() as u64)
+                        .unwrap_or(0)
+                ),
+            // `endedAt`：定稿时刻（用 now 近似；扩展只用它算 duration）。
+            "endedAt": took.map(|_took| {
+                std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .map(|value| value.as_millis() as u64)
+                    .unwrap_or(0)
+            }),
+        }),
+        digest,
+    })
+}
+
 fn tool_summary(args: &serde_json::Value) -> String {
     if let Some(object) = args.as_object() {
         for value in object.values() {
@@ -5207,6 +5341,7 @@ impl pi_core::agent::EventSink for TuiEventSink {
                 id: tool_call_id,
                 name: tool_name.clone(),
                 summary: tool_summary(&args),
+                args_json: Some(args.to_string()),
                 // 扩展 `renderCall` 的降级行（无渲染器/不支持时 `None` ⇒ 内置渲染）。
                 // 宽度在渲染层再裁剪，这里给一个足够大的值，避免提前截断丢失内容。
                 render_lines: crate::ext_tools::render_tool_block(
@@ -5259,6 +5394,11 @@ impl pi_core::agent::EventSink for TuiEventSink {
                     payload: Some(serde_json::json!({
                         "content": result.get("content").cloned().unwrap_or(serde_json::Value::Null),
                         "details": result.get("details").cloned().unwrap_or(serde_json::Value::Null),
+                        // ref `tool-execution.ts:85-89` 的 `result` 形状是
+                        // `{content, isError, details}`——`isError` 是**独立字段**，
+                        // 不在 content 里。扩展侧判错靠 `result.isError === true`
+                        // （`pi-ai-summary/src/summaries.ts:64-72` 的 status 推导）。
+                        "isError": is_error,
                     })
                     .to_string()),
                 })

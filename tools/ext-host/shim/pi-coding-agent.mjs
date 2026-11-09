@@ -69,14 +69,51 @@ export const AssistantMessageComponent = class extends Container {
     return [];
   }
 };
-// ref `components/tool-execution.ts`：工具行组件，`render()` + `updateDisplay()`（后者在
-// 参数/结果变化时重建行）。pi-ai-summary 的渲染适配器靠这两个方法判断"原型可用"；
-// 少了 `updateDisplay` 它会拒绝安装并弹 `[PI_AI_SUMMARY_INSTALL_FAILED] …incompatible prototype`
-// （F28/S4 真机现象）。我们的工具行由 pi-tui 原生渲染，这两个方法不会被调用 ⇒ 空实现即可。
-export const ToolExecutionComponent = class extends Container {
+// ref `components/tool-execution.ts:67-96` 的工具行组件。
+//
+// **为什么不能再是空壳**（F48/X1）：`pi-ai-summary` 这类扩展不是用 `renderCall`，
+// 而是直接改 `ToolExecutionComponent.prototype.render`（见该扩展
+// `src/adapters/tool-render.ts:246-252`）。空壳的 `render()` 恒返回 `[]`，补丁改的
+// 是一个永远不被调用的方法 —— 对 Rust 渲染零影响（真机：TS 单行折叠、pi-rs 块状）。
+// 现在把它做成**可被实例化的最小实现**：字段与 ref 同名同义，`render()` 是可被替换的
+// 公开方法，宿主在 `ext.render.tool` 里构造行、调 `render(width)`。
+//
+// `render()` 的默认实现返回 `null`（不是 `[]`）：这是"**未被打过补丁**"的标记，
+// 让宿主能明确区分"扩展接管了"与"没人接管"，从而在无人接管时走 Rust 原生渲染。
+export class ToolExecutionComponent extends Container {
+  constructor(toolName = "", toolCallId = "", args = undefined, _options, _definition, _ui, _cwd) {
+    super();
+    this.toolName = String(toolName);
+    this.toolCallId = String(toolCallId);
+    this.args = args;
+    // ref `:74-76`：构造时 `expanded = false`、`isPartial = true`。
+    this.expanded = false;
+    this.isPartial = true;
+    this.hideComponent = false;
+    this.result = undefined;
+    this.rendererState = {};
+  }
+  /** ref `:183-186`：流式参数更新。 */
+  updateArgs(args) {
+    this.args = args;
+    this.updateDisplay();
+  }
+  /** ref `:200-211`：结果回填（`isPartial=false` 表示定稿）。 */
+  updateResult(result, isPartial = false) {
+    this.result = result;
+    this.isPartial = isPartial;
+    this.updateDisplay();
+  }
+  /** ref `:244-247`。 */
+  setExpanded(expanded) {
+    this.expanded = expanded === true;
+    this.updateDisplay();
+  }
+  /** ref `:307`：重建显示。默认什么都不做（扩展可以在此挂缓存失效）。 */
   updateDisplay() {}
+  /** 默认渲染 = `null`（未打补丁）。扩展替换本方法后由宿主调用。 */
   render() {
-    return [];
+    return null;
   }
 };
 export const DynamicBorder = class extends Container {};

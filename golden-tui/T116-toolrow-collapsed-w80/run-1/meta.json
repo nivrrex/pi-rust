@@ -1,0 +1,18 @@
+{
+  "id": "T116-toolrow-collapsed-w80",
+  "cols": 80,
+  "rows": 50,
+  "helperExit": 0,
+  "exitCode": 0,
+  "stderr": "",
+  "mockStderr": "",
+  "requestLog": "/tmp/rec-T116-toolrow-collapsed-w80/requests.jsonl",
+  "snapshotOffsets": [
+    {
+      "name": "rows",
+      "offset": 9582,
+      "t": 149301.155502239
+    }
+  ],
+  "sessionDir": "/tmp/rec-T116-toolrow-collapsed-w80/session"
+}
