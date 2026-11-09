@@ -2968,10 +2968,13 @@ fn render_all_cached_styled_inner(
                     // 文本已是扩展给的标签（`+ Thought: …`）就直接用它；
                     // 否则（扩展没接管）按 ref `assistant-message.ts:145` 用**默认标签**
                     // `Thinking...`，而不是自己拼 `+ Thought: <正文首行>`。
+                    // ref `assistant-message.ts:30`：`hiddenThinkingLabel = "Thinking..."`。
+                    // 扩展（pi-ai-summary）在能给出预览时把它改成 `+ Thought: …`；
+                    // 给不出时（`label=null`）应回落到这条默认文案，而不是自己拼 `+ Thought`。
                     let label = if text.starts_with("+ Thought") || text.starts_with("- Thought") {
                         text.trim_end().to_string()
                     } else {
-                        "+ Thought".to_string()
+                        "Thinking...".to_string()
                     };
                     lines.push(clamp_to_width(&label, cols));
                     lines.push(String::new());
