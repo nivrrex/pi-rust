@@ -2719,14 +2719,23 @@ fn render_all_cached_styled_inner(
                 output,
                 is_error,
                 took,
+                collapsed_row,
                 ..
             } => format!(
                 // `tools_expanded` 必须进 key：否则 ctrl+o 切换后仍命中旧缓存，
                 // 屏幕上看不出任何变化（真机"ctrl+o 没啥变化"）。
-                "t\u{1}{name}\u{1}{summary}\u{1}{is_error}\u{1}{}\u{1}{}\u{1}{:?}",
+                // F51/Z1：**折叠行必须进缓存键**。此前键里只有 `tools_expanded/output/took`，
+                // 于是扩展回填折叠行之后键不变 ⇒ 每帧都命中"原生块"那份缓存，
+                // 折叠分支永远不会执行（实测：`draw` 时 463 行都带 `collapsed_row`，
+                // 帧行数却仍是 4620 行的原生块，且分支里的探针从未触发）。
+                "t\u{1}{name}\u{1}{summary}\u{1}{is_error}\u{1}{}\u{1}{}\u{1}{:?}\u{1}{}\u{1}{:?}",
                 state.tools_expanded,
                 output.as_deref().unwrap_or(""),
-                took
+                took,
+                collapsed_row.is_some(),
+                collapsed_row
+                    .as_ref()
+                    .map(|row| row.join("\u{1}").len())
             ),
         };
         if let Some(cache) = cache.as_deref_mut() {
