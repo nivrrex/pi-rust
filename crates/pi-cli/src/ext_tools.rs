@@ -1298,10 +1298,7 @@ pub type ToolRowBatch = (Vec<(String, Option<Vec<String>>)>, bool);
 /// 失败时调用方必须把该批的 id 从去重表里**移除**，否则这批行会永久停在原生块上
 /// （F51 实测：大会话里 463 行只折叠了 2 行，其余批次的 key 留在表里、再也不会重试）。
 #[must_use]
-pub fn render_tool_rows(
-    rows: Vec<(String, serde_json::Value)>,
-    width: usize,
-) -> ToolRowBatch {
+pub fn render_tool_rows(rows: Vec<(String, serde_json::Value)>, width: usize) -> ToolRowBatch {
     let ids: Vec<String> = rows.iter().map(|(id, _)| id.clone()).collect();
     let Some(host) = HOST.get().and_then(|slot| slot.as_ref()).cloned() else {
         return (rows.into_iter().map(|(id, _)| (id, None)).collect(), false);
