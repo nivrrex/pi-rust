@@ -60,11 +60,11 @@ enum Cmd {
         digest: String,
         reply: Sender<Result<Option<Vec<String>>, HostError>>,
     },
-    /// 把工具行渲染委托给扩展的原型补丁（F48/X3）：`payload` 含行字段，返回行数组。
+    /// 把**一批**工具行渲染委托给扩展的原型补丁（F48/X3 + F50/Z1）。
     RenderTool {
-        payload: Value,
+        rows: Vec<Value>,
         width: usize,
-        reply: Sender<Result<Option<Vec<String>>, HostError>>,
+        reply: Sender<Result<Vec<(String, Option<Vec<String>>)>, HostError>>,
     },
     /// 设置宿主动作通道（`host.action.call`）。
     SetActionSink {
@@ -410,17 +410,13 @@ impl HostHandle {
     ///
     /// `digest` 是宿主算的状态摘要（用量/模型/主题/展开态/错误态）；相同 `(width, digest)`
     /// 在 runner 侧命中缓存，不会重复跑组件 render。
-    /// 把工具行渲染委托给扩展的原型补丁；`Ok(None)` = 无扩展接管（原生渲染）。
-    pub fn render_tool(
+    /// 把**一批**工具行渲染委托给扩展的原型补丁；空 `None` = 无扩展接管（原生渲染）。
+    pub fn render_tool_rows(
         &self,
-        payload: Value,
+        rows: Vec<Value>,
         width: usize,
-    ) -> Result<Option<Vec<String>>, HostError> {
-        self.call(|reply| Cmd::RenderTool {
-            payload,
-            width,
-            reply,
-        })
+    ) -> Result<Vec<(String, Option<Vec<String>>)>, HostError> {
+        self.call(|reply| Cmd::RenderTool { rows, width, reply })
     }
 
     pub fn render_ui(
@@ -632,12 +628,8 @@ fn actor_main(
                 let result = runtime.block_on(host.invoke_render_ui(&kind, &key, width, &digest));
                 let _ = reply.send(result);
             }
-            Cmd::RenderTool {
-                payload,
-                width,
-                reply,
-            } => {
-                let result = runtime.block_on(host.invoke_render_tool(payload, width));
+            Cmd::RenderTool { rows, width, reply } => {
+                let result = runtime.block_on(host.invoke_render_tool_batch(rows, width));
                 let _ = reply.send(result);
             }
             Cmd::SetActionSink { sink } => {

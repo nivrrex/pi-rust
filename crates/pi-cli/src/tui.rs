@@ -1392,6 +1392,8 @@ pub fn run(
         std::collections::BTreeMap::new();
     let mut tool_row_pending: std::collections::BTreeSet<String> =
         std::collections::BTreeSet::new();
+    // 一旦整批都返回 `None`（没有任何扩展接管工具行），本次会话不再请求。
+    let mut tool_row_disabled = false;
     // ref `interactive-mode.ts:4116-4124` `handleCtrlC()`：距上一次 Ctrl+C 不足 500 ms 时
     // 第二次 Ctrl+C 触发 `shutdown()`，否则只清编辑器并记录时刻。
     let mut last_ctrl_c: Option<std::time::Instant> = None;
@@ -1573,6 +1575,7 @@ pub fn run(
         // 结果通过事件队列回填 ⇒ 不阻塞任何一帧。
         {
             let bounds = state.transcript.len();
+            let mut batch: Vec<(String, serde_json::Value, u64)> = Vec::new();
             for index in 0..bounds {
                 let ToolRowRequest {
                     id,
@@ -1588,14 +1591,20 @@ pub fn run(
                 }
                 tool_row_keys.insert(id.clone(), key);
                 tool_row_pending.insert(id.clone());
-                let id_for_thread = id.clone();
+                batch.push((id, payload, digest));
+            }
+            let batch: Vec<(String, serde_json::Value, u64)> = batch;
+            if !batch.is_empty() && !tool_row_disabled {
+                // **一批只回一条事件**（F50/Z1）：逐条回调会让"视口上方的行"每变一次就
+                // 触发一次整屏重绘（ref `tui-main-screen.ts:455-459`），历史工具行越多
+                // 重绘次数越多。这里在**一个**后台线程里串行发完全部请求，再一次性回填。
                 std::thread::spawn(move || {
-                    let lines =
-                        crate::ext_tools::render_tool_row(payload, cols, &format!("{digest}"));
-                    crate::ext_tools::emit_ui_event(pi_tui::TuiEvent::ToolRowRender {
-                        id: id_for_thread,
-                        lines,
-                    });
+                    let payloads: Vec<(String, serde_json::Value)> = batch
+                        .into_iter()
+                        .map(|(id, payload, _digest)| (id, payload))
+                        .collect();
+                    let rows = crate::ext_tools::render_tool_rows(payloads, cols);
+                    crate::ext_tools::emit_ui_event(pi_tui::TuiEvent::ToolRowsRendered { rows });
                 });
             }
         }
@@ -1698,6 +1707,19 @@ pub fn run(
             }
             if let TuiEvent::ToolRowRender { id, .. } = &event {
                 tool_row_pending.remove(id);
+            }
+            if let TuiEvent::ToolRowsRendered { rows } = &event {
+                let mut any = false;
+                for (id, lines) in rows {
+                    tool_row_pending.remove(id);
+                    if lines.is_some() {
+                        any = true;
+                    }
+                }
+                // 整批都没人接管 ⇒ 关掉本会话的工具行请求（与"没有扩展"逐字节一致）。
+                if !any && !rows.is_empty() {
+                    tool_row_disabled = true;
+                }
             }
             // 扩展 UI 询问挂起时，按键只服务于面板（ref `extension-selector.ts:96-112`）。
             // 扩展自定义面板（`ctx.ui.custom`）：按键原样转发给扩展组件，
@@ -1849,6 +1871,7 @@ pub fn run(
                     | TuiEvent::OverlayOpen(_)
                     | TuiEvent::ExtensionWidget { .. }
                     | TuiEvent::ToolRowRender { .. }
+                    | TuiEvent::ToolRowsRendered { .. }
                     | TuiEvent::AssistantNotice(_)
                     | TuiEvent::ThemeName(_)
                     | TuiEvent::ClearStatus
@@ -1949,6 +1972,7 @@ pub fn run(
                                 TuiEvent::Char(_)
                                 | TuiEvent::ThemeName(_)
                                 | TuiEvent::ToolRowRender { .. }
+                                | TuiEvent::ToolRowsRendered { .. }
                                 | TuiEvent::CtrlP
                                 | TuiEvent::CtrlS
                                 | TuiEvent::CtrlN
@@ -5175,7 +5199,6 @@ fn tool_row_request(state: &pi_tui::TuiState, index: usize) -> Option<ToolRowReq
     is_error.hash(&mut hasher);
     output.hash(&mut hasher);
     result_payload.hash(&mut hasher);
-    collapsed_row.is_some().hash(&mut hasher);
     took.hash(&mut hasher);
     started_at.is_some().hash(&mut hasher);
     let digest = hasher.finish();

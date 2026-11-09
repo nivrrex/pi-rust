@@ -429,6 +429,15 @@ pub enum TuiEvent {
     ExtensionCommands(Vec<(String, String)>),
     /// F38/K4：一轮扩展 UI 重渲染已完成（宿主用来清 pending 标志；不改变内容）。
     UiRenderDone,
+    /// F49/Z1：一次**批量**的工具行折叠结果（一次 RPC 批次只回一条事件 ⇒ 只重绘一次）。
+    ///
+    /// 逐条回填会让"视口上方的行"每变一次就触发一次整屏重绘（ref
+    /// `tui-main-screen.ts:455-459`：`firstChanged < prevViewportTop` ⇒ `fullRender(true)`）。
+    /// 历史工具行越多，逐条回调造成的整屏重绘次数就越多（真机"从头到尾反复刷新"）。
+    ToolRowsRendered {
+        /// `(toolCallId, 折叠行)`；`None` = 该行没有扩展接管，回落原生渲染。
+        rows: Vec<(String, Option<Vec<String>>)>,
+    },
     /// F48/X3：扩展通过原型补丁给出的**工具行折叠**结果。
     ///
     /// `lines = None` 表示"没有扩展接管"或"展开态" ⇒ 清空折叠行、回到原生块渲染。
@@ -754,6 +763,24 @@ pub fn apply(state: &mut TuiState, event: TuiEvent) -> TuiAction {
             // 命令表变了 ⇒ 已打开的菜单要按新表重算（否则 `/` 计数还是旧的）。
             refresh_completion(state);
             TuiAction::Redraw
+        }
+        TuiEvent::ToolRowsRendered { rows } => {
+            let mut changed = false;
+            for (id, lines) in rows {
+                if let Some(TranscriptItem::ToolCall { collapsed_row, .. }) =
+                    state.transcript.iter_mut().rev().find(|item| {
+                        matches!(item, TranscriptItem::ToolCall { id: want, .. } if want == &id)
+                    })
+                {
+                    *collapsed_row = lines;
+                    changed = true;
+                }
+            }
+            if changed {
+                TuiAction::Redraw
+            } else {
+                TuiAction::Redraw
+            }
         }
         TuiEvent::ToolRowRender { id, lines } => {
             if let Some(TranscriptItem::ToolCall {

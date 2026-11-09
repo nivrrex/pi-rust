@@ -594,38 +594,56 @@ impl ExtHost {
         }))
     }
 
-    /// 把**工具行**渲染委托给扩展的原型补丁（F48/X3）。
+    /// 把**一批**工具行渲染委托给扩展的原型补丁（F48/X3 + F50/Z1）。
     ///
     /// ref 机制：`pi-ai-summary/src/adapters/tool-render.ts:246-252` 直接替换
-    /// `ToolExecutionComponent.prototype.render`。宿主在 runner 里构造同名行对象、
+    /// `ToolExecutionComponent.prototype.render`。宿主在 runner 里为每行构造同名对象、
     /// 调它的 `render(width)`，把行文本回传给 Rust。
     ///
-    /// 超时 200ms（与 footer/widget 同口径：ref 的每帧渲染是同步的，宿主侧必须有上限）。
-    /// `Ok(None)` = 没有扩展接管 ⇒ 调用方走原生渲染。
-    pub async fn invoke_render_tool(
+    /// **批量**是本方法的要点：一条 RPC 处理全部行、只回一条响应，调用方据此只重绘一次。
+    /// 逐条请求会让"视口上方的行"每变一次就触发一次整屏重绘
+    /// （ref `tui-main-screen.ts:455-459` 的 `firstChanged < prevViewportTop ⇒ fullRender`）。
+    ///
+    /// 超时 1s（批量要跑上千行的 JS `render()`；单行时远小于此）。
+    /// 返回 `(toolCallId, 行)`；`None` = 该行没有扩展接管 ⇒ 调用方走原生渲染。
+    pub async fn invoke_render_tool_batch(
         &mut self,
-        params: Value,
+        rows: Vec<Value>,
         width: usize,
-    ) -> Result<Option<Vec<String>>, HostError> {
-        let mut body = params;
-        if let Some(object) = body.as_object_mut() {
-            object.insert("width".to_string(), json!(width));
-        }
+    ) -> Result<Vec<(String, Option<Vec<String>>)>, HostError> {
         let response = self
-            .call("ext.render.tool", body, Duration::from_millis(200))
+            .call(
+                "ext.render.tool",
+                json!({ "rows": rows, "width": width }),
+                Duration::from_secs(1),
+            )
             .await?;
-        if let Some(lines) = response.get("lines").and_then(|lines| lines.as_array()) {
-            return Ok(Some(
-                lines
-                    .iter()
-                    .map(|item| item.as_str().unwrap_or_default().to_string())
-                    .collect(),
-            ));
+        let mut out = Vec::new();
+        if let Some(items) = response.get("rows").and_then(|value| value.as_array()) {
+            for item in items {
+                let id = item
+                    .get("id")
+                    .and_then(|value| value.as_str())
+                    .unwrap_or_default()
+                    .to_string();
+                let lines = item
+                    .get("lines")
+                    .and_then(|value| value.as_array())
+                    .map(|values| {
+                        values
+                            .iter()
+                            .map(|line| line.as_str().unwrap_or_default().to_string())
+                            .collect::<Vec<String>>()
+                    });
+                out.push((id, lines));
+            }
         }
-        if let Some(error) = response.get("error").and_then(|value| value.as_str()) {
-            return Err(HostError::Protocol(format!("ext.render.tool: {error}")));
+        if out.is_empty() {
+            if let Some(error) = response.get("error").and_then(|value| value.as_str()) {
+                return Err(HostError::Protocol(format!("ext.render.tool: {error}")));
+            }
         }
-        Ok(None)
+        Ok(out)
     }
 
     /// 调用扩展注册的命令（ref `agent-session.ts:1766-1789`）。

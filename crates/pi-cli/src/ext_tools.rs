@@ -1281,29 +1281,28 @@ pub fn render_ui_block(kind: &str, key: &str, width: usize, digest: &str) -> Opt
     }
 }
 
-/// 把工具行渲染委托给扩展的原型补丁（F48/X3）；`None` = 没有扩展接管，调用方走原生渲染。
+/// 把**一批**工具行渲染委托给扩展的原型补丁（F48/X3 + F50/Z1）。
 ///
-/// `digest` 是调用方算的状态摘要（`isPartial/expanded/isError/args/result` 的摘要），
-/// 宿主按 `(toolCallId, width, digest)` 命中缓存，避免同一状态重复跨进程请求。
+/// 一条 RPC 处理整批、只回一条响应 ⇒ 调用方只重绘一次。逐条请求会让"视口上方的行"
+/// 每变一次就触发一次整屏重绘（ref `tui-main-screen.ts:455-459`），
+/// 历史工具行越多重绘次数越多（真机"从头到尾反复刷新"）。
+///
+/// 返回值按输入顺序给出 `(toolCallId, 行)`；`None` = 该行没有扩展接管（原生渲染）。
 #[must_use]
-pub fn render_tool_row(
-    payload: serde_json::Value,
+pub fn render_tool_rows(
+    rows: Vec<(String, serde_json::Value)>,
     width: usize,
-    digest: &str,
-) -> Option<Vec<String>> {
-    let host = HOST.get().and_then(|slot| slot.as_ref()).cloned()?;
-    let mut body = payload;
-    if let Some(object) = body.as_object_mut() {
-        object.insert(
-            "digest".to_string(),
-            serde_json::Value::String(digest.to_string()),
-        );
-    }
-    match host.render_tool(body, width) {
-        Ok(lines) => lines,
+) -> Vec<(String, Option<Vec<String>>)> {
+    let Some(host) = HOST.get().and_then(|slot| slot.as_ref()).cloned() else {
+        return rows.into_iter().map(|(id, _)| (id, None)).collect();
+    };
+    let ids: Vec<String> = rows.iter().map(|(id, _)| id.clone()).collect();
+    let payloads: Vec<serde_json::Value> = rows.into_iter().map(|(_, payload)| payload).collect();
+    match host.render_tool_rows(payloads, width) {
+        Ok(out) => out,
         Err(error) => {
             note_render_failure("tool", &error.to_string());
-            None
+            ids.into_iter().map(|id| (id, None)).collect()
         }
     }
 }
