@@ -85,7 +85,17 @@ const events = [];
 const handlers = new Map();
 
 // 宿主在每帧里带 ctx 快照（`types.ts:313-353` 的子集）；这里缓存最近一次。
-let hostCtx = {};
+// F51/Z1(e)：初始 ctx 由宿主经环境变量给（`session_start` 早于第一帧 `host.ctx`）。
+let hostCtx = (() => {
+  const raw = process.env.PI_EXT_CTX;
+  if (!raw) return {};
+  try {
+    const parsed = JSON.parse(raw);
+    return parsed && typeof parsed === "object" ? parsed : {};
+  } catch {
+    return {};
+  }
+})();
 const socket = net.connect({ host, port: Number(portText) });
 socket.setNoDelay(true);
 socket.setEncoding("utf8");

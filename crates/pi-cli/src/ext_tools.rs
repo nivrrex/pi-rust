@@ -1018,6 +1018,12 @@ fn start_host(agent_dir: &Path, cwd: &Path) -> Option<pi_ext_host::HostHandle> {
     if let Some(home) = std::env::var_os("HOME") {
         env.push(("HOME".to_string(), home.to_string_lossy().to_string()));
     }
+    // F51/Z1(e)：**把初始 ctx 通过环境变量交给 runner**。
+    // `session_start` 在宿主一启动就派发，而 `host.ctx` 是异步帧 —— 扩展在那一刻读到的
+    // `ctx.mode` 是 `undefined`，`pi-ai-summary/index.ts:56` 的 `if (mode !== "tui") return;`
+    // 于是直接跳过全部适配器安装（页脚/工具行/思考折叠都不生效）。
+    // 环境变量在进程启动时就可见，不依赖帧顺序。
+    env.push(("PI_EXT_CTX".to_string(), ctx_snapshot().to_string()));
     // F42/Q2：**TUI 模式**把扩展日志写文件（退出时一次性输出到 stderr），
     // 否则日志会穿插进画面。print/rpc 等非 TUI 模式仍直接转发到宿主 stderr。
     // F44/S0：TUI 模式下日志**每实例内存缓冲**（退出时只输出自己的行）；
