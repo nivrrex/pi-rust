@@ -765,7 +765,6 @@ pub fn apply(state: &mut TuiState, event: TuiEvent) -> TuiAction {
             TuiAction::Redraw
         }
         TuiEvent::ToolRowsRendered { rows } => {
-            let mut changed = false;
             for (id, lines) in rows {
                 if let Some(TranscriptItem::ToolCall { collapsed_row, .. }) =
                     state.transcript.iter_mut().rev().find(|item| {
@@ -773,14 +772,10 @@ pub fn apply(state: &mut TuiState, event: TuiEvent) -> TuiAction {
                     })
                 {
                     *collapsed_row = lines;
-                    changed = true;
                 }
             }
-            if changed {
-                TuiAction::Redraw
-            } else {
-                TuiAction::Redraw
-            }
+            // 整批一次重绘（这正是批量协议的目的）。
+            TuiAction::Redraw
         }
         TuiEvent::ToolRowRender { id, lines } => {
             if let Some(TranscriptItem::ToolCall {

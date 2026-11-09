@@ -12,6 +12,11 @@ use serde_json::Value;
 use crate::client::{ExtHost, HostError, HostOptions};
 
 /// 一次调用的种类。
+/// 批量工具行渲染结果：`(toolCallId, 行)`；`None` = 该行没有扩展接管。
+///
+/// 单独起名是给 `Cmd::RenderTool` 用的（clippy `type_complexity`）。
+pub type ToolRowBatchResult = Result<Vec<(String, Option<Vec<String>>)>, HostError>;
+
 enum Cmd {
     /// 排干"直连请求"的应答（F29/S5）：`custom_input` 走直连后，若此刻 actor 恰好空闲
     /// （没有 invoke 在读帧），应答就没人读 ⇒ 5s 超时。这条指令让 actor 主动读一轮。
@@ -64,7 +69,7 @@ enum Cmd {
     RenderTool {
         rows: Vec<Value>,
         width: usize,
-        reply: Sender<Result<Vec<(String, Option<Vec<String>>)>, HostError>>,
+        reply: Sender<ToolRowBatchResult>,
     },
     /// 设置宿主动作通道（`host.action.call`）。
     SetActionSink {
@@ -411,11 +416,7 @@ impl HostHandle {
     /// `digest` 是宿主算的状态摘要（用量/模型/主题/展开态/错误态）；相同 `(width, digest)`
     /// 在 runner 侧命中缓存，不会重复跑组件 render。
     /// 把**一批**工具行渲染委托给扩展的原型补丁；空 `None` = 无扩展接管（原生渲染）。
-    pub fn render_tool_rows(
-        &self,
-        rows: Vec<Value>,
-        width: usize,
-    ) -> Result<Vec<(String, Option<Vec<String>>)>, HostError> {
+    pub fn render_tool_rows(&self, rows: Vec<Value>, width: usize) -> ToolRowBatchResult {
         self.call(|reply| Cmd::RenderTool { rows, width, reply })
     }
 

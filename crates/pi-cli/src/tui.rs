@@ -5178,7 +5178,9 @@ fn tool_row_request(state: &pi_tui::TuiState, index: usize) -> Option<ToolRowReq
         is_error,
         args_json,
         result_payload,
-        collapsed_row,
+        // 折叠行本身不进 digest：它由本请求的结果回填，纳入会使 digest 自变 ⇒
+        // 无限重请求（F50/Z1 实测：纳入后每轮都触发一次新批次）。
+        collapsed_row: _,
         started_at,
         took,
         ..
