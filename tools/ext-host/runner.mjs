@@ -453,6 +453,12 @@ async function dispatch(frame) {
     }
     return;
   }
+  if (method === "ext.tool.known") {
+    // F51/Z0：该工具是否有定义（决定"只有名字"还是"名字 + 缩进 JSON 参数"）。
+    const name = String(params?.toolName ?? "");
+    respond(id, { known: tools.has(name) });
+    return;
+  }
   if (method === "ext.render") {
     // 渲染钩子降级（ref `tool-execution.ts:26-33`）：跑扩展的 renderCall/renderResult，
     // 把返回的组件序列化成帧；不支持的组件/抛错 ⇒ `unsupported`（宿主回落内置渲染）。
@@ -468,7 +474,7 @@ async function dispatch(frame) {
       // 为 false）时走 `formatToolExecution()`，即"名字 + 缩进 JSON 参数"。两者在屏幕上
       // 完全不同（` report_to_user` + 结果文本 vs ` zeta_broken` + JSON 块 + 结果文本），
       // 所以宿主必须能区分。
-      respond(id, { frames: null, known: definition !== undefined });
+      respond(id, { frames: null });
       return;
     }
     const themeStub = makeThemeStub();

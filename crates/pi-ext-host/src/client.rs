@@ -646,6 +646,23 @@ impl ExtHost {
         Ok(out)
     }
 
+    /// 该工具在宿主侧**是否有定义**（F51/Z0）。
+    ///
+    /// 走独立方法而不是复用 `ext.render`：`ext.render` 的"没有帧"既可能是
+    /// "工具有定义但没有 renderCall"，也可能是"工具完全没有定义"，两者在 ref 里的
+    /// 回退**不同**（`tool-execution.ts:316-320` 的 `createCallFallback` 只显示工具名；
+    /// `:421-432` 的 `formatToolExecution` 显示名字 + 缩进 JSON）。
+    pub async fn invoke_tool_known(&mut self, tool_name: &str) -> Result<Option<bool>, HostError> {
+        let response = self
+            .call(
+                "ext.tool.known",
+                json!({ "toolName": tool_name }),
+                Duration::from_secs(2),
+            )
+            .await?;
+        Ok(response.get("known").and_then(serde_json::Value::as_bool))
+    }
+
     /// 调用扩展注册的命令（ref `agent-session.ts:1766-1789`）。
     pub async fn invoke_command(
         &mut self,
@@ -700,16 +717,6 @@ impl ExtHost {
                 Duration::from_secs(2),
             )
             .await?;
-        // F51/Z0：`known=false` ⇒ 该工具**没有任何定义**（ref 走 `formatToolExecution`，
-        // 即"名字 + 缩进 JSON 参数"）；`known=true` 而 `frames=null` ⇒ 有定义但没有
-        // `renderCall`（ref 走 `createCallFallback()`，只有工具名）。
-        if response
-            .get("known")
-            .and_then(serde_json::Value::as_bool)
-            .is_some_and(|known| !known)
-        {
-            return Ok(Some(json!({ "kind": "unknown-tool" })));
-        }
         Ok(response
             .get("frames")
             .cloned()
