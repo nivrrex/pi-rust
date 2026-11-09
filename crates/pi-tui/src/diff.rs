@@ -484,10 +484,22 @@ pub fn split_writes(frame: &str, limit: usize) -> Vec<&str> {
             safe = Some(index + 1);
         }
         if index - start >= limit {
-            // 优先切在安全点（且要落在当前块内），否则切在当前位置。
+            // 优先切在安全点，但安全点**不得超过上限**（否则块会超出 `limit`）；
+            // 没有合适的安全点时切在当前位置（不切断 UTF-8，`char_indices` 给的边界必安全）。
             let cut = match safe {
-                Some(value) if value > start => value,
-                Some(_) | None => index,
+                Some(value) if value > start && value - start <= limit => value,
+                Some(_) | None => {
+                    // `start + limit` 可能落在多字节字符中间 ⇒ 回退到最近的字符边界。
+                    let mut candidate = (start + limit).min(frame.len());
+                    while candidate > start && !frame.is_char_boundary(candidate) {
+                        candidate -= 1;
+                    }
+                    if candidate > start {
+                        candidate
+                    } else {
+                        index
+                    }
+                }
             };
             if cut > start {
                 out.push(&frame[start..cut]);

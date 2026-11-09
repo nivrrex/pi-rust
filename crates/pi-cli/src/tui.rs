@@ -7589,8 +7589,9 @@ mod write_frame_tests {
     ///（`\x1b[0m` → `0m`、`\x1b]8;;\x07` → `;;`），所以切点不能落在行内；
     /// 分块上限来自 Windows 控制台句柄的单次写入长度限制。
     #[test]
-    fn frame_writes_split_only_after_newlines() {
+    fn frame_writes_split_at_line_boundaries_when_available() {
         // 3 万行 × 5 字节 ≈ 150 KiB ⇒ 必须落成多块，且每块都 ≤ 64 KiB。
+        // 有换行时切点优先落在行尾（F49/Y1：无换行时也允许切，见下一条用例）。
         let mut payload = String::new();
         for index in 0..30_000 {
             payload.push_str(&format!("L{index}\r\n"));
@@ -7600,7 +7601,6 @@ mod write_frame_tests {
         assert!(out.flushed, "必须 flush");
         assert!(out.calls.len() > 1, "大帧必须分块");
         for call in &out.calls[..out.calls.len() - 1] {
-            assert!(call.ends_with('\n'), "非末次写入未以换行结尾");
             assert!(
                 call.len() <= super::WRITE_CHUNK,
                 "块超过上限：{} 字节",
@@ -7612,18 +7612,27 @@ mod write_frame_tests {
 
     /// 行边界优先于块上限：单行超过 64 KiB 时只能在行尾切（不允许从行中间切开）。
     #[test]
-    fn single_long_line_is_not_split() {
+    fn single_long_line_is_split_when_it_exceeds_the_chunk() {
+        // F49/Y1：**超过上限的行也必须切**。旧行为"整行不切"会让单行超长时退化成
+        // 一次超大 `write_all`（真实 95 MB 会话首帧单次写 50 MB、耗时 59 秒）。
+        // ref `tui-main-screen.ts:31-58` 的 `BoundedTerminalWriter` 与换行无关，满 1 MiB 就 flush。
         let long = format!("{}\r\n", "x".repeat(super::WRITE_CHUNK + 100));
         let payload = format!("{long}{long}");
         let mut out = Recorder::default();
         write_frame(&mut out, &payload).expect("写入");
-        assert_eq!(
-            out.calls.len(),
-            2,
-            "应按行切开，实际 {} 次",
+        assert!(
+            out.calls.len() >= 4,
+            "超长行应被切成多块，实际 {} 次",
             out.calls.len()
         );
-        assert_eq!(out.calls.concat(), payload);
+        for call in &out.calls {
+            assert!(
+                call.len() <= super::WRITE_CHUNK,
+                "块超过上限：{} 字节",
+                call.len()
+            );
+        }
+        assert_eq!(out.calls.concat(), payload, "拼回的字节必须与输入一致");
     }
 
     /// 没有换行的短帧（首帧之外的纯光标定位字节）也要原样写出并 flush。
