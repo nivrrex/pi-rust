@@ -843,6 +843,23 @@ pub fn apply(state: &mut TuiState, event: TuiEvent) -> TuiAction {
         }
         TuiEvent::Status(message) => {
             // ref `showStatus`（`:3695-3703`）：最后一条已是状态行时**原地更新**。
+            //
+            // F51：**退避状态行**（`Retrying (n/3) …`）额外规则 —— 它是 ref 的
+            // `StatusIndicator` 组件（覆盖式，只有一行），不是会话条目。
+            // 重试期间每次尝试都会先追加一条 `Error: …`，之后再来新的 `Retrying (n/3) …`
+            // ⇒ 按"最后一条是状态行才原地更新"的规则会各占一行（实测 3 行 Retrying
+            // 夹在 3 条 Error 之间，而 TS 只有一行覆盖式状态）。这里对退避行改为
+            // **就地更新已有的那一条**。
+            if message.starts_with("Retrying (") {
+                if let Some(index) = state.transcript.iter().rposition(|item| {
+                    matches!(item, TranscriptItem::Status(text) if text.starts_with("Retrying ("))
+                }) {
+                    if let Some(TranscriptItem::Status(text)) = state.transcript.get_mut(index) {
+                        *text = message;
+                    }
+                    return TuiAction::Redraw;
+                }
+            }
             match state.transcript.last_mut() {
                 Some(TranscriptItem::Status(text)) => *text = message,
                 Some(_) | None => state.transcript.push(TranscriptItem::Status(message)),
