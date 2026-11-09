@@ -2984,7 +2984,11 @@ fn render_all_cached_styled_inner(
                     for line in extension_lines {
                         // 工具块的 contentBox 自带 1 列左边距（ref `tool-execution.ts:98-108`
                         // 的 `Box(1, 1, …)`），扩展的 `Text` 行在此基础上再叠加自己的 paddingX。
-                        lines.push(clamp_to_width(&format!(" {line}"), cols));
+                        //
+                        // **必须用 `clamp_to_width_ansi`**：扩展返回的行自带 SGR
+                        // （`theme.fg(...)`），按纯文本裁剪会把转义序列切断，
+                        // 行尾残留 `\x1b\x1b[0m[0m` 污染画面（F51 实测）。
+                        lines.push(clamp_to_width_ansi(&format!(" {line}"), cols));
                     }
                     if let Some(extension_result) = result_render_lines {
                         for line in extension_result {
@@ -3035,7 +3039,22 @@ fn render_all_cached_styled_inner(
                 lines.push(clamp_to_width(&text, cols));
                 // ref 实测（T73 真彩逐格）：头部是 ` <name>` **加粗 text 色** +
                 // 一个空格 + `summary` 用 **accent 色**（不加粗）。整行单色会差这两段。
-                if !summary.is_empty() {
+                // `summary` 为空（`read` 之外的无参数工具）时也要走 span 路径：
+                // 整行样式路径在"文本很短、需要补位空格"时会多吐一次复位
+                // （实测行尾出现 `\x1b\x1b[0m[0m`，污染画面），span 路径没有这个问题。
+                if summary.is_empty() {
+                    style_out.spans.tool_header.push((
+                        lines.len() - 1,
+                        vec![
+                            style::Span::new(0, 1, style::LineStyle::default()),
+                            style::Span::new(
+                                1,
+                                text.len(),
+                                style::LineStyle::fg(style_out.palette.text).bold(),
+                            ),
+                        ],
+                    ));
+                } else {
                     let name_end = 1 + name.len();
                     style_out.spans.tool_header.push((
                         lines.len() - 1,
@@ -3111,7 +3130,7 @@ fn render_all_cached_styled_inner(
                     result_render_lines.as_ref().filter(|_| !hide_collapsed)
                 {
                     for line in extension_result {
-                        lines.push(clamp_to_width(&format!(" {line}"), cols));
+                        lines.push(clamp_to_width_ansi(&format!(" {line}"), cols));
                     }
                 } else if let Some(body) = output.as_deref().filter(|_| !hide_collapsed) {
                     let body = body.trim_end_matches('\n');
