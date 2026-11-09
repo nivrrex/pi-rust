@@ -223,6 +223,8 @@ fn main() -> ExitCode {
             // `--verbose`（ref `:405` 的 `options.verbose`）可覆盖。
             state.quiet_startup =
                 pi_cli::settings::quiet_startup(&paths.agent_dir) && !parsed.verbose;
+            // ref `core/settings-manager.ts:979`：`hideThinkingBlock ?? false`（默认**显示**）。
+            state.hide_thinking_block = pi_cli::settings::hide_thinking_block(&paths.agent_dir);
             // `/login` 候选 = `models.json` 的 provider ∪ 内置目录的 provider（ref 遍历的
             // 是含内置的运行时 registry；零配置的新机器也要能用 `/login`）。
             state.login_providers = pi_cli::runtime::login_provider_ids(&paths.agent_dir);

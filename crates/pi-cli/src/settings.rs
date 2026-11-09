@@ -32,6 +32,9 @@ pub struct Settings {
     /// 由 `cli/startup-ui.ts:89` 传给 `TuiMainScreen` ⇒ `tui.ts:478` 的 `showHardwareCursor`）。
     #[serde(default, rename = "showHardwareCursor")]
     pub show_hardware_cursor: Option<bool>,
+    /// `hideThinkingBlock`（ref `core/settings-manager.ts:979`：`?? false`，默认**显示**）。
+    #[serde(default, rename = "hideThinkingBlock")]
+    pub hide_thinking_block: Option<bool>,
     /// `enabledModels`：**可切换模型的白名单**，形如 `provider/modelId`
     /// （ref `settings-manager.getEnabledModels()`；模型 id 自身可能含 `/`，
     /// 解析时按**第一个** `/` 切分）。缺省 = null（不限）。
@@ -95,6 +98,16 @@ pub fn quiet_startup(agent_dir: &std::path::Path) -> bool {
         .ok()
         .and_then(|text| parse(&text).ok())
         .and_then(|settings| settings.quiet_startup)
+        .unwrap_or(false)
+}
+
+/// `settings.json` 的 `hideThinkingBlock`（ref `settings-manager.ts:979` 默认 `false`）。
+#[must_use]
+pub fn hide_thinking_block(agent_dir: &std::path::Path) -> bool {
+    std::fs::read_to_string(agent_dir.join("settings.json"))
+        .ok()
+        .and_then(|text| parse(&text).ok())
+        .and_then(|settings| settings.hide_thinking_block)
         .unwrap_or(false)
 }
 

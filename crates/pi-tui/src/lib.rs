@@ -148,6 +148,9 @@ pub struct TuiState {
     /// `Model scope:` 行，也不打印内置头部（`pi v…` + 键位提示 + onboarding），
     /// 只剩会话区/编辑器/状态区。`--verbose` 可覆盖（本项目 `--verbose` 恒开）。
     pub quiet_startup: bool,
+    /// `settings.json` 的 `hideThinkingBlock`（ref `core/settings-manager.ts:979` 默认 `false`）。
+    /// 为 `true` 时思考块只渲染扩展给的折叠标签（`+ Thought: …`），否则渲染全文。
+    pub hide_thinking_block: bool,
     /// 当前模型所属的 provider（ref `footer.ts:193-200`：多个 provider 可用时右侧加 `(provider)` 前缀）。
     pub model_provider: String,
     /// 可用的 provider 数量（ref `footerData.getAvailableProviderCount()`；>1 才显示前缀）。
@@ -311,6 +314,7 @@ impl TuiState {
             version: version.into(),
             model_scope: Vec::new(),
             quiet_startup: false,
+            hide_thinking_block: false,
             cwd: cwd.into(),
             home: std::env::var("HOME").ok(),
             context_files: Vec::new(),
@@ -2317,6 +2321,11 @@ enum NativeTool {
     Generic,
 }
 
+/// 取文本的第一行（思考折叠标签的预览）。
+fn first_line(text: &str) -> &str {
+    text.lines().next().unwrap_or("")
+}
+
 fn native_tool_kind(name: &str) -> NativeTool {
     match name {
         "bash" => NativeTool::Shell("$"),
@@ -2711,7 +2720,9 @@ fn render_all_cached_styled_inner(
                 format!("b\u{1}{expanded}\u{1}{summary}")
             }
             TranscriptItem::Status(text) => format!("s\u{1}{text}"),
-            TranscriptItem::Thinking(text) => format!("k\u{1}{text}"),
+            TranscriptItem::Thinking(text) => {
+                format!("k\u{1}{}\u{1}{text}", state.hide_thinking_block)
+            }
             TranscriptItem::Notice(text) => format!("n\u{1}{text}"),
             TranscriptItem::ToolCall {
                 name,
@@ -2936,6 +2947,21 @@ fn render_all_cached_styled_inner(
                 lines.push(String::new());
             }
             TranscriptItem::Thinking(text) => {
+                // ref `assistant-message.ts:143-145`：`hideThinkingBlock` 为 true 时
+                // 只渲染一行 `hiddenThinkingLabel`（扩展会把它写成 `+ Thought: …`）。
+                if state.hide_thinking_block {
+                    // 文本已是扩展给的标签（`+ Thought: …`）就直接用它；
+                    // 否则（扩展没接管）按 ref `assistant-message.ts:145` 用**默认标签**
+                    // `Thinking...`，而不是自己拼 `+ Thought: <正文首行>`。
+                    let label = if text.starts_with("+ Thought") || text.starts_with("- Thought") {
+                        text.trim_end().to_string()
+                    } else {
+                        "+ Thought".to_string()
+                    };
+                    lines.push(clamp_to_width(&label, cols));
+                    lines.push(String::new());
+                    continue;
+                }
                 for line in render_markdown(text) {
                     for wrapped in wrap_to_width(&line, cols) {
                         lines.push(wrapped);

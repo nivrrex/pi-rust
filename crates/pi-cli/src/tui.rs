@@ -441,7 +441,8 @@ fn thinking_label_of(assistant: &pi_ai::AssistantMessage) -> Option<String> {
     {
         return None;
     }
-    crate::ext_tools::thinking_label(&content)
+    let label = crate::ext_tools::thinking_label(&content);
+    label
 }
 
 /// 为**非内置工具**补扩展渲染器（F51/Z0）。
