@@ -8333,3 +8333,45 @@ mod compose_overlay_tests {
         );
     }
 }
+
+#[cfg(test)]
+mod z1_probe {
+    use super::*;
+
+    /// F51/Z1：恢复路径的工具行必须能算出请求（否则 `ext.render.tool` 永远不会发出，
+    /// 扩展的折叠补丁对恢复会话完全失效 —— 真机 95 MB 会话 `✓` 只有 6 个、TS 459 个）。
+    #[test]
+    fn resumed_tool_rows_produce_requests() {
+        let usage = r#""usage":{"input":1,"output":1,"cacheRead":0,"cacheWrite":0,"totalTokens":2,"cost":{"input":0,"output":0,"cacheRead":0,"cacheWrite":0,"total":0}}"#;
+        let session = format!(
+            concat!(
+                "{{\"type\":\"session\",\"version\":3,\"id\":\"s\",\"timestamp\":\"t\",\"cwd\":\"/tmp\"}}\n",
+                "{{\"type\":\"message\",\"id\":\"u1\",\"parentId\":null,\"timestamp\":\"t\",\"message\":{{\"role\":\"user\",\"content\":[{{\"type\":\"text\",\"text\":\"run\"}}],\"timestamp\":1}}}}\n",
+                "{{\"type\":\"message\",\"id\":\"a1\",\"parentId\":\"u1\",\"timestamp\":\"t\",\"message\":{{\"role\":\"assistant\",\"api\":\"openai-completions\",\"provider\":\"p\",\"model\":\"m\",\"content\":[{{\"type\":\"toolCall\",\"id\":\"c1\",\"name\":\"bash\",\"arguments\":{{\"command\":\"ls\"}}}}],\"stopReason\":\"toolUse\",{usage},\"timestamp\":2}}}}\n",
+                "{{\"type\":\"message\",\"id\":\"r1\",\"parentId\":\"a1\",\"timestamp\":\"t\",\"message\":{{\"role\":\"toolResult\",\"toolCallId\":\"c1\",\"toolName\":\"bash\",\"content\":[{{\"type\":\"text\",\"text\":\"out\"}}],\"isError\":false,\"timestamp\":3}}}}\n"
+            ),
+            usage = usage
+        );
+        let file =
+            pi_core::session_io::SessionFile::parse(std::path::Path::new("x.jsonl"), &session)
+                .expect("解析会话");
+        let items = transcript_from_messages(&file.context_messages());
+        let mut state = pi_tui::TuiState::new("0.87.1", "/tmp", "");
+        state.transcript.extend(items);
+        let requests: Vec<ToolRowRequest> = (0..state.transcript.len())
+            .filter_map(|index| tool_row_request(&state, index))
+            .collect();
+        assert_eq!(requests.len(), 1, "恢复路径应算出 1 个工具行请求");
+        assert!(!requests[0].id.is_empty(), "请求 id 不能为空");
+        let payload = &requests[0].payload;
+        assert_eq!(
+            payload.get("isPartial").and_then(|v| v.as_bool()),
+            Some(false),
+            "有结果的工具行应标记为已结算（否则扩展按 running 渲染、永远不给折叠行）"
+        );
+        assert!(
+            payload.get("result").is_some_and(|v| !v.is_null()),
+            "请求必须带 result，否则扩展的 buildCollapsedToolLines 直接放弃"
+        );
+    }
+}
