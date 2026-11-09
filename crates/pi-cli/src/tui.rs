@@ -5365,6 +5365,10 @@ fn tool_row_request(state: &pi_tui::TuiState, index: usize) -> Option<ToolRowReq
             "args": args_json
                 .as_deref()
                 .and_then(|text| serde_json::from_str::<serde_json::Value>(text).ok()),
+            // F51/Z1 实测记录：把结果正文截到 8 KiB 可以让 463 行的批次在超时内回包
+            // （总写出 1.65 MB→1.16 MB、首帧后的差量更新 336 KB），但会让扩展的
+            // `formatToolOutcome` 对 >8 KiB 的结果算错行数 —— 因此**不采用**，
+            // 保持与 ref 相同的完整正文。瓶颈归因见 `notes/p9-f51/plan.md`。
             "result": result_payload
                 .as_deref()
                 .and_then(|text| serde_json::from_str::<serde_json::Value>(text).ok()),
