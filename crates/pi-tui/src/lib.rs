@@ -608,6 +608,9 @@ pub enum TuiAction {
     Command(String),
     /// 退出（终端层负责恢复终端）。
     Exit,
+    /// `ctrl+t` 切换了思考块可见性 ⇒ 调用方把新值写回 `settings.json`
+    /// （ref `interactive-mode.ts:4431` 的 `settingsManager.setHideThinkingBlock`）。
+    ToggleThinking(bool),
 }
 
 /// 按**字符**计的输入长度（宽字符算一个）。
@@ -1196,8 +1199,25 @@ pub fn apply(state: &mut TuiState, event: TuiEvent) -> TuiAction {
             state.working = on;
             TuiAction::Redraw
         }
-        TuiEvent::CtrlT
-        | TuiEvent::CtrlL
+        // F51/Z6：`app.thinking.toggle`（ref `core/keybindings.ts:119-121` 默认 `ctrl+t`）
+        // ⇒ 切换思考块可见性并回报状态（`interactive-mode.ts:4429-4434`：
+        // `hideThinkingBlock = !hideThinkingBlock` → 写设置 → 就地更新 → `showStatus`）。
+        TuiEvent::CtrlT => {
+            state.hide_thinking_block = !state.hide_thinking_block;
+            push_status(
+                state,
+                &format!(
+                    "Thinking blocks: {}",
+                    if state.hide_thinking_block {
+                        "hidden"
+                    } else {
+                        "visible"
+                    }
+                ),
+            );
+            TuiAction::ToggleThinking(state.hide_thinking_block)
+        }
+        TuiEvent::CtrlL
         | TuiEvent::CtrlP
         | TuiEvent::CtrlShiftO
         | TuiEvent::CtrlS

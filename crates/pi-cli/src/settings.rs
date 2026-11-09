@@ -101,6 +101,34 @@ pub fn quiet_startup(agent_dir: &std::path::Path) -> bool {
         .unwrap_or(false)
 }
 
+/// 把 `hideThinkingBlock` 写回 `settings.json`，**保留未知键**（ref
+/// `settings-manager.ts:999` 的 `setHideThinkingBlock`：只改这一个键、其余原样写回）。
+///
+/// 读不出来或顶层不是对象时报错，让调用方决定是否提示。
+pub fn set_hide_thinking_block(agent_dir: &std::path::Path, hidden: bool) -> Result<(), String> {
+    let path = agent_dir.join("settings.json");
+    let text = std::fs::read_to_string(&path).unwrap_or_default();
+    let mut object = if text.trim().is_empty() {
+        serde_json::Map::new()
+    } else {
+        match serde_json::from_str::<serde_json::Value>(&text) {
+            Ok(serde_json::Value::Object(map)) => map,
+            Ok(_) => return Err("settings.json 顶层不是对象".to_string()),
+            Err(error) => return Err(format!("settings.json 解析失败：{error}")),
+        }
+    };
+    object.insert(
+        "hideThinkingBlock".to_string(),
+        serde_json::Value::Bool(hidden),
+    );
+    let body = serde_json::to_string_pretty(&serde_json::Value::Object(object))
+        .map_err(|error| error.to_string())?;
+    if let Some(parent) = path.parent() {
+        let _ = std::fs::create_dir_all(parent);
+    }
+    std::fs::write(&path, body).map_err(|error| error.to_string())
+}
+
 /// `settings.json` 的 `hideThinkingBlock`（ref `settings-manager.ts:979` 默认 `false`）。
 #[must_use]
 pub fn hide_thinking_block(agent_dir: &std::path::Path) -> bool {

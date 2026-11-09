@@ -3726,6 +3726,18 @@ pub fn run(
                 continue;
             }
             match apply(&mut state, event) {
+                TuiAction::ToggleThinking(hidden) => {
+                    // ref `interactive-mode.ts:4431`：`settingsManager.setHideThinkingBlock()`
+                    // —— 把新值写回 `settings.json`（保留未知键），下次启动生效。
+                    if !state.agent_dir.as_os_str().is_empty() {
+                        if let Err(error) =
+                            crate::settings::set_hide_thinking_block(&state.agent_dir, hidden)
+                        {
+                            let _ = error;
+                        }
+                    }
+                    dirty = true;
+                }
                 TuiAction::Exit => break 'main,
                 TuiAction::Submit(text) => {
                     // `/login <provider>` 已选定 provider：这次提交的是 API key。
