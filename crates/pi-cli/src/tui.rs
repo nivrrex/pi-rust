@@ -4160,8 +4160,11 @@ pub fn run(
                                             .as_ref()
                                             .and_then(|(_reason, error)| error.clone())
                                             .unwrap_or_else(|| String::from("Unknown error"));
-                                        let _ = tx.send(TuiEvent::Status(format!(
-                                            "Retry failed after {attempt} attempts: {detail}"
+                                        // ref `interactive-mode.ts:3631` 走的是 `showError`：
+                                        // 正文带 `Error: ` 前缀、按错误色渲染；
+                                        // 不是 dim 的状态行。
+                                        let _ = tx.send(TuiEvent::AssistantNotice(format!(
+                                            "Error: Retry failed after {attempt} attempts: {detail}"
                                         )));
                                     }
                                     if !gave_up {
@@ -5485,11 +5488,13 @@ impl pi_core::agent::EventSink for TuiEventSink {
                             );
                         }
                     }
-                    let is_retry_round = self
-                        .retry_attempt
-                        .load(std::sync::atomic::Ordering::Relaxed)
-                        > 0;
-                    let notice_delta = if is_retry_round { None } else { notice_delta };
+                    // F51：**每次失败的尝试都要渲染提示**，包括重试轮。
+                    // ref 的每一轮都是一条 `stopReason:"error"` 的 assistant 消息，
+                    // `assistant-message.ts:182-199` 各自渲染一条 `Error: …`；
+                    // 真机 100×30 实测 TS 出现 3 条（每次尝试一条）+ 1 条汇总。
+                    // 早先这里在 `attempt > 0` 时把提示吞掉了（当时是为了压掉
+                    // "每轮重新宣告历史导致 Error 累积"，而那个问题已由
+                    // `set_announce_from(history_size)` 从源头解决）。
                     if let Some(delta) = notice_delta {
                         // 提示是**独立**块（ref `assistant-message.ts:182-199`：`Spacer(1)` 之后
                         // 的 `Text`）。早先走 `AssistantDelta` 会把它拼在正文同一行
