@@ -568,10 +568,28 @@ async function dispatch(frame) {
         };
         // ref `:307`：渲染前先 `updateDisplay()`（扩展常把它当作缓存失效点）。
         if (typeof component.updateDisplay === "function") component.updateDisplay();
-        const rendered = component.render(width);
+        let rendered;
+        try {
+          rendered = component.render(width);
+        } finally {
+          const logPath = process.env.PI_TOOL_ROW_LOG;
+          if (logPath) {
+            try {
+              const fsMod = await import("node:fs");
+              fsMod.appendFileSync(
+                logPath,
+                `${key} rendered=${rendered === null ? "null" : Array.isArray(rendered) ? `arr(${rendered.length})` : typeof rendered} original=${component.__originalRenderCalled === true}\n`,
+              );
+            } catch {
+              // 诊断写盘失败不影响渲染。
+            }
+          }
+        }
         if (rendered === null || rendered === undefined) {
           // 没人接管（默认实现）⇒ Rust 原生渲染。
-          out.push({ id: key, lines: null });
+          // `fallback:true` = 扩展接管过、但又调回了 originalRender（内部 catch 吞了异常），
+          // 与"根本没有补丁"要分开，否则归因时会误判（F51 实测 463 行只折叠 2 行）。
+          out.push({ id: key, lines: null, fallback: component.__originalRenderCalled === true });
         } else if (!Array.isArray(rendered)) {
           out.push({ id: key, lines: null, error: "render() 未返回 string[]" });
         } else {

@@ -122,6 +122,9 @@ export class ToolExecutionComponent extends Container {
   updateDisplay() {}
   /** 默认渲染 = `null`（未打补丁）。扩展替换本方法后由宿主调用。 */
   render() {
+    // F51：宿主用它区分"扩展没接管"与"扩展接管后又回落到 originalRender"
+    // （后者只可能是扩展内部 catch 吞掉了异常，肉眼看不出来）。
+    this.__originalRenderCalled = true;
     return null;
   }
 };
