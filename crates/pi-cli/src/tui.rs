@@ -1770,16 +1770,24 @@ pub fn run(
                     // 按块发（每块 200 行）：单条 RPC 处理上千行会超过 1s 超时 ⇒ 整批回
                     // `None` ⇒ 全部回落原生块（实测 95 MB 会话只折叠了 8 行、写出 1.6 MB，
                     // 而 TS 折叠 459 行、写出 0.19 MB）。分块后每块都远小于超时。
-                    const CHUNK: usize = 200;
+                    const CHUNK: usize = 50;
                     let payloads: Vec<(String, serde_json::Value)> = batch
                         .into_iter()
                         .map(|(id, payload, _digest)| (id, payload))
                         .collect();
                     let mut rows: Vec<(String, Option<Vec<String>>)> = Vec::new();
+                    let mut failed: Vec<String> = Vec::new();
                     for chunk in payloads.chunks(CHUNK) {
-                        rows.extend(crate::ext_tools::render_tool_rows(chunk.to_vec(), cols));
+                        let (part, bad) = crate::ext_tools::render_tool_rows(chunk.to_vec(), cols);
+                        if bad {
+                            failed.extend(part.iter().map(|(id, _)| id.clone()));
+                        }
+                        rows.extend(part);
                     }
-                    crate::ext_tools::emit_ui_event(pi_tui::TuiEvent::ToolRowsRendered { rows });
+                    crate::ext_tools::emit_ui_event(pi_tui::TuiEvent::ToolRowsRendered {
+                        rows,
+                        failed,
+                    });
                 });
             }
         }
@@ -1883,7 +1891,11 @@ pub fn run(
             if let TuiEvent::ToolRowRender { id, .. } = &event {
                 tool_row_pending.remove(id);
             }
-            if let TuiEvent::ToolRowsRendered { rows } = &event {
+            if let TuiEvent::ToolRowsRendered { rows, failed } = &event {
+                // 整批失败的 id 要从去重表里移除，下一轮重试。
+                for id in failed {
+                    tool_row_keys.remove(id);
+                }
                 let mut any = false;
                 for (id, lines) in rows {
                     tool_row_pending.remove(id);

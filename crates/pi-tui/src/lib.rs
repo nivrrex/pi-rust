@@ -443,6 +443,9 @@ pub enum TuiEvent {
     ToolRowsRendered {
         /// `(toolCallId, 折叠行)`；`None` = 该行没有扩展接管，回落原生渲染。
         rows: Vec<(String, Option<Vec<String>>)>,
+        /// 这一批里**整体失败**（超时/协议错误）的 id：调用方要把它们从去重表里移除，
+        /// 下一轮重试。否则它们会永久停在原生块上（F51 实测 463 行只折叠 2 行）。
+        failed: Vec<String>,
     },
     /// F48/X3：扩展通过原型补丁给出的**工具行折叠**结果。
     ///
@@ -770,7 +773,8 @@ pub fn apply(state: &mut TuiState, event: TuiEvent) -> TuiAction {
             refresh_completion(state);
             TuiAction::Redraw
         }
-        TuiEvent::ToolRowsRendered { rows } => {
+        TuiEvent::ToolRowsRendered { rows, failed } => {
+            let _ = &failed;
             for (id, lines) in rows {
                 if let Some(TranscriptItem::ToolCall { collapsed_row, .. }) =
                     state.transcript.iter_mut().rev().find(|item| {

@@ -1290,21 +1290,25 @@ pub fn render_ui_block(kind: &str, key: &str, width: usize, digest: &str) -> Opt
 /// 历史工具行越多重绘次数越多（真机"从头到尾反复刷新"）。
 ///
 /// 返回值按输入顺序给出 `(toolCallId, 行)`；`None` = 该行没有扩展接管（原生渲染）。
+/// 一批工具行的渲染结果，外加"**这一批整体失败**"的标记（超时/协议错误）。
+///
+/// 失败时调用方必须把该批的 id 从去重表里**移除**，否则这批行会永久停在原生块上
+/// （F51 实测：大会话里 463 行只折叠了 2 行，其余批次的 key 留在表里、再也不会重试）。
 #[must_use]
 pub fn render_tool_rows(
     rows: Vec<(String, serde_json::Value)>,
     width: usize,
-) -> Vec<(String, Option<Vec<String>>)> {
-    let Some(host) = HOST.get().and_then(|slot| slot.as_ref()).cloned() else {
-        return rows.into_iter().map(|(id, _)| (id, None)).collect();
-    };
+) -> (Vec<(String, Option<Vec<String>>)>, bool) {
     let ids: Vec<String> = rows.iter().map(|(id, _)| id.clone()).collect();
+    let Some(host) = HOST.get().and_then(|slot| slot.as_ref()).cloned() else {
+        return (rows.into_iter().map(|(id, _)| (id, None)).collect(), false);
+    };
     let payloads: Vec<serde_json::Value> = rows.into_iter().map(|(_, payload)| payload).collect();
     match host.render_tool_rows(payloads, width) {
-        Ok(out) => out,
+        Ok(out) => (out, false),
         Err(error) => {
             note_render_failure("tool", &error.to_string());
-            ids.into_iter().map(|id| (id, None)).collect()
+            (ids.into_iter().map(|id| (id, None)).collect(), true)
         }
     }
 }
