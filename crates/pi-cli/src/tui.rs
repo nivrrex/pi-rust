@@ -263,7 +263,12 @@ fn transcript_from_messages(messages: &[pi_ai::message::Message]) -> Vec<pi_tui:
                         } => {
                             push_text(&mut text, &mut out_items);
                             out_items.push(pi_tui::TranscriptItem::ToolCall {
-                                id: format!("replay-{}", out_items.len()),
+                                // F51/Z1：**必须用会话里的真实 toolCallId**。此前用
+                                // `format!("replay-{}", out_items.len())`，而 `out_items` 每条
+                                // assistant 消息都会重置 ⇒ id 在整段转录里**重复**（每条消息都从
+                                // `replay-0` 起）⇒ 工具行请求按 id 去重后只剩 3 个，
+                                // 463 个工具行里 460 个永远拿不到折叠行（实测 `keys=0/3`）。
+                                id: call_id.clone(),
                                 output: None,
                                 is_error: false,
                                 started_at: None,
