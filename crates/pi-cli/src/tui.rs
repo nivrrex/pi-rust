@@ -251,7 +251,20 @@ fn transcript_from_messages(messages: &[pi_ai::message::Message]) -> Vec<pi_tui:
                                 is_error: false,
                                 started_at: None,
                                 took: None,
-                                render_lines: None,
+                                // F51/Z0：恢复路径也要用**工具定义的渲染器**
+                                // （ref `renderSessionItems` 建的是同一个
+                                // `ToolExecutionComponent`，里面带着
+                                // `getRegisteredToolDefinition(name)`）。此前这里恒 `None`
+                                // ⇒ 扩展注册的工具（如 `report_to_user`）恢复后丢掉自己的
+                                // 渲染器，头部退化成"名字 + 参数摘要"。
+                                render_lines: crate::ext_tools::render_tool_block(
+                                    name,
+                                    "call",
+                                    serde_json::json!({
+                                        "args": serde_json::Value::Object(arguments.clone())
+                                    }),
+                                    4096,
+                                ),
                                 result_render_lines: None,
                                 result_payload: None,
                                 // 恢复/重放的工具行同样要经折叠路径：上层在重放完成后
@@ -287,6 +300,7 @@ fn transcript_from_messages(messages: &[pi_ai::message::Message]) -> Vec<pi_tui:
             // F49/Y2：结果回填（ref `interactive-mode.ts:3995-4010`）。
             pi_ai::message::Message::ToolResult {
                 tool_call_id,
+                tool_name,
                 content,
                 is_error,
                 extra,
@@ -299,6 +313,7 @@ fn transcript_from_messages(messages: &[pi_ai::message::Message]) -> Vec<pi_tui:
                     output,
                     is_error: flag,
                     result_payload,
+                    result_render_lines,
                     ..
                 }) = out.get_mut(index)
                 else {
@@ -314,6 +329,21 @@ fn transcript_from_messages(messages: &[pi_ai::message::Message]) -> Vec<pi_tui:
                 }
                 *output = Some(parts.join("\n"));
                 *flag = *is_error;
+                // 结果渲染器：与 live 路径同一入口（`ext.render`），`expanded=false` 起。
+                // `tool_name` 来自条目本身（`ToolResult.toolName`）。
+                *result_render_lines = crate::ext_tools::render_tool_block(
+                    tool_name,
+                    "result",
+                    serde_json::json!({
+                        "result": {
+                            "content": extra.get("content").cloned().unwrap_or(serde_json::Value::Null),
+                            "details": extra.get("details").cloned().unwrap_or(serde_json::Value::Null),
+                            "isError": *is_error,
+                        },
+                        "options": { "expanded": false, "isPartial": false },
+                    }),
+                    4096,
+                );
                 // `details`（含 edit 的 diff、bash 的 exitCode）必须一起带过去：
                 // 折叠行与展开态都靠它（扩展侧读 `result.details`）。
                 *result_payload = Some(
@@ -346,6 +376,65 @@ fn transcript_from_messages(messages: &[pi_ai::message::Message]) -> Vec<pi_tui:
         }
     }
     out
+}
+
+/// 为**非内置工具**补扩展渲染器（F51/Z0）。
+///
+/// 内置工具（bash/edit/read/write/ls/grep/find/powershell）由 `pi-tui` 原生渲染，
+/// 不走 RPC；其余工具（扩展注册的，如 `report_to_user`、`todo`）在 ref 里靠
+/// `renderCall`/`renderResult` 决定行内容 —— 恢复路径此前完全没有请求它们，
+/// 于是这些工具恢复后丢掉自己的渲染器（头部退化成"名字 + 参数摘要"）。
+fn fill_extension_renderers(items: &mut [pi_tui::TranscriptItem]) {
+    for item in items.iter_mut() {
+        let pi_tui::TranscriptItem::ToolCall {
+            name,
+            args_json,
+            result_payload,
+            is_error,
+            render_lines,
+            result_render_lines,
+            ..
+        } = item
+        else {
+            continue;
+        };
+        if matches!(
+            name.as_str(),
+            "bash" | "powershell" | "edit" | "read" | "write" | "ls" | "grep" | "find"
+        ) {
+            continue;
+        }
+        if render_lines.is_none() {
+            if let Some(args) = args_json
+                .as_deref()
+                .and_then(|text| serde_json::from_str::<serde_json::Value>(text).ok())
+            {
+                *render_lines = crate::ext_tools::render_tool_block(
+                    name,
+                    "call",
+                    serde_json::json!({ "args": args }),
+                    4096,
+                );
+            }
+        }
+        if result_render_lines.is_none() {
+            if let Some(payload) = result_payload
+                .as_deref()
+                .and_then(|text| serde_json::from_str::<serde_json::Value>(text).ok())
+            {
+                *result_render_lines = crate::ext_tools::render_tool_block(
+                    name,
+                    "result",
+                    serde_json::json!({
+                        "result": payload,
+                        "options": { "expanded": false, "isPartial": false },
+                    }),
+                    4096,
+                );
+            }
+        }
+        let _ = is_error;
+    }
 }
 
 /// 把内容块里的文本按行拼接（忽略 thinking / 工具调用 / 图片）。
@@ -1306,7 +1395,15 @@ pub fn run(
         .map(|parts| parts.initial_messages.clone())
         .unwrap_or_default();
     if !initial.is_empty() {
-        state.transcript.extend(transcript_from_messages(&initial));
+        let mut items = transcript_from_messages(&initial);
+        // F51/Z0：**非内置工具**的渲染器来自扩展（ref 恢复时用的是
+        // `getRegisteredToolDefinition(name)`，里面带着扩展注册的 `renderCall`/
+        // `renderResult`）。内置工具（bash/edit/read/write/ls/grep/find）由 pi-tui 原生渲染，
+        // 不在这里请求 —— 否则大会话会对成千上万条内置工具行各发一次 RPC。
+        // `transcript_from_messages` 里已经请求过一次；那时宿主可能还没就绪，
+        // 这里再补一次（幂等：只补仍为空的行）。
+        fill_extension_renderers(&mut items);
+        state.transcript.extend(items);
     }
     // `-c` 续写：footer 的用量/费用要**接着会话累计**（T61 golden：`↑200 ↓40 $0.000`）。
     // F44/S2：恢复路径改用**带缓存字段**的累加器（此前用 `settings_selector::session_usage`，

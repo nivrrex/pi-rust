@@ -2227,6 +2227,38 @@ fn format_duration(duration: std::time::Duration) -> String {
     format!("{}h {}m {remainder}s", minutes / 60, minutes % 60)
 }
 
+/// 内置工具的原生渲染类别（F51/Z0）。
+///
+/// 照 ref `packages/coding-agent/src/core/tools/renderers/` 的划分：
+/// `bash`/`powershell` 用各自的 shell 前缀（`bash.ts:43-49`、`powershell.ts:43` 的
+/// `prompt: "PS>"`）；`edit` 用 diff 块（`edit.ts:85`、`:120-124`）；
+/// `read` 折叠态不显示正文（`read.ts:120-122`）；其余没有渲染器的走
+/// `tool-execution.ts:421-432` 的 `formatToolExecution`（名字 + 缩进 JSON + 正文）。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum NativeTool {
+    /// shell 类工具：前缀（`$` / `PS>`）。
+    Shell(&'static str),
+    /// `edit`：结果用 `details.diff` 渲染成 diff 块。
+    Edit,
+    /// `read`：折叠态无正文。
+    Read,
+    /// 有渲染器但本实现按"头部 + 正文"渲染的工具（`write`/`ls`/`grep`/`find`）。
+    Plain,
+    /// 没有渲染器：头部只有名字，参数另起一块。
+    Generic,
+}
+
+fn native_tool_kind(name: &str) -> NativeTool {
+    match name {
+        "bash" => NativeTool::Shell("$"),
+        "powershell" => NativeTool::Shell("PS>"),
+        "edit" => NativeTool::Edit,
+        "read" => NativeTool::Read,
+        "write" | "ls" | "grep" | "find" => NativeTool::Plain,
+        _other => NativeTool::Generic,
+    }
+}
+
 /// 一个 transcript 条目内某一行该用的样式（P8d/C4）。
 ///
 /// 颜色键取自 ref `theme/dark.json`（C3 取证）：用户消息 `userMessageBg/userMessageText`、
@@ -2906,6 +2938,8 @@ fn render_all_cached_styled_inner(
                 render_lines,
                 result_render_lines,
                 collapsed_row,
+                args_json,
+                result_payload,
                 ..
             } => {
                 // F48/X3：扩展用**原型补丁**接管了工具行（`ToolExecutionComponent.prototype.render`）
@@ -2954,7 +2988,35 @@ fn render_all_cached_styled_inner(
                     }
                     continue;
                 }
-                let text = if summary.is_empty() {
+                // F51/Z0：**逐工具的原生渲染器**，照 ref `core/tools/renderers/*.ts`。
+                //
+                // ref 的工具有两类：
+                // 1. 内置工具各带 `renderCall`/`renderResult`（`renderers/{bash,edit,read,
+                //    write,ls,grep,find}.ts`）；
+                // 2. 没有渲染器的工具走 `tool-execution.ts:421-432` 的 `formatToolExecution`
+                //    —— `名字` + 空行 + `JSON.stringify(args,null,2)` + 换行 + 结果正文。
+                // 此前 pi-rs 一律渲染成 ` <name> <summary>` + 文本正文，因此与 TS 有三处可
+                // 观察差异（` $ cmd` vs ` bash cmd`、edit 没有 diff 块、未知工具的参数没有
+                // 缩进成块）。扩展注册的渲染器（`render_lines`）优先于本实现，见上面的分支。
+                let native = native_tool_kind(name);
+                let shell_prompt = match native {
+                    NativeTool::Shell(prompt) => Some(prompt),
+                    NativeTool::Edit
+                    | NativeTool::Read
+                    | NativeTool::Plain
+                    | NativeTool::Generic => None,
+                };
+                let text = if let Some(prompt) = shell_prompt {
+                    // ref `renderers/bash.ts:43-49` 的 `formatShellCall`：`<prompt> <command>`。
+                    if summary.is_empty() {
+                        format!(" {prompt} ...")
+                    } else {
+                        format!(" {prompt} {summary}")
+                    }
+                } else if summary.is_empty() || matches!(native, NativeTool::Generic) {
+                    // 没有渲染器的工具（`Generic`）头部**只有名字**
+                    // （ref `tool-execution.ts:422`：`theme.fg("toolTitle", bold(toolName))`），
+                    // 参数另起一块。
                     format!(" {name}")
                 } else {
                     format!(" {name} {summary}")
@@ -2998,8 +3060,45 @@ fn render_all_cached_styled_inner(
                 // - `bash`/`powershell`：尾部 5 行（`renderers/bash.ts:18,86-97`）；
                 // - `ls`：头部 20 行（`renderers/ls.ts:37`）；其余按 fallback 前 10 行
                 //   （`tool-execution.ts:40,166-170`）。
+                // ref `tool-execution.ts:421-432` `formatToolExecution`：
+                // 没有渲染器的工具把**完整参数**以 2 空格缩进块放在名字下面。
+                if matches!(native, NativeTool::Generic) {
+                    let pretty = args_json
+                        .as_deref()
+                        .and_then(|text| serde_json::from_str::<serde_json::Value>(text).ok())
+                        .map(|value| serde_json::to_string_pretty(&value).unwrap_or_default())
+                        .unwrap_or_default();
+                    if !pretty.is_empty() && pretty != "{}" {
+                        lines.push(String::new());
+                        for line in pretty.lines() {
+                            lines.push(clamp_to_width(&format!(" {line}"), cols));
+                        }
+                    }
+                }
+                // ref `renderers/edit.ts:120-124`：结果用 `details.diff` 渲染成 diff 块，
+                // **不显示**结果文本（`formatEditResult` 只在出错时回退到错误文本）。
+                let edit_diff: Option<String> = if matches!(native, NativeTool::Edit) && !*is_error
+                {
+                    result_payload
+                        .as_deref()
+                        .and_then(|text| serde_json::from_str::<serde_json::Value>(text).ok())
+                        .and_then(|value| {
+                            value
+                                .get("details")
+                                .and_then(|details| details.get("diff"))
+                                .and_then(|diff| diff.as_str())
+                                .map(str::to_string)
+                        })
+                } else {
+                    None
+                };
                 let hide_collapsed = name == "read" && !is_error && !state.tools_expanded;
-                if let Some(extension_result) =
+                if let Some(diff) = edit_diff.as_deref() {
+                    lines.push(String::new());
+                    for line in diff.lines() {
+                        lines.push(clamp_to_width(&format!(" {line}"), cols));
+                    }
+                } else if let Some(extension_result) =
                     result_render_lines.as_ref().filter(|_| !hide_collapsed)
                 {
                     for line in extension_result {
@@ -3020,7 +3119,9 @@ fn render_all_cached_styled_inner(
                             (0, all.len() - preview)
                         };
                         if hidden > 0 && shell {
-                            let hint = format!("... ({hidden} earlier lines, ctrl+o to expand)");
+                            // ref `renderers/bash.ts:86-97`：提示行带 1 列前导空格
+                            // （与正文行同缩进）。
+                            let hint = format!(" ... ({hidden} earlier lines, ctrl+o to expand)");
                             lines.push(clamp_to_width(&hint, cols));
                         }
                         for line in &all[start..] {
@@ -3029,7 +3130,7 @@ fn render_all_cached_styled_inner(
                             }
                         }
                         if hidden > 0 && !shell {
-                            let hint = format!("... ({hidden} more lines, ctrl+o to expand)");
+                            let hint = format!(" ... ({hidden} more lines, ctrl+o to expand)");
                             lines.push(clamp_to_width(&hint, cols));
                         }
                     }

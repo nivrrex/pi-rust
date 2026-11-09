@@ -218,11 +218,11 @@ fn expanded_resumed_tool_rows_show_results() {
             .take(4)
             .collect::<Vec<_>>()
     );
-    // edit 的结果正文（`已替换 1 处`）必须出现；`details.diff` 由扩展侧渲染
-    // （原生 pi-tui 不消费 details，见 ref `renderers/edit.ts` 属于工具定义侧渲染）。
+    // F51/Z0：edit 的结果按 ref `renderers/edit.ts:120-124` 渲染成 **diff 块**
+    // （`details.diff`），不再是结果文本。
     assert!(
-        plain.contains("已替换 1 处"),
-        "展开后应看到 edit 的结果正文，实际：{:?}",
+        plain.contains("-A") && plain.contains("+B"),
+        "展开后应看到 edit 的 diff 块，实际：{:?}",
         plain
             .lines()
             .filter(|line| line.contains("已替换") || line.contains("edit"))
