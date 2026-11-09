@@ -71,6 +71,11 @@ enum Cmd {
         width: usize,
         reply: Sender<ToolRowBatchResult>,
     },
+    /// 取扩展给出的思考块折叠标签（F51/Z1）。
+    ThinkingLabel {
+        content: Value,
+        reply: Sender<Result<Option<String>, HostError>>,
+    },
     /// 查询某工具在宿主侧是否有定义（F51/Z0）。
     ToolKnown {
         tool_name: String,
@@ -421,6 +426,11 @@ impl HostHandle {
     /// `digest` 是宿主算的状态摘要（用量/模型/主题/展开态/错误态）；相同 `(width, digest)`
     /// 在 runner 侧命中缓存，不会重复跑组件 render。
     /// 把**一批**工具行渲染委托给扩展的原型补丁；空 `None` = 无扩展接管（原生渲染）。
+    /// 取扩展给出的思考块折叠标签；`None` = 没有扩展接管。
+    pub fn thinking_label(&self, content: Value) -> Result<Option<String>, HostError> {
+        self.call(|reply| Cmd::ThinkingLabel { content, reply })
+    }
+
     /// 查询某工具在宿主侧是否有定义；`None` = 宿主没给结论。
     pub fn tool_known(&self, tool_name: &str) -> Result<Option<bool>, HostError> {
         self.call(|reply| Cmd::ToolKnown {
@@ -644,6 +654,10 @@ fn actor_main(
             }
             Cmd::RenderTool { rows, width, reply } => {
                 let result = runtime.block_on(host.invoke_render_tool_batch(rows, width));
+                let _ = reply.send(result);
+            }
+            Cmd::ThinkingLabel { content, reply } => {
+                let result = runtime.block_on(host.invoke_render_thinking(content));
                 let _ = reply.send(result);
             }
             Cmd::ToolKnown { tool_name, reply } => {

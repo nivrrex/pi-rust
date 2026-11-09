@@ -453,6 +453,27 @@ async function dispatch(frame) {
     }
     return;
   }
+  if (method === "ext.render.thinking") {
+    // F51/Z1：把**思考块的折叠标签**交给扩展决定（ref 的
+    // `AssistantMessageComponent.updateContent` 原型补丁，见
+    // `pi-ai-summary/src/adapters/thinking-label.ts:489-526`）。
+    // 我们建一个组件实例、让它跑扩展的 `updateContent`，再读回
+    // `hiddenThinkingLabel`；扩展没装/没给标签 ⇒ `label:null`（Rust 用原文）。
+    try {
+      const component = new shimCodingAgent.AssistantMessageComponent();
+      component.hideThinkingBlock = true;
+      const message = { role: "assistant", content: params?.content ?? [] };
+      if (typeof component.updateContent === "function") {
+        component.updateContent(message, false);
+      }
+      const label =
+        typeof component.hiddenThinkingLabel === "string" ? component.hiddenThinkingLabel : null;
+      respond(id, { label });
+    } catch (error) {
+      respond(id, { label: null, error: String(error?.message ?? error) });
+    }
+    return;
+  }
   if (method === "ext.tool.known") {
     // F51/Z0：该工具是否有定义（决定"只有名字"还是"名字 + 缩进 JSON 参数"）。
     const name = String(params?.toolName ?? "");

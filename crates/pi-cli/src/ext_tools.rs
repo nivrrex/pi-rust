@@ -1309,6 +1309,15 @@ pub fn render_tool_rows(
     }
 }
 
+/// 让扩展给出**思考块的折叠标签**（F51/Z1）；`None` = 没有扩展接管（用原文）。
+#[must_use]
+pub fn thinking_label(content: &[serde_json::Value]) -> Option<String> {
+    let host = HOST.get().and_then(|slot| slot.as_ref()).cloned()?;
+    host.thinking_label(serde_json::Value::Array(content.to_vec()))
+        .ok()
+        .flatten()
+}
+
 /// 该工具在宿主侧**是否有定义**（F51/Z0）。
 ///
 /// `Some(false)` ⇒ 完全没有定义：ref 走 `tool-execution.ts:421-432` 的

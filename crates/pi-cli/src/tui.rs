@@ -234,9 +234,26 @@ fn transcript_from_messages(messages: &[pi_ai::message::Message]) -> Vec<pi_tui:
                         pi_ai::types::Content::Text { text: chunk, .. } => text.push_str(chunk),
                         pi_ai::types::Content::Thinking { thinking, .. } => {
                             push_text(&mut text, &mut out_items);
-                            if !thinking.is_empty() {
-                                out_items.push(pi_tui::TranscriptItem::Thinking(thinking.clone()));
+                            if thinking.is_empty() {
+                                continue;
                             }
+                            // F51/Z1：扩展若接管了思考折叠（ref 的
+                            // `AssistantMessageComponent.updateContent` 原型补丁），
+                            // 就只显示它给的**一行标签**（`+ Thought[: preview]`），
+                            // 不再把整段思考铺进转录 —— 真机 95 MB 会话里这一项决定了
+                            // 恢复时的行数与写出字节（TS 94 个标签 / pi-rs 2 个）。
+                            if let Some(label) = thinking_label_of(assistant) {
+                                if out_items
+                                    .last()
+                                    .map(|item| matches!(item, pi_tui::TranscriptItem::Thinking(text) if text == &label))
+                                    .unwrap_or(false)
+                                {
+                                    continue;
+                                }
+                                out_items.push(pi_tui::TranscriptItem::Thinking(label));
+                                continue;
+                            }
+                            out_items.push(pi_tui::TranscriptItem::Thinking(thinking.clone()));
                         }
                         pi_ai::types::Content::ToolCall {
                             id: call_id,
@@ -379,6 +396,22 @@ fn transcript_from_messages(messages: &[pi_ai::message::Message]) -> Vec<pi_tui:
         }
     }
     out
+}
+
+/// 取该 assistant 消息的思考折叠标签（F51/Z1，按消息缓存一次）。
+fn thinking_label_of(assistant: &pi_ai::AssistantMessage) -> Option<String> {
+    let content: Vec<serde_json::Value> = assistant
+        .content
+        .iter()
+        .filter_map(|block| serde_json::to_value(block).ok())
+        .collect();
+    if !content
+        .iter()
+        .any(|block| block.get("type").and_then(|value| value.as_str()) == Some("thinking"))
+    {
+        return None;
+    }
+    crate::ext_tools::thinking_label(&content)
 }
 
 /// 为**非内置工具**补扩展渲染器（F51/Z0）。
@@ -1704,11 +1737,18 @@ pub fn run(
                 // 触发一次整屏重绘（ref `tui-main-screen.ts:455-459`），历史工具行越多
                 // 重绘次数越多。这里在**一个**后台线程里串行发完全部请求，再一次性回填。
                 std::thread::spawn(move || {
+                    // 按块发（每块 200 行）：单条 RPC 处理上千行会超过 1s 超时 ⇒ 整批回
+                    // `None` ⇒ 全部回落原生块（实测 95 MB 会话只折叠了 8 行、写出 1.6 MB，
+                    // 而 TS 折叠 459 行、写出 0.19 MB）。分块后每块都远小于超时。
+                    const CHUNK: usize = 200;
                     let payloads: Vec<(String, serde_json::Value)> = batch
                         .into_iter()
                         .map(|(id, payload, _digest)| (id, payload))
                         .collect();
-                    let rows = crate::ext_tools::render_tool_rows(payloads, cols);
+                    let mut rows: Vec<(String, Option<Vec<String>>)> = Vec::new();
+                    for chunk in payloads.chunks(CHUNK) {
+                        rows.extend(crate::ext_tools::render_tool_rows(chunk.to_vec(), cols));
+                    }
                     crate::ext_tools::emit_ui_event(pi_tui::TuiEvent::ToolRowsRendered { rows });
                 });
             }

@@ -64,6 +64,15 @@ export async function copyToClipboard(text) {
 // 缺失就拒绝安装并弹 `[PI_AI_SUMMARY_INSTALL_FAILED] thinking adapter …`（真机 ②）。
 // 我们的助手行由 pi-tui 原生渲染，该方法不会被调用 ⇒ 空实现即可。
 export const AssistantMessageComponent = class extends Container {
+  constructor() {
+    super();
+    // F51/Z1：`pi-ai-summary` 的 thinking 适配器会写这两个字段
+    // （`adapters/thinking-label.ts:346` 的 `row.hiddenThinkingLabel = buildThinkingLabel(...)`、
+    // `:328-341` 的 `row.hideThinkingBlock = true`）。宿主在 `ext.render.thinking` 里
+    // 建一个本实例、跑扩展的 `updateContent`，再把标签读回来给 Rust 用。
+    this.hideThinkingBlock = false;
+    this.hiddenThinkingLabel = undefined;
+  }
   updateContent() {}
   render() {
     return [];

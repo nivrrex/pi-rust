@@ -646,6 +646,29 @@ impl ExtHost {
         Ok(out)
     }
 
+    /// 让扩展给出**思考块的折叠标签**（F51/Z1）。
+    ///
+    /// ref 机制：`pi-ai-summary/src/adapters/thinking-label.ts:489-526` 替换
+    /// `AssistantMessageComponent.prototype.updateContent`，在里面写
+    /// `row.hiddenThinkingLabel = buildThinkingLabel(...)`（`:346`）。
+    /// 宿主建一个组件实例跑它，再把标签读回来；`None` = 没有扩展接管。
+    pub async fn invoke_render_thinking(
+        &mut self,
+        content: Value,
+    ) -> Result<Option<String>, HostError> {
+        let response = self
+            .call(
+                "ext.render.thinking",
+                json!({ "content": content }),
+                Duration::from_secs(2),
+            )
+            .await?;
+        Ok(response
+            .get("label")
+            .and_then(serde_json::Value::as_str)
+            .map(str::to_string))
+    }
+
     /// 该工具在宿主侧**是否有定义**（F51/Z0）。
     ///
     /// 走独立方法而不是复用 `ext.render`：`ext.render` 的"没有帧"既可能是
