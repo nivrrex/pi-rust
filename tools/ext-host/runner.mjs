@@ -224,11 +224,19 @@ function contextForExtension() {
         const file = hostCtx.sessionFile;
         if (!file) return [];
         try {
-          return fs
-            .readFileSync(file, "utf8")
-            .split("\n")
-            .filter((line) => line.trim().length > 0)
-            .map((line) => JSON.parse(line));
+          // F51/Z1(e)：**坏行只跳过**，不要让整份会话退回空数组。
+          // 此前 `.map(JSON.parse)` 一遇坏行就抛 ⇒ `catch` 返回 `[]` ⇒ 扩展页脚算出的
+          // 用量/费用全为 0（真机：TS 显示 `¥954.32`，pi-rs 只有 `144.6%/197k (auto)`）。
+          const out = [];
+          for (const line of fs.readFileSync(file, "utf8").split("\n")) {
+            if (line.trim().length === 0) continue;
+            try {
+              out.push(JSON.parse(line));
+            } catch {
+              // 跳过坏行（ref `session-manager.ts:616-624` 同样跳过解析失败的行）。
+            }
+          }
+          return out;
         } catch {
           return [];
         }
