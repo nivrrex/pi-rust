@@ -22,7 +22,18 @@ export default function collapseExt(pi) {
           const glyph = failed ? "x" : "+";
           const color = failed ? "error" : "success";
           const text = `${glyph} ${String(this.toolName)}${args ? ` · ${args}` : ""} · ${failed ? "err" : "ok"}`;
-          return [`  ${theme.fg(color, text.slice(0, Math.max(0, Number(width) - 4)))}`];
+          // 按**可见宽度**裁剪（CJK 占 2 列），否则 CJK 参数会让行宽超终端列数，
+          // TS 会 `uncaughtException: Rendered line N exceeds terminal width`。
+          const budget = Math.max(1, Number(width) - 4);
+          let used = 0;
+          let out = "";
+          for (const ch of text) {
+            const w = /[\u1100-\u115F\u2E80-\uA4CF\uAC00-\uD7A3\uF900-\uFAFF\uFE30-\uFE4F\uFF00-\uFF60\uFFE0-\uFFE6]/.test(ch) ? 2 : 1;
+            if (used + w > budget) break;
+            out += ch;
+            used += w;
+          }
+          return [`  ${theme.fg(color, out)}`];
         } catch {
           return original.call(this, width);
         }
