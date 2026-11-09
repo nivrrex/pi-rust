@@ -2235,6 +2235,43 @@ fn format_duration(duration: std::time::Duration) -> String {
     format!("{}h {}m {remainder}s", minutes / 60, minutes % 60)
 }
 
+/// 去掉行尾的 SGR/OSC 复位（F51）。
+///
+/// 扩展返回的行常常以 `\x1b[0m` 或 `\x1b]8;;\x07` 结尾；本体渲染会再套一次
+/// 行尾复位与背景补位 ⇒ 屏幕上出现 `[0m[0m` 这类残留（`report_to_user` 行实测）。
+/// 行内颜色保留，只剥**行尾**那些控制序列。
+fn strip_trailing_sgr(line: &str) -> &str {
+    let mut end = line.len();
+    loop {
+        let bytes = line.as_bytes();
+        if end == 0 {
+            return &line[..end];
+        }
+        // OSC: ESC ] … BEL
+        if bytes[end - 1] == 0x07 {
+            if let Some(start) = line[..end].rfind('\u{1b}') {
+                if line[start..end].starts_with("\u{1b}]") {
+                    end = start;
+                    continue;
+                }
+            }
+            return &line[..end];
+        }
+        // CSI: ESC [ … m
+        if bytes[end - 1] == b'm' {
+            if let Some(start) = line[..end].rfind("\u{1b}[") {
+                let body = &line[start + 2..end - 1];
+                if body.chars().all(|ch| ch.is_ascii_digit() || ch == ';') {
+                    end = start;
+                    continue;
+                }
+            }
+            return &line[..end];
+        }
+        return &line[..end];
+    }
+}
+
 /// 内置工具的原生渲染类别（F51/Z0）。
 ///
 /// 照 ref `packages/coding-agent/src/core/tools/renderers/` 的划分：
@@ -2988,7 +3025,10 @@ fn render_all_cached_styled_inner(
                         // **必须用 `clamp_to_width_ansi`**：扩展返回的行自带 SGR
                         // （`theme.fg(...)`），按纯文本裁剪会把转义序列切断，
                         // 行尾残留 `\x1b\x1b[0m[0m` 污染画面（F51 实测）。
-                        lines.push(clamp_to_width_ansi(&format!(" {line}"), cols));
+                        lines.push(clamp_to_width_ansi(
+                            &format!(" {}", strip_trailing_sgr(line)),
+                            cols,
+                        ));
                     }
                     if let Some(extension_result) = result_render_lines {
                         for line in extension_result {
@@ -3130,7 +3170,10 @@ fn render_all_cached_styled_inner(
                     result_render_lines.as_ref().filter(|_| !hide_collapsed)
                 {
                     for line in extension_result {
-                        lines.push(clamp_to_width_ansi(&format!(" {line}"), cols));
+                        lines.push(clamp_to_width_ansi(
+                            &format!(" {}", strip_trailing_sgr(line)),
+                            cols,
+                        ));
                     }
                 } else if let Some(body) = output.as_deref().filter(|_| !hide_collapsed) {
                     let body = body.trim_end_matches('\n');
