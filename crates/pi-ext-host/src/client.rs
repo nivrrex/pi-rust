@@ -700,6 +700,16 @@ impl ExtHost {
                 Duration::from_secs(2),
             )
             .await?;
+        // F51/Z0：`known=false` ⇒ 该工具**没有任何定义**（ref 走 `formatToolExecution`，
+        // 即"名字 + 缩进 JSON 参数"）；`known=true` 而 `frames=null` ⇒ 有定义但没有
+        // `renderCall`（ref 走 `createCallFallback()`，只有工具名）。
+        if response
+            .get("known")
+            .and_then(serde_json::Value::as_bool)
+            .is_some_and(|known| !known)
+        {
+            return Ok(Some(json!({ "kind": "unknown-tool" })));
+        }
         Ok(response
             .get("frames")
             .cloned()

@@ -1262,6 +1262,8 @@ pub fn render_tool_block(
 ) -> Option<Vec<String>> {
     let host = HOST.get().and_then(|slot| slot.as_ref()).cloned()?;
     let frame = host.render(tool_name, phase, payload, width).ok()??;
+    // `unknown-tool` 由 `render_tool_block` 的**调用方**用 `tool_definition_known` 判断，
+    // 这里当作"没有行"返回（不产生文本行）。
     flatten_render_frame(&frame, width)
 }
 
@@ -1304,6 +1306,25 @@ pub fn render_tool_rows(
             note_render_failure("tool", &error.to_string());
             ids.into_iter().map(|id| (id, None)).collect()
         }
+    }
+}
+
+/// 该工具在宿主侧**是否有定义**（F51/Z0）。
+///
+/// `Some(false)` ⇒ 完全没有定义：ref 走 `tool-execution.ts:421-432` 的
+/// `formatToolExecution`（名字 + 缩进 JSON 参数 + 结果正文）；
+/// `Some(true)` ⇒ 有定义（可能没有 `renderCall`）：ref 走 `createCallFallback()`，只有名字。
+/// `None` ⇒ 没有宿主（非 TUI/无扩展），调用方按"有定义"处理（保持旧行为）。
+#[must_use]
+pub fn tool_definition_known(tool_name: &str) -> Option<bool> {
+    let host = HOST.get().and_then(|slot| slot.as_ref()).cloned()?;
+    match host.render(tool_name, "call", serde_json::json!({ "args": {} }), 4096) {
+        // `Ok(None)` = 有定义但没有 `renderCall`（宿主回了 `frames:null, known:true`）。
+        Ok(None) => Some(true),
+        Ok(Some(frame)) => {
+            Some(frame.get("kind").and_then(|value| value.as_str()) != Some("unknown-tool"))
+        }
+        Err(_) => None,
     }
 }
 

@@ -237,6 +237,12 @@ pub enum TranscriptItem {
         /// `grep` 取 pattern…），只给 `summary`（首个人类可读值）不够。
         /// `None` = 该路径没有原值（例如从会话重放且原消息未带 arguments）。
         args_json: Option<String>,
+        /// 该工具在宿主侧**是否有定义**（F51/Z0；`None` = 未知，按"没有定义"处理）。
+        ///
+        /// ref 的两种回退不同：有定义但没有 `renderCall` ⇒ `createCallFallback()`
+        /// 只有工具名（`tool-execution.ts:316-320`）；完全没有定义 ⇒
+        /// `formatToolExecution()`（名字 + 缩进 JSON 参数，`:421-432`）。
+        tool_known: Option<bool>,
         /// 结果正文（`None` = 还在跑）。ref 里由 `renderResult` 决定展示，
         /// 折叠/展开见 `tool-execution.ts:40,166-170` 与 `renderers/bash.ts:18,86-97`。
         output: Option<String>,
@@ -1038,6 +1044,8 @@ pub fn apply(state: &mut TuiState, event: TuiEvent) -> TuiAction {
                 result_payload: None,
                 // 折叠行由上层（pi-cli）在状态变化后请求并回填（`TuiEvent::ToolRowRender`）。
                 collapsed_row: None,
+                // 实时路径上工具一定存在（它刚执行过）⇒ 按"有定义"处理。
+                tool_known: Some(true),
                 took: None,
             });
             TuiAction::Redraw
@@ -2940,6 +2948,7 @@ fn render_all_cached_styled_inner(
                 collapsed_row,
                 args_json,
                 result_payload,
+                tool_known,
                 ..
             } => {
                 // F48/X3：扩展用**原型补丁**接管了工具行（`ToolExecutionComponent.prototype.render`）
@@ -3062,7 +3071,7 @@ fn render_all_cached_styled_inner(
                 //   （`tool-execution.ts:40,166-170`）。
                 // ref `tool-execution.ts:421-432` `formatToolExecution`：
                 // 没有渲染器的工具把**完整参数**以 2 空格缩进块放在名字下面。
-                if matches!(native, NativeTool::Generic) {
+                if matches!(native, NativeTool::Generic) && *tool_known != Some(true) {
                     let pretty = args_json
                         .as_deref()
                         .and_then(|text| serde_json::from_str::<serde_json::Value>(text).ok())
@@ -4829,6 +4838,7 @@ mod render_cache_span_tests {
             render_lines: None,
             result_render_lines: None,
             result_payload: None,
+            tool_known: None,
             args_json: None,
             collapsed_row: None,
         });
@@ -4874,6 +4884,7 @@ mod tool_block_style_tests {
             result_render_lines: None,
             result_payload: None,
             args_json: None,
+            tool_known: None,
             collapsed_row: None,
             took: None,
             render_lines: None,
@@ -5195,6 +5206,7 @@ mod markdown_tests {
             render_lines: None,
             result_render_lines: None,
             result_payload: None,
+            tool_known: None,
             args_json: None,
             collapsed_row: None,
         });
@@ -7927,6 +7939,7 @@ mod render_hook_tests {
             render_lines: None,
             result_render_lines: Some(vec!["rendered-result".to_string()]),
             result_payload: None,
+            tool_known: None,
             args_json: None,
             collapsed_row: None,
         });
@@ -7956,6 +7969,7 @@ mod render_hook_tests {
             took: None,
             render_lines: Some(vec!["rendered-by-extension".to_string()]),
             result_payload: None,
+            tool_known: None,
             args_json: None,
             collapsed_row: None,
         });
@@ -7981,6 +7995,7 @@ mod render_hook_tests {
             render_lines: None,
             result_render_lines: None,
             result_payload: None,
+            tool_known: None,
             args_json: None,
             collapsed_row: None,
         });

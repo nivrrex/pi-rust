@@ -270,6 +270,9 @@ fn transcript_from_messages(messages: &[pi_ai::message::Message]) -> Vec<pi_tui:
                                 // 恢复/重放的工具行同样要经折叠路径：上层在重放完成后
                                 // 统一请求一次（见 `tool_row_request`）。
                                 collapsed_row: None,
+                                // 宿主侧是否有该工具的定义：稍后由
+                                // `fill_extension_renderers` 查询并回填。
+                                tool_known: None,
                                 // 会话消息里带着工具调用的参数 ⇒ 折叠行能按工具取字段。
                                 args_json: Some(
                                     serde_json::Value::Object(arguments.clone()).to_string(),
@@ -393,6 +396,7 @@ fn fill_extension_renderers(items: &mut [pi_tui::TranscriptItem]) {
             is_error,
             render_lines,
             result_render_lines,
+            tool_known,
             ..
         } = item
         else {
@@ -403,6 +407,10 @@ fn fill_extension_renderers(items: &mut [pi_tui::TranscriptItem]) {
             "bash" | "powershell" | "edit" | "read" | "write" | "ls" | "grep" | "find"
         ) {
             continue;
+        }
+        // 是否有定义（决定"名字"还是"名字 + JSON 参数块"）。
+        if tool_known.is_none() {
+            *tool_known = crate::ext_tools::tool_definition_known(name);
         }
         if render_lines.is_none() {
             if let Some(args) = args_json

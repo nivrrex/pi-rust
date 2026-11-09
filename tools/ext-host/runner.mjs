@@ -461,7 +461,14 @@ async function dispatch(frame) {
     const phase = params?.phase === "result" ? "result" : "call";
     const renderer = definition?.[phase === "call" ? "renderCall" : "renderResult"];
     if (typeof renderer !== "function") {
-      respond(id, { frames: null });
+      // F51/Z0：把"**这个工具是否有定义**"一并回给宿主。
+      //
+      // ref `components/tool-execution.ts:316-320`：有定义但**没有** `renderCall` 时走
+      // `createCallFallback()` = 只有工具名；**完全没有定义**（`hasRendererDefinition()`
+      // 为 false）时走 `formatToolExecution()`，即"名字 + 缩进 JSON 参数"。两者在屏幕上
+      // 完全不同（` report_to_user` + 结果文本 vs ` zeta_broken` + JSON 块 + 结果文本），
+      // 所以宿主必须能区分。
+      respond(id, { frames: null, known: definition !== undefined });
       return;
     }
     const themeStub = makeThemeStub();
