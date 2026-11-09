@@ -220,7 +220,19 @@ pub enum TranscriptItem {
     /// 即前导一个空格；连续同一条时**原地替换**而不是新增一行）。
     Status(String),
     /// 思考块（ref `assistant-message.ts:118-150`；默认显示，按 markdown 渲染）。
-    Thinking(String),
+    /// 思考块。`text` 是**全文**（可见态渲染它），`label` 是扩展给的折叠标签
+    /// （隐藏态渲染它；`None` 时回落到 ref 的默认标签 `"Thinking..."`，
+    /// `assistant-message.ts:30`）。
+    ///
+    /// 为什么两者都要留（F52/B）：此前只保留标签、把全文丢掉 ⇒ `ctrl+t` 在
+    /// "隐藏→可见"方向**没有任何内容可显示**，屏幕上只有标记从 `+ Thought` 变成
+    /// `- Thought`（被 markdown 当成列表符号），用户看到"有文案无变化"（真机 E4）。
+    Thinking {
+        /// 思考全文。
+        text: String,
+        /// 扩展给的折叠标签（`+ Thought: …`）。
+        label: Option<String>,
+    },
     /// 助手消息尾部的状态提示（`Error: …` / 截断提示 / 中止文案）。
     /// ref `assistant-message.ts:185-198` 用 `theme.fg("error", …)` 渲染。
     Notice(String),
@@ -883,7 +895,7 @@ pub fn apply(state: &mut TuiState, event: TuiEvent) -> TuiAction {
         }
         TuiEvent::ThinkingDelta(delta) => {
             match state.transcript.last_mut() {
-                Some(TranscriptItem::Thinking(text)) => text.push_str(&delta),
+                Some(TranscriptItem::Thinking { text, .. }) => text.push_str(&delta),
                 Some(TranscriptItem::User(_))
                 | Some(TranscriptItem::SkillInvocation { .. })
                 | Some(TranscriptItem::Assistant(_))
@@ -892,7 +904,10 @@ pub fn apply(state: &mut TuiState, event: TuiEvent) -> TuiAction {
                 | Some(TranscriptItem::Notice(_))
                 | Some(TranscriptItem::ToolCall { .. })
                 | Some(TranscriptItem::BashExecution { .. })
-                | None => state.transcript.push(TranscriptItem::Thinking(delta)),
+                | None => state.transcript.push(TranscriptItem::Thinking {
+                    text: delta,
+                    label: None,
+                }),
             }
             TuiAction::Redraw
         }
@@ -1047,7 +1062,7 @@ pub fn apply(state: &mut TuiState, event: TuiEvent) -> TuiAction {
                 | Some(TranscriptItem::SkillInvocation { .. })
                 | Some(TranscriptItem::BranchSummary { .. })
                 | Some(TranscriptItem::Status(_))
-                | Some(TranscriptItem::Thinking(_))
+                | Some(TranscriptItem::Thinking { .. })
                 | Some(TranscriptItem::Notice(_))
                 | Some(TranscriptItem::ToolCall { .. })
                 | Some(TranscriptItem::BashExecution { .. })
@@ -2374,7 +2389,7 @@ fn item_style(
         TranscriptItem::User(_) | TranscriptItem::SkillInvocation { .. } => {
             Some(LineStyle::fg(palette.text).with_bg(palette.user_message_bg))
         }
-        TranscriptItem::Thinking(_) => Some(LineStyle::fg(palette.muted).italic()),
+        TranscriptItem::Thinking { .. } => Some(LineStyle::fg(palette.muted).italic()),
         // ref `assistant-message.ts:185-198`：错误/截断/中止提示用 `error` 色。
         // ref：`showWarning` 用 `theme.fg("warning", …)`，`showError` 用 `error`
         // （`interactive-mode.ts:4463-4473`）。
@@ -2735,9 +2750,14 @@ fn render_all_cached_styled_inner(
                 format!("b\u{1}{expanded}\u{1}{summary}")
             }
             TranscriptItem::Status(text) => format!("s\u{1}{text}"),
-            TranscriptItem::Thinking(text) => {
-                format!("k\u{1}{}\u{1}{text}", state.hide_thinking_block)
-            }
+            TranscriptItem::Thinking { text, label } => format!(
+                // `hide_thinking_block` 与标签内容都必须进键：否则 ctrl+t 与扩展标签
+                // 更新都不会让这一行重绘（F52/B 的"缓存键缺 hide 标志"预测）。
+                "k\u{1}{}\u{1}{}\u{1}{text}\u{1}{}",
+                state.hide_thinking_block,
+                label.as_deref().unwrap_or(""),
+                label.is_some()
+            ),
             TranscriptItem::Notice(text) => format!("n\u{1}{text}"),
             TranscriptItem::ToolCall {
                 name,
@@ -2961,22 +2981,18 @@ fn render_all_cached_styled_inner(
                 }
                 lines.push(String::new());
             }
-            TranscriptItem::Thinking(text) => {
-                // ref `assistant-message.ts:143-145`：`hideThinkingBlock` 为 true 时
-                // 只渲染一行 `hiddenThinkingLabel`（扩展会把它写成 `+ Thought: …`）。
+            TranscriptItem::Thinking { text, label } => {
+                // ref `assistant-message.ts:143-145`：`hideThinkingBlock` 为 true 时只渲染一行
+                // `hiddenThinkingLabel`（扩展给 `+ Thought: …`，否则默认 `"Thinking..."`，`:30`）；
+                // 为 false 时渲染**思考全文**（`:146-152` 的 Markdown）。
                 if state.hide_thinking_block {
-                    // 文本已是扩展给的标签（`+ Thought: …`）就直接用它；
-                    // 否则（扩展没接管）按 ref `assistant-message.ts:145` 用**默认标签**
-                    // `Thinking...`，而不是自己拼 `+ Thought: <正文首行>`。
-                    // ref `assistant-message.ts:30`：`hiddenThinkingLabel = "Thinking..."`。
-                    // 扩展（pi-ai-summary）在能给出预览时把它改成 `+ Thought: …`；
-                    // 给不出时（`label=null`）应回落到这条默认文案，而不是自己拼 `+ Thought`。
-                    let label = if text.starts_with("+ Thought") || text.starts_with("- Thought") {
-                        text.trim_end().to_string()
-                    } else {
-                        "Thinking...".to_string()
-                    };
-                    lines.push(clamp_to_width(&label, cols));
+                    // 原样输出：不能再走 markdown（`+ ` 会被当成列表符号渲染成 `- `，
+                    // 真机 E4 的 `- Thought:` 就是这么来的）。
+                    let shown = label
+                        .as_deref()
+                        .map(str::trim_end)
+                        .filter(|value| !value.is_empty());
+                    lines.push(clamp_to_width(shown.unwrap_or("Thinking..."), cols));
                     lines.push(String::new());
                     continue;
                 }
@@ -3069,7 +3085,12 @@ fn render_all_cached_styled_inner(
                 // ⇒ 用它的单行折叠结果**替代**整个原生块：没有底色、没有块内空行、
                 // 没有结果区与折叠提示（ref 语义见 `pi-ai-summary/src/adapters/tool-render.ts`：
                 // 补丁只在 `expanded === false` 时生效，展开态返回 `undefined` 让我们走原生）。
-                if let Some(row) = collapsed_row {
+                // F52/A：**展开态必须走原生块**。ref 的 `setExpanded()` 只改组件字段
+                // 再 `updateDisplay()`（`tool-execution.ts:244-247`），补丁本身在
+                // `expanded === true` 时直接回落原生（`tool-render.ts:186-196`）。
+                // 此前无论 `tools_expanded` 如何都优先渲染 `collapsed_row`
+                // ⇒ 真机 E3：`ctrl+o` 后仍显示折叠行、再按也回不去。
+                if let Some(row) = collapsed_row.as_ref().filter(|_| !state.tools_expanded) {
                     // 折叠行**紧贴上一行**：普通条目前那一行空行要去掉（TS 侧工具行之间
                     // 没有任何空行，见 `T116` golden）。`item_style` 里折叠行也返回 `None`
                     // ⇒ 不叠工具块底色。
@@ -3093,7 +3114,12 @@ fn render_all_cached_styled_inner(
                 }
                 // 扩展 `renderCall` 给了降级行 ⇒ 用它们替代默认的 ` name summary` 行
                 // （ref `tool-execution.ts:110-118`：有渲染器时用组件的 contentBox）。
-                if let Some(extension_lines) = render_lines {
+                // F52/A：展开态**忽略**扩展的 `renderCall`/`renderResult` 降级行 ——
+                // 它们是按 `expanded=false` 生成的（含 `... (N earlier lines, ctrl+o to expand)`
+                // 这类预览提示），展开时应显示原生全文（真机 E3：展开后仍留着预览提示）。
+                let use_extension_lines = !state.tools_expanded;
+                if let Some(extension_lines) = render_lines.as_ref().filter(|_| use_extension_lines)
+                {
                     lines.push(String::new());
                     for line in extension_lines {
                         // 工具块的 contentBox 自带 1 列左边距（ref `tool-execution.ts:98-108`
@@ -3153,7 +3179,17 @@ fn render_all_cached_styled_inner(
                 };
                 // r3 专属：工具条目前补 ref 的 `Box` 顶 padding（`tool-execution.ts:105`）。
                 lines.push(String::new());
-                lines.push(clamp_to_width(&text, cols));
+                // F52/C：native 头部**按 ref `text.ts:60-68` 处理** ——
+                // 制表符换 3 个空格（`:61` `text.replace(/\t/g, "   ")`）、
+                // 按 `\n` 拆行、超宽**折行**（`wrapTextWithAnsi`，`:68`），**不截断**。
+                // 此前 `clamp_to_width` 会①把含换行的命令挤成一行并裁掉尾部
+                // （真机 E1 丢 `(timeout 600s)`）、②留下裸 LF 造成阶梯缩进（E2）。
+                for logical in text.split('\n') {
+                    let normalized = logical.replace('\t', "   ");
+                    for wrapped in wrap_to_width(&normalized, cols.saturating_sub(1).max(1)) {
+                        lines.push(clamp_to_width(&wrapped, cols));
+                    }
+                }
                 // ref 实测（T73 真彩逐格）：头部是 ` <name>` **加粗 text 色** +
                 // 一个空格 + `summary` 用 **accent 色**（不加粗）。整行单色会差这两段。
                 // `summary` 为空（`read` 之外的无参数工具）时也要走 span 路径：
@@ -3283,7 +3319,10 @@ fn render_all_cached_styled_inner(
                             lines.push(clamp_to_width(&hint, cols));
                         }
                         for line in &all[start..] {
-                            for wrapped in wrap_to_width(line, cols.saturating_sub(2).max(1)) {
+                            // 同上：制表符换 3 空格后再折行（ref `text.ts:61/68`）。
+                            let normalized = line.replace('\t', "   ");
+                            for wrapped in wrap_to_width(&normalized, cols.saturating_sub(2).max(1))
+                            {
                                 lines.push(clamp_to_width(&format!(" {wrapped}"), cols));
                             }
                         }
@@ -7128,7 +7167,7 @@ mod p76ao_thinking_tests {
         apply(&mut state, TuiEvent::ThinkingDelta(" deeply".to_string()));
         // 连续增量合并到同一条 Thinking 条目
         assert_eq!(state.transcript.len(), 1);
-        matches!(&state.transcript[0], TranscriptItem::Thinking(text) if text == "pondering deeply");
+        matches!(&state.transcript[0], TranscriptItem::Thinking { text, .. } if text == "pondering deeply");
         // 正常助手文本紧随其后应新建 Assistant 条目（不覆盖 thinking）
         apply(&mut state, TuiEvent::AssistantDelta("answer".to_string()));
         assert_eq!(state.transcript.len(), 2);

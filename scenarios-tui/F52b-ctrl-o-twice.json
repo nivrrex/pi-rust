@@ -1,0 +1,105 @@
+{
+ "provider": "openai-completions",
+ "model": "mock-model",
+ "mode": "print",
+ "prompt": "hi",
+ "files": {
+  "AGENTS.md": "# 项目规则\n",
+  "synth.txt": "旧\n"
+ },
+ "responses": [
+  {
+   "file": "fixtures/sse/openai/f52-bash-heredoc.sse",
+   "chunkByEvent": true
+  },
+  {
+   "file": "fixtures/sse/openai/text-basic.sse"
+  }
+ ],
+ "id": "F52b-ctrl-o-twice",
+ "description": "F52：ctrl+o 两次：回到折叠行",
+ "tui": {
+  "cols": 110,
+  "rows": 40,
+  "snapshots": [
+   "state"
+  ],
+  "steps": [
+   {
+    "action": "waitScreen",
+    "contains": "Pi can explain",
+    "timeoutMs": 30000
+   },
+   {
+    "action": "waitStable",
+    "quietMs": 1200,
+    "timeoutMs": 20000
+   },
+   {
+    "action": "type",
+    "text": "hi\r"
+   },
+   {
+    "action": "delay",
+    "ms": 7000
+   },
+   {
+    "action": "waitStable",
+    "quietMs": 1500,
+    "timeoutMs": 20000
+   },
+   {
+    "action": "type",
+    "text": "\u000f"
+   },
+   {
+    "action": "delay",
+    "ms": 1200
+   },
+   {
+    "action": "waitStable",
+    "quietMs": 900,
+    "timeoutMs": 15000
+   },
+   {
+    "action": "type",
+    "text": "\u000f"
+   },
+   {
+    "action": "delay",
+    "ms": 1200
+   },
+   {
+    "action": "waitStable",
+    "quietMs": 900,
+    "timeoutMs": 15000
+   },
+   {
+    "action": "delay",
+    "ms": 800
+   },
+   {
+    "action": "waitStable",
+    "quietMs": 1200,
+    "timeoutMs": 15000
+   },
+   {
+    "action": "snapshot",
+    "name": "state"
+   },
+   {
+    "action": "type",
+    "text": "\u0004"
+   },
+   {
+    "action": "waitStable",
+    "quietMs": 600,
+    "timeoutMs": 15000
+   }
+  ]
+ },
+ "extensions": {
+  "f52-collapse-ext/index.ts": "// F52 合成扩展夹具：**仿 pi-ai-summary 的两处原型补丁**，全部合成文本。\n//   ① ToolExecutionComponent.prototype.render → 折叠成一行 `+ <name> · <args> · ok`；\n//      `expanded === true` 时回落原生（与 pi-ai-summary 同语义）。\n//   ② AssistantMessageComponent.prototype.updateContent → 给思考块一个\n//      `+ Thought: <预览>` 标签（`hiddenThinkingLabel`），供 `ctrl+t` 隐藏态使用。\nimport { ToolExecutionComponent, AssistantMessageComponent } from \"@earendil-works/pi-coding-agent\";\n\nexport default function collapseExt(pi) {\n  let installed = false;\n  pi.on(\"session_start\", (_e, ctx) => {\n    if (installed) return;\n    const tool = ToolExecutionComponent?.prototype;\n    if (tool && typeof tool.render === \"function\") {\n      const original = tool.render;\n      tool.render = function render(width) {\n        try {\n          if (this.expanded === true || this.hideComponent === true) return original.call(this, width);\n          const theme = ctx?.ui?.theme;\n          if (!theme) return original.call(this, width);\n          const args = this.args && typeof this.args === \"object\" ? JSON.stringify(this.args) : \"\";\n          const failed = this.result && this.result.isError === true;\n          const glyph = failed ? \"x\" : \"+\";\n          const color = failed ? \"error\" : \"success\";\n          const text = `${glyph} ${String(this.toolName)}${args ? ` · ${args}` : \"\"} · ${failed ? \"err\" : \"ok\"}`;\n          return [`  ${theme.fg(color, text.slice(0, Math.max(0, Number(width) - 4)))}`];\n        } catch {\n          return original.call(this, width);\n        }\n      };\n    }\n    const assistant = AssistantMessageComponent?.prototype;\n    if (assistant && typeof assistant.updateContent === \"function\" && !assistant.__f52) {\n      assistant.__f52 = true;\n      Object.defineProperty(assistant, \"hiddenThinkingLabel\", { configurable: true, writable: true, value: \"+ Thought: 合成预览\" });\n    }\n    installed = true;\n  });\n}\n",
+  "f52-collapse-ext/package.json": "{\"name\": \"f52-collapse-ext\", \"version\": \"0.0.0\", \"type\": \"module\", \"exports\": \"./index.ts\"}"
+ }
+}

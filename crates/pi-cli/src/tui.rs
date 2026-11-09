@@ -247,18 +247,13 @@ fn transcript_from_messages(messages: &[pi_ai::message::Message]) -> Vec<pi_tui:
                             // 就只显示它给的**一行标签**（`+ Thought[: preview]`），
                             // 不再把整段思考铺进转录 —— 真机 95 MB 会话里这一项决定了
                             // 恢复时的行数与写出字节（TS 94 个标签 / pi-rs 2 个）。
-                            if let Some(label) = thinking_label_of(assistant) {
-                                if out_items
-                                    .last()
-                                    .map(|item| matches!(item, pi_tui::TranscriptItem::Thinking(text) if text == &label))
-                                    .unwrap_or(false)
-                                {
-                                    continue;
-                                }
-                                out_items.push(pi_tui::TranscriptItem::Thinking(label));
-                                continue;
-                            }
-                            out_items.push(pi_tui::TranscriptItem::Thinking(thinking.clone()));
+                            // F52/B：**全文与标签都保留**。全文给"可见态"（ctrl+t 切回来后
+                            // 必须有内容可渲染），标签给"隐藏态"。
+                            let label = thinking_label_of(assistant);
+                            out_items.push(pi_tui::TranscriptItem::Thinking {
+                                text: thinking.clone(),
+                                label,
+                            });
                         }
                         pi_ai::types::Content::ToolCall {
                             id: call_id,
@@ -3387,7 +3382,7 @@ pub fn run(
                     pi_tui::TranscriptItem::Assistant(text) => Some(text.clone()),
                     pi_tui::TranscriptItem::User(_)
                     | pi_tui::TranscriptItem::SkillInvocation { .. }
-                    | pi_tui::TranscriptItem::Thinking(_)
+                    | pi_tui::TranscriptItem::Thinking { .. }
                     | pi_tui::TranscriptItem::Notice(_)
                     | pi_tui::TranscriptItem::Status(_)
                     | pi_tui::TranscriptItem::BranchSummary { .. }
