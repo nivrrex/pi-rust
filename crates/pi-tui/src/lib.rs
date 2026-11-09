@@ -944,9 +944,8 @@ pub fn apply(state: &mut TuiState, event: TuiEvent) -> TuiAction {
                 took,
                 result_render_lines,
                 result_payload,
-                // F48/X3：结果回填改变 `isPartial/isError/result` ⇒ 折叠行必须清掉重建
-                // （否则屏幕上停在请求发出时那一帧的 `· run`）。上层随后按新 digest 重新请求。
-                collapsed_row,
+                // F51：结果回填补**不**清 `collapsed_row`（见下方注释）。
+                collapsed_row: _,
                 ..
             }) = target
             {
@@ -955,7 +954,11 @@ pub fn apply(state: &mut TuiState, event: TuiEvent) -> TuiAction {
                 *result_payload = payload;
                 *flag = is_error;
                 *took = started_at.map(|start| start.elapsed());
-                *collapsed_row = None;
+                // F51：**不要在这里清掉 `collapsed_row`**。清掉之后如果新批次因为
+                // digest 恰好不再变化而没有重发（实测 `call_zeta` 只被请求两次），
+                // 该行就会永久停在原生块上（`T116-toolrow-collapsed-w80` 的回归）。
+                // 保留旧行直到新行到达：digest 里含 `isPartial/output`，结果回填必然
+                // 触发新请求，新行会覆盖它。
             }
             TuiAction::Redraw
         }

@@ -646,7 +646,9 @@ impl ExtHost {
                     if let Some(error) = item.get("error").and_then(|value| value.as_str()) {
                         eprintln!(
                             "[tool-row] {} -> {error}",
-                            item.get("id").and_then(|value| value.as_str()).unwrap_or("-")
+                            item.get("id")
+                                .and_then(|value| value.as_str())
+                                .unwrap_or("-")
                         );
                     }
                 }
