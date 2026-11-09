@@ -1,0 +1,12 @@
+data: {"id":"chatcmpl-mock","object":"chat.completion.chunk","created":1700000000,"model":"mock-model","choices":[{"index":0,"delta":{"role":"assistant","content":""},"finish_reason":null}]}
+
+data: {"id":"chatcmpl-mock","object":"chat.completion.chunk","created":1700000000,"model":"mock-model","choices":[{"index":0,"delta":{"content":"三个工具行的折叠形态："},"finish_reason":null}]}
+
+data: {"id":"chatcmpl-mock","object":"chat.completion.chunk","created":1700000000,"model":"mock-model","choices":[{"index":0,"delta":{"tool_calls":[{"index":0,"id":"call_read","type":"function","function":{"name":"read","arguments":"{\"path\": \"alpha.txt\"}"}}]},"finish_reason":null}]}
+
+data: {"id":"chatcmpl-mock","object":"chat.completion.chunk","created":1700000000,"model":"mock-model","choices":[{"index":0,"delta":{"tool_calls":[{"index":1,"id":"call_bash","type":"function","function":{"name":"bash","arguments":"{\"command\": \"false\"}"}}]},"finish_reason":null}]}
+
+data: {"id":"chatcmpl-mock","object":"chat.completion.chunk","created":1700000000,"model":"mock-model","choices":[{"index":0,"delta":{"tool_calls":[{"index":2,"id":"call_zeta","type":"function","function":{"name":"zeta_probe","arguments":"{\"mode\": \"x\"}"}}]},"finish_reason":null}]}
+
+data: {"id":"chatcmpl-mock","object":"chat.completion.chunk","created":1700000000,"model":"mock-model","choices":[{"index":0,"delta":{},"finish_reason":"tool_calls"}],"usage":{"prompt_tokens":10,"completion_tokens":40,"total_tokens":50}}
+
