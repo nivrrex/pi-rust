@@ -1562,6 +1562,10 @@ pub fn run(
         std::collections::BTreeSet::new();
     // 一旦整批都返回 `None`（没有任何扩展接管工具行），本次会话不再请求。
     let mut tool_row_disabled = false;
+    // F51/Z1：**首帧**等工具行批次（一次/几批 RPC）的硬上限。ref 的工具行是同步渲染的，
+    // 首帧就是折叠行；我们先画原生块再回填折叠，等于把整段历史写两遍
+    // （实测 826 KB + 157 KB vs TS 单帧 188 KB）。
+    let mut tool_row_first_deadline: Option<std::time::Instant> = None;
     // ref `interactive-mode.ts:4116-4124` `handleCtrlC()`：距上一次 Ctrl+C 不足 500 ms 时
     // 第二次 Ctrl+C 触发 `shutdown()`，否则只清编辑器并记录时刻。
     let mut last_ctrl_c: Option<std::time::Instant> = None;
@@ -1763,6 +1767,10 @@ pub fn run(
             }
             let batch: Vec<(String, serde_json::Value, u64)> = batch;
             if !batch.is_empty() && !tool_row_disabled {
+                if last_draw.is_none() && tool_row_first_deadline.is_none() {
+                    tool_row_first_deadline =
+                        Some(std::time::Instant::now() + std::time::Duration::from_millis(1500));
+                }
                 // **一批只回一条事件**（F50/Z1）：逐条回调会让"视口上方的行"每变一次就
                 // 触发一次整屏重绘（ref `tui-main-screen.ts:455-459`），历史工具行越多
                 // 重绘次数越多。这里在**一个**后台线程里串行发完全部请求，再一次性回填。
@@ -1792,7 +1800,10 @@ pub fn run(
             }
         }
         let render_ready = last_draw.is_none_or(|last| last.elapsed() >= min_render_interval);
-        if dirty && render_ready {
+        let waiting_first_tool_batch = last_draw.is_none()
+            && !tool_row_pending.is_empty()
+            && tool_row_first_deadline.is_some_and(|deadline| std::time::Instant::now() < deadline);
+        if dirty && render_ready && !waiting_first_tool_batch {
             last_draw = Some(std::time::Instant::now());
             draw(
                 &state,
