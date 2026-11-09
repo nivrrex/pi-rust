@@ -2321,11 +2321,6 @@ enum NativeTool {
     Generic,
 }
 
-/// 取文本的第一行（思考折叠标签的预览）。
-fn first_line(text: &str) -> &str {
-    text.lines().next().unwrap_or("")
-}
-
 fn native_tool_kind(name: &str) -> NativeTool {
     match name {
         "bash" => NativeTool::Shell("$"),
