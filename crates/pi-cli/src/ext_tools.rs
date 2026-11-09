@@ -1318,14 +1318,7 @@ pub fn render_tool_rows(
 #[must_use]
 pub fn tool_definition_known(tool_name: &str) -> Option<bool> {
     let host = HOST.get().and_then(|slot| slot.as_ref()).cloned()?;
-    match host.render(tool_name, "call", serde_json::json!({ "args": {} }), 4096) {
-        // `Ok(None)` = 有定义但没有 `renderCall`（宿主回了 `frames:null, known:true`）。
-        Ok(None) => Some(true),
-        Ok(Some(frame)) => {
-            Some(frame.get("kind").and_then(|value| value.as_str()) != Some("unknown-tool"))
-        }
-        Err(_) => None,
-    }
+    host.tool_known(tool_name).ok().flatten()
 }
 
 /// 渲染钩子失败只记一次（ref `interactive-mode.ts:1874-1894` 的 `[Extension issues]`）。
