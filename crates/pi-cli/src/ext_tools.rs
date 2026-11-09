@@ -960,6 +960,11 @@ pub fn extension_tools(agent_dir: &Path, cwd: &Path) -> Vec<Arc<dyn Tool>> {
     let Some(host) = host.as_ref() else {
         return Vec::new();
     };
+    // F51：**宿主一建立就把 ctx 推过去**。此前只在字段变化时 `push_ctx()`，而
+    // `session_start` 在宿主启动时立刻派发 ⇒ 扩展在那一刻读到的 `ctx.mode` 是 `undefined`，
+    // `pi-ai-summary` 的 `if (mode !== "tui") return;` 于是直接跳过所有适配器安装
+    // （真机：TS 显示扩展页脚 `¥954.32`，pi-rs 只有内置页脚）。
+    push_ctx();
     // 用不可变快照，避免"工具正在执行 ⇒ 锁被占 ⇒ 少列工具"。
     let tools = SPECS.get().cloned().unwrap_or_default();
     tools
@@ -1272,9 +1277,15 @@ pub fn render_tool_block(
 /// `digest` 为宿主算的状态摘要；`(kind, key, width, digest)` 相同的请求在 runner 侧命中缓存。
 /// 失败会记一条 `[Extension issues]`（同一扩展只记一次，避免每帧刷屏）。
 #[must_use]
-pub fn render_ui_block(kind: &str, key: &str, width: usize, digest: &str) -> Option<Vec<String>> {
+pub fn render_ui_block(
+    kind: &str,
+    key: &str,
+    width: usize,
+    digest: &str,
+    timeout_ms: u64,
+) -> Option<Vec<String>> {
     let host = HOST.get().and_then(|slot| slot.as_ref()).cloned()?;
-    match host.render_ui(kind, key, width, digest) {
+    match host.render_ui(kind, key, width, digest, timeout_ms) {
         Ok(lines) => lines,
         Err(error) => {
             note_render_failure(kind, &error.to_string());

@@ -1465,15 +1465,19 @@ pub fn run(
         .as_ref()
         .map(|parts| parts.initial_messages.clone())
         .unwrap_or_default();
+    crate::stages::mark("tui_enter");
     if !initial.is_empty() {
         let mut items = transcript_from_messages(&initial);
+        crate::stages::mark("transcript_built");
         // F51/Z0：**非内置工具**的渲染器来自扩展（ref 恢复时用的是
         // `getRegisteredToolDefinition(name)`，里面带着扩展注册的 `renderCall`/
         // `renderResult`）。内置工具（bash/edit/read/write/ls/grep/find）由 pi-tui 原生渲染，
         // 不在这里请求 —— 否则大会话会对成千上万条内置工具行各发一次 RPC。
         // `transcript_from_messages` 里已经请求过一次；那时宿主可能还没就绪，
         // 这里再补一次（幂等：只补仍为空的行）。
+        crate::stages::mark("transcript_before_ext_renderers");
         fill_extension_renderers(&mut items);
+        crate::stages::mark("transcript_renderers_filled");
         state.transcript.extend(items);
     }
     // `-c` 续写：footer 的用量/费用要**接着会话累计**（T61 golden：`↑200 ↓40 $0.000`）。
@@ -1566,6 +1570,9 @@ pub fn run(
     // 首帧就是折叠行；我们先画原生块再回填折叠，等于把整段历史写两遍
     // （实测 826 KB + 157 KB vs TS 单帧 188 KB）。
     let mut tool_row_first_deadline: Option<std::time::Instant> = None;
+    // F51/Z1(f)：首帧同样要等**扩展页脚**回来（上限 3.5 s），否则首帧画内置页脚、
+    // 页脚到达后再整屏重绘一次（实测会多写一整帧）。
+    let mut first_ui_deadline: Option<std::time::Instant> = None;
     // ref `interactive-mode.ts:4116-4124` `handleCtrlC()`：距上一次 Ctrl+C 不足 500 ms 时
     // 第二次 Ctrl+C 触发 `shutdown()`，否则只清编辑器并记录时刻。
     let mut last_ctrl_c: Option<std::time::Instant> = None;
@@ -1706,8 +1713,18 @@ pub fn run(
             if last_ui_render_key != Some(key) {
                 last_ui_render_key = Some(key);
                 ui_render_pending = true;
+                if last_draw.is_none() && first_ui_deadline.is_none() {
+                    first_ui_deadline =
+                        Some(std::time::Instant::now() + std::time::Duration::from_millis(3500));
+                }
                 let widget_keys: Vec<String> = state.extension_widgets.keys().cloned().collect();
                 let has_footer = state.footer_override.is_some();
+                // F51/Z1(f)：**首次**渲染页脚/widget 用更长的上限（3 s）。
+                // ref 是在同一进程里同步渲染的；我们的 200 ms 是"每帧刷新"的上限，
+                // 首帧用它会让大会话的扩展页脚（要遍历会话统计费用）超时回退成内置页脚
+                // （真机现象：TS 显示 `¥954.32`，pi-rs 只有 `144.6%/197k (auto)`）。
+                let first_ui_render = state.footer_override.is_none();
+                let ui_timeout_ms = if first_ui_render { 3000 } else { 200 };
                 std::thread::spawn(move || {
                     if has_footer {
                         if let Some(lines) = crate::ext_tools::render_ui_block(
@@ -1715,6 +1732,7 @@ pub fn run(
                             "",
                             cols,
                             &format!("{digest}"),
+                            ui_timeout_ms,
                         ) {
                             crate::ext_tools::emit_ui_event(pi_tui::TuiEvent::FooterOverride(
                                 Some(lines),
@@ -1727,6 +1745,7 @@ pub fn run(
                             &key,
                             cols,
                             &format!("{digest}"),
+                            ui_timeout_ms,
                         ) {
                             // 重渲染结果来自组件工厂 ⇒ 不加内边距（组件自带排版）。
                             crate::ext_tools::emit_ui_event(pi_tui::TuiEvent::ExtensionWidget {
@@ -1800,10 +1819,16 @@ pub fn run(
             }
         }
         let render_ready = last_draw.is_none_or(|last| last.elapsed() >= min_render_interval);
+        let waiting_first_ui = last_draw.is_none()
+            && ui_render_pending
+            && first_ui_deadline.is_some_and(|deadline| std::time::Instant::now() < deadline);
         let waiting_first_tool_batch = last_draw.is_none()
             && !tool_row_pending.is_empty()
             && tool_row_first_deadline.is_some_and(|deadline| std::time::Instant::now() < deadline);
-        if dirty && render_ready && !waiting_first_tool_batch {
+        if dirty && render_ready && !waiting_first_tool_batch && !waiting_first_ui {
+            if last_draw.is_none() {
+                crate::stages::mark("first_draw_begin");
+            }
             last_draw = Some(std::time::Instant::now());
             draw(
                 &state,
@@ -1825,6 +1850,9 @@ pub fn run(
                     &diff_state,
                     &state,
                 );
+            }
+            if frame_index == 0 {
+                crate::stages::mark("first_frame_written");
             }
             dirty = false;
         }

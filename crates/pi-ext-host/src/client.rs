@@ -571,6 +571,7 @@ impl ExtHost {
         key: &str,
         width: usize,
         digest: &str,
+        timeout: Duration,
     ) -> Result<Option<Vec<String>>, HostError> {
         let method = if kind == "footer" {
             "ext.render.footer"
@@ -581,7 +582,7 @@ impl ExtHost {
             .call(
                 method,
                 json!({ "key": key, "width": width, "digest": digest }),
-                Duration::from_millis(200),
+                timeout,
             )
             .await?;
         Ok(response.get("lines").and_then(|lines| {

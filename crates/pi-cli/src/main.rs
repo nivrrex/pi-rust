@@ -79,6 +79,7 @@ impl Drop for SessionSinkFlush {
 }
 
 fn main() -> ExitCode {
+    pi_cli::stages::mark("process_start");
     let _session_sink_flush = SessionSinkFlush;
     let argv: Vec<String> = std::env::args().skip(1).collect();
     let parsed = args::parse(&argv);
@@ -585,7 +586,11 @@ fn run_rpc(parsed: &Args) -> ExitCode {
     let rpc_compaction_settings = settings.compaction_settings();
     let shared = std::sync::Arc::new(pi_cli::rpc_session::RpcShared {
         provider,
-        tools: pi_cli::print_mode::default_tools(parsed),
+        tools: {
+            let tools = pi_cli::print_mode::default_tools(parsed);
+            pi_cli::stages::mark("host_ready");
+            tools
+        },
         cwd: rpc_cwd,
         settings: rpc_compaction_settings,
         context_window: resolved.context_window,
@@ -1478,8 +1483,10 @@ fn build_tui_agent_parts(
             return Ok(None);
         }
     };
+    pi_cli::stages::mark("messages_built");
     let (sections, system_text, tui_skills, _templates) =
         assemble_system_prompt(parsed, cwd, &paths.agent_dir);
+    pi_cli::stages::mark("prompt_built");
     // F29/S4d：**在扩展宿主派发 `session_start` 之前**把 `ctx.getContextUsage()` 的初值填上
     // （ref `types.ts:294-300`、`footer.ts:111-113`：`contextWindow = usage?.contextWindow ??
     // model.contextWindow ?? 0`、`percent = usage?.percent ?? 0`）。否则扩展读到 undefined，
@@ -1516,6 +1523,7 @@ fn build_tui_agent_parts(
     } else {
         None
     };
+    pi_cli::stages::mark("session_found");
     let resumed_file = resumed_path
         .as_ref()
         .and_then(|path| pi_core::session_io::SessionFile::read(path).ok());
@@ -1526,6 +1534,7 @@ fn build_tui_agent_parts(
     // 历史既不在上下文里、也不该出现在屏幕上。
     // 旧实现直接用 `file.entries` 的全部 message：一个压缩过 23 次、95 MB 的会话要渲染
     // 56k 条、50 万行、写出 50 MB（真机实测首帧 47 秒；TS 同会话只 1.8 MB、3 秒）。
+    pi_cli::stages::mark("session_read");
     let initial_messages: Vec<pi_ai::message::Message> = resumed_file
         .as_ref()
         .map(pi_core::session_io::SessionFile::context_messages)

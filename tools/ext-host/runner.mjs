@@ -285,7 +285,18 @@ function contextForExtension() {
           throw new Error("pi-ext-host: ctx.ui.setFooter 只接受工厂函数或 undefined");
         }
         footerFactory = factory;
-        const component = factory({ requestRender() {} }, makeThemeStub(), footerDataStub());
+        let component;
+        try {
+          component = factory({ requestRender() {} }, makeThemeStub(), footerDataStub());
+        } catch (error) {
+          const logPath = process.env.PI_TOOL_ROW_LOG;
+          if (logPath) {
+            try {
+              fs.appendFileSync(logPath, `setFooter factory threw: ${error?.message ?? error}\n`);
+            } catch {}
+          }
+          throw error;
+        }
         // 宽度：ref 的页脚每帧用**终端宽度**渲染（`footer.ts` 的 `render(width)`）。
         // 此前这里不传宽度 ⇒ 扩展里的 `truncateToWidth(x, undefined)` 把 cwd 截成 `...`、
         // 模型名整段丢失（F36/H2 实测）。

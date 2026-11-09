@@ -63,6 +63,7 @@ enum Cmd {
         key: String,
         width: usize,
         digest: String,
+        timeout_ms: u64,
         reply: Sender<Result<Option<Vec<String>>, HostError>>,
     },
     /// 把**一批**工具行渲染委托给扩展的原型补丁（F48/X3 + F50/Z1）。
@@ -449,12 +450,14 @@ impl HostHandle {
         key: &str,
         width: usize,
         digest: &str,
+        timeout_ms: u64,
     ) -> Result<Option<Vec<String>>, HostError> {
         self.call(|reply| Cmd::RenderUi {
             kind: kind.to_string(),
             key: key.to_string(),
             width,
             digest: digest.to_string(),
+            timeout_ms,
             reply,
         })
     }
@@ -647,9 +650,16 @@ fn actor_main(
                 key,
                 width,
                 digest,
+                timeout_ms,
                 reply,
             } => {
-                let result = runtime.block_on(host.invoke_render_ui(&kind, &key, width, &digest));
+                let result = runtime.block_on(host.invoke_render_ui(
+                    &kind,
+                    &key,
+                    width,
+                    &digest,
+                    std::time::Duration::from_millis(timeout_ms),
+                ));
                 let _ = reply.send(result);
             }
             Cmd::RenderTool { rows, width, reply } => {
