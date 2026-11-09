@@ -3082,7 +3082,10 @@ fn render_all_cached_styled_inner(
                 // `summary` 为空（`read` 之外的无参数工具）时也要走 span 路径：
                 // 整行样式路径在"文本很短、需要补位空格"时会多吐一次复位
                 // （实测行尾出现 `\x1b\x1b[0m[0m`，污染画面），span 路径没有这个问题。
-                if summary.is_empty() {
+                // `Generic`（没有渲染器的工具）头部**只有名字**，不能套"名字 + 参数"
+                // 的 span 划分：那时 `name_end + 1 > text.len()`，span 区间非法，
+                // `write_spans` 会吐出坏字节（实测行尾 `\x1b\x1b[0m[0m` 污染画面）。
+                if summary.is_empty() || matches!(native, NativeTool::Generic) {
                     style_out.spans.tool_header.push((
                         lines.len() - 1,
                         vec![
