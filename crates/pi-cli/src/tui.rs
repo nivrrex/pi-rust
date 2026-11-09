@@ -403,6 +403,31 @@ fn transcript_from_messages(messages: &[pi_ai::message::Message]) -> Vec<pi_tui:
     out
 }
 
+/// 把结果载荷里的正文截到 8 KiB（F51/Z1）。
+///
+/// 只用于**摘要不依赖正文**的工具（见 `tool_row_request` 的注释）：折叠行要的
+/// `details.exitCode` / `details.diff` 都在 `details` 里，正文只是体积。
+fn truncate_result_payload(mut payload: serde_json::Value) -> serde_json::Value {
+    const LIMIT: usize = 8 * 1024;
+    if let Some(blocks) = payload
+        .get_mut("content")
+        .and_then(|value| value.as_array_mut())
+    {
+        for block in blocks.iter_mut() {
+            if let Some(text) = block.get("text").and_then(|value| value.as_str()) {
+                if text.len() > LIMIT {
+                    let mut cut = LIMIT;
+                    while cut > 0 && !text.is_char_boundary(cut) {
+                        cut -= 1;
+                    }
+                    block["text"] = serde_json::Value::String(text[..cut].to_string());
+                }
+            }
+        }
+    }
+    payload
+}
+
 /// 取该 assistant 消息的思考折叠标签（F51/Z1，按消息缓存一次）。
 fn thinking_label_of(assistant: &pi_ai::AssistantMessage) -> Option<String> {
     let content: Vec<serde_json::Value> = assistant
@@ -5365,13 +5390,26 @@ fn tool_row_request(state: &pi_tui::TuiState, index: usize) -> Option<ToolRowReq
             "args": args_json
                 .as_deref()
                 .and_then(|text| serde_json::from_str::<serde_json::Value>(text).ok()),
-            // F51/Z1 实测记录：把结果正文截到 8 KiB 可以让 463 行的批次在超时内回包
-            // （总写出 1.65 MB→1.16 MB、首帧后的差量更新 336 KB），但会让扩展的
-            // `formatToolOutcome` 对 >8 KiB 的结果算错行数 —— 因此**不采用**，
-            // 保持与 ref 相同的完整正文。瓶颈归因见 `notes/p9-f51/plan.md`。
+            // F51/Z1：**按工具决定是否截断**送扩展的结果正文。
+            //
+            // 起因：463 行原样序列化 + 跨进程传输要 20 秒以上（`ToolRowsRendered` 回不到
+            // 主循环 ⇒ 首帧只能画原生块）。但"一律截断"会让 `pi-ai-summary` 的
+            // `formatToolOutcome`（`format.ts:114-183`）算错：
+            // - `read` 按文本行数 → 错；`ls/grep/find` 用 `countOutputLines` → 错；
+            // - `bash` 用 `details.exitCode`、`edit` 用 `details.diff`、其余工具返回
+            //   `undefined` → **与文本无关**。
+            // 因此只对"摘要不依赖正文"的工具截断（真实会话里 bash 占 24158/25598 次，
+            // 正是体积来源）。
             "result": result_payload
                 .as_deref()
-                .and_then(|text| serde_json::from_str::<serde_json::Value>(text).ok()),
+                .and_then(|text| serde_json::from_str::<serde_json::Value>(text).ok())
+                .map(|payload| {
+                    if matches!(name.as_str(), "read" | "ls" | "grep" | "find") {
+                        payload
+                    } else {
+                        truncate_result_payload(payload)
+                    }
+                }),
             "isPartial": is_partial,
             "expanded": expanded,
             "startedAt": std::time::SystemTime::now()
