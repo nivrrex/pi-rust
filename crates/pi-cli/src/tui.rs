@@ -234,7 +234,12 @@ fn transcript_from_messages(messages: &[pi_ai::message::Message]) -> Vec<pi_tui:
                         pi_ai::types::Content::Text { text: chunk, .. } => text.push_str(chunk),
                         pi_ai::types::Content::Thinking { thinking, .. } => {
                             push_text(&mut text, &mut out_items);
-                            if thinking.is_empty() {
+                            // ref `assistant-message.ts:129-134`：思考块按 **trim 后是否为空** 过滤，
+                            // 一整段全是空白时该 run 直接跳过、**不渲染任何行**（`:135-137`
+                            // `if (thinkingBlocks.length === 0) continue;`）。
+                            // 此前只判 `is_empty()`，纯空白（`" "`）会渲染出一行标签 ——
+                            // 真机实测多出的 6 行 `Thinking...` 就是这类块。
+                            if thinking.trim().is_empty() {
                                 continue;
                             }
                             // F51/Z1：扩展若接管了思考折叠（ref 的
