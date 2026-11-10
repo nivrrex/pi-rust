@@ -1936,6 +1936,125 @@ pub fn wrap_markdown_line(line: &str, cols: usize) -> Vec<String> {
         .collect()
 }
 
+/// 按**可见宽度**折行，同时**保留 SGR 颜色**（扩展返回的行自带 `theme.fg(...)`）。
+///
+/// 为什么需要它：扩展的行来自 `Text` 组件（ref 里 `Text` 会 `wrapTextWithAnsi`），
+/// 所以超宽时 ref 是**折行**。此前我们对扩展行用 `clamp_to_width_ansi` **截断**
+/// ⇒ 真机 H：展开态 bash 头行超过 110 列时尾部 `(timeout 600s)` 直接消失。
+///
+/// 语义：
+/// - `ESC[...m` 这类 SGR 记 0 列，并且**跨行延续**（折行时先写复位、续行再重新写当前样式）；
+/// - 其它 ANSI（OSC/APC）按 0 列吞掉、不延续（与 `Text` 的处理一致：它们只影响终端元状态）；
+/// - 超宽按可见列硬折（与 `wrap_to_width` 的 CJK 单字 token 语义一致）；
+/// - 不去掉任何可见字符 ⇒ 内容保全（去 ANSI 后连接等于原文）。
+#[must_use]
+pub fn wrap_to_width_ansi(text: &str, width: usize) -> Vec<String> {
+    if width == 0 {
+        return vec![String::new()];
+    }
+    if display_width_ansi(text) <= width {
+        return vec![text.to_string()];
+    }
+    let mut lines: Vec<String> = Vec::new();
+    let mut current = String::new();
+    let mut current_width = 0usize;
+    // 当前生效的 SGR 序列（折行后重放到续行）。
+    let mut active_sgr = String::new();
+    let mut chars = text.chars().peekable();
+    while let Some(ch) = chars.next() {
+        if ch == '\x1b' {
+            let mut seq = String::from(ch);
+            match chars.peek() {
+                Some('[') => {
+                    seq.push(chars.next().unwrap_or('['));
+                    for next in chars.by_ref() {
+                        seq.push(next);
+                        if ('\x40'..='\x7e').contains(&next) {
+                            break;
+                        }
+                    }
+                    // SGR（`m` 结尾）参与延续；其它 CSI（光标等）丢弃。
+                    if seq.ends_with('m') {
+                        if seq == "\x1b[0m" || seq == "\x1b[m" {
+                            active_sgr.clear();
+                        } else {
+                            active_sgr.push_str(&seq);
+                        }
+                        current.push_str(&seq);
+                    }
+                    continue;
+                }
+                Some(']') | Some('_') => {
+                    seq.push(chars.next().unwrap_or(']'));
+                    for next in chars.by_ref() {
+                        seq.push(next);
+                        if next == '\x07' {
+                            break;
+                        }
+                    }
+                    continue;
+                }
+                _other => {
+                    current.push_str(&seq);
+                    continue;
+                }
+            }
+        }
+        let char_width = UnicodeWidthChar::width(ch).unwrap_or(0);
+        if current_width + char_width > width && current_width > 0 {
+            lines.push(format!("{current}\x1b[0m"));
+            current.clear();
+            current_width = 0;
+            current.push_str(&active_sgr);
+        }
+        current.push(ch);
+        current_width += char_width;
+    }
+    if !current.is_empty() || lines.is_empty() {
+        lines.push(current);
+    }
+    lines
+}
+
+/// 可见宽度（忽略 CSI/OSC/APC 等 ANSI 序列）。
+#[must_use]
+pub fn display_width_ansi(text: &str) -> usize {
+    UnicodeWidthStr::width(strip_ansi(text).as_str())
+}
+
+/// 去掉 ANSI 转义（CSI / OSC / APC）。
+#[must_use]
+pub fn strip_ansi(text: &str) -> String {
+    let mut out = String::new();
+    let mut chars = text.chars().peekable();
+    while let Some(ch) = chars.next() {
+        if ch != '\x1b' {
+            out.push(ch);
+            continue;
+        }
+        match chars.peek() {
+            Some('[') => {
+                chars.next();
+                for next in chars.by_ref() {
+                    if ('\x40'..='\x7e').contains(&next) {
+                        break;
+                    }
+                }
+            }
+            Some(']') | Some('_') => {
+                chars.next();
+                for next in chars.by_ref() {
+                    if next == '\x07' {
+                        break;
+                    }
+                }
+            }
+            _other => {}
+        }
+    }
+    out
+}
+
 pub fn wrap_to_width(text: &str, width: usize) -> Vec<String> {
     if width == 0 {
         return vec![String::new()];
@@ -2756,6 +2875,8 @@ fn render_all_cached_styled_inner(
             cache.entries.truncate(state.transcript.len());
         }
     }
+    // 上一条是不是助手正文（用于"连续助手消息只留 1 行空行"，见下面的 `follows_assistant`）。
+    let mut previous_item_was_assistant = false;
     for (item_index, item) in state.transcript.iter().enumerate() {
         let cache_key = match item {
             TranscriptItem::User(text) => format!("u\u{1}{text}"),
@@ -2874,13 +2995,28 @@ fn render_all_cached_styled_inner(
         // （见下面的 `content_start`），pop 之后行号错位会让状态行整行漏进缓存，
         // 表现为"第一帧有、第二帧消失"（实测过）。
         let status_row = matches!(item, TranscriptItem::Status(_));
-        if !collapsed_tool_row && !status_row {
+        // **连续两条助手消息**之间只留 1 行空行：ref 的助手正文 `Markdown` 用
+        // `paddingY = 0`（`assistant-message.ts:113-115`），两条相邻时只有后一条自己的
+        // `Spacer(1)`。本循环给每条目前面统一补一行，再叠上一条的尾随空行就变成 2 行
+        // （真实会话逐步对拍实测：TS 1 行、我们 2 行）。
+        let follows_assistant =
+            matches!(item, TranscriptItem::Assistant(_)) && previous_item_was_assistant;
+        if !collapsed_tool_row && !status_row && !follows_assistant {
             lines.push(String::new());
         }
         // 本条目**内容**的起始行。通常等于 `before + 1`（`before` 那行是段落空行），
         // 但 `Status`/折叠工具行不补段落空行 ⇒ 等于 `before`。缓存写回必须用它，
         // 否则首行会被漏掉（实测：状态行第一帧有、第二帧消失）。
         let content_start = lines.len();
+        previous_item_was_assistant = matches!(item, TranscriptItem::Assistant(_));
+        // 下一条是不是助手正文：工具块的**尾随空行**在那种情况下不该补 ——
+        // ref 里工具块与下一条之间的那一行来自助手组件自己的 `Spacer(1)`，
+        // 工具块本身没有底部空行（`tool-execution.ts:421-432` 的 `Text`）。
+        // 但工具块**后面还是工具块**时那行必须留（ref 的 `Spacer(1)` + `Box(1,1)` 顶 padding）。
+        let next_is_assistant = matches!(
+            state.transcript.get(item_index + 1),
+            Some(TranscriptItem::Assistant(_))
+        );
         match item {
             // `!` / `!!` 命令块（ref `components/bash-execution.ts:44-59`）：
             // 上边框 + ` $ <command>` + 输出/运行态 + 下边框。
@@ -3181,8 +3317,13 @@ fn render_all_cached_styled_inner(
                         ));
                     }
                     if let Some(extension_result) = result_render_lines {
+                        // ref 把扩展行放进 `Text` 组件 ⇒ 超宽**折行**，不是截断
+                        // （此前 `clamp_to_width_ansi` 会把尾部丢掉：真机 H 的
+                        // `(timeout 600s)` 消失就是这么来的）。
                         for line in extension_result {
-                            lines.push(clamp_to_width(&format!(" {line}"), cols));
+                            for wrapped in wrap_to_width_ansi(&format!(" {line}"), cols) {
+                                lines.push(wrapped);
+                            }
                         }
                     } else if let Some(body) = output {
                         for line in body.lines() {
@@ -3321,8 +3462,13 @@ fn render_all_cached_styled_inner(
                         .unwrap_or_default();
                     if !pretty.is_empty() && pretty != "{}" {
                         lines.push(String::new());
+                        // ref 走 `formatToolExecution` 的 `Text` 组件 ⇒ 超宽折行。
+                        // 截断会**丢内容**（真实会话里一个长 `summary` 被砍掉半行，
+                        // 与 TS 逐步对拍时表现为"少一行文本"）。
                         for line in pretty.lines() {
-                            lines.push(clamp_to_width(&format!(" {line}"), cols));
+                            for wrapped in wrap_to_width(line, cols.saturating_sub(1).max(1)) {
+                                lines.push(clamp_to_width(&format!(" {wrapped}"), cols));
+                            }
                         }
                     }
                 }
@@ -3418,7 +3564,11 @@ fn render_all_cached_styled_inner(
                     } else {
                         false
                     };
-                if !rendered_took {
+                // 没有渲染器的工具（`Generic`）走 `formatToolExecution`，整块是一个
+                // `Text`，**块内没有尾随空行**；与下一条助手正文之间的那一行来自助手组件
+                // 自己的 `Spacer(1)`。实测（真实会话逐步对拍）：Generic → 助手只有 1 行空行，
+                // 而带渲染器的工具块（`Box(1,1)` 有底部 padding）是 2 行。
+                if !rendered_took && !(matches!(native, NativeTool::Generic) && next_is_assistant) {
                     lines.push(String::new());
                 }
             }
@@ -7657,37 +7807,8 @@ mod w2_marker_line_tests {
         panic!("没有找到光标标记");
     }
 
-    fn strip_ansi(text: &str) -> String {
-        let mut out = String::new();
-        let mut chars = text.chars().peekable();
-        while let Some(ch) = chars.next() {
-            if ch == '\x1b' {
-                // 跳过 CSI / OSC
-                match chars.peek() {
-                    Some('[') => {
-                        chars.next();
-                        for next in chars.by_ref() {
-                            if ('\x40'..='\x7e').contains(&next) {
-                                break;
-                            }
-                        }
-                    }
-                    Some(']') => {
-                        chars.next();
-                        for next in chars.by_ref() {
-                            if next == '\x07' {
-                                break;
-                            }
-                        }
-                    }
-                    _ => {}
-                }
-                continue;
-            }
-            out.push(ch);
-        }
-        out
-    }
+    // 与 `crate::strip_ansi` 同一实现（去 CSI/OSC/APC），避免两份语义漂移。
+    use crate::strip_ansi;
 
     /// W2：粘贴 3 行后光标在最后一行；Up 一次后标记应**上移一行**（此前一直停在最后一行）。
     #[test]

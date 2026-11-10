@@ -230,6 +230,9 @@ fn main() -> ExitCode {
             // 此前一律用进程 cwd ⇒ 在别的目录里 `-c` 时页脚显示 `no-branch`（进程 cwd 不在仓库里），
             // 而 TS 显示会话自己的 `(recover)`。
             let cwd = resumed_session_cwd(&parsed, &paths, &cwd).unwrap_or(cwd);
+            // 扩展可见的 `ctx.cwd` 必须是**生效**的工作目录（恢复会话时是会话头里的 cwd），
+            // 否则扩展页脚的 `cwd (branch)` 用的是进程目录、分支名不出现（真机 G1）。
+            pi_cli::ext_tools::update_ctx_cwd(&cwd);
             // 启动屏的 `[Context]` 段：复用 P6-1 的发现规则，只显示路径。
             let discovered =
                 pi_core::project_context::load_project_context_files(&cwd, &paths.agent_dir);
@@ -1763,6 +1766,7 @@ fn build_tui_agent_parts(
                 .and_then(|map| map.get(&format!("{provider_name}/{model_id}")).cloned());
             per_model.or_else(|| settings.default_thinking_level.clone())
         });
+    let mut startup_warnings: Vec<String> = Vec::new();
     let available_models: Vec<pi_cli::tui::ModelChoice> = {
         let enabled: Vec<pi_cli::tui::ModelChoice> = settings
             .enabled_models
@@ -1783,9 +1787,29 @@ fn build_tui_agent_parts(
             // `openrouter/free` 而不在 models.json 里声明该 provider）。此前 `known` 只取
             // models.json，目录里的条目匹配不上就被当"无效项"丢掉 —— 真机上表现为
             // `Model scope:` 有 openrouter/free，但 `/model` 里一个 openrouter 模型都没有。
+            // "可用"的 provider：`models.json` 里给了 `apiKey`，或 `auth.json` 里有凭据。
+            // ref 的 scope 是拿"运行时 registry 的可用快照"去匹配的（`model-resolver.ts:282-382`），
+            // 没凭据的 provider 的模型不在快照里 ⇒ 匹配不上、丢弃并告警
+            // （真实配置实测：`command-code/*`、`opencode-go/*` 无凭据，TS 打两条
+            //  `No models match pattern`，我们却把它们塞进 `Model scope:`）。
+            let auth_text =
+                std::fs::read_to_string(paths.agent_dir.join("auth.json")).unwrap_or_default();
+            let credentialed: std::collections::BTreeSet<String> = models_config
+                .providers
+                .iter()
+                .filter(|(name, provider)| {
+                    provider
+                        .get("apiKey")
+                        .and_then(|value| value.as_str())
+                        .is_some_and(|key| !key.trim().is_empty())
+                        || pi_cli::runtime::auth_json_api_key(&auth_text, name).is_some()
+                })
+                .map(|(name, _)| name.clone())
+                .collect();
             let mut known: std::collections::BTreeSet<(String, String)> = models_config
                 .providers
                 .iter()
+                .filter(|(provider, _other)| credentialed.contains(*provider))
                 .flat_map(|(provider, value)| {
                     value
                         .get("models")
@@ -1802,13 +1826,14 @@ fn build_tui_agent_parts(
                 .collect();
             if let Some(catalog) = catalog.as_ref() {
                 for (provider, model) in catalog.entries() {
-                    known.insert((provider.to_string(), model.id.clone()));
+                    if credentialed.contains(provider) {
+                        known.insert((provider.to_string(), model.id.clone()));
+                    }
                 }
             }
             let (kept, warnings) = filter_available_models(&enabled, &known);
-            for warning in &warnings {
-                eprintln!("Warning: {warning}");
-            }
+            // TUI 里这些告警要显示在转录区（ref `showWarning`），不能只写 stderr。
+            startup_warnings.extend(warnings);
             kept
         } else {
             // ref 的 `/model` 列表来自运行时 registry：`models.json` 里配置的 provider +
@@ -1836,20 +1861,36 @@ fn build_tui_agent_parts(
             fallback
         }
     };
+    // `enabledModels` 是否配置（ref 的 `scopedModels.length > 0`）：页脚的 `(provider)` 前缀
+    // 与 `/model` 候选都按它切换口径，所以先算一次、两处共用。
+    let scoped_models_configured = settings
+        .enabled_models
+        .as_ref()
+        .is_some_and(|models| !models.is_empty());
+    let scoped_provider_names: Vec<String> = available_models
+        .iter()
+        .map(|choice| choice.provider.clone())
+        .collect();
     Ok(Some(std::sync::Arc::new(pi_cli::tui::AgentParts {
         skills: tui_skills.clone(),
         resumed_path,
         initial_messages,
+        startup_warnings,
         agent_dir: paths.agent_dir.clone(),
         cwd: cwd.to_string_lossy().to_string(),
         session_dir: paths.session_dir.clone(),
         available_models,
-        // 页脚 `(provider)` 前缀只数**有凭据**的 provider（ref `interactive-mode.ts:5091-5099`
-        // 取可用模型快照的 provider 去重数；没凭据的 provider 不进快照）。
+        // 页脚 `(provider)` 前缀的 provider 数，口径照 ref `interactive-mode.ts:5092-5099`：
+        // **有 `enabledModels` 范围时数该范围里的 provider**，否则数可用模型快照里的 provider。
+        //
+        // 此前一律数"有凭据的 provider"：真实配置里 `enabledModels` 只圈了 `ant-ling` 一个
+        // provider，TS 因此不加 `(provider)` 前缀，我们却因为 `mw-auto` 也有凭据而多加了
+        // `(ant-ling)`（真机 G1 对拍实测，两种页脚都受影响）。
         provider_names: {
             let auth_text =
                 std::fs::read_to_string(paths.agent_dir.join("auth.json")).unwrap_or_default();
-            let mut names: Vec<String> = models_config
+            // "可用"= provider 自身有 `apiKey`，或 `auth.json` 里有该 provider 的凭据。
+            let credentialed: std::collections::BTreeSet<String> = models_config
                 .providers
                 .iter()
                 .filter(|(name, provider)| {
@@ -1861,16 +1902,27 @@ fn build_tui_agent_parts(
                 })
                 .map(|(name, _)| name.clone())
                 .collect();
+            let mut names: Vec<String> = if scoped_models_configured {
+                // 范围里的 provider 再与"有凭据"求交：ref 的 scopedModels 来自模型运行时
+                // 的可用快照，没凭据的 provider 的模型根本进不了范围
+                // （本例 `enabledModels` 里 command-code/opencode-go 在真实配置下没有凭据，
+                // TS 因此只得 1 个 provider；我们若不过滤会多出 `(ant-ling)` 前缀）。
+                scoped_provider_names
+                    .iter()
+                    .filter(|name| credentialed.contains(*name))
+                    .cloned()
+                    .collect()
+            } else {
+                credentialed.iter().cloned().collect()
+            };
             names.sort();
+            names.dedup();
             names
         },
         // `/login` 列表 = `models.json` ∪ 内置目录（ref 遍历运行时 registry）；
         // 与启动时写进 `TuiState` 的那份必须同源，否则 `parts` 存在时会把它覆盖成"只有 models.json"。
         login_providers: pi_cli::runtime::login_provider_ids(&paths.agent_dir),
-        scoped_models_configured: settings
-            .enabled_models
-            .as_ref()
-            .is_some_and(|models| !models.is_empty()),
+        scoped_models_configured,
         initial_thinking_level,
         supports_thinking: resolved.reasoning,
         model_state: std::sync::Arc::new(std::sync::Mutex::new(pi_cli::tui::CurrentModelState {

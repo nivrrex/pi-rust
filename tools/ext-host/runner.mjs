@@ -173,15 +173,17 @@ function handleFrame(frame) {
 }
 
 // 扩展可见的 ctx（只读子集 + ui.* 单向帧）。
+//
+// **可变字段必须是 getter**：ref 里 `ctx.model` / `ctx.thinkingLevel` 是**活的**
+// （`types.ts:325-334`：每次都读会话当前值），扩展常在闭包里长期持有 `ctx`
+// （例如 `setFooter((tui, theme) => ({ render() { … ctx.thinkingLevel … } }))`）。
+// 此前这里返回的是一个**快照对象** ⇒ `session_start` 之后宿主再更新模型/档位
+// 都传不进那个闭包，页脚永远显示 `thinking off`（真机 G2，实测）。
+// 一个对象一次性给全，属性用 getter 保持实时。
 function contextForExtension() {
-  return {
-    cwd: hostCtx.cwd,
+  const ctx = {
     mode: hostCtx.mode,
     hasUI: hostCtx.hasUI,
-    model: hostCtx.model,
-    thinkingLevel: hostCtx.thinkingLevel,
-    // 终端宽度：扩展的页脚/组件按 `render(width)` 排版（ref `footer.ts` 传的是当前列数）。
-    width: typeof hostCtx.width === "number" ? hostCtx.width : 80,
     // ref `types.ts:1854` 的 `ctx.sessionManager`（只读子集）：宿主只给会话文件路径，
     // 条目由这里按需读文件解析（文件即事实来源，不做缓存）。
     sessionManager: {
@@ -424,6 +426,18 @@ function contextForExtension() {
       },
     },
   };
+  // **实时字段**（见函数头注释）：模型 / 思考档位 / 宽度 / cwd 必须每次读取时取当前值，
+  // 否则长期持有 `ctx` 的扩展（页脚工厂、闭包里的 handler）会永远看到注册那一刻的快照。
+  Object.defineProperties(ctx, {
+    cwd: { enumerable: true, get: () => hostCtx.cwd },
+    model: { enumerable: true, get: () => hostCtx.model },
+    thinkingLevel: { enumerable: true, get: () => hostCtx.thinkingLevel },
+    width: {
+      enumerable: true,
+      get: () => (typeof hostCtx.width === "number" ? hostCtx.width : 80),
+    },
+  });
+  return ctx;
 }
 
 async function dispatch(frame) {
@@ -1079,7 +1093,12 @@ function footerDataStub() {
     // ref `footer.ts` 的 `footerData.getAvailableProviderCount()`：>1 时右侧加 `(provider)` 前缀。
     getAvailableProviderCount: () =>
       typeof hostCtx.availableProviderCount === "number" ? hostCtx.availableProviderCount : 1,
-    getGitBranch: () => undefined,
+    // ref `core/footer-data-provider.ts:239-248`：宿主提供当前 git 分支（无仓库 ⇒ undefined）。
+    // 此前恒为 `undefined` ⇒ 扩展页脚（pi-ai-summary）**永远丢分支名**（真机 G1，实测）。
+    getGitBranch: () =>
+      typeof hostCtx.gitBranch === "string" && hostCtx.gitBranch.length > 0
+        ? hostCtx.gitBranch
+        : undefined,
     getCwd: () => hostCtx.cwd,
     onBranchChange: () => () => {},
   };

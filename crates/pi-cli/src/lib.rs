@@ -17,5 +17,6 @@ pub mod session_writer;
 pub mod settings;
 pub mod settings_selector;
 pub mod stages;
+pub mod testhook;
 pub mod thinking_selector;
 pub mod tui;

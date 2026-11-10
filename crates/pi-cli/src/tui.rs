@@ -1087,6 +1087,10 @@ pub struct AgentParts {
     pub resumed_path: Option<std::path::PathBuf>,
     /// `--continue` 时从会话里读出的历史消息（按顺序进 `history` 与 transcript）。
     pub initial_messages: Vec<pi_ai::message::Message>,
+    /// 启动期告警（ref `showWarning`：`Spacer(1)` + `Text("Warning: …")` 进转录区）。
+    /// 此前只 `eprintln!` 到 stderr ⇒ TUI 里完全看不见（真实配置实测：`enabledModels`
+    /// 里匹配不到的 pattern，TS 打两条 `Warning: No models match pattern …`、我们的屏幕上一片空白）。
+    pub startup_warnings: Vec<String>,
     /// 该 provider 下可切换的模型 id 列表（`models.json` 顺序；Ctrl+P 循环用）。
     pub available_models: Vec<ModelChoice>,
     /// `settings.enabledModels` **是否显式配置**（ref 的 `scopedModels` 非空才是）。
@@ -1461,6 +1465,20 @@ pub fn run(
             crate::ext_tools::update_ctx_model(None, Some(state.thinking_level.as_str()));
         }
     }
+    let startup_warnings = parts
+        .as_ref()
+        .map(|parts| parts.startup_warnings.clone())
+        .unwrap_or_default();
+    // 已知差异（F53 未解决）：ref 把启动告警排在**内置头部之前**（`showWarning` 先于头部
+    // 进容器），我们的告警落在头部之后。要修需要在 pi-tui 里让 `startup_warnings` 参与
+    // 头部渲染，属渲染结构改动，本批未做（见 notes/p9-f53/plan.md 的遗留项）。
+    for warning in &startup_warnings {
+        state
+            .transcript
+            .push(pi_tui::TranscriptItem::Notice(format!(
+                "Warning: {warning}"
+            )));
+    }
     let initial = parts
         .as_ref()
         .map(|parts| parts.initial_messages.clone())
@@ -1665,11 +1683,41 @@ pub fn run(
     // 未设置时**零开销**（不建文件、不格式化）。
     let mut cursor_dump = cursor_dump_file();
     let mut frame_index: u64 = 0;
+    // 真正画出的帧数（与 `frame_index` 不同：后者只在开了光标转储时才自增）。
+    // 测试钩子用它判断"首帧已稳定"并写进 `step-N.json`。
+    let mut draw_count: u64 = 0;
     let frame_started = std::time::Instant::now();
+    // F53/T2：测试钩子（`PI_TEST_KEYS`/`PI_TEST_DUMP`/`PI_TEST_TAIL`）。
+    // 全部未设置时是 `None` ⇒ 下面每一处 `if let Some(hook)` 都不进入，
+    // 行为与没有钩子逐字节相同（`crates/pi-cli/src/testhook.rs` 的 `hook_does_not_change_rendering`）。
+    let mut test_hook = crate::testhook::TestHook::from_env();
+    // 上一轮循环是否是"空闲轮询"（没有事件、没有待渲染）。钩子的静止判定用它。
+    let mut test_previous_idle = false;
     'main: loop {
         if sig_flag.load(Ordering::SeqCst) {
             break;
         }
+        // 连续空闲轮询达到阈值 ⇒ 认为画面静止：写本步快照，再注入下一个按键。
+        // 判定依据是**重绘计数不再增长**（`note_idle` 只在空闲轮询里推进，
+        // 有帧/有事件就清零），不是固定延迟。
+        // 首帧之前不产生快照：`PI_TEST_KEYS` 的语义是"首帧稳定后"才开始注入，
+        // 否则初始态快照会落在空白屏上（`draw_count == 0`，实测）。
+        if let Some(hook) = test_hook.as_mut() {
+            if test_previous_idle && draw_count > 0 && hook.note_idle() {
+                let screen = crate::testhook::visible_screen(&state, cols, rows);
+                hook.write_step(&screen, &state, draw_count, cols, rows);
+                if let Some(name) = hook.next_key() {
+                    // 键名先翻成字节，再走与真实按键相同的 `bytes → TuiEvent` 路径
+                    // （直接喂键名会命中 `parse_key` 的首字符分支：实测 `ctrl+o` → `Char('c')`）。
+                    let bytes = crate::testhook::key_bytes_for_name(&name).unwrap_or(name.as_str());
+                    if let Some(event) = map_key_sequence(bytes) {
+                        let _ = tx.send(event);
+                    }
+                    hook.advance();
+                }
+            }
+        }
+        test_previous_idle = false;
         // 合并重绘：距上一帧不足 `min_render_interval` 时**不画、也不睡眠**——
         // 直接让下面的 `recv_timeout` 等剩余时间，到点后由本循环再画一帧。
         // （真机反馈"快速输入会卡"的成因之一就是这里原来用 `sleep` 补齐间隔：
@@ -1854,6 +1902,10 @@ pub fn run(
             if frame_index == 0 {
                 crate::stages::mark("first_frame_written");
             }
+            draw_count += 1;
+            if let Some(hook) = test_hook.as_mut() {
+                hook.note_frame();
+            }
             dirty = false;
         }
         // P7-6ao/E：**合并同一批已排队的事件**（流式增量常一次到几十上百个）。
@@ -1881,6 +1933,16 @@ pub fn run(
                 if state.working && ext_ask.is_none() {
                     state.tick_spinner();
                     dirty = true;
+                }
+                // 空闲轮询：没有事件、没有脏帧、没有等待中的扩展渲染 ⇒ 记一次空闲。
+                if test_hook.is_some()
+                    && !dirty
+                    && tool_row_pending.is_empty()
+                    && !ui_render_pending
+                    && ext_ask.is_none()
+                    && !state.working
+                {
+                    test_previous_idle = true;
                 }
                 None
             }
@@ -4881,6 +4943,12 @@ pub fn run(
     // → 恢复终端 → 打印 resume 行。新增的等待在无扩展/扩展干净时是毫秒级。
     crate::ext_tools::emit_session_shutdown_sync("quit", None, std::time::Duration::from_secs(1));
     crate::ext_tools::shutdown_host(std::time::Duration::from_secs(1));
+    // F53/T2：`PI_TEST_TAIL=N` —— 退出前把最终屏幕最后 N 行落盘（只在钩子启用时）。
+    if let Some(hook) = test_hook.as_ref() {
+        let screen = crate::testhook::visible_screen(&state, cols, rows);
+        hook.write_step(&screen, &state, draw_count, cols, rows);
+        hook.write_tail(&screen);
+    }
     guard.restore();
     // F42/Q2：TUI 模式下扩展日志写的是文件（避免穿插进画面），退出时**一次性**输出到 stderr。
     // 必须在 `guard.restore()` 之后：否则日志会被刚才那一帧的 diff 重绘覆盖掉。

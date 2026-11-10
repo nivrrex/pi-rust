@@ -86,6 +86,9 @@ pub fn configure_ctx(cwd: &std::path::Path, mode: &str, has_ui: bool) {
             "themeName": "dark",
             "model": serde_json::Value::Null,
             "thinkingLevel": serde_json::Value::Null,
+            // ref `core/footer-data-provider.ts:239-248` 的 git 分支：扩展页脚用它拼
+            // `cwd (branch)`。启动时算一次，`update_ctx_cwd` 在恢复会话后按会话 cwd 重算。
+            "gitBranch": git_branch_for(cwd),
         }))
     });
     // 二次调用（测试/多入口）只更新可变字段，不覆盖 model/thinkingLevel。
@@ -94,6 +97,31 @@ pub fn configure_ctx(cwd: &std::path::Path, mode: &str, has_ui: bool) {
         guard["mode"] = serde_json::Value::String(mode.to_string());
         guard["hasUI"] = serde_json::Value::Bool(has_ui);
         guard["trueColor"] = serde_json::Value::Bool(pi_tui::style::truecolor_supported());
+    }
+    push_ctx();
+}
+
+/// 当前 cwd 的 git 分支（无仓库 ⇒ `Null`）。
+fn git_branch_for(cwd: &std::path::Path) -> serde_json::Value {
+    match pi_tui::gitinfo::git_branch(cwd) {
+        Some(branch) => serde_json::Value::String(branch),
+        None => serde_json::Value::Null,
+    }
+}
+
+/// 更新 ctx 里的工作目录与 git 分支。
+///
+/// ref 里 `ctx.sessionManager.getCwd()` 是**会话**的工作目录（`--session`/`-c` 恢复时取
+/// 会话头里的 `cwd`，见 `core/session-manager.ts:1779`），扩展页脚用它拼 `cwd (branch)`。
+/// 此前 ctx.cwd 只在进程启动时写一次 ⇒ 在别处恢复会话时扩展页脚显示的是**进程** cwd、
+/// 分支名因而不出现（真机 G1）。
+pub fn update_ctx_cwd(cwd: &std::path::Path) {
+    let Some(slot) = CTX.get() else {
+        return;
+    };
+    if let Ok(mut guard) = slot.lock() {
+        guard["cwd"] = serde_json::Value::String(cwd.display().to_string());
+        guard["gitBranch"] = git_branch_for(cwd);
     }
     push_ctx();
 }
@@ -1314,15 +1342,56 @@ pub type ToolRowBatch = (Vec<(String, Option<Vec<String>>)>, bool);
 ///
 /// 失败时调用方必须把该批的 id 从去重表里**移除**，否则这批行会永久停在原生块上
 /// （F51 实测：大会话里 463 行只折叠了 2 行，其余批次的 key 留在表里、再也不会重试）。
+///
+/// F53/T2：测试钩子读取的**扩展渲染计数**（`PI_TEST_DUMP` 的 `ext` 段）。
+///
+/// 只是三个 `AtomicU64` 的自增：写入点在渲染请求处，读点在 dump 时。
+/// 与是否启用钩子无关、不改变任何输出（未启用时没人读）。
+static TEST_RENDER_TOOL_REQUESTS: std::sync::atomic::AtomicU64 =
+    std::sync::atomic::AtomicU64::new(0);
+static TEST_RENDER_TOOL_ROWS: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+static TEST_THINKING_REQUESTS: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+static TEST_THINKING_LABELS: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+
+/// 扩展工具行渲染请求数。
+pub fn test_render_tool_requests() -> u64 {
+    TEST_RENDER_TOOL_REQUESTS.load(std::sync::atomic::Ordering::Relaxed)
+}
+
+/// 扩展工具行渲染**实际返回行数**的累计（用于区分"接管了但返回 0 行"）。
 #[must_use]
+pub fn test_render_tool_rows() -> u64 {
+    TEST_RENDER_TOOL_ROWS.load(std::sync::atomic::Ordering::Relaxed)
+}
+
+/// 思考标签请求数。
+#[must_use]
+pub fn test_thinking_requests() -> u64 {
+    TEST_THINKING_REQUESTS.load(std::sync::atomic::Ordering::Relaxed)
+}
+
+/// 思考标签**拿到非空标签**的次数。
+#[must_use]
+pub fn test_thinking_labels() -> u64 {
+    TEST_THINKING_LABELS.load(std::sync::atomic::Ordering::Relaxed)
+}
+
 pub fn render_tool_rows(rows: Vec<(String, serde_json::Value)>, width: usize) -> ToolRowBatch {
     let ids: Vec<String> = rows.iter().map(|(id, _)| id.clone()).collect();
     let Some(host) = HOST.get().and_then(|slot| slot.as_ref()).cloned() else {
         return (rows.into_iter().map(|(id, _)| (id, None)).collect(), false);
     };
     let payloads: Vec<serde_json::Value> = rows.into_iter().map(|(_, payload)| payload).collect();
+    TEST_RENDER_TOOL_REQUESTS.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
     match host.render_tool_rows(payloads, width) {
-        Ok(out) => (out, false),
+        Ok(out) => {
+            let produced: usize = out
+                .iter()
+                .filter_map(|(_, lines)| lines.as_ref().map(Vec::len))
+                .sum();
+            TEST_RENDER_TOOL_ROWS.fetch_add(produced as u64, std::sync::atomic::Ordering::Relaxed);
+            (out, false)
+        }
         Err(error) => {
             note_render_failure("tool", &error.to_string());
             (ids.into_iter().map(|id| (id, None)).collect(), true)
@@ -1334,9 +1403,15 @@ pub fn render_tool_rows(rows: Vec<(String, serde_json::Value)>, width: usize) ->
 #[must_use]
 pub fn thinking_label(content: &[serde_json::Value]) -> Option<String> {
     let host = HOST.get().and_then(|slot| slot.as_ref()).cloned()?;
-    host.thinking_label(serde_json::Value::Array(content.to_vec()))
+    TEST_THINKING_REQUESTS.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    let label = host
+        .thinking_label(serde_json::Value::Array(content.to_vec()))
         .ok()
-        .flatten()
+        .flatten();
+    if label.is_some() {
+        TEST_THINKING_LABELS.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    }
+    label
 }
 
 /// 该工具在宿主侧**是否有定义**（F51/Z0）。

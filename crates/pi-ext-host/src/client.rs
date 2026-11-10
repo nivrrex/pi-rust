@@ -969,6 +969,20 @@ impl ExtHost {
         params: Value,
         timeout: Duration,
     ) -> Result<Value, HostError> {
+        // 每个请求都带上当前 ctx 快照（`types.ts:313-353`）：扩展侧的 `ctx` 是**活的**
+        // 只读对象，`ext.render.footer` / `ext.render` / `ext.render.tool` 这类"只读渲染"
+        // 请求也必须看到最新的 `cwd` / `thinkingLevel` / `availableProviderCount`。
+        // 此前只有工具调用与事件带 ctx ⇒ 页脚工厂闭包里永远是启动那一刻的快照
+        // （真机 G2：恢复会话后页脚恒为 `thinking off`）。
+        let params = match params {
+            Value::Object(mut map) => {
+                if !map.contains_key("ctx") {
+                    map.insert("ctx".to_string(), self.ctx_clone());
+                }
+                Value::Object(map)
+            }
+            other => other,
+        };
         self.wire
             .in_flight
             .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
