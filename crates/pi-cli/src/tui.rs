@@ -5590,9 +5590,17 @@ fn tool_summary_for(name: &str, args: &serde_json::Value) -> String {
         // `read.ts:35`、`edit.ts:84`）。此前只认 `path`/`filePath`，真实会话里的
         // `file_path` 落到下面的"取第一个字符串参数"⇒ 头部变成内容首行
         // （`write # OA 邮件工作区总览…`），且块正文因此走了结果路径、整篇内容都印了出来。
-        "read" | "edit" | "write" | "ls" | "todo" => field("file_path")
-            .or_else(|| field("path"))
-            .or_else(|| field("filePath")),
+        // 路径类工具没有路径参数时，ref 的 `renderToolPath(null)` 给的是 `...`
+        // （`render-utils.ts:81-84`：`rawPath === null` → `invalidArgText`；空串 → `...`）。
+        // 不能落到"取第一个字符串参数"，否则头部会变成**内容首行**
+        // （真实会话里两个只有 `content` 的 write 调用就是这样）。
+        "read" | "edit" | "write" | "ls" => {
+            let path = field("file_path")
+                .or_else(|| field("path"))
+                .or_else(|| field("filePath"));
+            return path.unwrap_or_else(|| "...".to_string());
+        }
+        "todo" => field("path").or_else(|| field("filePath")),
         "bash" | "powershell" => field("command"),
         "grep" => field("pattern"),
         "find" | "fffind" => field("pattern").or_else(|| field("glob")),
@@ -8565,5 +8573,41 @@ mod z1_probe {
             payload.get("result").is_some_and(|v| !v.is_null()),
             "请求必须带 result，否则扩展的 buildCollapsedToolLines 直接放弃"
         );
+    }
+}
+
+#[cfg(test)]
+mod summary_tests {
+    use super::tool_summary_for;
+
+    /// ref `renderers/write.ts:103` / `read.ts:35` / `edit.ts:84`：路径键序
+    /// `file_path ?? path`；没有路径时 `renderToolPath(null)` 给 `...`
+    /// （`render-utils.ts:81-84`），不能回落到"第一个字符串参数"。
+    #[test]
+    fn path_tools_take_file_path_then_path() {
+        let args = serde_json::json!({"file_path": "/a.txt", "path": "/b.txt", "content": "x"});
+        assert_eq!(tool_summary_for("write", &args), "/a.txt");
+        let args = serde_json::json!({"path": "/b.txt", "content": "x"});
+        assert_eq!(tool_summary_for("write", &args), "/b.txt");
+        let args = serde_json::json!({"filePath": "/c.txt"});
+        assert_eq!(tool_summary_for("read", &args), "/c.txt");
+    }
+
+    /// 真实会话里有两个只有 `content` 的 `write` 调用：头部此前会变成**内容首行**
+    /// （`write # OA 邮件工作区总览…`），TS 侧是 `write ...`。
+    #[test]
+    fn path_tool_without_path_shows_ellipsis() {
+        let args = serde_json::json!({"content": "# OA 邮件工作区总览\n第二行"});
+        assert_eq!(tool_summary_for("write", &args), "...");
+        assert_eq!(tool_summary_for("ls", &serde_json::json!({})), "...");
+    }
+
+    /// 非路径工具不受影响：`bash` 仍取 `command`，未知工具仍回落到首个字符串参数。
+    #[test]
+    fn non_path_tools_keep_their_summary() {
+        let args = serde_json::json!({"command": "echo hi"});
+        assert_eq!(tool_summary_for("bash", &args), "echo hi");
+        let args = serde_json::json!({"query": "hello"});
+        assert_eq!(tool_summary_for("web_search", &args), "hello");
     }
 }
