@@ -12,6 +12,10 @@
 # 不带参数时跑**验收矩阵**：宽度 110/80 × 配置 ext/ne × 按键序列 6 种 × 会话 nothk。
 set -eu
 
+# TS 侧入口必须由调用方给出（脚本不写死任何本机路径；缺了就是"假回退"）。
+: "${TS_PI_ENTRY:?需要 TS_PI_ENTRY=<pi-ts>/dist/bundle/cli.js}"
+export TS_PI_ENTRY
+
 REPO=$(cd "$(dirname "$0")/../.." && pwd)
 OUT_ROOT="$REPO/tmp/real-parity"
 SESSION_KIND=nothk

@@ -33,7 +33,8 @@ REPO=$(cd "$(dirname "$0")/../.." && pwd)
 OUT="$REPO/tmp/realcfg"
 MOCK_PORT=18080
 AGENT_SRC="${HOME}/.pi/agent"
-WIN_REAL="/root/Desktop/tty/win-real"
+# 真实语料目录（只读）：默认取仓库同级的 `tty/win-real`，可用 `--win-real` 覆盖。
+WIN_REAL="${REALCFG_WIN_REAL:-$(cd "$REPO/.." && pwd)/tty/win-real}"
 SETTINGS_SRC="$AGENT_SRC/settings.json"
 MODELS_SRC="$WIN_REAL/models.json"
 SESSION_SRC="$WIN_REAL/2026-11-06T00-43-43-067Z_01a1ae4f-ba5b-72a9-9b2a-d6d9ad30b65e.jsonl"

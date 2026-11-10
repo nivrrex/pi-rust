@@ -11,6 +11,9 @@ set -eu
 REPO=$(cd "$(dirname "$0")/.." && pwd)
 cd "$REPO"
 
+# TS 侧入口由调用方给出（`TS_PI_ENTRY`），本脚本不写死本机路径。
+: "${TS_PI_ENTRY:?需要 TS_PI_ENTRY=<pi-ts>/dist/bundle/cli.js}"
+
 "$REPO/tools/difftest/mk-realcfg.sh" >/dev/null
 status=0
 "$REPO/tools/difftest/real-parity.sh" "$@" || status=$?

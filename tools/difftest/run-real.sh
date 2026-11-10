@@ -45,7 +45,8 @@ REALCFG=${REALCFG:-$REPO/tmp/realcfg}
 # shellcheck disable=SC1091
 . "$REALCFG/env.sh"
 
-TS_ENTRY=${TS_PI_ENTRY:-/root/Desktop/pi-ts-0.87.1/dist/bundle/cli.js}
+# TS 入口必须由调用方给出（脚本里不写死任何本机路径）。
+TS_ENTRY=${TS_PI_ENTRY:?需要 TS_PI_ENTRY=<pi-ts>/dist/bundle/cli.js}
 # node 目录：真实扩展是 `.ts`，宿主用 jiti 编译（缺 PI_JITI 时扩展加载会卡住/失败）。
 NODE_BIN=$(dirname "$(command -v node)")
 JITI_DIR=${PI_JITI:-/root/node_modules/.pnpm/jiti@2.7.0/node_modules/jiti}
