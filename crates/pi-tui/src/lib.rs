@@ -2594,6 +2594,26 @@ fn item_style(
     }
 }
 
+/// `read` 的紧凑头部分类（ref `renderers/read.ts:27,66-84`）。
+///
+/// 只有折叠态、且被读文件是 `AGENTS.md`/`AGENTS.override.md`/`CLAUDE.md` 这类
+/// "资源文件"时才走紧凑头部；`SKILL.md` 与 pi 自身 docs 的分类本实现暂不覆盖
+/// （真实会话里没有出现，出现时按同一入口补）。返回 `(kind, 显示路径)`。
+fn resource_read_label(path: &str) -> Option<(&'static str, String)> {
+    const RESOURCE_NAMES: [&str; 5] = [
+        "AGENTS.override.md",
+        "AGENTS.md",
+        "AGENTS.MD",
+        "CLAUDE.md",
+        "CLAUDE.MD",
+    ];
+    let name = path.rsplit(['/', '\\']).next().unwrap_or(path);
+    if !RESOURCE_NAMES.contains(&name) {
+        return None;
+    }
+    Some(("resource", path.to_string()))
+}
+
 /// 从 `write` 的调用参数里取待写入内容（ref `renderers/write.ts:113-116` 的 `args.content`）。
 fn write_args_content(args_json: Option<&str>) -> Option<String> {
     let value: serde_json::Value = serde_json::from_str(args_json?).ok()?;
@@ -3240,11 +3260,13 @@ fn render_all_cached_styled_inner(
                     continue;
                 }
                 // ref 思考块用 `Markdown(thinkingBlocks, outputPad, 0, …)`
-                // （`assistant-message.ts:150-160`）⇒ 与助手正文同宽：`cols - 2`。
-                // 此前按 `cols` 折行，比 TS 宽 1 列（真实会话实测：TS 断在
-                // `…对应文档了解`，我们断在 `…了解具`）。
+                // （`assistant-message.ts:150-160`）⇒ 与助手正文**同一套排版**：
+                // `paddingX = 1`（每行含续行都带 1 列前导空格）、宽 `cols - 2`、
+                // 列表项按 `markdown.ts:774-776` 收窄。
+                // 此前按 `cols` 折行且续行不带 padding（真实会话实测：TS 断在
+                // ` 具体情况。`，我们断在 `具体情况。`）。
                 for line in render_markdown(text) {
-                    for wrapped in wrap_to_width(&line, cols.saturating_sub(2).max(1)) {
+                    for wrapped in wrap_markdown_line(&line, cols) {
                         lines.push(wrapped);
                     }
                 }
@@ -3450,6 +3472,18 @@ fn render_all_cached_styled_inner(
                     } else {
                         format!("{prompt} {summary}{suffix}")
                     }
+                } else if matches!(native, NativeTool::Read) && !state.tools_expanded {
+                    // ref `renderers/read.ts:88-110` 的 `formatCompactReadCall`：
+                    // 折叠态下 `AGENTS.md`/`CLAUDE.md` 这类"资源文件"用**紧凑头部**
+                    // `read <kind> <相对路径> (ctrl+o to expand)`（`:74-84` 分类，
+                    // 文件名白名单见 `:27`；`ctrl+o` 文案来自 `keyText("app.tools.expand")`）。
+                    // 此前一律渲染 `read <路径>`，真实会话里 5 处资源读取都不对。
+                    match resource_read_label(summary) {
+                        Some((kind, label)) => {
+                            format!("read {kind} {label} (ctrl+o to expand)")
+                        }
+                        None => format!("{name} {summary}"),
+                    }
                 } else if summary.is_empty() || matches!(native, NativeTool::Generic) {
                     // 没有渲染器的工具（`Generic`）头部**只有名字**
                     // （ref `tool-execution.ts:422`：`theme.fg("toolTitle", bold(toolName))`），
@@ -3469,6 +3503,10 @@ fn render_all_cached_styled_inner(
                 // 的字符串挂进 `tool-execution.ts:108` 的 `Box(1,1)`）；`Text` 的 paddingX 对
                 // **每一行**都生效，所以多行命令的续行同样带 1 列前导空格。
                 // 此前只给首行加了空格，续行顶格（golden 逐行量宽可辨）。
+                // `text` 不含 SGR（头部由 `item_style` 统一上色），但 `summary` 可能带
+                // 扩展/会话里残留的转义（真实会话实测：`read … .md[0m[0m`）。
+                // 头部逐行输出前清掉它们，避免可见的 `[0m` 残留。
+                let text = text.replace("\u{1b}[0m", "");
                 for logical in text.split('\n') {
                     let normalized = logical.replace('\t', "   ");
                     for wrapped in wrap_to_width(&normalized, cols.saturating_sub(2).max(1)) {
