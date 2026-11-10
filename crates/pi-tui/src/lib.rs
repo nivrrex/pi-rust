@@ -2852,7 +2852,6 @@ fn render_all_cached_styled_inner(
                 }
             }
         }
-        let before = lines.len();
         let spans_mark = (
             style_out.spans.tool_header.len(),
             style_out.spans.markdown.len(),
@@ -2868,9 +2867,20 @@ fn render_all_cached_styled_inner(
                 ..
             }
         );
-        if !collapsed_tool_row {
+        // `Status` 的段落空行由它自己补（ref `showStatus` = `Spacer(1)` + `Text`），
+        // 这里不能再补一行，否则状态行前会比 TS 多一行空行（T75 实测）。
+        //
+        // 注意**不能**改成"先补段落空行再 pop"：缓存写回以内容起点为基准
+        // （见下面的 `content_start`），pop 之后行号错位会让状态行整行漏进缓存，
+        // 表现为"第一帧有、第二帧消失"（实测过）。
+        let status_row = matches!(item, TranscriptItem::Status(_));
+        if !collapsed_tool_row && !status_row {
             lines.push(String::new());
         }
+        // 本条目**内容**的起始行。通常等于 `before + 1`（`before` 那行是段落空行），
+        // 但 `Status`/折叠工具行不补段落空行 ⇒ 等于 `before`。缓存写回必须用它，
+        // 否则首行会被漏掉（实测：状态行第一帧有、第二帧消失）。
+        let content_start = lines.len();
         match item {
             // `!` / `!!` 命令块（ref `components/bash-execution.ts:44-59`）：
             // 上边框 + ` $ <command>` + 输出/运行态 + 下边框。
@@ -2997,8 +3007,10 @@ fn render_all_cached_styled_inner(
                 lines.push(String::new());
             }
             TranscriptItem::Status(text) => {
-                // ref `showStatus`（`interactive-mode.ts:3709-3712`）加的是 `Spacer(1)` + `Text(msg,1,0)`：
-                // 会话区里表现为"状态行 + 一个空行"（T32 golden 实测），因此这里输出两行。
+                // ref `showStatus`（`interactive-mode.ts:3709-3712`）= `Spacer(1)` + `Text(msg,1,0)`：
+                // **前 1 行空行、后不空**。前导空行由**上一条目**的尾随空行提供，
+                // 所以条目循环对 Status 跳过自己的段落空行（见 `status_row`），
+                // 这里也只输出状态行 + 尾随空行（与其它条目一致）。
                 lines.push(clamp_to_width(&format!(" {text}"), cols));
                 lines.push(String::new());
             }
@@ -3407,27 +3419,27 @@ fn render_all_cached_styled_inner(
                 }
             }
         }
-        // 该条目产出的行：`before` 之前是段落空行，`before + 1..` 是内容。
+        // 该条目产出的行：`before..content_start` 是段落空行，`content_start..` 是内容。
         styles.resize(lines.len(), None);
-        for offset in before + 1..lines.len() {
+        for offset in content_start..lines.len() {
             let style = item_style(
                 item,
                 &lines[offset],
-                offset == before + 1,
+                offset == content_start,
                 style_out.palette,
             );
             styles[offset] = style;
         }
         if let Some(cache) = cache.as_deref_mut() {
-            let rendered: Vec<String> = lines[before + 1..].to_vec();
+            let rendered: Vec<String> = lines[content_start..].to_vec();
             let mut cached_md_styles: Vec<Option<style::LineStyle>> = vec![None; rendered.len()];
             for (index, md_style) in style_out.markdown_styles.iter() {
                 // `markdown_styles` 的键是**本条目 lines 内的偏移**；条目没有内容段时
-                // （`before + 1 == lines.len()`）或上限前的条目遗留了更小的键，减法会下溢：
+                // （`content_start == lines.len()`）或上限前的条目遗留了更小的键，减法会下溢：
                 // debug 直接 panic（真机：`-c` 续写 69 MB 会话首帧就崩，屏幕上只剩崩溃报告），
                 // release 则绕回一个大数、`get_mut` 取不到而已。用 `checked_sub` 两者都安全。
                 let Some(slot) = index
-                    .checked_sub(before + 1)
+                    .checked_sub(content_start)
                     .and_then(|offset| cached_md_styles.get_mut(offset))
                 else {
                     continue;
@@ -3440,7 +3452,7 @@ fn render_all_cached_styled_inner(
                 .iter()
                 .chain(style_out.spans.markdown[spans_mark.1..].iter())
             {
-                if let Some(offset) = index.checked_sub(before + 1) {
+                if let Some(offset) = index.checked_sub(content_start) {
                     if offset < rendered.len() {
                         cached_spans.push((offset, line_spans.clone()));
                     }
