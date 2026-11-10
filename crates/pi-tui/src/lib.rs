@@ -1924,7 +1924,18 @@ pub fn wrap_markdown_line(line: &str, cols: usize) -> Vec<String> {
     // 首行前缀（已在 `line` 里）：`lead_all + marker`；续行前缀等宽空格。
     let body_start = lead_all.len() + marker_len;
     let body = line.get(body_start..).unwrap_or_default();
-    let item_width = content_width.saturating_sub(marker_len).max(1);
+    // ref `markdown.ts:774-776`：`itemWidth = width - visibleWidth(firstPrefix)`，
+    // 其中 `firstPrefix = indent + marker`。我们的 `line` 已经包含 1 列 `paddingX`，
+    // 而 `content_width = cols - 2`（左右各 1 列 padding）⇒ 折行宽应为
+    // `cols - 1 - lead_all - marker_len`（`-1` 是那一列已有 padding）。
+    // 此前只减了 `marker_len`，列表项正文比 TS 宽 4 列，长条目在真实会话里多挤进 2 个汉字
+    // （实测：TS `…云能侧 7 条：` / 我们 `…云能侧 7 条：阜南`）。
+    let _ = content_width;
+    let item_width = cols
+        .saturating_sub(1)
+        .saturating_sub(display_width(&lead_all))
+        .saturating_sub(marker_len)
+        .max(1);
     // 首行前缀保持原样（`" 1. "`），续行用等宽空格（ref 的 `continuationPrefix`）。
     let first_prefix = line.get(..body_start).unwrap_or_default().to_string();
     let continuation = format!("{}{}", lead_all, " ".repeat(marker_len));
@@ -2905,7 +2916,13 @@ fn render_all_cached_styled_inner(
             TranscriptItem::SkillInvocation { name, content } => {
                 format!("s\u{1}{name}\u{1}{content}")
             }
-            TranscriptItem::Assistant(text) => format!("a\u{1}{text}"),
+            TranscriptItem::Assistant(text) => format!(
+                "a\u{1}{}\u{1}{text}",
+                matches!(
+                    state.transcript.get(item_index + 1),
+                    Some(TranscriptItem::ToolCall { .. })
+                )
+            ),
             TranscriptItem::BashExecution {
                 command,
                 output,
@@ -3282,7 +3299,16 @@ fn render_all_cached_styled_inner(
                         lines.push(wrapped.clone());
                     }
                 }
-                lines.push(String::new());
+                // ref assistant 正文 `Markdown` 的 `paddingY = 0`（`assistant-message.ts:113-115`），
+                // 且工具调用在 `renderSessionItems` 里直接 `addChild`、中间无 `Spacer`
+                // （`interactive-mode.ts:3879-3898`），工具自身 `Box(1,1)` 只贡献 1 行
+                // （`tool-execution.ts:105`）⇒ 下一条是工具块时不再补这行尾随空行。
+                if !matches!(
+                    state.transcript.get(item_index + 1),
+                    Some(TranscriptItem::ToolCall { .. })
+                ) {
+                    lines.push(String::new());
+                }
             }
             TranscriptItem::ToolCall {
                 name,
