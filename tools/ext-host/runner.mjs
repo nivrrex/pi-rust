@@ -490,7 +490,8 @@ async function dispatch(frame) {
     // `hiddenThinkingLabel`；扩展没装/没给标签 ⇒ `label:null`（Rust 用原文）。
     try {
       const component = new shimCodingAgent.AssistantMessageComponent();
-      component.hideThinkingBlock = true;
+      // F52/B：请求里带 `hidden`（只剩隐藏态会用到这个标签），默认 true 与被测语义一致。
+      component.hideThinkingBlock = params?.hidden !== false;
       const message = { role: "assistant", content: params?.content ?? [] };
       if (typeof component.updateContent === "function") {
         component.updateContent(message, false);

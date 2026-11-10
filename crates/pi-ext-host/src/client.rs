@@ -676,7 +676,10 @@ impl ExtHost {
         let response = self
             .call(
                 "ext.render.thinking",
-                json!({ "content": content }),
+                // `hidden` 明确带上**隐藏态**语义：ref 只有隐藏时才渲染这个标签
+                // （`assistant-message.ts:143-145` 的 `hidden ? Text(label) : Markdown(全文)`）
+                // ⇒ 扩展侧按隐藏态构造组件（`runner.mjs` 用它设 `hideThinkingBlock`）。
+                json!({ "content": content, "hidden": true }),
                 Duration::from_secs(2),
             )
             .await?;
