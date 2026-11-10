@@ -1926,6 +1926,11 @@ pub fn run(
                 // ctrl+o 改变 `expanded` ⇒ 所有工具行都要重新按新展开态请求
                 // （ref `interactive-mode.ts:4401-4417` 对每个子组件 `setExpanded`）。
                 tool_row_keys.clear();
+                // 展开/回折会改变"扩展是否接管"的答案，之前"整批无人接管"的结论作废：
+                // 补丁型扩展在 `expanded === true` 时回落原生（`tool-render.ts:186-196`），
+                // 展开态那一批必然整批返回 null；若据此永久停用请求，回折时就再也要不到
+                // 折叠行（F52b 实测：ctrl+o 两次后只剩原生块）。
+                tool_row_disabled = false;
             }
             if let TuiEvent::ToolRowRender { id, .. } = &event {
                 tool_row_pending.remove(id);
@@ -1943,7 +1948,10 @@ pub fn run(
                     }
                 }
                 // 整批都没人接管 ⇒ 关掉本会话的工具行请求（与"没有扩展"逐字节一致）。
-                if !any && !rows.is_empty() {
+                // **展开态除外**：补丁型扩展在展开态一律回落原生（`tool-render.ts:186-196`
+                // 的 `if (this.expanded === true) return undefined`），那是预期行为，
+                // 不能据此认定"没有扩展接管"——否则回折后再也要不到折叠行（F52b 实测）。
+                if !any && !rows.is_empty() && !state.tools_expanded {
                     tool_row_disabled = true;
                 }
             }

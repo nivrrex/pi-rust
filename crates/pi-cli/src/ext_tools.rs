@@ -1802,6 +1802,14 @@ impl Tool for HookedTool {
         self.inner.schema()
     }
 
+    /// 归一必须**委托给内层工具**：`invoke` 的默认实现只调自己的
+    /// `prepare_arguments`，包一层钩子后不委托就会丢掉内层的归一
+    /// （实测：`edit` 的 legacy `{path, oldText, newText}` 在带扩展时
+    /// 仍回 `Validation failed`，而不带扩展时正常）。
+    fn prepare_arguments(&self, arguments: serde_json::Value) -> serde_json::Value {
+        self.inner.prepare_arguments(arguments)
+    }
+
     fn execute<'a>(
         &'a self,
         arguments: serde_json::Value,

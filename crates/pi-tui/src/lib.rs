@@ -2138,6 +2138,21 @@ fn push_compact_list(
     start..lines.len()
 }
 
+/// ref `interactive-mode.ts:1322-1332` 的 `formatDisplayPath`：只把家目录缩成 `~`，
+/// **不**转 cwd 相对路径（展开态清单用它）。
+fn display_path(path: &str, home: Option<&str>) -> String {
+    if let Some(home) = home {
+        if let Ok(relative) = std::path::Path::new(path).strip_prefix(std::path::Path::new(home)) {
+            let rest = relative.display().to_string();
+            if rest.is_empty() {
+                return "~".to_string();
+            }
+            return format!("~/{rest}");
+        }
+    }
+    path.to_string()
+}
+
 /// `[Context]` 段的路径显示（ref `interactive-mode.ts:1340-1349` 的 `formatContextPath`）：
 /// 在 cwd 下 ⇒ 相对路径；否则用 `formatDisplayPath`（`~` 缩写家目录）。
 fn context_display_path(path: &str, cwd: &str, home: Option<&str>) -> String {
@@ -2605,13 +2620,27 @@ fn render_all_cached_styled_inner(
         // ref `interactive-mode.ts:1776-1783`：折叠态是 `formatCompactList(paths, {sort:false})`
         // —— 即 **一行**、`  ` 前缀、`", "` 连接，超宽由 `Text` 折行（续行不加缩进）。
         // 此前我们每个文件单独一行，与 TS 不同（真机 `[Context]` 段行数不一致）。
+        // 展开态（Ctrl+O / verbose）用 ref `:1779-1781` 的 `contextList`：**每个文件一行**、
+        // `  ` 前缀、`formatDisplayPath`（家目录缩写，**不**转成 cwd 相对）。
+        // 折叠态才是 `formatCompactList(…, formatContextPath)`（`:1780-1784`）。
         {
-            let shown: Vec<String> = state
-                .context_files
-                .iter()
-                .map(|path| context_display_path(path, &state.cwd, state.home.as_deref()))
-                .collect();
-            let range = push_compact_list_raw(&mut lines, &shown, cols);
+            let range = if state.tools_expanded {
+                let start = lines.len();
+                for path in &state.context_files {
+                    let shown = display_path(path, state.home.as_deref());
+                    for wrapped in wrap_to_width(&format!("  {shown}"), cols) {
+                        lines.push(wrapped);
+                    }
+                }
+                start..lines.len()
+            } else {
+                let shown: Vec<String> = state
+                    .context_files
+                    .iter()
+                    .map(|path| context_display_path(path, &state.cwd, state.home.as_deref()))
+                    .collect();
+                push_compact_list_raw(&mut lines, &shown, cols)
+            };
             styles.resize(lines.len(), None);
             for index in range {
                 let len = lines[index].len();
@@ -2992,7 +3021,12 @@ fn render_all_cached_styled_inner(
                         .as_deref()
                         .map(str::trim_end)
                         .filter(|value| !value.is_empty());
-                    lines.push(clamp_to_width(shown.unwrap_or("Thinking..."), cols));
+                    // ref `assistant-message.ts:143-145`：`new Text(…, this.outputPad, 0)`，
+                    // `outputPad` 默认 1（`:31`）⇒ 标签行带 1 列前导空格。
+                    lines.push(clamp_to_width(
+                        &format!(" {}", shown.unwrap_or("Thinking...")),
+                        cols,
+                    ));
                     lines.push(String::new());
                     continue;
                 }
@@ -3164,19 +3198,30 @@ fn render_all_cached_styled_inner(
                     | NativeTool::Generic => None,
                 };
                 let text = if let Some(prompt) = shell_prompt {
-                    // ref `renderers/bash.ts:43-49` 的 `formatShellCall`：`<prompt> <command>`。
+                    // ref `renderers/bash.ts:43-49` 的 `formatShellCall`：`<prompt> <command>`
+                    // （**不带**前导空格 —— 那 1 列来自 `tool-execution.ts:108` 的 `Box(1,1)`，
+                    // 对每一行都生效；这里也不加，交给下面的逐行前缀）。
+                    // `timeoutSuffix`（`:45`）：参数里有 `timeout` 时头部末尾追加
+                    // ` (timeout <n>s)`（muted）。此前完全没有这一段，真机 E1 的
+                    // "丢 `(timeout 600s)`" 一半是换行被挤平、另一半是根本没渲染。
+                    let suffix = args_json
+                        .as_deref()
+                        .and_then(|text| serde_json::from_str::<serde_json::Value>(text).ok())
+                        .and_then(|value| value.get("timeout").and_then(serde_json::Value::as_u64))
+                        .map(|secs| format!(" (timeout {secs}s)"))
+                        .unwrap_or_default();
                     if summary.is_empty() {
-                        format!(" {prompt} ...")
+                        format!("{prompt} ...{suffix}")
                     } else {
-                        format!(" {prompt} {summary}")
+                        format!("{prompt} {summary}{suffix}")
                     }
                 } else if summary.is_empty() || matches!(native, NativeTool::Generic) {
                     // 没有渲染器的工具（`Generic`）头部**只有名字**
                     // （ref `tool-execution.ts:422`：`theme.fg("toolTitle", bold(toolName))`），
                     // 参数另起一块。
-                    format!(" {name}")
+                    name.to_string()
                 } else {
-                    format!(" {name} {summary}")
+                    format!("{name} {summary}")
                 };
                 // r3 专属：工具条目前补 ref 的 `Box` 顶 padding（`tool-execution.ts:105`）。
                 lines.push(String::new());
@@ -3185,10 +3230,14 @@ fn render_all_cached_styled_inner(
                 // 按 `\n` 拆行、超宽**折行**（`wrapTextWithAnsi`，`:68`），**不截断**。
                 // 此前 `clamp_to_width` 会①把含换行的命令挤成一行并裁掉尾部
                 // （真机 E1 丢 `(timeout 600s)`）、②留下裸 LF 造成阶梯缩进（E2）。
+                // ref 的头部是**一个** `Text(…, paddingX=1, 0)`（`renderers/bash.ts:44-49` 返回
+                // 的字符串挂进 `tool-execution.ts:108` 的 `Box(1,1)`）；`Text` 的 paddingX 对
+                // **每一行**都生效，所以多行命令的续行同样带 1 列前导空格。
+                // 此前只给首行加了空格，续行顶格（golden 逐行量宽可辨）。
                 for logical in text.split('\n') {
                     let normalized = logical.replace('\t', "   ");
-                    for wrapped in wrap_to_width(&normalized, cols.saturating_sub(1).max(1)) {
-                        lines.push(clamp_to_width(&wrapped, cols));
+                    for wrapped in wrap_to_width(&normalized, cols.saturating_sub(2).max(1)) {
+                        lines.push(clamp_to_width(&format!(" {wrapped}"), cols));
                     }
                 }
                 // ref 实测（T73 真彩逐格）：头部是 ` <name>` **加粗 text 色** +
@@ -3203,10 +3252,11 @@ fn render_all_cached_styled_inner(
                     style_out.spans.tool_header.push((
                         lines.len() - 1,
                         vec![
+                            // 行首那 1 列是 `Box` 的 padding：只带底色。
                             style::Span::new(0, 1, style::LineStyle::default()),
                             style::Span::new(
                                 1,
-                                text.len(),
+                                1 + text.len(),
                                 style::LineStyle::fg(style_out.palette.text).bold(),
                             ),
                         ],
@@ -3227,7 +3277,7 @@ fn render_all_cached_styled_inner(
                             style::Span::new(name_end, name_end + 1, style::LineStyle::default()),
                             style::Span::new(
                                 name_end + 1,
-                                text.len(),
+                                1 + text.len(),
                                 // 工具头参数用 `accent`（ref `tool-call` 渲染：名字 toolTitle，
                                 // 参数 accent）；不能用 `mdListBullet`（light 下那是 green）。
                                 style::LineStyle::fg(style_out.palette.accent),
@@ -3337,6 +3387,9 @@ fn render_all_cached_styled_inner(
                 // `Took <duration>`（muted）。TS 的空行 + 该行都要有（Test T75 差 1 行）。
                 // ref 的 bash 渲染器在结果块末尾只有这一行 `Took …`（前面带一个换行），
                 // 后面**没有**额外的空行——下一段落的空行由助手条目自己补。
+                // ref 的结果组件是 `Box(1,1)` 的子项：`Took …` 之后再补 Box 的**底 padding**
+                // （1 行），否则下一个工具块与它之间比 TS 少一行空行（`F52a` 逐行对拍可辨：
+                // TS `Took` 与下一块之间 3 行空行，我们只有 2 行）。
                 let rendered_took =
                     if let (Some(duration), "bash" | "powershell") = (took, name.as_str()) {
                         lines.push(String::new());
@@ -3344,6 +3397,7 @@ fn render_all_cached_styled_inner(
                             &format!(" Took {}", format_duration(*duration)),
                             cols,
                         ));
+                        lines.push(String::new());
                         true
                     } else {
                         false

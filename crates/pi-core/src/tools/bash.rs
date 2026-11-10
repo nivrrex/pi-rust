@@ -324,19 +324,43 @@ pub(crate) fn run_shell<'a>(
             // 不 panic（非测试代码里 panic 是禁止项）。
             let mut stdout_pipe = child.stdout.take();
             let mut stderr_pipe = child.stderr.take();
-            let stdout_task = tokio::spawn(async move {
-                let mut buffer = Vec::new();
-                if let Some(pipe) = stdout_pipe.as_mut() {
-                    let _ = pipe.read_to_end(&mut buffer).await;
+            // F52：stdout/stderr **按到达顺序合并**（ref `core/tools/bash.ts:122-124`：
+            // 两个流挂在同一个 `onData` 上，追加进同一缓冲区）。此前我们分别读完两段
+            // 再 `format!("{stdout}\n{stderr}")`，把 stderr 一律排到 stdout 之后——
+            // 真实命令（`cd 失败` + `seq 1 60`）会把先到的 stderr 排到 60 行结尾（F52 golden 实测）。
+            let combine_task = tokio::spawn(async move {
+                let mut combined: Vec<u8> = Vec::new();
+                let mut out_buffer = [0u8; 8192];
+                let mut err_buffer = [0u8; 8192];
+                loop {
+                    let read_stdout = async {
+                        match stdout_pipe.as_mut() {
+                            Some(pipe) => pipe.read(&mut out_buffer).await.map(|n| (0, n)),
+                            None => std::future::pending().await,
+                        }
+                    };
+                    let read_stderr = async {
+                        match stderr_pipe.as_mut() {
+                            Some(pipe) => pipe.read(&mut err_buffer).await.map(|n| (1, n)),
+                            None => std::future::pending().await,
+                        }
+                    };
+                    tokio::select! {
+                        result = read_stdout => match result {
+                            Ok((_, 0)) | Err(_) => stdout_pipe = None,
+                            Ok((_, n)) => combined.extend_from_slice(&out_buffer[..n]),
+                        },
+                        result = read_stderr => match result {
+                            Ok((_, 0)) | Err(_) => stderr_pipe = None,
+                            Ok((_, n)) => combined.extend_from_slice(&err_buffer[..n]),
+                        },
+                        else => break,
+                    }
+                    if stdout_pipe.is_none() && stderr_pipe.is_none() {
+                        break;
+                    }
                 }
-                buffer
-            });
-            let stderr_task = tokio::spawn(async move {
-                let mut buffer = Vec::new();
-                if let Some(pipe) = stderr_pipe.as_mut() {
-                    let _ = pipe.read_to_end(&mut buffer).await;
-                }
-                buffer
+                combined
             });
 
             // 三种结束方式，各自有明确后果：正常 / 超时（错误）/ 取消（错误）。
@@ -363,15 +387,8 @@ pub(crate) fn run_shell<'a>(
                 },
             };
 
-            let stdout =
-                String::from_utf8_lossy(&stdout_task.await.unwrap_or_default()).to_string();
-            let stderr =
-                String::from_utf8_lossy(&stderr_task.await.unwrap_or_default()).to_string();
-            let combined = match (stdout.is_empty(), stderr.is_empty()) {
-                (_, true) => stdout,
-                (true, false) => stderr,
-                (false, false) => format!("{stdout}\n{stderr}"),
-            };
+            let combined =
+                String::from_utf8_lossy(&combine_task.await.unwrap_or_default()).to_string();
 
             let tail = truncate_tail(&combined, DEFAULT_MAX_LINES, DEFAULT_MAX_BYTES);
             // F31：截断时把**完整输出**落到临时文件，路径进提示文案
