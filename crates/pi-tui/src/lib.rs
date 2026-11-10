@@ -3023,16 +3023,39 @@ fn render_all_cached_styled_inner(
             state.transcript.get(item_index.wrapping_sub(1)),
             Some(
                 TranscriptItem::Assistant(_)
-                    | TranscriptItem::Thinking { .. }
                     | TranscriptItem::Notice(_)
                     | TranscriptItem::Status(_)
             )
         ) && item_index > 0;
+        // 上一条自己已经留了尾随空行（工具块底 padding、助手正文之后、状态行等）时不再补，
+        // 否则叠加成 2 行空行（真实会话实测：TS 侧同一位置只有 1 行）。扩展渲染块前后由
+        // 扩展自己决定（`T90`/`F52a` golden 里工具块之间就有 3 行），那种情况保持原样。
+        let previous_is_ext_block = matches!(
+            state.transcript.get(item_index.wrapping_sub(1)),
+            Some(
+                TranscriptItem::ToolCall {
+                    render_lines: Some(_),
+                    ..
+                } | TranscriptItem::ToolCall {
+                    result_render_lines: Some(_),
+                    ..
+                }
+            )
+        );
         if !collapsed_tool_row
             && !status_row
             && !tool_row
             && !follows_assistant
             && !follows_text_like
+            && (item_index == 0
+                || previous_is_ext_block
+                // 用户消息是**带边框的盒子**（ref `components/user-message.ts` 有上下边框），
+                // 它自己不带尾随空行；紧跟其后的那 1 行必须照补（T05 实测：省掉后整帧短 1 行）。
+                || matches!(
+                    state.transcript.get(item_index.wrapping_sub(1)),
+                    Some(TranscriptItem::User(_))
+                )
+                || !lines.last().is_some_and(|l| l.is_empty()))
         {
             lines.push(String::new());
         }
@@ -3207,7 +3230,8 @@ fn render_all_cached_styled_inner(
                         &format!(" {}", shown.unwrap_or("Thinking...")),
                         cols,
                     ));
-                    lines.push(String::new());
+                    // 不再自带尾随空行：与下一条之间的那 1 行由下一条的段落空行提供
+                    // （此前两条都补 ⇒ 真实会话里"思考块 → 工具块"之间比 TS 多 1 行）。
                     continue;
                 }
                 for line in render_markdown(text) {
