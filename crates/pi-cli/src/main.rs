@@ -34,6 +34,26 @@ fn load_builtin_catalog(agent_dir: &std::path::Path) -> Option<pi_ai::config::Bu
 
 /// `-c`/`--resume` 的 cwd 过滤（ref `session-manager.ts:1791-1796`）：
 /// 只有自定义会话目录才按 header `cwd` 过滤；默认分区目录里取最新一份，不看 header。
+/// 显式 `--session <path>` 恢复时的工作目录：取会话头里的 `cwd`。
+///
+/// ref `core/session-manager.ts:1779`：`resume()` 用
+/// `cwdOverride ?? header.cwd ?? process.cwd()`；而 `continueRecent()`（`-c`）用的是
+/// **传入的进程 cwd**（`:1791-1800` 直接 `new SessionManager(cwd, …)`），两者不同，
+/// 所以这里只处理显式路径。
+///
+/// 拿不到（没有 `--session`、旧会话没写 `cwd`、目录已不存在）时返回 `None`，
+/// 调用方回落到进程 cwd。
+fn resumed_session_cwd(
+    parsed: &Args,
+    _paths: &pi_cli::runtime::Paths,
+    _cwd: &std::path::Path,
+) -> Option<std::path::PathBuf> {
+    let path = parsed.session.as_deref().map(std::path::PathBuf::from)?;
+    let file = pi_core::session_io::SessionFile::read(&path).ok()?;
+    let recorded = std::path::PathBuf::from(file.header.cwd.clone()?);
+    recorded.is_dir().then_some(recorded)
+}
+
 fn continue_cwd_filter<'a>(
     paths: &pi_cli::runtime::Paths,
     cwd: &'a std::path::Path,
@@ -203,6 +223,13 @@ fn main() -> ExitCode {
                 parsed.session_dir.as_deref(),
                 &cwd,
             );
+            // F52/D（真机 E5）：恢复会话时**工作目录取会话头里的 `cwd`**，
+            // 不是进程 cwd。ref `core/session-manager.ts:1779`：
+            // `const cwd = cwdOverride ?? (header ? getSessionHeaderCwd(header) : undefined) ?? process.cwd()`，
+            // 之后 `sdk.ts:176` 用它建 agent（工具 cwd、页脚 cwd、分支名、项目指令发现全跟着它）。
+            // 此前一律用进程 cwd ⇒ 在别的目录里 `-c` 时页脚显示 `no-branch`（进程 cwd 不在仓库里），
+            // 而 TS 显示会话自己的 `(recover)`。
+            let cwd = resumed_session_cwd(&parsed, &paths, &cwd).unwrap_or(cwd);
             // 启动屏的 `[Context]` 段：复用 P6-1 的发现规则，只显示路径。
             let discovered =
                 pi_core::project_context::load_project_context_files(&cwd, &paths.agent_dir);
@@ -2159,5 +2186,111 @@ mod catalog_only_tests {
         );
         assert_eq!(resolved.provider_name, provider);
         assert_eq!(resolved.model_id, model);
+    }
+}
+
+#[cfg(test)]
+mod resumed_cwd_tests {
+    use super::resumed_session_cwd;
+    use pi_cli::args::{self, Args};
+    use pi_cli::runtime::Paths;
+
+    fn args(extra: &[&str]) -> Args {
+        let mut argv = vec!["pi-rs".to_string()];
+        argv.extend(extra.iter().map(|v| (*v).to_string()));
+        args::parse(&argv)
+    }
+
+    fn paths(dir: &std::path::Path) -> Paths {
+        Paths {
+            agent_dir: dir.join("agent"),
+            session_dir: dir.join("sess"),
+        }
+    }
+
+    fn write_session(dir: &std::path::Path, name: &str, cwd: &str) {
+        let line = serde_json::json!({
+            "type": "session",
+            "version": 3,
+            "id": "01a1c000-f52d",
+            "timestamp": "2026-01-01T00:00:00.000Z",
+            "cwd": cwd,
+        });
+        std::fs::write(dir.join(name), format!("{line}\n")).expect("写会话");
+    }
+
+    /// F52/D（真机 E5）：`--session <path>` 的工作目录取**会话头里的 cwd**
+    /// （ref `core/session-manager.ts:1779`）。此前用进程 cwd ⇒ 页脚 cwd 没有 `(<branch>)`。
+    #[test]
+    fn explicit_session_path_uses_header_cwd() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let session_dir = dir.path().join("sess");
+        let recorded = dir.path().join("recorded");
+        std::fs::create_dir_all(&session_dir).expect("建目录");
+        std::fs::create_dir_all(&recorded).expect("建目录");
+        let file = session_dir.join("2026-01-01T00-00-00-000Z_f52d.jsonl");
+        write_session(
+            &session_dir,
+            "2026-01-01T00-00-00-000Z_f52d.jsonl",
+            recorded.to_str().expect("utf8"),
+        );
+        let parsed = args(&["--session", file.to_str().expect("utf8")]);
+        let process_cwd = dir.path().join("process");
+        std::fs::create_dir_all(&process_cwd).expect("建目录");
+        assert_eq!(
+            resumed_session_cwd(&parsed, &paths(dir.path()), &process_cwd),
+            Some(recorded)
+        );
+    }
+
+    /// `-c` **不**取会话头的 cwd：ref `continueRecent()` 直接 `new SessionManager(cwd, …)`
+    /// （`session-manager.ts:1791-1800`），cwd 就是进程 cwd。这里钉住这个区别，
+    /// 免得以后为了"页脚好看"把 `-c` 也改成读 header（那会与 ref 背离）。
+    #[test]
+    fn continue_keeps_process_cwd() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let recorded = dir.path().join("recorded");
+        std::fs::create_dir_all(&recorded).expect("建目录");
+        let process_cwd = dir.path().join("process");
+        std::fs::create_dir_all(&process_cwd).expect("建目录");
+        let agent_dir = dir.path().join("agent");
+        std::fs::create_dir_all(&agent_dir).expect("建目录");
+        let session_dir = pi_core::session_path::default_session_dir(
+            recorded.to_str().expect("utf8"),
+            agent_dir.to_str().expect("utf8"),
+        );
+        std::fs::create_dir_all(&session_dir).expect("建目录");
+        write_session(
+            &session_dir,
+            "2026-01-01T00-00-00-000Z_f52d.jsonl",
+            recorded.to_str().expect("utf8"),
+        );
+        let parsed = args(&["-c"]);
+        let paths = Paths {
+            agent_dir,
+            session_dir,
+        };
+        assert_eq!(resumed_session_cwd(&parsed, &paths, &process_cwd), None);
+    }
+
+    /// 会话头里的 cwd 已不存在 ⇒ 回落到进程 cwd（不能把工具 cwd 指向不存在的路径）。
+    #[test]
+    fn missing_recorded_cwd_falls_back() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let session_dir = dir.path().join("sess");
+        std::fs::create_dir_all(&session_dir).expect("建目录");
+        let file = session_dir.join("2026-01-01T00-00-00-000Z_f52d.jsonl");
+        write_session(
+            &session_dir,
+            "2026-01-01T00-00-00-000Z_f52d.jsonl",
+            "/nonexistent/f52d-dir",
+        );
+        let parsed = args(&["--session", file.to_str().expect("utf8")]);
+        let process_cwd = dir.path().join("process");
+        std::fs::create_dir_all(&process_cwd).expect("建目录");
+        assert_eq!(
+            resumed_session_cwd(&parsed, &paths(dir.path()), &process_cwd),
+            None
+        );
     }
 }
