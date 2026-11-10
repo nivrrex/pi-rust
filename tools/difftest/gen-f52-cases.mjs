@@ -25,7 +25,7 @@ const command = [
   "第一行 CJK 内容用来验证折行",
   "\t缩进行 with tab",
   "EOF",
-  "cd /root/Desktop/一个非常长的没有空格的中文目录名字用来测试折行而不是截断/and-a-very-long-ascii-segment-without-any-space-at-all",
+  "cd /tmp/一个非常长的没有空格的中文目录名字用来测试折行而不是截断/and-a-very-long-ascii-segment-without-any-space-at-all",
 ].join("\n");
 const lines = [];
 lines.push(chunk({ role: "assistant", content: "" }));

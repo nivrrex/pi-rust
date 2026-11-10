@@ -116,7 +116,7 @@ fn check(name: &str, summary: &str, output: Option<&str>, cols: usize, expanded:
 }
 
 const HEREDOC: &str = "cat <<'EOF' > /tmp/x\n第一行 CJK 内容\n\t缩进行 with tab\nEOF";
-const LONG_PATH: &str = "cd /root/Desktop/一个非常长的没有空格的中文路径目录名字用来测试折行而不是截断/and-a-very-long-ascii-segment-without-any-space-at-all";
+const LONG_PATH: &str = "cd /tmp/一个非常长的没有空格的中文路径目录名字用来测试折行而不是截断/and-a-very-long-ascii-segment-without-any-space-at-all";
 const WITH_TIMEOUT: &str = "sleep 600 # (timeout 600s)";
 
 #[test]
