@@ -3547,13 +3547,26 @@ fn render_all_cached_styled_inner(
                         }
                         let all: Vec<&str> = body.split('\n').collect();
                         let shell = name == "bash" || name == "powershell";
+                        // 先按可见行折行，再按**可见行**取尾部：ref `renderers/bash.ts:18/86`
+                        // 用的是 `truncateToVisualLines(styledOutput, BASH_PREVIEW_LINES=5, width)`
+                        // —— 计数单位是**折行后的可见行**，不是逻辑行。用逻辑行计数会保留
+                        // 过多内容（真实会话 32 个 bash 块共少隐藏约 200 行），整帧因而偏高。
+                        // 制表符换 3 空格后再折行（ref `text.ts:61/68`）。
+                        let mut visual: Vec<String> = Vec::with_capacity(all.len());
+                        for line in &all {
+                            let normalized = line.replace('\t', "   ");
+                            for wrapped in wrap_to_width(&normalized, cols.saturating_sub(2).max(1))
+                            {
+                                visual.push(clamp_to_width(&format!(" {wrapped}"), cols));
+                            }
+                        }
                         let preview = if shell { 5 } else { 10 };
-                        let (start, hidden) = if state.tools_expanded || all.len() <= preview {
+                        let (start, hidden) = if state.tools_expanded || visual.len() <= preview {
                             (0_usize, 0_usize)
                         } else if shell {
-                            (all.len() - preview, all.len() - preview)
+                            (visual.len() - preview, visual.len() - preview)
                         } else {
-                            (0, all.len() - preview)
+                            (0, visual.len() - preview)
                         };
                         if hidden > 0 && shell {
                             // ref `renderers/bash.ts:86-97`：提示行带 1 列前导空格
@@ -3561,13 +3574,8 @@ fn render_all_cached_styled_inner(
                             let hint = format!(" ... ({hidden} earlier lines, ctrl+o to expand)");
                             lines.push(clamp_to_width(&hint, cols));
                         }
-                        for line in &all[start..] {
-                            // 同上：制表符换 3 空格后再折行（ref `text.ts:61/68`）。
-                            let normalized = line.replace('\t', "   ");
-                            for wrapped in wrap_to_width(&normalized, cols.saturating_sub(2).max(1))
-                            {
-                                lines.push(clamp_to_width(&format!(" {wrapped}"), cols));
-                            }
+                        for line in &visual[start..] {
+                            lines.push(line.clone());
                         }
                         if hidden > 0 && !shell {
                             let hint = format!(" ... ({hidden} more lines, ctrl+o to expand)");
