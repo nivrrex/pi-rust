@@ -3004,7 +3004,24 @@ fn render_all_cached_styled_inner(
         // （真实会话逐步对拍实测：TS 1 行、我们 2 行）。
         let follows_assistant =
             matches!(item, TranscriptItem::Assistant(_)) && previous_item_was_assistant;
-        if !collapsed_tool_row && !status_row && !tool_row && !follows_assistant {
+        // 更一般的规则（真实会话对拍）：上一条是**助手正文 / 思考块**时，下一条不再补段落空行
+        // —— 它们自己的尾随空行已经提供了分隔，再补就比 TS 多 1 行。实测该形态在我们的
+        // 真实会话帧里产生 128 处连续 2 行空行（TS 侧同位置只有 1 行）。
+        let follows_text_like = matches!(
+            state.transcript.get(item_index.wrapping_sub(1)),
+            Some(
+                TranscriptItem::Assistant(_)
+                    | TranscriptItem::Thinking { .. }
+                    | TranscriptItem::Notice(_)
+                    | TranscriptItem::Status(_)
+            )
+        ) && item_index > 0;
+        if !collapsed_tool_row
+            && !status_row
+            && !tool_row
+            && !follows_assistant
+            && !follows_text_like
+        {
             lines.push(String::new());
         }
         // 本条目**内容**的起始行。通常等于 `before + 1`（`before` 那行是段落空行），
