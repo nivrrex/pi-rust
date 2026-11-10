@@ -3346,13 +3346,14 @@ fn render_all_cached_styled_inner(
                         // 工具块的 contentBox 自带 1 列左边距（ref `tool-execution.ts:98-108`
                         // 的 `Box(1, 1, …)`），扩展的 `Text` 行在此基础上再叠加自己的 paddingX。
                         //
-                        // **必须用 `clamp_to_width_ansi`**：扩展返回的行自带 SGR
-                        // （`theme.fg(...)`），按纯文本裁剪会把转义序列切断，
-                        // 行尾残留 `\x1b\x1b[0m[0m` 污染画面（F51 实测）。
-                        lines.push(clamp_to_width_ansi(
-                            &format!(" {}", strip_trailing_sgr(line)),
-                            cols,
-                        ));
+                        // 超宽必须**折行**（ref 把组件放进 `Box(1,1)`，组件是 `Text`，
+                        // `text.ts:60-68` 走 `wrapTextWithAnsi`）——此前这里用
+                        // `clamp_to_width_ansi` 截断，真机 H 的 `(timeout 600s)` 就是这样丢的。
+                        // SGR 要保留：`wrap_to_width_ansi` 负责跨行延续颜色；按纯文本裁
+                        // 会把转义序列切断（F51 实测的 `\x1b\x1b[0m[0m` 污染）。
+                        for wrapped in wrap_to_width_ansi(&format!(" {line}"), cols) {
+                            lines.push(wrapped);
+                        }
                     }
                     if let Some(extension_result) = result_render_lines {
                         // ref 把扩展行放进 `Text` 组件 ⇒ 超宽**折行**，不是截断
