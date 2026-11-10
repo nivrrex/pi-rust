@@ -19,6 +19,10 @@ export TS_PI_ENTRY
 REPO=$(cd "$(dirname "$0")/../.." && pwd)
 OUT_ROOT="$REPO/tmp/real-parity"
 SESSION_KIND=nothk
+# TS 侧"就绪"判据沿用启动屏文案。**已知限制**：恢复大会话时 TS 的启动是多帧序列，
+# 用更晚的标记或更长的静止窗口都会拍到中间态（实测三种口径都在两个 cell 上给出
+# 相反结果），因此该矩阵的 TS 侧存在时序不确定性，见 notes/p9-f53/plan.md。
+WAIT_CONTAINS='Pi can explain' 
 KEYS=""
 COLS=""
 ROWS=40

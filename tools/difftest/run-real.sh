@@ -22,6 +22,13 @@ ROWS=40
 CONFIG=ext
 OUT=""
 SESSION_OVERRIDE=""
+# G1 取证需要区分 `--session <file>`（显式恢复，ref 用 header.cwd）与
+# `-c`（continueRecent，ref 用进程 cwd）；`--continue` 走后者。
+CONTINUE=0
+# TS 侧的"就绪"判据：默认等启动屏的 onboarding 文案。恢复大会话时它出现得**远早于**
+# 转录区渲染完成（750KB / 195 条目），TS 侧会拍到启动屏、逐步比较因此随机失败。
+# 真实会话对拍改用转录区里的标记（`--wait-contains`）。
+WAIT_CONTAINS="Pi can explain"
 KEEP=0
 while [ $# -gt 0 ]; do
   case "$1" in
@@ -32,6 +39,8 @@ while [ $# -gt 0 ]; do
     --config) CONFIG="$2"; shift 2 ;;
     --out) OUT="$2"; shift 2 ;;
     --session) SESSION_OVERRIDE="$2"; shift 2 ;;
+    --continue) CONTINUE=1; shift ;;
+    --wait-contains) WAIT_CONTAINS="$2"; shift 2 ;;
     --keep) KEEP=1; shift ;;
     *) echo "run-real: 未知参数 $1" >&2; exit 2 ;;
   esac
@@ -48,8 +57,9 @@ REALCFG=${REALCFG:-$REPO/tmp/realcfg}
 # TS 入口必须由调用方给出（脚本里不写死任何本机路径）。
 TS_ENTRY=${TS_PI_ENTRY:?需要 TS_PI_ENTRY=<pi-ts>/dist/bundle/cli.js}
 # node 目录：真实扩展是 `.ts`，宿主用 jiti 编译（缺 PI_JITI 时扩展加载会卡住/失败）。
+# 两者都**必须由调用方给出**，脚本里不写任何本机路径（privacy-scan 要求）。
 NODE_BIN=$(dirname "$(command -v node)")
-JITI_DIR=${PI_JITI:-/root/node_modules/.pnpm/jiti@2.7.0/node_modules/jiti}
+JITI_DIR=${PI_JITI:?需要 PI_JITI=<jiti 包目录>}
 [ -f "$TS_ENTRY" ] || { echo "run-real: 找不到 TS 入口 $TS_ENTRY" >&2; exit 1; }
 
 rm -rf "$OUT"
@@ -59,6 +69,11 @@ mkdir -p "$OUT/home" "$OUT/mock" "$OUT/sess"
 # （实测：第二轮初始 hide 变 false），也让 TS/pi-rs 互相影响。
 cp -a "$REALCFG_AGENT" "$OUT/agent"
 cp "${SESSION_OVERRIDE:-$REALCFG_SESSION_FILE}" "$OUT/session.jsonl"
+# `-c` 从 `PI_CODING_AGENT_SESSION_DIR` 里挑最近一条：只在这种情况下把副本放进 `sess/`
+# （无条件放会让两侧的会话目录多一条记录，启动行为跟着变）。
+if [ "$CONTINUE" = "1" ]; then
+  cp "$OUT/session.jsonl" "$OUT/sess/"
+fi
 chmod +x "$REPO/tools/difftest/pty-helper.py" 2>/dev/null || true
 
 # mock：响应固定为一条纯文本（本批不推进回合，只保证配置可解析、端口可连）。
@@ -90,7 +105,11 @@ while time.time() < deadline:
 sys.exit(1)
 PY
 
-ARGS="--session $OUT/session.jsonl"
+if [ "$CONTINUE" = "1" ]; then
+  ARGS="-c"
+else
+  ARGS="--session $OUT/session.jsonl"
+fi
 if [ "$CONFIG" = "ne" ]; then
   ARGS="$ARGS --no-extensions"
 fi
@@ -98,19 +117,21 @@ fi
 SCRIPT="$OUT/script.json"
 if [ "$IMPL" = "ts" ]; then
   # 逐步 mark：初态 + 每个按键之后各一个 mark，最后 ctrl+d 退出。
-  python3 - "$SCRIPT" "$KEYS" <<'PY'
+  python3 - "$SCRIPT" "$KEYS" "$WAIT_CONTAINS" <<'PY'
 import json, sys
-path, keys = sys.argv[1], [k.strip() for k in sys.argv[2].split(",") if k.strip()]
+path, keys, wait_contains = sys.argv[1], [k.strip() for k in sys.argv[2].split(",") if k.strip()], sys.argv[3]
 KEYMAP = {
     "ctrl+o": "\u000f", "ctrl+t": "\u0014", "ctrl+d": "\u0004",
     "ctrl+p": "\u0010", "ctrl+k": "\u000b", "ctrl+c": "\u0003",
     "shift+tab": "\u001b[Z", "escape": "\u001b",
 }
 steps = []
-def mark(n):
-    steps.append({"waitStable": {"quietMs": 2000, "timeoutMs": 60000}})
+def mark(n, quiet=2000):
+    steps.append({"waitStable": {"quietMs": quiet, "timeoutMs": 180000 if quiet > 3000 else 60000}})
     steps.append({"mark": f"step{n}"})
-steps.append({"waitFor": {"contains": "Pi can explain", "timeoutMs": 60000}})
+# 恢复会话（195 条目 / 750KB）时，转录区渲染完成远晚于启动屏出现：
+# 首个 mark 用**更长的静止窗口**兜住（单等某段文本会被更早出现的同名文本骗过）。
+steps.append({"waitFor": {"contains": wait_contains, "timeoutMs": 180000}})
 mark(0)
 for i, key in enumerate(keys, start=1):
     steps.append({"text": KEYMAP.get(key, key)})
@@ -121,9 +142,9 @@ PY
   CMD="$TS_ENTRY $ARGS"
 else
   # pi-rs 自己驱动按键与快照（钩子），这里只等首帧出现、然后等进程自己退出。
-  python3 - "$SCRIPT" <<'PY'
+  python3 - "$SCRIPT" "$WAIT_CONTAINS" <<'PY'
 import json, sys
-json.dump([{"waitFor": {"contains": "Pi can explain", "timeoutMs": 120000}}], open(sys.argv[1], "w"))
+json.dump([{"waitFor": {"contains": sys.argv[2], "timeoutMs": 180000}}], open(sys.argv[1], "w"))
 PY
   CMD="$REPO/target/debug/pi-rs $ARGS"
 fi
@@ -141,7 +162,7 @@ mkdir -p "$OUT/steps"
 # shellcheck disable=SC2086
 env \
   HOME="$OUT/home" \
-  PATH="/root/.pi/agent/bin:$NODE_BIN:/usr/local/bin:/usr/bin:/bin" \
+  PATH="${HOME}/.pi/agent/bin:$NODE_BIN:/usr/local/bin:/usr/bin:/bin" \
   PI_JITI="$JITI_DIR" \
   PI_CODING_AGENT_DIR="$OUT/agent" \
   PI_CODING_AGENT_SESSION_DIR="$OUT/sess" \
