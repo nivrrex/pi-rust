@@ -3189,6 +3189,10 @@ fn render_all_cached_styled_inner(
                             lines.push(clamp_to_width(&format!(" {line}"), cols));
                         }
                     }
+                    // 本分支**只输出**这个工具块的正文，其它分支在末尾都会补一行尾随空行
+                    // （ref `tool-execution.ts:98-108` 的 `Box(1,1)` 底部 padding）。
+                    // 少了它，工具块与下一条助手正文之间就只隔 1 行空行（T90 golden 是 2 行）。
+                    lines.push(String::new());
                     continue;
                 }
                 // F51/Z0：**逐工具的原生渲染器**，照 ref `core/tools/renderers/*.ts`。
