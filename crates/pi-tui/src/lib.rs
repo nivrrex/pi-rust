@@ -2484,6 +2484,8 @@ enum NativeTool {
     Edit,
     /// `read`：折叠态无正文。
     Read,
+    /// `write`：正文是**参数里要写入的内容**的前 10 行（ref `renderers/write.ts:110-125`）。
+    Write,
     /// 有渲染器但本实现按"头部 + 正文"渲染的工具（`write`/`ls`/`grep`/`find`）。
     Plain,
     /// 没有渲染器：头部只有名字，参数另起一块。
@@ -2496,7 +2498,8 @@ fn native_tool_kind(name: &str) -> NativeTool {
         "powershell" => NativeTool::Shell("PS>"),
         "edit" => NativeTool::Edit,
         "read" => NativeTool::Read,
-        "write" | "ls" | "grep" | "find" => NativeTool::Plain,
+        "write" => NativeTool::Write,
+        "ls" | "grep" | "find" => NativeTool::Plain,
         _other => NativeTool::Generic,
     }
 }
@@ -2573,6 +2576,15 @@ fn item_style(
             Some(LineStyle::fg(palette.muted).with_bg(background))
         }
     }
+}
+
+/// 从 `write` 的调用参数里取待写入内容（ref `renderers/write.ts:113-116` 的 `args.content`）。
+fn write_args_content(args_json: Option<&str>) -> Option<String> {
+    let value: serde_json::Value = serde_json::from_str(args_json?).ok()?;
+    value
+        .get("content")
+        .and_then(serde_json::Value::as_str)
+        .map(str::to_string)
 }
 
 /// 渲染成 `rows` 行、每行 `cols` 列（纯函数，便于单测与快照比对）。
@@ -3373,6 +3385,7 @@ fn render_all_cached_styled_inner(
                     NativeTool::Shell(prompt) => Some(prompt),
                     NativeTool::Edit
                     | NativeTool::Read
+                    | NativeTool::Write
                     | NativeTool::Plain
                     | NativeTool::Generic => None,
                 };
@@ -3531,6 +3544,42 @@ fn render_all_cached_styled_inner(
                     for line in extension_result {
                         lines.push(clamp_to_width_ansi(
                             &format!(" {}", strip_trailing_sgr(line)),
+                            cols,
+                        ));
+                    }
+                } else if matches!(native, NativeTool::Write) && !*is_error {
+                    let content = write_args_content(args_json.as_deref()).unwrap_or_default();
+                    // ref `renderers/write.ts:110-125`：`write` 的块正文是**调用参数里
+                    // 待写入的内容**前 10 行（展开态全展示），末尾补
+                    // `... (N more lines, M total, ctrl+o to expand)`；
+                    // 成功时结果里**不渲染任何文本**（`formatWriteResult` 只在 `isError`
+                    // 时输出）。此前我们展示的是"Successfully wrote to …"，既少了内容预览，
+                    // 又多出一行 TS 没有的文本（真实会话逐步对拍可见）。
+                    lines.push(String::new());
+                    let mut all: Vec<String> = content
+                        .split('\n')
+                        .map(|l| l.replace('\t', "   "))
+                        .collect();
+                    while all.last().is_some_and(|l| l.is_empty()) {
+                        all.pop();
+                    }
+                    let total = all.len();
+                    let shown = if state.tools_expanded {
+                        total
+                    } else {
+                        total.min(10)
+                    };
+                    for line in &all[..shown] {
+                        for wrapped in wrap_to_width(line, cols.saturating_sub(2).max(1)) {
+                            lines.push(clamp_to_width(&format!(" {wrapped}"), cols));
+                        }
+                    }
+                    if total > shown {
+                        lines.push(clamp_to_width(
+                            &format!(
+                                " ... ({} more lines, {total} total, ctrl+o to expand)",
+                                total - shown
+                            ),
                             cols,
                         ));
                     }

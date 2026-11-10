@@ -158,3 +158,49 @@ fn tool_body_with_tabs_and_long_output() {
         }
     }
 }
+
+/// `write` 的块正文是**参数里待写入内容**的前 10 行（ref `renderers/write.ts:110-125`），
+/// 成功时结果里不渲染任何文本（`formatWriteResult` 只在 `isError` 时输出）。
+#[test]
+fn write_block_shows_content_preview_not_result_text() {
+    let content: String = (1..=14)
+        .map(|i| format!("line {i}"))
+        .collect::<Vec<_>>()
+        .join("\n");
+    let args = format!(
+        r#"{{"path":"/tmp/x.txt","content":{}}}"#,
+        serde_json::json!(content)
+    );
+    let mut state = TuiState::new("0.87.1", "/tmp/work", "0.0%/128k (auto)");
+    state.transcript.push(TranscriptItem::ToolCall {
+        id: "c1".into(),
+        name: "write".into(),
+        summary: "/tmp/x.txt".into(),
+        args_json: Some(args),
+        tool_known: Some(true),
+        output: Some("Successfully wrote to /tmp/x.txt".into()),
+        is_error: false,
+        started_at: None,
+        took: None,
+        render_lines: None,
+        result_render_lines: None,
+        result_payload: None,
+        collapsed_row: None,
+    });
+    let frame = render_all(&state, 110, 40).join("\n");
+    assert!(frame.contains("line 1"), "缺少内容预览：{frame}");
+    assert!(frame.contains("line 10"), "折叠态应展示前 10 行：{frame}");
+    assert!(!frame.contains("line 11"), "折叠态不应超过 10 行：{frame}");
+    assert!(
+        frame.contains("... (4 more lines, 14 total,"),
+        "缺少 `(N more lines, M total, …)` 提示：{frame}"
+    );
+    assert!(
+        !frame.contains("Successfully wrote"),
+        "成功结果不应渲染文本：{frame}"
+    );
+    // 展开态展示全部内容。
+    state.tools_expanded = true;
+    let frame = render_all(&state, 110, 60).join("\n");
+    assert!(frame.contains("line 14"), "展开态应展示全部内容：{frame}");
+}
