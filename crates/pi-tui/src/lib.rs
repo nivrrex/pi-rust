@@ -3506,7 +3506,10 @@ fn render_all_cached_styled_inner(
                 // `text` 不含 SGR（头部由 `item_style` 统一上色），但 `summary` 可能带
                 // 扩展/会话里残留的转义（真实会话实测：`read … .md[0m[0m`）。
                 // 头部逐行输出前清掉它们，避免可见的 `[0m` 残留。
-                let text = text.replace("\u{1b}[0m", "");
+                // 会话里可能把 SGR 复位序列**当字面文本**存进参数（真实会话实测：
+                // `read … .md[0m[0m`）。ref 的 `renderToolPath` 只取路径本身，不会带出来；
+                // 这里把字面量 `[0m` 也一并去掉。
+                let text = text.replace("\u{1b}[0m", "").replace("[0m", "");
                 for logical in text.split('\n') {
                     let normalized = logical.replace('\t', "   ");
                     for wrapped in wrap_to_width(&normalized, cols.saturating_sub(2).max(1)) {
