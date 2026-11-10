@@ -3498,7 +3498,7 @@ fn render_all_cached_styled_inner(
                         // 内容宽 = `cols - 2`：`tool-execution.ts:98-108` 的 `Box(1,1)` 左右各 1 列，
                         // 加上我们自己的 1 列前导空格 ⇒ 整行最多 `cols - 1` 可见列
                         // （真实会话对拍：用 `cols - 1` 作内容宽会比 TS 晚一格换行）。
-                        for wrapped in wrap_to_width(&line, cols.saturating_sub(2).max(1)) {
+                        for wrapped in wrap_to_width(line, cols.saturating_sub(2).max(1)) {
                             lines.push(clamp_to_width(&format!(" {wrapped}"), cols));
                         }
                     }
