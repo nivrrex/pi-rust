@@ -2995,13 +2995,16 @@ fn render_all_cached_styled_inner(
         // （见下面的 `content_start`），pop 之后行号错位会让状态行整行漏进缓存，
         // 表现为"第一帧有、第二帧消失"（实测过）。
         let status_row = matches!(item, TranscriptItem::Status(_));
+        // 工具块自带 `Box(1,1)` 的顶部 padding（`tool-execution.ts:105`），条目循环再补一行
+        // 段落空行就比 TS 多 1 行（真实会话逐步对拍：助手正文 → 工具头之间 TS 2 行、我们 3 行）。
+        let tool_row = matches!(item, TranscriptItem::ToolCall { .. });
         // **连续两条助手消息**之间只留 1 行空行：ref 的助手正文 `Markdown` 用
         // `paddingY = 0`（`assistant-message.ts:113-115`），两条相邻时只有后一条自己的
         // `Spacer(1)`。本循环给每条目前面统一补一行，再叠上一条的尾随空行就变成 2 行
         // （真实会话逐步对拍实测：TS 1 行、我们 2 行）。
         let follows_assistant =
             matches!(item, TranscriptItem::Assistant(_)) && previous_item_was_assistant;
-        if !collapsed_tool_row && !status_row && !follows_assistant {
+        if !collapsed_tool_row && !status_row && !tool_row && !follows_assistant {
             lines.push(String::new());
         }
         // 本条目**内容**的起始行。通常等于 `before + 1`（`before` 那行是段落空行），
@@ -3302,6 +3305,9 @@ fn render_all_cached_styled_inner(
                 // `!tools_expanded` 过滤，会让有渲染器的工具在展开时丢掉自己的排版
                 // （T90 golden 的 ` expanded=true` 行就是扩展按展开态渲染的结果）。
                 if let Some(extension_lines) = render_lines {
+                    // 本分支不吃条目循环的段落空行（见 `tool_row`），所以自己补两行：
+                    // `Spacer(1)` + `Box(1,1)` 的顶部 padding（ref `tool-execution.ts:105-108`）。
+                    lines.push(String::new());
                     lines.push(String::new());
                     for line in extension_lines {
                         // 工具块的 contentBox 自带 1 列左边距（ref `tool-execution.ts:98-108`
