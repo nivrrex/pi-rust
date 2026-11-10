@@ -220,7 +220,9 @@ fn step_json(
             _other => None,
         })
         .collect();
+    let items = item_spans(state, cols);
     serde_json::json!({
+        "items": items,
         "step": step,
         "draw_count": draw_count,
         "cols": cols,
@@ -240,6 +242,68 @@ fn step_json(
         "tools": tools,
         "ext": ext_counters(),
     })
+}
+
+/// 每个转录条目占用的行数（F53 逐条目对拍用）。
+///
+/// 用"前缀渲染差分"算：把转录截到第 `i` 条渲染一次，取**聊天区**行数，与第 `i-1` 次相减。
+/// 聊天区行数 = 内容末行下标 + 1 − 编辑器框与状态区的固定行数（`render_all` 的布局是
+/// 头部 → 聊天区 → 编辑器框 3 行 → 状态区 2 行）。`rows` 取足够大以免上滚干扰。
+/// 只在测试钩子写 dump 时调用。
+fn item_spans(state: &pi_tui::TuiState, cols: usize) -> Vec<serde_json::Value> {
+    // 只要超过最长聊天区即可（真实会话约 2100 行）；过大只是白算填充行。
+    const TALL: usize = 8192;
+    /// 编辑器框 3 行 + 状态区 2 行（`render_all` 的固定尾部）。
+    const FOOTER_LINES: usize = 5;
+    let chat_len = |frame: &[String]| -> usize {
+        let end = frame
+            .iter()
+            .rposition(|line| !line.trim().is_empty())
+            .map_or(0, |last| last + 1);
+        end.saturating_sub(FOOTER_LINES)
+    };
+    let mut empty = state.clone();
+    empty.transcript.clear();
+    let header_len = chat_len(&pi_tui::render_all(&empty, cols, TALL));
+    let mut out = Vec::new();
+    let mut previous = header_len;
+    for index in 1..=state.transcript.len() {
+        let mut prefix = state.clone();
+        prefix.transcript.truncate(index);
+        let frame = pi_tui::render_all(&prefix, cols, TALL);
+        let len = chat_len(&frame);
+        let first = frame
+            .iter()
+            .take(len)
+            .skip(previous)
+            .find(|line| !line.trim().is_empty())
+            .cloned()
+            .unwrap_or_default();
+        out.push(serde_json::json!({
+            "i": index - 1,
+            "kind": item_kind(&prefix.transcript[index - 1]),
+            "lines": len.saturating_sub(previous),
+            "first": first,
+        }));
+        previous = len;
+    }
+    out
+}
+
+/// 条目类型名（只用于 dump 对比，不参与渲染）。
+fn item_kind(item: &pi_tui::TranscriptItem) -> &'static str {
+    use pi_tui::TranscriptItem as Item;
+    match item {
+        Item::User(_) => "user",
+        Item::Assistant(_) => "assistant",
+        Item::Thinking { .. } => "thinking",
+        Item::ToolCall { .. } => "tool",
+        Item::BashExecution { .. } => "bash",
+        Item::Notice(_) => "notice",
+        Item::Status(_) => "status",
+        Item::SkillInvocation { .. } => "skill",
+        Item::BranchSummary { .. } => "branch",
+    }
 }
 
 /// 扩展渲染请求的计数（`ext.render.tool` / `ext.render.thinking`）。
