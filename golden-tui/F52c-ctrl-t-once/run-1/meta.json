@@ -1,0 +1,18 @@
+{
+  "id": "F52c-ctrl-t-once",
+  "cols": 110,
+  "rows": 170,
+  "helperExit": 0,
+  "exitCode": 0,
+  "stderr": "",
+  "mockStderr": "",
+  "requestLog": "/tmp/g-ts-F52c-ctrl-t-once/requests.jsonl",
+  "snapshotOffsets": [
+    {
+      "name": "state",
+      "offset": 11182,
+      "t": 244611.076838481
+    }
+  ],
+  "sessionDir": "/tmp/g-ts-F52c-ctrl-t-once/session"
+}

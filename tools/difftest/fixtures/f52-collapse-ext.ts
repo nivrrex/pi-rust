@@ -17,14 +17,27 @@ export default function collapseExt(pi) {
           if (this.expanded === true || this.hideComponent === true) return original.call(this, width);
           const theme = ctx?.ui?.theme;
           if (!theme) return original.call(this, width);
-          const args = this.args && typeof this.args === "object" ? JSON.stringify(this.args) : "";
+          // 键序**按字典序**排序后再 stringify：pi-rs 的 `serde_json` 未开 `preserve_order`
+          // （`notes/questions.md` P5-1e E2 的用户裁定：不引入该 feature），参数键序与 TS
+          // 不一致是**既有已知限制**，不是 F52 渲染行为。此夹具只验证折叠行的展开/回折，
+          // 排序后两侧键序一致，避免把既有差异混进渲染对拍。
+          const sortedArgs =
+            this.args && typeof this.args === "object"
+              ? Object.fromEntries(Object.keys(this.args).sort().map((k) => [k, this.args[k]]))
+              : this.args;
+          const args = sortedArgs && typeof sortedArgs === "object" ? JSON.stringify(sortedArgs) : "";
           const failed = this.result && this.result.isError === true;
           const glyph = failed ? "x" : "+";
           const color = failed ? "error" : "success";
           const text = `${glyph} ${String(this.toolName)}${args ? ` · ${args}` : ""} · ${failed ? "err" : "ok"}`;
           // 按**可见宽度**裁剪（CJK 占 2 列），否则 CJK 参数会让行宽超终端列数，
           // TS 会 `uncaughtException: Rendered line N exceeds terminal width`。
-          const budget = Math.max(1, Number(width) - 4);
+          // `width` 可能是 `undefined`/非有限值（首帧布局前实测会这样，
+          // `Math.max(1, NaN)` 仍是 NaN ⇒ 比较恒 false ⇒ 完全不裁剪 ⇒ TS 崩溃）；
+          // 因此这里取"有限值则用之、否则 80"，并再压到 80 以内，两种实现都安全。
+          const raw = Number(width);
+          const safe = Number.isFinite(raw) && raw > 0 ? Math.min(raw, 80) : 80;
+          const budget = Math.max(1, safe - 4);
           let used = 0;
           let out = "";
           for (const ch of text) {

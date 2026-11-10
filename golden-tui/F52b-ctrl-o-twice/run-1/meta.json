@@ -1,0 +1,18 @@
+{
+  "id": "F52b-ctrl-o-twice",
+  "cols": 110,
+  "rows": 170,
+  "helperExit": 0,
+  "exitCode": 0,
+  "stderr": "",
+  "mockStderr": "",
+  "requestLog": "/tmp/g-ts-F52b-ctrl-o-twice/requests.jsonl",
+  "snapshotOffsets": [
+    {
+      "name": "state",
+      "offset": 32820,
+      "t": 244575.597797615
+    }
+  ],
+  "sessionDir": "/tmp/g-ts-F52b-ctrl-o-twice/session"
+}

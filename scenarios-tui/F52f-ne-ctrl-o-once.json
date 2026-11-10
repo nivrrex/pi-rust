@@ -1,0 +1,95 @@
+{
+ "id": "F52f-ne-ctrl-o-once",
+ "description": "F52：-ne（无扩展）下 ctrl+o 展开",
+ "provider": "openai-completions",
+ "model": "mock-model",
+ "mode": "tui",
+ "prompt": "",
+ "files": {
+  "AGENTS.md": "# 项目规则\n",
+  "synth.txt": "旧\n"
+ },
+ "globalFiles": {},
+ "cliArgs": [
+  "-ne"
+ ],
+ "responses": [
+  {
+   "file": "fixtures/sse/openai/f52-bash-heredoc.sse",
+   "chunkByEvent": true
+  },
+  {
+   "file": "fixtures/sse/openai/text-basic.sse"
+  }
+ ],
+ "tui": {
+  "cols": 110,
+  "rows": 170,
+  "snapshots": [
+   "state"
+  ],
+  "steps": [
+   {
+    "action": "waitScreen",
+    "contains": "Pi can explain",
+    "timeoutMs": 30000
+   },
+   {
+    "action": "waitStable",
+    "quietMs": 1200,
+    "timeoutMs": 20000
+   },
+   {
+    "action": "type",
+    "text": "hi\r"
+   },
+   {
+    "action": "delay",
+    "ms": 7000
+   },
+   {
+    "action": "waitStable",
+    "quietMs": 1500,
+    "timeoutMs": 20000
+   },
+   {
+    "action": "type",
+    "text": "\u000f"
+   },
+   {
+    "action": "delay",
+    "ms": 1200
+   },
+   {
+    "action": "waitStable",
+    "quietMs": 900,
+    "timeoutMs": 15000
+   },
+   {
+    "action": "delay",
+    "ms": 800
+   },
+   {
+    "action": "waitStable",
+    "quietMs": 1200,
+    "timeoutMs": 15000
+   },
+   {
+    "action": "snapshot",
+    "name": "state"
+   },
+   {
+    "action": "type",
+    "text": "\u0004"
+   },
+   {
+    "action": "waitStable",
+    "quietMs": 600,
+    "timeoutMs": 15000
+   }
+  ]
+ },
+ "settings": {
+  "hideThinkingBlock": true
+ }
+}
