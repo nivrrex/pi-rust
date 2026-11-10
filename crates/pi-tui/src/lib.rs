@@ -3172,9 +3172,17 @@ fn render_all_cached_styled_inner(
                 lines.push(String::new());
             }
             TranscriptItem::User(text) => {
-                // 多行用户消息（T09 after-submit 的 golden 实测）：**每行都带一个前导空格**。
+                // ref `components/user-message.ts:45-60`：内容是 `Box(outputPad=1)` 里的
+                // `Markdown(text, 0, 0, …)` ⇒ 排版宽 = `cols - 2`（Box 左右各 1 列 padding），
+                // 超宽**折行**（`Text`/`Markdown` 都会折），Box 再给每行 1 列前导空格。
+                // 此前只 `clamp_to_width` 截断 ⇒ 长用户消息尾部直接丢失（真实会话实测：
+                // 一条 3 行的用户消息我们只剩 1 行，TS 是 3 行）。
                 for line in text.split('\n') {
-                    lines.push(clamp_to_width(&format!(" {line}"), cols));
+                    // 折行宽 = `cols - 2 - 1`：Box 左右各 1 列 padding，行首另 1 列
+                    // （`user-message.ts:47` 的 `Box(outputPad=1)` + `Markdown(paddingX=0)`）。
+                    for wrapped in wrap_to_width(line, cols.saturating_sub(3).max(1)) {
+                        lines.push(clamp_to_width(&format!(" {wrapped}"), cols));
+                    }
                 }
                 lines.push(String::new());
             }
@@ -3231,8 +3239,12 @@ fn render_all_cached_styled_inner(
                     lines.push(String::new());
                     continue;
                 }
+                // ref 思考块用 `Markdown(thinkingBlocks, outputPad, 0, …)`
+                // （`assistant-message.ts:150-160`）⇒ 与助手正文同宽：`cols - 2`。
+                // 此前按 `cols` 折行，比 TS 宽 1 列（真实会话实测：TS 断在
+                // `…对应文档了解`，我们断在 `…了解具`）。
                 for line in render_markdown(text) {
-                    for wrapped in wrap_to_width(&line, cols) {
+                    for wrapped in wrap_to_width(&line, cols.saturating_sub(2).max(1)) {
                         lines.push(wrapped);
                     }
                 }
