@@ -3144,9 +3144,9 @@ fn render_all_cached_styled_inner(
             }
             TranscriptItem::Status(text) => {
                 // ref `showStatus`（`interactive-mode.ts:3709-3712`）= `Spacer(1)` + `Text(msg,1,0)`：
-                // **前 1 行空行、后不空**。前导空行由**上一条目**的尾随空行提供，
+                // 状态行**前面 1 行空行、后面不空**。前导空行由**上一条目**的尾随空行提供，
                 // 所以条目循环对 Status 跳过自己的段落空行（见 `status_row`），
-                // 这里也只输出状态行 + 尾随空行（与其它条目一致）。
+                // 这里只输出状态行 + 尾随空行（与其它条目一致）。
                 lines.push(clamp_to_width(&format!(" {text}"), cols));
                 lines.push(String::new());
             }
@@ -3183,7 +3183,6 @@ fn render_all_cached_styled_inner(
                         lines.push(wrapped);
                     }
                 }
-                lines.push(String::new());
             }
             TranscriptItem::Assistant(text) => {
                 let (md_lines, md_styles, md_spans) = render_markdown_styled_with_width(
@@ -3466,7 +3465,7 @@ fn render_all_cached_styled_inner(
                         // 截断会**丢内容**（真实会话里一个长 `summary` 被砍掉半行，
                         // 与 TS 逐步对拍时表现为"少一行文本"）。
                         for line in pretty.lines() {
-                            for wrapped in wrap_to_width(line, cols.saturating_sub(1).max(1)) {
+                            for wrapped in wrap_to_width(line, cols.saturating_sub(2).max(1)) {
                                 lines.push(clamp_to_width(&format!(" {wrapped}"), cols));
                             }
                         }
@@ -3492,8 +3491,16 @@ fn render_all_cached_styled_inner(
                 let hide_collapsed = name == "read" && !is_error && !state.tools_expanded;
                 if let Some(diff) = edit_diff.as_deref() {
                     lines.push(String::new());
+                    // ref `renderers/edit.ts:120-124` 把 `details.diff` 放进 `Text` 组件
+                    // ⇒ 超宽**折行**。截断会丢内容，也让块高度比 TS 少很多行
+                    // （真实会话逐步对拍：同一 edit 块 TS 43 行、我们 23 行）。
                     for line in diff.lines() {
-                        lines.push(clamp_to_width(&format!(" {line}"), cols));
+                        // 内容宽 = `cols - 2`：`tool-execution.ts:98-108` 的 `Box(1,1)` 左右各 1 列，
+                        // 加上我们自己的 1 列前导空格 ⇒ 整行最多 `cols - 1` 可见列
+                        // （真实会话对拍：用 `cols - 1` 作内容宽会比 TS 晚一格换行）。
+                        for wrapped in wrap_to_width(&line, cols.saturating_sub(2).max(1)) {
+                            lines.push(clamp_to_width(&format!(" {wrapped}"), cols));
+                        }
                     }
                 } else if let Some(extension_result) =
                     result_render_lines.as_ref().filter(|_| !hide_collapsed)
