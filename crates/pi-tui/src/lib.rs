@@ -3114,12 +3114,13 @@ fn render_all_cached_styled_inner(
                 }
                 // 扩展 `renderCall` 给了降级行 ⇒ 用它们替代默认的 ` name summary` 行
                 // （ref `tool-execution.ts:110-118`：有渲染器时用组件的 contentBox）。
-                // F52/A：展开态**忽略**扩展的 `renderCall`/`renderResult` 降级行 ——
-                // 它们是按 `expanded=false` 生成的（含 `... (N earlier lines, ctrl+o to expand)`
-                // 这类预览提示），展开时应显示原生全文（真机 E3：展开后仍留着预览提示）。
-                let use_extension_lines = !state.tools_expanded;
-                if let Some(extension_lines) = render_lines.as_ref().filter(|_| use_extension_lines)
-                {
+                // F52/A：扩展的 `renderCall` 在**两种状态都照用** —— ref 里
+                // `ToolExecutionComponent` 始终用渲染器返回的组件（`tool-execution.ts:110-118`），
+                // 展开态的差别由"按 `expanded` 重新请求"负责（ref `:352` 把
+                // `options.expanded` 传进 `renderResult`）。此前我们额外按
+                // `!tools_expanded` 过滤，会让有渲染器的工具在展开时丢掉自己的排版
+                // （T90 golden 的 ` expanded=true` 行就是扩展按展开态渲染的结果）。
+                if let Some(extension_lines) = render_lines {
                     lines.push(String::new());
                     for line in extension_lines {
                         // 工具块的 contentBox 自带 1 列左边距（ref `tool-execution.ts:98-108`
