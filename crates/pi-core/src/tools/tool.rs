@@ -131,6 +131,15 @@ pub trait Tool: Send + Sync {
         cancel: &'a CancellationToken,
     ) -> futures::future::BoxFuture<'a, ToolResult>;
 
+    /// 参数归一（在校验**之前**跑）。
+    ///
+    /// 对应 ref `AgentTool.prepareArguments`（`packages/agent/src/types.ts:450`）：
+    /// 模型常把结构化参数发成字符串或扁平形态，工具可在这里无副作用地改写成标准形态。
+    /// 默认原样返回。
+    fn prepare_arguments(&self, arguments: Value) -> Value {
+        arguments
+    }
+
     /// 校验 + 执行。
     ///
     /// **校验失败时不执行**，直接把错误文本当作工具结果返回——这与 TS 一致
@@ -141,6 +150,8 @@ pub trait Tool: Send + Sync {
         context: &'a ToolContext,
         cancel: &'a CancellationToken,
     ) -> futures::future::BoxFuture<'a, ToolResult> {
+        // 与 ref 一致：先归一参数，再校验（`agent-loop.ts:690-700`）。
+        let arguments = self.prepare_arguments(arguments);
         match validate_required(self.name(), self.schema(), &arguments) {
             Ok(()) => self.execute(arguments, context, cancel),
             Err(error) => Box::pin(async move { ToolResult::error(error.message) }),

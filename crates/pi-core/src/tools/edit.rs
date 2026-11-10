@@ -3,9 +3,11 @@
 //! 校验与替换复用 [`super::edit_text`] 的纯逻辑；这里只负责读写与参数解析。
 //! 对应 `packages/coding-agent/src/core/tools/edit.ts` 与 `spec/e-tools.md` 第 4 节。
 //!
-//! **未实现**：`fuzzyFindText` 的模糊匹配、BOM 与换行符保留、diff/patch 生成、
-//! `prepareEditArguments` 的模型兼容归一（把 `edits` 从 JSON 字符串解析出来）。
-//! 这些都要先把模糊匹配的归一化规则抽清楚，否则会与 TS 语义不一致。
+//! **未实现**：`fuzzyFindText` 的模糊匹配。它的归一化规则没抽清楚前不做，
+//! 否则会与 TS 语义不一致。
+//!
+//! 参数归一由 [`prepare_arguments`] 负责（ref `harness/tools/edit.ts:55-75` 的
+//! `prepareEditArguments`），在校验**之前**跑，见 [`Tool::prepare_arguments`]。
 
 use serde_json::{json, Value};
 use tokio_util::sync::CancellationToken;
@@ -41,6 +43,65 @@ pub fn schema() -> Value {
     })
 }
 
+/// 参数归一到标准形态：`{path, edits: [{oldText, newText}, …]}`。
+///
+/// 逐条对应 ref `harness/tools/edit.ts:55-75`：
+/// 1. `edits` 是 JSON **字符串** ⇒ `JSON.parse`；解析成数组就整体替换，
+///    解析成单个 edit 对象就包成数组（`:56-66`）。解析失败保持原样（ref 的 `catch {}`）。
+/// 2. `edits` 是单个 edit 对象 ⇒ 包成数组（`:67-69`）。
+/// 3. 顶层有 `oldText`/`newText`（legacy 单次替换）⇒ 追加进 `edits` 并删掉两个顶层字段
+///    （`:71-75`）；`edits` 不是数组时按空数组起算。
+///
+/// 非对象入参照原样返回（ref 的 `if (!input || typeof input !== "object")`）。
+pub fn prepare_arguments(arguments: Value) -> Value {
+    let Some(object) = arguments.as_object() else {
+        return arguments;
+    };
+    let mut object = object.clone();
+    if let Some(edits) = object.get("edits").cloned() {
+        if let Some(raw) = edits.as_str() {
+            if let Ok(parsed) = serde_json::from_str::<Value>(raw) {
+                if parsed.is_array() {
+                    object.insert("edits".into(), parsed);
+                } else if is_single_edit(&parsed) {
+                    object.insert("edits".into(), Value::Array(vec![parsed]));
+                }
+            }
+        } else if is_single_edit(&edits) {
+            object.insert("edits".into(), Value::Array(vec![edits]));
+        }
+    }
+    let legacy = object
+        .get("oldText")
+        .and_then(Value::as_str)
+        .map(str::to_string)
+        .zip(
+            object
+                .get("newText")
+                .and_then(Value::as_str)
+                .map(str::to_string),
+        );
+    if let Some((old_text, new_text)) = legacy {
+        let mut list = match object.remove("edits") {
+            Some(Value::Array(items)) => items,
+            Some(_) | None => Vec::new(),
+        };
+        list.push(json!({ "oldText": old_text, "newText": new_text }));
+        object.remove("oldText");
+        object.remove("newText");
+        object.insert("edits".into(), Value::Array(list));
+    }
+    Value::Object(object)
+}
+
+/// 是否是单个 edit 对象（ref `isSingleEditInput`：`oldText`/`newText` 都是字符串）。
+fn is_single_edit(value: &Value) -> bool {
+    value.as_object().is_some_and(|map| {
+        map.get("oldText").is_some_and(Value::is_string)
+            && map.get("newText").is_some_and(Value::is_string)
+    })
+}
+
 /// 从参数里解析 `edits`；缺字段按空字符串处理（与 `edit-diff.ts` 的宽松读取一致）。
 fn parse_edits(arguments: &Value) -> Vec<Edit> {
     arguments
@@ -71,6 +132,10 @@ impl Tool for EditTool {
     fn schema(&self) -> &Value {
         static SCHEMA: std::sync::OnceLock<Value> = std::sync::OnceLock::new();
         SCHEMA.get_or_init(schema)
+    }
+
+    fn prepare_arguments(&self, arguments: Value) -> Value {
+        prepare_arguments(arguments)
     }
 
     fn execute<'a>(
