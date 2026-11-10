@@ -5586,7 +5586,13 @@ fn tool_summary_for(name: &str, args: &serde_json::Value) -> String {
             .map(str::to_string)
     };
     let picked = match name {
-        "read" | "edit" | "write" | "ls" | "todo" => field("path").or_else(|| field("filePath")),
+        // ref 的路径键序是 `file_path ?? path`（`renderers/write.ts:103`、
+        // `read.ts:35`、`edit.ts:84`）。此前只认 `path`/`filePath`，真实会话里的
+        // `file_path` 落到下面的"取第一个字符串参数"⇒ 头部变成内容首行
+        // （`write # OA 邮件工作区总览…`），且块正文因此走了结果路径、整篇内容都印了出来。
+        "read" | "edit" | "write" | "ls" | "todo" => field("file_path")
+            .or_else(|| field("path"))
+            .or_else(|| field("filePath")),
         "bash" | "powershell" => field("command"),
         "grep" => field("pattern"),
         "find" | "fffind" => field("pattern").or_else(|| field("glob")),
