@@ -221,8 +221,11 @@ fn step_json(
         })
         .collect();
     let items = item_spans(state, cols);
+    // 帧内容行数（未补齐、未裁剪）：与 `rows` 比较可判断这一帧是否触发上滚。
+    let frame_lines = pi_tui::render_all(state, cols, rows).len();
     serde_json::json!({
         "items": items,
+        "frame_lines": frame_lines,
         "step": step,
         "draw_count": draw_count,
         "cols": cols,
