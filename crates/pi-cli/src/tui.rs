@@ -1469,16 +1469,9 @@ pub fn run(
         .as_ref()
         .map(|parts| parts.startup_warnings.clone())
         .unwrap_or_default();
-    // 已知差异（F53 未解决）：ref 把启动告警排在**内置头部之前**（`showWarning` 先于头部
-    // 进容器），我们的告警落在头部之后。要修需要在 pi-tui 里让 `startup_warnings` 参与
-    // 头部渲染，属渲染结构改动，本批未做（见 notes/p9-f53/plan.md 的遗留项）。
-    for warning in &startup_warnings {
-        state
-            .transcript
-            .push(pi_tui::TranscriptItem::Notice(format!(
-                "Warning: {warning}"
-            )));
-    }
+    // 启动告警画在帧最顶部（`Model scope:` 之前），不再塞进转录区 —— ref 里它们是
+    // 框架之上的 `console.log`（T80 golden 首行就是 `Warning: No models match …`）。
+    state.startup_warnings = startup_warnings;
     let initial = parts
         .as_ref()
         .map(|parts| parts.initial_messages.clone())

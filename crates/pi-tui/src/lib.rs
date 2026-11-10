@@ -48,6 +48,10 @@ pub const SPINNER_INTERVAL: std::time::Duration = std::time::Duration::from_mill
 /// TUI 的可变状态（纯数据）。
 #[derive(Debug, Clone, PartialEq)]
 pub struct TuiState {
+    /// 启动期的告警（`enabledModels` 里有不存在的 id 等）。ref 用 `console.log` 打在
+    /// **框架之上**、`Model scope:` 之前（`interactive-mode.ts:904-916` 之前就已完成解析），
+    /// 因此必须画在帧的最顶部，而不是塞进转录区（T80 golden 实测）。
+    pub startup_warnings: Vec<String>,
     /// 扩展注册的斜杠命令：`(name, "[tag] description")`（ref `interactive-mode.ts:745-756`）。
     /// 由 pi-cli 在握手后注入；菜单与计数都把它算进去。
     pub extension_commands: Vec<(String, String)>,
@@ -298,6 +302,7 @@ impl TuiState {
         status: impl Into<String>,
     ) -> Self {
         Self {
+            startup_warnings: Vec::new(),
             extension_commands: Vec::new(),
             extension_status: std::collections::BTreeMap::new(),
             extension_widgets: std::collections::BTreeMap::new(),
@@ -2639,6 +2644,11 @@ fn render_all_cached_styled_inner(
     style_out: RenderStyleOut<'_>,
 ) -> Vec<String> {
     let mut lines: Vec<String> = Vec::with_capacity(rows);
+    // 启动告警 → `Model scope:` → 头部（ref 的顺序：`console.log` 在头部组件之前，
+    // 而 `Model scope:` 也是在 `console.log`；T80 golden 首两行就是这两条）。
+    for warning in &state.startup_warnings {
+        lines.push(clamp_to_width(&format!("Warning: {warning}"), cols));
+    }
     // ref `interactive-mode.ts:904`：`verbose || !quietStartup` 才打印 `Model scope:`。
     if !state.model_scope.is_empty() && !state.quiet_startup {
         // ref `interactive-mode.ts:905-916`：`Model scope: <id[:thinking], …> (Ctrl+P to cycle)`
