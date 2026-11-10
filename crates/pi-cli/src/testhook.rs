@@ -398,6 +398,15 @@ mod tests {
     use super::*;
     use pi_tui::{TranscriptItem, TuiState};
 
+    /// 环境变量是**进程级**的：下面几个用例都会读写 `PI_TEST_*`，必须串行执行，
+    /// 否则 `disabled_without_env` 会撞上别的用例刚设好的变量
+    /// （`cargo test --workspace` 并行跑时实测偶发失败）。
+    static ENV_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+    fn env_guard() -> std::sync::MutexGuard<'static, ()> {
+        ENV_LOCK.lock().unwrap_or_else(|poison| poison.into_inner())
+    }
+
     fn state() -> TuiState {
         let mut st = TuiState::new("0.87.1", "/tmp/work", "0.0%/128k (auto)");
         st.transcript.push(TranscriptItem::User("hi".into()));
@@ -407,6 +416,7 @@ mod tests {
     /// 三个环境变量都未设置 ⇒ 钩子完全不启用（不建目录、不注入、不写文件）。
     #[test]
     fn disabled_without_env() {
+        let _guard = env_guard();
         for key in ["PI_TEST_KEYS", "PI_TEST_DUMP", "PI_TEST_TAIL"] {
             std::env::remove_var(key);
         }
@@ -417,6 +427,7 @@ mod tests {
     /// 启用钩子**不改变渲染输出**：同一状态下开/关钩子渲染逐字节相同。
     #[test]
     fn hook_does_not_change_rendering() {
+        let _guard = env_guard();
         let st = state();
         let plain = pi_tui::render_all(&st, 80, 30);
         std::env::set_var("PI_TEST_KEYS", "ctrl+o,ctrl+t");
@@ -430,6 +441,7 @@ mod tests {
     /// 步进静止判定：连续两次空闲才算静止，中间有帧就清零。
     #[test]
     fn quiet_requires_two_idle_ticks() {
+        let _guard = env_guard();
         std::env::set_var("PI_TEST_KEYS", "ctrl+o");
         let mut hook = TestHook::from_env().expect("钩子应启用");
         std::env::remove_var("PI_TEST_KEYS");
@@ -442,6 +454,7 @@ mod tests {
     /// `step-N.txt` 去 ANSI、`step-N.json` 带关键字段；`tail.txt` 只留最后 N 行。
     #[test]
     fn writes_step_and_tail_files() {
+        let _guard = env_guard();
         let dir = tempfile::tempdir().expect("tempdir");
         std::env::set_var("PI_TEST_KEYS", "");
         std::env::set_var("PI_TEST_DUMP", dir.path().to_str().expect("utf8"));

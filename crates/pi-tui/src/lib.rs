@@ -3007,56 +3007,27 @@ fn render_all_cached_styled_inner(
         // （见下面的 `content_start`），pop 之后行号错位会让状态行整行漏进缓存，
         // 表现为"第一帧有、第二帧消失"（实测过）。
         let status_row = matches!(item, TranscriptItem::Status(_));
-        // 工具块自带 `Box(1,1)` 的顶部 padding（`tool-execution.ts:105`），条目循环再补一行
-        // 段落空行就比 TS 多 1 行（真实会话逐步对拍：助手正文 → 工具头之间 TS 2 行、我们 3 行）。
-        let tool_row = matches!(item, TranscriptItem::ToolCall { .. });
         // **连续两条助手消息**之间只留 1 行空行：ref 的助手正文 `Markdown` 用
         // `paddingY = 0`（`assistant-message.ts:113-115`），两条相邻时只有后一条自己的
         // `Spacer(1)`。本循环给每条目前面统一补一行，再叠上一条的尾随空行就变成 2 行
         // （真实会话逐步对拍实测：TS 1 行、我们 2 行）。
         let follows_assistant =
             matches!(item, TranscriptItem::Assistant(_)) && previous_item_was_assistant;
-        // 更一般的规则（真实会话对拍）：上一条是**助手正文 / 思考块**时，下一条不再补段落空行
-        // —— 它们自己的尾随空行已经提供了分隔，再补就比 TS 多 1 行。实测该形态在我们的
-        // 真实会话帧里产生 128 处连续 2 行空行（TS 侧同位置只有 1 行）。
-        let follows_text_like = matches!(
-            state.transcript.get(item_index.wrapping_sub(1)),
-            Some(
-                TranscriptItem::Assistant(_)
-                    | TranscriptItem::Notice(_)
-                    | TranscriptItem::Status(_)
-            )
-        ) && item_index > 0;
-        // 上一条自己已经留了尾随空行（工具块底 padding、助手正文之后、状态行等）时不再补，
-        // 否则叠加成 2 行空行（真实会话实测：TS 侧同一位置只有 1 行）。扩展渲染块前后由
-        // 扩展自己决定（`T90`/`F52a` golden 里工具块之间就有 3 行），那种情况保持原样。
-        let previous_is_ext_block = matches!(
-            state.transcript.get(item_index.wrapping_sub(1)),
-            Some(
-                TranscriptItem::ToolCall {
-                    render_lines: Some(_),
-                    ..
-                } | TranscriptItem::ToolCall {
-                    result_render_lines: Some(_),
-                    ..
-                }
-            )
+        // 段落空行：判定要与**缓存命中分支**一致（见下）。这里不含工具条目：工具块
+        // 自己也补 `Box(1,1)` 顶 padding，两者叠加才是 TS 的 2 行。
+        // 扩展渲染块自己补 `Spacer(1)` + `Box(1,1)` 顶 padding 两行（见 match 里那一支），
+        // 循环再补一行就成了 3 行 —— T90 实测 TS 是 2 行。
+        let extension_block = matches!(
+            item,
+            TranscriptItem::ToolCall {
+                render_lines: Some(_),
+                ..
+            } | TranscriptItem::ToolCall {
+                result_render_lines: Some(_),
+                ..
+            }
         );
-        if !collapsed_tool_row
-            && !status_row
-            && !tool_row
-            && !follows_assistant
-            && !follows_text_like
-            && (item_index == 0
-                || previous_is_ext_block
-                // 用户消息是**带边框的盒子**（ref `components/user-message.ts` 有上下边框），
-                // 它自己不带尾随空行；紧跟其后的那 1 行必须照补（T05 实测：省掉后整帧短 1 行）。
-                || matches!(
-                    state.transcript.get(item_index.wrapping_sub(1)),
-                    Some(TranscriptItem::User(_))
-                )
-                || !lines.last().is_some_and(|l| l.is_empty()))
-        {
+        if !collapsed_tool_row && !status_row && !extension_block && !follows_assistant {
             lines.push(String::new());
         }
         // 本条目**内容**的起始行。通常等于 `before + 1`（`before` 那行是段落空行），
@@ -3230,8 +3201,7 @@ fn render_all_cached_styled_inner(
                         &format!(" {}", shown.unwrap_or("Thinking...")),
                         cols,
                     ));
-                    // 不再自带尾随空行：与下一条之间的那 1 行由下一条的段落空行提供
-                    // （此前两条都补 ⇒ 真实会话里"思考块 → 工具块"之间比 TS 多 1 行）。
+                    lines.push(String::new());
                     continue;
                 }
                 for line in render_markdown(text) {
