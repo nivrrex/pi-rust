@@ -166,7 +166,7 @@ fn no_pending_requests_left_after_invoke_returns() {
 
 /// F30/S3'：**确定性**复现"排干检查后才登记 custom_input"的竞态。
 ///
-/// 做法：`PI_TEST_CUSTOM_INPUT_DELAY_MS` 让 `custom_input` 在算 `busy` 之前先睡，
+/// 做法：`HostHandle::set_test_custom_input_delay_ms(300)` 让 `custom_input` 在算 `busy` 之前先睡，
 /// 于是调用方可以在它"还没开始检查"时就起一个 invoke —— 等到检查时 invoke 已经在跑，
 /// 按键必须走直连并被读到（否则会 5s 超时失败）。
 #[test]
@@ -192,7 +192,8 @@ fn custom_input_started_before_invoke_is_delivered() {
         "model": "mock-model", "thinkingLevel": "off"}),
     );
 
-    std::env::set_var("PI_TEST_CUSTOM_INPUT_DELAY_MS", "300");
+    // 延迟是**本宿主实例**的开关，不再写进程级环境变量（并行用例会互相污染）。
+    host.set_test_custom_input_delay_ms(300);
     let keyer = {
         let host = host.clone();
         std::thread::spawn(move || host.custom_input("\r", 80))
@@ -216,7 +217,7 @@ fn custom_input_started_before_invoke_is_delivered() {
     }
     assert!(opened, "应打开自定义面板");
     let key_result = keyer.join().expect("按键线程");
-    std::env::remove_var("PI_TEST_CUSTOM_INPUT_DELAY_MS");
+    host.set_test_custom_input_delay_ms(0);
     assert!(key_result.is_ok(), "按键应被投递：{key_result:?}");
     let result = invoker.join().expect("线程").expect("工具应成功");
     assert_eq!(result["content"][0]["text"], "answer:yes");

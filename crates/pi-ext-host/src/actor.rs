@@ -144,6 +144,14 @@ pub struct HostHandle {
     /// 一旦某个 `Cmd::Invoke` 先入队，后续入队的 `Cmd::CustomInput` 要等它完成才会被处理，
     /// 而 invoke 又在等扩展应答、扩展在等这次按键 ⇒ 5s 超时（全量并行时偶发）。
     active_invokes: std::sync::Arc<std::sync::atomic::AtomicUsize>,
+    /// **仅测试用**：`custom_input` 在检查 `busy` 之前的人为延迟（毫秒）。
+    ///
+    /// 用于确定性复现"排干检查后才登记"的竞态。此前用**进程级环境变量**
+    /// `PI_TEST_CUSTOM_INPUT_DELAY_MS` 表达，而 `cargo test` 的多个用例在**同一进程**里
+    /// 并行跑 ⇒ 一个用例设了延迟，别的用例的 `custom_input` 也跟着变慢，
+    /// 导致 `no_pending_requests_left_after_invoke_returns` 偶发超时失败。
+    /// 改成**每个宿主实例各一份**，消除跨用例的共享状态。
+    test_custom_input_delay_ms: std::sync::Arc<std::sync::atomic::AtomicU64>,
     /// 宿主暴露的 loopback 端口（测试用）。
     port: u16,
     /// node 子进程 pid（测试用）。
@@ -212,6 +220,9 @@ impl HostHandle {
             Ok(Ok(meta)) => Ok(Self {
                 tx,
                 active_invokes: std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0)),
+                test_custom_input_delay_ms: std::sync::Arc::new(std::sync::atomic::AtomicU64::new(
+                    0,
+                )),
                 port: meta.port,
                 pid: meta.pid,
                 tools: meta.tools,
@@ -356,13 +367,22 @@ impl HostHandle {
     ///
     /// **不经过 actor**：工具调用期间 actor 会在 `block_on` 里等应答，按键必须能并发发出
     /// （见 `notes/decisions.md` 的 E4f 设计）。
+    /// **仅测试用**：给 `custom_input` 设一个人为延迟（毫秒，0 = 关闭）。
+    ///
+    /// 只影响本宿主实例，不改变其它用例的行为（此前用进程级环境变量，跨用例互相污染）。
+    pub fn set_test_custom_input_delay_ms(&self, ms: u64) {
+        self.test_custom_input_delay_ms
+            .store(ms, std::sync::atomic::Ordering::SeqCst);
+    }
+
     pub fn custom_input(&self, key: &str, width: usize) -> Result<Value, HostError> {
         // **仅测试用**：把"检查 busy"推迟到调用方起 invoke 之后，使"排干检查后才登记"
-        // 的那条竞态必然发生（生产路径不设该变量 ⇒ 行为不变）。
-        if let Ok(ms) = std::env::var("PI_TEST_CUSTOM_INPUT_DELAY_MS") {
-            if let Ok(ms) = ms.trim().parse::<u64>() {
-                std::thread::sleep(std::time::Duration::from_millis(ms));
-            }
+        // 的那条竞态必然发生。延迟是**本实例私有**的（见字段注释），不再读进程级环境变量。
+        let delay_ms = self
+            .test_custom_input_delay_ms
+            .load(std::sync::atomic::Ordering::SeqCst);
+        if delay_ms > 0 {
+            std::thread::sleep(std::time::Duration::from_millis(delay_ms));
         }
         // 有 invoke 在排队或执行 ⇒ actor 会被占住，走直连（读取由 invoke 的读帧循环服务）；
         // 否则 actor 空闲，按键交给它阻塞读取（此时直连会没人读应答）。
@@ -542,7 +562,15 @@ fn actor_main(
     rx: Receiver<Cmd>,
     ready: Sender<Result<HostMeta, ActorError>>,
 ) {
-    let runtime = match tokio::runtime::Builder::new_current_thread()
+    // **必须是多线程运行时（哪怕只有 1 个 worker）**：`custom_input` 在"actor 忙"时
+    // 会把直连请求 `runtime.spawn` 出去，再在调用线程上同步等结果。current-thread
+    // 运行时只有在有人 `block_on` 时才推进任务；一旦 actor 恰好回到 `rx.recv()` 空转，
+    // 那个 spawn 出去的任务**永远不会被轮询** ⇒ `ext.custom.input` 6s 超时。
+    // 这就是 `no_pending_requests_left_after_invoke_returns` 偶发失败（~3/30）的根因：
+    // `busy` 检查看到 `active_invokes > 0`，但真正 spawn 时 invoke 已经结束、actor 已空转。
+    // 换成 1 个 worker 的多线程运行时后，任务由 worker 独立推进，不再依赖 actor 是否有在跑。
+    let runtime = match tokio::runtime::Builder::new_multi_thread()
+        .worker_threads(1)
         .enable_all()
         .build()
     {
