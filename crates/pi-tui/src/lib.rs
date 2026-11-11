@@ -3509,7 +3509,20 @@ fn render_all_cached_styled_inner(
                 // 会话里可能把 SGR 复位序列**当字面文本**存进参数（真实会话实测：
                 // `read … .md[0m[0m`）。ref 的 `renderToolPath` 只取路径本身，不会带出来；
                 // 这里把字面量 `[0m` 也一并去掉。
-                let text = text.replace("\u{1b}[0m", "").replace("[0m", "");
+                // 头部文本里**不能有 ESC**：真实会话的参数里出现过 `ESC ESC [0m`
+                // （双重转义），只替换 `ESC [0m` 会留下一个裸 ESC；`write_spans` 换样式时
+                // 会写出 `ESC[0m`，紧挨着就成了 `ESC ESC[0m`，终端把裸 ESC 当字符显示，
+                // 屏幕上出现 `PY0m0m` 并多占一行（real-parity 18 格"整体位移 1 行"的来源）。
+                // 用 `strip_ansi` 整段剥掉转义序列（只滤 ESC 字符会把 `]8;;` 之类
+                // 的序列残体留在屏幕上，实测出现 ` PY[0m]8;;`）。
+                // 顺序很重要：先剥完整转义序列，再丢掉**裸 ESC**（会话里出现过
+                // `ESC ESC [0m`，成对剥离会漏掉一个），最后清掉字面量 `[0m`。
+                // 只做其中一步都会在屏幕上留下 `PY0m0m`/`]8;;` 这类残体并多占一行。
+                let text = strip_ansi(&text)
+                    .chars()
+                    .filter(|ch| *ch != '\u{1b}')
+                    .collect::<String>()
+                    .replace("[0m", "");
                 for logical in text.split('\n') {
                     let normalized = logical.replace('\t', "   ");
                     for wrapped in wrap_to_width(&normalized, cols.saturating_sub(2).max(1)) {
@@ -3525,6 +3538,11 @@ fn render_all_cached_styled_inner(
                 // 的 span 划分：那时 `name_end + 1 > text.len()`，span 区间非法，
                 // `write_spans` 会吐出坏字节（实测行尾 `\x1b\x1b[0m[0m` 污染画面）。
                 if summary.is_empty() || matches!(native, NativeTool::Generic) {
+                    // span 的端点必须是**该行文本的字节长度**（`write_spans` 按
+                    // `char_indices` 比较）。`text` 可能被折成多行、也可能含多字节字符，
+                    // 用它的整体 `len()` 会越界 ⇒ `write_spans` 在行尾吐坏字节
+                    // （真实会话实测 `ESC ESC [0m`，屏幕上多出 `PY0m0m` 并挤掉一行）。
+                    let line_text = lines.last().map_or("", String::as_str);
                     style_out.spans.tool_header.push((
                         lines.len() - 1,
                         vec![
@@ -3532,7 +3550,7 @@ fn render_all_cached_styled_inner(
                             style::Span::new(0, 1, style::LineStyle::default()),
                             style::Span::new(
                                 1,
-                                1 + text.len(),
+                                line_text.len().max(1),
                                 style::LineStyle::fg(style_out.palette.text).bold(),
                             ),
                         ],
