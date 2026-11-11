@@ -1823,22 +1823,39 @@ pub fn display_width(text: &str) -> usize {
 #[must_use]
 /// ref `utils.ts` 的 `cjkBreakRegex` 覆盖范围：CJK 汉字/假名/谚文与全角标点等。
 fn is_cjk_breakable(ch: char) -> bool {
-    // ref `utils.ts:789-812` 的 `cjkBreakRegex` **只覆盖脚本**：
-    // `\p{Script_Extensions=Han|Hiragana|Katakana|Hangul|Bopomofo}`。
-    // **全角标点（U+FF00–FFEF）与 CJK 符号标点（U+3000–303F）不在其中** ⇒ 它们
-    // 不单独成 token，而是并入相邻的 word token（`splitIntoTokensWithAnsi` 的 `word` 分支）。
-    // 此前把这些区间也算作断点，导致断点位置整体左/右移 1–2 格（真机 T2 的奇偶现象）。
+    // ref `utils.ts:54-55` 的 `cjkBreakRegex`
+    // = `[\p{Script_Extensions=Han}|Hiragana|Katakana|Hangul|Bopomofo}]`。
+    // 区间是**用该正则实测枚举**得到的（`Script_Extensions` 不是简单的块范围：
+    // `、`（U+3001）/`。`（U+3002）等的 Script 是 Common，但 Script_Extensions 含 Han
+    // ⇒ **在**断点集合里；`（`U+FF08/`，`U+FF0C 的 Script_Extensions 只有 Common
+    // ⇒ **不在**）。此前按"块范围"近似，漏了 0x3001..0x303F ⇒ `、` 并进前一个 word
+    // token，真实会话里整段文字提前 8 列换行（`id=27721、` 被当成一个不可分 token）。
     matches!(ch as u32,
-        0x1100..=0x11FF      // 谚文字母
-        | 0x2E80..=0x2EFF    // CJK 部首补充
-        | 0x3040..=0x30FF    // 平假名 / 片假名
-        | 0x3400..=0x4DBF    // CJK 扩展 A
-        | 0x4E00..=0x9FFF    // CJK 统一表意
-        | 0xA000..=0xA4CF    // 彝文
-        | 0xAC00..=0xD7AF    // 谚文音节
-        | 0xF900..=0xFAFF    // CJK 兼容表意
-        | 0xFE30..=0xFE4F    // CJK 兼容形式
-        | 0x20000..=0x2FA1F  // CJK 扩展 B+
+        0xB7 | 0x2C7 | 0x2C9..=0x2CB | 0x2D9 | 0x2EA..=0x2EB | 0x305 | 0x323
+        | 0x1100..=0x11FF
+        | 0x2E80..=0x2E99 | 0x2E9B..=0x2EF3 | 0x2F00..=0x2FD5 | 0x2FF0..=0x2FFF
+        | 0x3001..=0x3003 | 0x3005..=0x3011 | 0x3013..=0x301F
+        | 0x3021..=0x3035 | 0x3037..=0x303F
+        | 0x3041..=0x3096 | 0x3099..=0x30FF
+        | 0x3105..=0x312F | 0x3131..=0x318E | 0x3190..=0x31E5
+        | 0x31EF..=0x321E | 0x3220..=0x3247 | 0x3260..=0x327E
+        | 0x3280..=0x32B0 | 0x32C0..=0x32CB | 0x32D0..=0x3370
+        | 0x337B..=0x337F | 0x33E0..=0x33FE
+        | 0x3400..=0x4DBF | 0x4E00..=0x9FFF
+        | 0xA700..=0xA707 | 0xA960..=0xA97C
+        | 0xAC00..=0xD7A3 | 0xD7B0..=0xD7C6 | 0xD7CB..=0xD7FB
+        | 0xF900..=0xFA6D | 0xFA70..=0xFAD9
+        | 0xFE45..=0xFE46
+        | 0xFF61..=0xFFBE | 0xFFC2..=0xFFC7 | 0xFFCA..=0xFFCF
+        | 0xFFD2..=0xFFD7 | 0xFFDA..=0xFFDC
+        | 0x16FE2..=0x16FE3 | 0x16FF0..=0x16FF6
+        | 0x1AFF0..=0x1AFF3 | 0x1AFF5..=0x1AFFB | 0x1AFFD..=0x1AFFE
+        | 0x1B000..=0x1B122 | 0x1B132 | 0x1B150..=0x1B152 | 0x1B155
+        | 0x1B164..=0x1B167 | 0x1D360..=0x1D371
+        | 0x1F200 | 0x1F250..=0x1F251
+        | 0x20000..=0x2A6DF | 0x2A700..=0x2B81D | 0x2B820..=0x2CEAD
+        | 0x2CEB0..=0x2EBE0 | 0x2EBF0..=0x2EE5D | 0x2F800..=0x2FA1D
+        | 0x30000..=0x3134A | 0x31350..=0x33479
     )
 }
 
@@ -2689,6 +2706,39 @@ fn render_all_cached_inner(
 ///
 /// `styles` 与返回的 `lines` **等长**：每一项要么是 `None`（终端默认），要么是一条
 /// [`style::LineStyle`]。样式只影响写终端的 SGR，**不影响** `lines` 的内容与宽度。
+/// 本条目要不要补**段落空行**。
+///
+/// 慢路径（重新渲染）与快路径（命中每条目缓存）必须用**同一判定**：快路径此前无条件
+/// 补一行 ⇒ 缓存命中后 `Status`、折叠工具行、连续助手、思考块前面各多出 1 行空白
+/// （真实会话 `ctrl+o` 两次后的 step-2 每处多 1 行就是这个）。
+fn paragraph_blank(item: &TranscriptItem, previous_assistant: bool) -> bool {
+    let collapsed_tool_row = matches!(
+        item,
+        TranscriptItem::ToolCall {
+            collapsed_row: Some(_),
+            ..
+        }
+    );
+    // `Status`（ref `showStatus` = `Spacer(1)` + `Text`，`interactive-mode.ts:3695-3711`）
+    // **自带 1 行前导空行**。上一条是助手/思考时，我们已经在它末尾留了那 1 行
+    // （充当 ref 的 `Spacer(1)`）⇒ 不再补；上一条是工具块时，工具块的尾随空行对应
+    // ref 的 `Box` 底 padding，**不能**顶替 `Spacer(1)` ⇒ 这里仍要补。
+    let status_row = matches!(item, TranscriptItem::Status(_)) && previous_assistant;
+    let extension_block = matches!(
+        item,
+        TranscriptItem::ToolCall {
+            render_lines: Some(_),
+            ..
+        } | TranscriptItem::ToolCall {
+            result_render_lines: Some(_),
+            ..
+        }
+    );
+    let follows_assistant = matches!(item, TranscriptItem::Thinking { .. }) && previous_assistant
+        || matches!(item, TranscriptItem::Assistant(_)) && previous_assistant;
+    !collapsed_tool_row && !status_row && !extension_block && !follows_assistant
+}
+
 fn render_all_cached_styled_inner(
     state: &TuiState,
     cols: usize,
@@ -2934,9 +2984,12 @@ fn render_all_cached_styled_inner(
                 ));
             }
         }
-        // 折叠态：段末两个空行（TS 录制 T90/T95 快照）；展开态：一个（展开态的头部自己带了一行）。
+        // 段末空行：**会话为空时两个**（TS 录制 T90/T95 的快照就是启动屏本身），
+        // **会话非空时一个** —— 第一条聊天条目自己会再补段落空行，两个叠起来才是
+        // TS 的 2 行（真实会话 ext 配置实测：`  pi-ai-summary` 之后 TS 2 行、我们 3 行）。
+        // 展开态始终一个（展开态的头部自己带了一行）。
         lines.push(String::new());
-        if !state.tools_expanded {
+        if !state.tools_expanded && state.transcript.is_empty() {
             lines.push(String::new());
         }
     }
@@ -2953,6 +3006,7 @@ fn render_all_cached_styled_inner(
     }
     // 上一条是不是助手正文（用于"连续助手消息只留 1 行空行"，见下面的 `follows_assistant`）。
     let mut previous_item_was_assistant = false;
+
     for (item_index, item) in state.transcript.iter().enumerate() {
         let cache_key = match item {
             TranscriptItem::User(text) => format!("u\u{1}{text}"),
@@ -3022,7 +3076,10 @@ fn render_all_cached_styled_inner(
                     let rendered = &entry.rendered;
                     let cached_md_styles = &entry.md_styles;
                     // 命中缓存也要补样式：样式不参与缓存（每帧重算）。
-                    lines.push(String::new());
+                    if paragraph_blank(item, previous_item_was_assistant) {
+                        lines.push(String::new());
+                    }
+                    previous_item_was_assistant = matches!(item, TranscriptItem::Assistant(_));
                     let first_content = lines.len();
                     lines.extend(rendered.iter().cloned());
                     styles.resize(lines.len(), None);
@@ -3063,41 +3120,8 @@ fn render_all_cached_styled_inner(
         // `addChild(new Spacer(1))`（如 `interactive-mode.ts:3678/3768/3775/3787/3800/3964/3979/4021`）。
         // F48/X3：折叠工具行**没有**自己的前导空行（TS 侧补丁把整块含原 `Spacer(1)`
         // 一起替换掉了；`T116` golden：段落之后下一行就是第一个工具行）。
-        let collapsed_tool_row = matches!(
-            item,
-            TranscriptItem::ToolCall {
-                collapsed_row: Some(_),
-                ..
-            }
-        );
-        // `Status` 的段落空行由它自己补（ref `showStatus` = `Spacer(1)` + `Text`），
-        // 这里不能再补一行，否则状态行前会比 TS 多一行空行（T75 实测）。
-        //
-        // 注意**不能**改成"先补段落空行再 pop"：缓存写回以内容起点为基准
-        // （见下面的 `content_start`），pop 之后行号错位会让状态行整行漏进缓存，
-        // 表现为"第一帧有、第二帧消失"（实测过）。
-        let status_row = matches!(item, TranscriptItem::Status(_));
-        // **连续两条助手消息**之间只留 1 行空行：ref 的助手正文 `Markdown` 用
-        // `paddingY = 0`（`assistant-message.ts:113-115`），两条相邻时只有后一条自己的
-        // `Spacer(1)`。本循环给每条目前面统一补一行，再叠上一条的尾随空行就变成 2 行
-        // （真实会话逐步对拍实测：TS 1 行、我们 2 行）。
-        let follows_assistant =
-            matches!(item, TranscriptItem::Assistant(_)) && previous_item_was_assistant;
-        // 段落空行：判定要与**缓存命中分支**一致（见下）。这里不含工具条目：工具块
-        // 自己也补 `Box(1,1)` 顶 padding，两者叠加才是 TS 的 2 行。
-        // 扩展渲染块自己补 `Spacer(1)` + `Box(1,1)` 顶 padding 两行（见 match 里那一支），
-        // 循环再补一行就成了 3 行 —— T90 实测 TS 是 2 行。
-        let extension_block = matches!(
-            item,
-            TranscriptItem::ToolCall {
-                render_lines: Some(_),
-                ..
-            } | TranscriptItem::ToolCall {
-                result_render_lines: Some(_),
-                ..
-            }
-        );
-        if !collapsed_tool_row && !status_row && !extension_block && !follows_assistant {
+        // 判定见 `paragraph_blank`（快路径共用同一份；注释细节也在那里）。
+        if paragraph_blank(item, previous_item_was_assistant) {
             lines.push(String::new());
         }
         // 本条目**内容**的起始行。通常等于 `before + 1`（`before` 那行是段落空行），
@@ -3109,10 +3133,6 @@ fn render_all_cached_styled_inner(
         // ref 里工具块与下一条之间的那一行来自助手组件自己的 `Spacer(1)`，
         // 工具块本身没有底部空行（`tool-execution.ts:421-432` 的 `Text`）。
         // 但工具块**后面还是工具块**时那行必须留（ref 的 `Spacer(1)` + `Box(1,1)` 顶 padding）。
-        let next_is_assistant = matches!(
-            state.transcript.get(item_index + 1),
-            Some(TranscriptItem::Assistant(_))
-        );
         match item {
             // `!` / `!!` 命令块（ref `components/bash-execution.ts:44-59`）：
             // 上边框 + ` $ <command>` + 输出/运行态 + 下边框。
@@ -3221,9 +3241,11 @@ fn render_all_cached_styled_inner(
                 // 此前只 `clamp_to_width` 截断 ⇒ 长用户消息尾部直接丢失（真实会话实测：
                 // 一条 3 行的用户消息我们只剩 1 行，TS 是 3 行）。
                 for line in text.split('\n') {
-                    // 折行宽 = `cols - 2 - 1`：Box 左右各 1 列 padding，行首另 1 列
-                    // （`user-message.ts:47` 的 `Box(outputPad=1)` + `Markdown(paddingX=0)`）。
-                    for wrapped in wrap_to_width(line, cols.saturating_sub(3).max(1)) {
+                    // 折行宽 = `cols - 2`：`user-message.ts:47` 的 `Box(outputPad=1)` 只给
+                    // **左**边 1 列 padding 占位（行内容宽 = `cols - 1 - 1`），行首那 1 列由
+                    // 下面的 `format!(" {wrapped}")` 补。此前按 `cols - 3` 折行，真实会话
+                    // 实测：TS 满行 109 列、我们 107 列，长用户消息每行早 2 列换行。
+                    for wrapped in wrap_to_width(line, cols.saturating_sub(2).max(1)) {
                         lines.push(clamp_to_width(&format!(" {wrapped}"), cols));
                     }
                 }
@@ -3279,7 +3301,9 @@ fn render_all_cached_styled_inner(
                         &format!(" {}", shown.unwrap_or("Thinking...")),
                         cols,
                     ));
-                    lines.push(String::new());
+                    // **不补尾随空行**：与下一条之间的那 1 行由条目循环的段落空行提供。
+                    // 两边都补会变成 2 行（真实会话、真实扩展、110 列 10000 行全帧实测：
+                    // `+ Thought: …` 之后 TS 1 行、我们 2 行，整帧比 TS 高 20 行）。
                     continue;
                 }
                 // ref 思考块用 `Markdown(thinkingBlocks, outputPad, 0, …)`
@@ -3686,7 +3710,11 @@ fn render_all_cached_styled_inner(
                             cols,
                         ));
                     }
-                } else if matches!(native, NativeTool::Write) && !*is_error {
+                } else if matches!(native, NativeTool::Write) {
+                    // 失败时 ref 仍然渲染**调用参数里的内容预览**（`renderCall` 与
+                    // `renderResult` 是两块：`write.ts:96-126` 预览、`:128-145` 错误文案
+                    // 以 `\n` 开头接在后面）。此前 `!*is_error` 把整块跳过 ⇒ 失败回合
+                    // 丢掉 10 行预览 + `... (N more lines, M total)`。
                     let content = write_args_content(args_json.as_deref()).unwrap_or_default();
                     // ref `renderers/write.ts:110-125`：`write` 的块正文是**调用参数里
                     // 待写入的内容**前 10 行（展开态全展示），末尾补
@@ -3695,13 +3723,16 @@ fn render_all_cached_styled_inner(
                     // 时输出）。此前我们展示的是"Successfully wrote to …"，既少了内容预览，
                     // 又多出一行 TS 没有的文本（真实会话逐步对拍可见）。
                     lines.push(String::new());
-                    let mut all: Vec<String> = content
+                    // **不裁掉末尾空行**：ref 在有语言高亮时把每行都套上 `theme.fg`
+                    // （`theme.ts:1078-1097`），最后那个空行也变成"只有转义、没有可见字符"
+                    // 的字符串 ⇒ `trimTrailingEmptyLines` 的 `lines[end-1] === ""` 判不中，
+                    // 于是它**被算作一行**（`write.ts:113-118`）。
+                    // 真实会话实测（`汇总分析/工作区总览与导航.md`，内容以 `\n` 结尾）：
+                    // TS `178 total`、我们裁完 `177 total`；展开态还少一行空行。
+                    let all: Vec<String> = content
                         .split('\n')
                         .map(|l| l.replace('\t', "   "))
                         .collect();
-                    while all.last().is_some_and(|l| l.is_empty()) {
-                        all.pop();
-                    }
                     let total = all.len();
                     let shown = if state.tools_expanded {
                         total
@@ -3722,8 +3753,31 @@ fn render_all_cached_styled_inner(
                             cols,
                         ));
                     }
+                    // ref `write.ts:128-145` `formatWriteResult`：只在 `isError` 时返回
+                    // `\n<output>`（前导换行 ⇒ 正文前 1 行空行），成功时**不渲染正文**。
+                    if *is_error {
+                        if let Some(body) = output.as_deref().filter(|body| !body.is_empty()) {
+                            lines.push(String::new());
+                            for line in body.replace('\r', "").split('\n') {
+                                for wrapped in wrap_to_width(
+                                    &line.replace('\t', "   "),
+                                    cols.saturating_sub(2).max(1),
+                                ) {
+                                    lines.push(clamp_to_width(&format!(" {wrapped}"), cols));
+                                }
+                            }
+                        }
+                    }
                 } else if let Some(body) = output.as_deref().filter(|_| !hide_collapsed) {
-                    let body = body.trim_end_matches('\n');
+                    // `Generic` 的正文是 `Text` 组件里的**整段** `getTextOutput()`
+                    // （`tool-execution.ts:421-432`）：`Text` 按 `\n` 切行渲染，
+                    // 末尾那个换行会渲染成**一行空行**（`text.ts` 的 split 结果）。
+                    // 其它工具走各自的 `trimTrailingEmptyLines`，才丢末尾空行。
+                    let body = if matches!(native, NativeTool::Generic) {
+                        body
+                    } else {
+                        body.trim_end_matches('\n')
+                    };
                     if !body.is_empty() {
                         // F51/Z0：**没有渲染器**的工具（`Generic`）在 ref 里走
                         // `tool-execution.ts:421-432` 的 `formatToolExecution`：
@@ -3733,13 +3787,37 @@ fn render_all_cached_styled_inner(
                         if !matches!(native, NativeTool::Generic) {
                             lines.push(String::new());
                         }
+                        // `edit` **出错**时 ref 是两块：调用组件 `Box(1,1)`（底 padding 1 行）
+                        // + 结果组件的 `Spacer(1)` + `Text(output,1,0)`（`edit.ts:229-235`）
+                        // ⇒ 正文前 **2** 行空行，且正文之后**没有**尾随空行
+                        // （组件到此结束，下一条的 `Spacer(1)` 由下一条自己补）。
+                        // 真实会话实测（`edits.0: must be object` 那个失败回合）：TS 头后 2 空行、
+                        // 正文后 0 空行，我们正好反过来（1 / 1）。
+                        if matches!(native, NativeTool::Edit) && *is_error {
+                            lines.push(String::new());
+                        }
                         // `\r` 必须去掉：CRLF 文本进入帧后，终端把 `\r` 当回车、覆盖掉本行
                         // 已写内容（真实会话实测：表格行只剩尾部、webb 输出只剩乱码尾巴）。
                         // ref `render-utils.ts:35-37` 的 `normalizeDisplayText` 就是 `replace(/\r/g,"")`，
                         // `Text` 组件也是按行渲染、不保留 `\r`。
                         let body = body.replace('\r', "");
-                        let all: Vec<&str> = body.split('\n').collect();
                         let shell = name == "bash" || name == "powershell";
+                        // ref `renderers/bash.ts:72`：`getTextOutput(...).trim()` —— shell 工具
+                        // **两端都 trim**（首尾空白行连同行尾空格一起去掉），再按 `\n` 切。
+                        // 其它工具用 `trimTrailingEmptyLines`（只去**空串**行）。
+                        // 此前一律只 `trim_end_matches('\n')`，真实会话实测 bash 块尾部
+                        // 6 行空白仍被算进可见行 ⇒ `... (655 earlier lines)` vs TS 的 649，
+                        // 且尾部 5 行预览全是空行、真正的内容被挤出去。
+                        let body = if shell {
+                            body.trim().to_string()
+                        } else if matches!(native, NativeTool::Generic) {
+                            // `Generic` 的正文进 `Text` 组件，末尾 `\n` 会渲染成一行空行
+                            // （见上面 `body` 的说明）—— 这里不能裁。
+                            body.to_string()
+                        } else {
+                            body.trim_end_matches('\n').to_string()
+                        };
+                        let all: Vec<&str> = body.split('\n').collect();
                         // 先按可见行折行，再按**可见行**取尾部：ref `renderers/bash.ts:18/86`
                         // 用的是 `truncateToVisualLines(styledOutput, BASH_PREVIEW_LINES=5, width)`
                         // —— 计数单位是**折行后的可见行**，不是逻辑行。用逻辑行计数会保留
@@ -3753,7 +3831,19 @@ fn render_all_cached_styled_inner(
                                 visual.push(clamp_to_width(&format!(" {wrapped}"), cols));
                             }
                         }
-                        let preview = if shell { 5 } else { 10 };
+                        // ref 里只有**带渲染器**的工具做折叠预览；没有渲染器的 `Generic`
+                        // 走 `tool-execution.ts:421-432` 的 `formatToolExecution`，
+                        // 正文是**整段** `getTextOutput()`（`contentText` 是 `Text`，
+                        // 只折行、不截断）。此前一律按 10 行截断，真实会话里 `cg_recall`
+                        // 这种长输出被砍成 10 行 + `... (235 more lines, ctrl+o to expand)`
+                        // 而 TS 是全文（差 235 行）。
+                        let preview = if matches!(native, NativeTool::Generic) {
+                            usize::MAX
+                        } else if shell {
+                            5
+                        } else {
+                            10
+                        };
                         let (start, hidden) = if state.tools_expanded || visual.len() <= preview {
                             (0_usize, 0_usize)
                         } else if shell {
@@ -3799,7 +3889,16 @@ fn render_all_cached_styled_inner(
                 // `Text`，**块内没有尾随空行**；与下一条助手正文之间的那一行来自助手组件
                 // 自己的 `Spacer(1)`。实测（真实会话逐步对拍）：Generic → 助手只有 1 行空行，
                 // 而带渲染器的工具块（`Box(1,1)` 有底部 padding）是 2 行。
-                if !rendered_took && !(matches!(native, NativeTool::Generic) && next_is_assistant) {
+                // 扩展渲染块（`render_lines`/`result_render_lines`）走的是 ref 的
+                // `contentBox = Box(1,1)`（`tool-execution.ts:104-108`）⇒ **有**底 padding
+                // 1 行，与 `Generic` 的裸 `Text` 不同。真实会话实测：`report_to_user`
+                // 之后 TS 2 行空行、我们 1 行（少 `Box` 的底部 padding）。
+                // 尾随空行：
+                // - 带渲染器的工具 = `contentBox = Box(1,1)` 的**底 padding** 1 行；
+                // - `Generic` = `contentText = new Text("", 1, 1, …)` 的 `paddingY` 1 行。
+                // 两者都恰好 1 行，但 `Generic` 的正文若以 `\n` 结尾，`Text` 还会多出
+                // 一行空行（`split("\n")` 的最后一项）—— 这一行由上面的正文循环自然产出。
+                if !rendered_took && !(matches!(native, NativeTool::Edit) && *is_error) {
                     lines.push(String::new());
                 }
             }

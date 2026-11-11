@@ -151,6 +151,27 @@ fn append_crash_entry(path: &std::path::Path, location: &str, message: &str) {
 /// `error` → `Error: <errorMessage>`；`length` → 截断提示；`aborted` → 中止文案。
 ///
 /// 实时渲染（`MessageEnd`）与 `-c`/`/resume` 重放共用同一份口径。
+/// 失败回合的**纯文案**（不带 `Error: ` 前缀、不带前导换行）：
+/// ref `interactive-mode.ts:3898-3908` 把它直接塞进待定工具的结果正文。
+fn assistant_failure_text(
+    stop_reason: &pi_ai::StopReason,
+    error_message: Option<&str>,
+) -> Option<String> {
+    match stop_reason {
+        pi_ai::StopReason::Error => Some(error_message.unwrap_or("Unknown error").to_string()),
+        pi_ai::StopReason::Aborted => Some(
+            error_message
+                .filter(|message| *message != "Request was aborted")
+                .unwrap_or("Operation aborted")
+                .to_string(),
+        ),
+        other => {
+            let _ = other;
+            None
+        }
+    }
+}
+
 fn assistant_notice(
     stop_reason: &pi_ai::StopReason,
     error_message: Option<&str>,
@@ -312,7 +333,46 @@ fn transcript_from_messages(messages: &[pi_ai::message::Message]) -> Vec<pi_tui:
                         pi_ai::types::Content::Image { .. } => {}
                     }
                 }
-                if let Some(notice) =
+                // ref `assistant-message.ts:182-199`：`Error: …` 只在**没有工具调用**时
+                // 由助手组件渲染。带工具调用的失败回合改成把错误文案塞进**待定工具的
+                // 结果**（`interactive-mode.ts:3898-3908` 的
+                // `component.updateResult({content:[{type:"text",text:errorMessage}],isError:true})`）
+                // —— 文案**不带** `Error: ` 前缀，位置在工具块内部（尾随空行之前）。
+                // 此前两者都做：多出一条 `Error: …` 通知行，且工具块正文为空。
+                let has_tool_calls = out_items
+                    .iter()
+                    .any(|item| matches!(item, pi_tui::TranscriptItem::ToolCall { .. }));
+                let failure_text = assistant_failure_text(
+                    &assistant.stop_reason,
+                    assistant.error_message.as_deref(),
+                );
+                if let Some(failure) = failure_text.as_deref().filter(|_| has_tool_calls) {
+                    for item in out_items.iter_mut() {
+                        if let pi_tui::TranscriptItem::ToolCall {
+                            output,
+                            is_error: flag,
+                            result_payload,
+                            ..
+                        } = item
+                        {
+                            *output = Some(failure.to_string());
+                            *flag = true;
+                            // 扩展的折叠行/结果渲染读的是 `result`（`isError` + 正文），
+                            // 只填 `output/is_error` 会让它们仍显示成功标记
+                            // （真实会话实测：TS `✗ write`，我们 `✓ write`）。
+                            if result_payload.is_none() {
+                                *result_payload = Some(
+                                    serde_json::json!({
+                                        "content": [{ "type": "text", "text": failure }],
+                                        "isError": true,
+                                        "details": serde_json::Value::Null,
+                                    })
+                                    .to_string(),
+                                );
+                            }
+                        }
+                    }
+                } else if let Some(notice) =
                     assistant_notice(&assistant.stop_reason, assistant.error_message.as_deref())
                 {
                     text.push_str(&notice);
@@ -5174,6 +5234,12 @@ fn draw(
             if let Some(overlay) = state.overlay_lines.as_ref() {
                 compose_overlay(&mut lines, overlay, cols, rows);
             }
+            // `PI_TEST_DUMP`：记下**本次真正写出**的帧行，供逐步截图取末 `rows` 行。
+            // 若改为在截图时重算 `render_all`，状态若已在帧之后变化就会与屏幕不符
+            // （真实会话 40 行实测差 2 行）。
+            if crate::testhook::dump_enabled() {
+                crate::testhook::record_frame(&lines);
+            }
             // W1：诊断转储（feature 关闭时这段不参与编译）。
             #[cfg(feature = "diag-frame-dump")]
             {
@@ -5224,6 +5290,9 @@ fn draw(
         dump_output(&path, cols, rows, diff_state, &payload);
     }
     let result = write_frame(&mut out, &payload);
+    if crate::testhook::dump_enabled() && result.is_ok() {
+        crate::testhook::record_bytes(payload.len());
+    }
     if let Some(path) = timing {
         use std::io::Write as _;
         if let Ok(mut file) = std::fs::OpenOptions::new()

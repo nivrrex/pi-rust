@@ -139,6 +139,22 @@ impl TestHook {
             dir.join(format!("step-{}.txt", self.step)),
             format!("{text}\n"),
         );
+        // 记录本步对应的**已写字节偏移**：`run-real.sh` 用它像 TS 侧一样从 raw.bin
+        // 还原屏幕（`marks-to-steps.mjs`），两侧走同一条渲染路径。
+        // 自己重算屏幕与终端实际显示会差 2 行（增量渲染的视口与全帧尾部不总是重合）。
+        if let Ok(mut file) = std::fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(dir.join("marks.jsonl"))
+        {
+            use std::io::Write as _;
+            let offset = WRITTEN_BYTES.load(std::sync::atomic::Ordering::SeqCst);
+            let _ = writeln!(
+                file,
+                "{{\"name\": \"step{}\", \"offset\": {offset}}}",
+                self.step
+            );
+        }
         let _ = std::fs::write(
             dir.join(format!("step-{}.json", self.step)),
             step_json(state, self.step, n, cols, rows).to_string(),
@@ -367,10 +383,42 @@ pub fn strip_ansi(text: &str) -> String {
     out
 }
 
-/// 把整帧渲染结果裁成"可见屏幕"：取最后 `rows` 行（主屏模型里视口贴底）。
-#[must_use]
+/// 最近一次**真正写给终端**的帧（`PI_TEST_DUMP` 用；未启用钩子时恒为 `None`）。
+static LAST_FRAME: std::sync::Mutex<Option<Vec<String>>> = std::sync::Mutex::new(None);
+
+/// 已写给终端的字节总数（`PI_TEST_DUMP` 用）：截图按**字节偏移**从录制流里还原，
+/// 与 TS 侧（`marks-to-steps`）走完全相同的口径，避免"重算帧 ≠ 终端屏幕"。
+static WRITTEN_BYTES: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+
+/// 记录一帧（由 TUI 在写出前调用；只在 `PI_TEST_DUMP` 启用时被调用）。
+///
+/// 为什么不用 `render_all` 重新算一遍：截图必须等于**终端实际收到的帧**。
+/// 重算会在"帧之后状态又变了"时给出不同结果（真实会话 40 行实测：dump 比屏幕多 2 行）。
+pub fn dump_enabled() -> bool {
+    static ON: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *ON.get_or_init(|| std::env::var_os("PI_TEST_DUMP").is_some())
+}
+
+/// 记录一帧已写出的字节数（由 `draw` 在写成功后调用）。
+pub fn record_bytes(len: usize) {
+    WRITTEN_BYTES.fetch_add(len, std::sync::atomic::Ordering::SeqCst);
+}
+
+pub fn record_frame(lines: &[String]) {
+    if let Ok(mut slot) = LAST_FRAME.lock() {
+        *slot = Some(lines.to_vec());
+    }
+}
+
 pub fn visible_screen(state: &pi_tui::TuiState, cols: usize, rows: usize) -> Vec<String> {
-    let frame = pi_tui::render_all(state, cols, rows);
+    // 与终端实际显示一致的口径：`diff_render` 把**整帧**写给终端、终端自己只留最后
+    // `rows` 行（`crates/pi-tui/src/diff.rs` 的 `full_render` 写全部行）。
+    // 所以这里取 `render_all` 的**末 `rows` 行**，而不是 `render()`（后者按会话区
+    // 容量裁 chat，会额外少 2 行；实测 40 行终端下 dump 与真实屏幕差 2 行）。
+    let frame = match LAST_FRAME.lock().ok().and_then(|slot| slot.clone()) {
+        Some(lines) if !lines.is_empty() => lines,
+        _other => pi_tui::render_all(state, cols, rows),
+    };
     let skip = frame.len().saturating_sub(rows);
     let mut visible: Vec<String> = frame.into_iter().skip(skip).collect();
     // 去掉**尾部**空行：与 `compare-tui.mjs` 的 `normalizeScreen` 同口径

@@ -459,18 +459,12 @@ fn parse_diff_line(line: &str) -> Option<(char, &str, &str)> {
         return None;
     }
     let rest = &line[prefix.len_utf8()..];
-    // `\s*\d*` 段：跳过空白与数字，直到第一个"非空白非数字"字符为止。
-    // `(\s*\d*)\s(.*)` 的贪婪语义：先吃空白、再吃数字，然后**一个**空白作分隔。
-    // 注意 `-159 | …` 里数字后紧跟空格 ⇒ `lineNum` 是 `"159"`（不含空格）。
+    // `(\s*\d*)\s(.*)`：`lineNum` **包含前导空白**（ref `diff.ts:10-11` 的捕获组是
+    // `(\s*\d*)`，不剥空白），缩放时逐列对齐靠的就是这部分。
+    // 真实会话（`edit` 结果、`  62     ├── …` 这种带缩进的树形行）实测：
+    // 剥掉前导空白后我们比 TS 少 1 列，整段树错位。
+    let num_start = 0usize;
     let mut index = 0usize;
-    for (offset, ch) in rest.char_indices() {
-        if !ch.is_whitespace() {
-            index = offset;
-            break;
-        }
-        index = offset + ch.len_utf8();
-    }
-    let num_start = index;
     for (offset, ch) in rest[num_start..].char_indices() {
         if ch.is_ascii_digit() {
             index = num_start + offset + ch.len_utf8();

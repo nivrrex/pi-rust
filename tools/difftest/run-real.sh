@@ -178,6 +178,23 @@ env \
     --script "$SCRIPT" --marks "$OUT/marks.jsonl" \
     -- $CMD > "$OUT/helper.log" 2>&1 || true
 
+if [ "$IMPL" = "pi-rs" ] && [ -s "$OUT/steps/marks.jsonl" ]; then
+  # pi-rs 侧也按**字节偏移**从录制流还原屏幕（与 TS 的 `marks-to-steps` 同一条路径）。
+  # 直接用钩子算的屏幕会与终端实际显示不同（帧尾视口 ≠ 终端滚动位置）。
+  python3 - "$OUT" "$COLS" "$ROWS" <<'PY'
+import json, sys
+out, cols, rows = sys.argv[1], int(sys.argv[2]), int(sys.argv[3])
+marks = []
+for line in open(f"{out}/steps/marks.jsonl", encoding="utf-8"):
+    line = line.strip()
+    if not line:
+        continue
+    marks.append(json.loads(line))
+json.dump({"cols": cols, "rows": rows, "snapshotOffsets": marks}, open(f"{out}/meta.json", "w"))
+PY
+  node "$REPO/tools/difftest/marks-to-steps.mjs" --raw "$OUT/raw.bin" --meta "$OUT/meta.json" --out "$OUT/steps" >/dev/null
+fi
+
 if [ "$IMPL" = "ts" ]; then
   node "$REPO/tools/difftest/compare-tui.mjs" >/dev/null 2>&1 || true
   # meta.json：marks → 逐步屏幕文本
