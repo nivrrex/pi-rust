@@ -134,3 +134,24 @@ fn shell_header_carries_timeout_suffix() {
         "缺少 timeout 后缀：\n{frame}"
     );
 }
+
+/// F52 债务②：展开态 `[Context]` 段用 `formatDisplayPath`（绝对路径），
+/// 折叠态才用 cwd 相对路径。
+#[test]
+fn context_section_uses_absolute_path_when_expanded() {
+    // `[Context]` 段只在**非**静默启动时渲染（ref `interactive-mode.ts:1697-1712`
+    // 的 `showListing = verbose || !quietStartup`），所以这里不能设 `quiet_startup`。
+    let mut st = TuiState::new("0.87.1", "/work", "0.0%/128k (auto)");
+    st.context_files = vec!["/work/AGENTS.md".into()];
+    let folded = render_all(&st, 120, 30).join("\n");
+    assert!(
+        folded.contains("AGENTS.md"),
+        "折叠态应显示相对路径：\n{folded}"
+    );
+    st.tools_expanded = true;
+    let expanded = render_all(&st, 120, 30).join("\n");
+    assert!(
+        expanded.contains("/work/AGENTS.md"),
+        "展开态应显示绝对路径：\n{expanded}"
+    );
+}
