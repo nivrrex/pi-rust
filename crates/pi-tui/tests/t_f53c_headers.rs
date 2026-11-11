@@ -155,3 +155,23 @@ fn context_section_uses_absolute_path_when_expanded() {
         "展开态应显示绝对路径：\n{expanded}"
     );
 }
+
+/// `\r`（CRLF 文本）不得进入帧：终端会把 `\r` 当回车、覆盖本行已写内容。
+/// 真实会话实测：带 `\r\n` 的表格 / 命令行在屏幕上只剩尾部乱码。
+/// ref `render-utils.ts:35-37` 的 `normalizeDisplayText` 就是 `replace(/\r/g, "")`。
+#[test]
+fn carriage_returns_are_stripped_from_tool_output() {
+    let st = state_with(tool(
+        "bash",
+        "seq",
+        Some(r#"{"command":"seq"}"#),
+        Some("行一\r\n行二\r\n最后一行"),
+    ));
+    let frame = render_all(&st, 120, 40);
+    for (index, line) in frame.iter().enumerate() {
+        assert!(!line.contains('\r'), "第 {index} 行残留 CR：{line:?}");
+    }
+    let joined = frame.join("\n");
+    assert!(joined.contains("行一"), "首行内容丢失：\n{joined}");
+    assert!(joined.contains("最后一行"), "末行内容丢失：\n{joined}");
+}

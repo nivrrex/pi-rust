@@ -3726,6 +3726,11 @@ fn render_all_cached_styled_inner(
                         if !matches!(native, NativeTool::Generic) {
                             lines.push(String::new());
                         }
+                        // `\r` 必须去掉：CRLF 文本进入帧后，终端把 `\r` 当回车、覆盖掉本行
+                        // 已写内容（真实会话实测：表格行只剩尾部、webb 输出只剩乱码尾巴）。
+                        // ref `render-utils.ts:35-37` 的 `normalizeDisplayText` 就是 `replace(/\r/g,"")`，
+                        // `Text` 组件也是按行渲染、不保留 `\r`。
+                        let body = body.replace('\r', "");
                         let all: Vec<&str> = body.split('\n').collect();
                         let shell = name == "bash" || name == "powershell";
                         // 先按可见行折行，再按**可见行**取尾部：ref `renderers/bash.ts:18/86`
