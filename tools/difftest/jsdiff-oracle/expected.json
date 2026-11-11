@@ -1,0 +1,77 @@
+[
+	{
+		"name": "pair-basic",
+		"removed": "abc",
+		"added": "abd"
+	},
+	{
+		"name": "table-row",
+		"removed": "| Token 阜阳专题 | 11/2 版（11/3 送达）| ①月增是否恢复当月真实口径；②11 月首周真实动销能否破 10 笔/日",
+		"added": "| Token 阜阳专题 | **11/3 版（2026-11-04 送达，已更新）** | ①阜阳 11 月首周真实动销能否站稳日均 5 笔以上"
+	},
+	{
+		"name": "whitespace-only",
+		"removed": "a b",
+		"added": "a b"
+	},
+	{
+		"name": "fullwidth-punct",
+		"removed": "（11/2 版）",
+		"added": "（11/3 版）"
+	},
+	{
+		"name": "trailing-space",
+		"removed": "abc",
+		"added": "abc"
+	},
+	{
+		"name": "multi-space",
+		"removed": "a  b   c",
+		"added": "a  b   c"
+	},
+	{
+		"name": "cjk",
+		"removed": "阜阳 11 月动销破冰",
+		"added": "阜阳 11 月动销回暖"
+	},
+	{
+		"name": "cjk-no-space",
+		"removed": "全省订购总",
+		"added": "全国订购总"
+	},
+	{
+		"name": "latin-word",
+		"removed": "the quick brown fox",
+		"added": "the slow brown fox"
+	},
+	{
+		"name": "punct-move",
+		"removed": "a, b, c",
+		"added": "a, c, b"
+	},
+	{
+		"name": "empty-new",
+		"removed": "abc",
+		"added": ""
+	},
+	{
+		"name": "empty-old",
+		"removed": "",
+		"added": "abc"
+	},
+	{
+		"name": "identical",
+		"removed": "same text",
+		"added": "same text"
+	},
+	{
+		"name": "numbers",
+		"removed": "289 笔",
+		"added": "402 笔"
+	},
+	{
+		"name": "mixed-indent",
+		"removed": "    - 项目 A",
+		"added": "    - 项目 B"
+	}
+]

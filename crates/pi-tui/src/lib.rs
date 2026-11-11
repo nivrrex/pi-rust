@@ -20,6 +20,7 @@
 // P7-6k/W2：主屏差分渲染的纯函数移植（本批不接线，见模块文档）。
 pub mod diff;
 pub mod gitinfo;
+pub mod intraline;
 pub mod style;
 pub mod syntax;
 pub mod theme;
@@ -3662,11 +3663,17 @@ fn render_all_cached_styled_inner(
                     // ref `renderers/edit.ts:120-124` 把 `details.diff` 放进 `Text` 组件
                     // ⇒ 超宽**折行**。截断会丢内容，也让块高度比 TS 少很多行
                     // （真实会话逐步对拍：同一 edit 块 TS 43 行、我们 23 行）。
-                    for line in diff.lines() {
+                    // ref `renderers/edit.ts:120-124` → `renderDiff`（`components/diff.ts:79-160`）：
+                    // **成对的一删一增**行走行内词级比对（`diff.ts:33-77`），随即丢掉了
+                    // "只属于新文本"的那段空白（jsdiff `diffWords` 把空白并入相邻词）。
+                    // 直接输出原文会多 1 列（真实会话实测：TS `（11/3 送达）| ①`，
+                    // 我们 `（11/3 送达） | ①`）。
+                    for line in crate::intraline::render_diff_lines(diff) {
                         // 内容宽 = `cols - 2`：`tool-execution.ts:98-108` 的 `Box(1,1)` 左右各 1 列，
-                        // 加上我们自己的 1 列前导空格 ⇒ 整行最多 `cols - 1` 可见列
-                        // （真实会话对拍：用 `cols - 1` 作内容宽会比 TS 晚一格换行）。
-                        for wrapped in wrap_to_width(line, cols.saturating_sub(2).max(1)) {
+                        // 加上我们自己的 1 列前导空格 ⇒ 整行最多 `cols - 1` 可见列。
+                        // 内容宽 = `cols - 2`：`Box(1,1)` 左右各 1 列，加上我们自己的
+                        // 1 列前导空格 ⇒ 整行最多 `cols - 1` 可见列（实测口径）。
+                        for wrapped in wrap_to_width(&line, cols.saturating_sub(2).max(1)) {
                             lines.push(clamp_to_width(&format!(" {wrapped}"), cols));
                         }
                     }
