@@ -211,6 +211,10 @@ pub fn write_spans(out: &mut String, line: &str, spans: &[crate::style::Span], w
     // **嵌套 span 按字符合成**：`**粗体里的 `code`**` 这类场景里，外层 span 覆盖整行、
     // 内层 span 只盖中间一段。逐段顺序写会在内层 ``code`` 处丢失颜色（内层起点落在 cursor
     // 之前被整段跳过）。这里先为每个字符求出合并后的样式，再按样式游程输出。
+    // 行尾控制序列（`SEGMENT_RESET`：`ESC[0m` + `ESC]8;;BEL`）**不参与样式**：
+    // 它自己就带复位，若被当成普通字符逐字写出，会与"样式切换时的复位"拼成
+    // `ESC ESC[0m`（F53c/E 实测：屏幕上出现 `PY0m0m` 并多占一行）。
+    let (line, trailing_controls) = split_trailing_controls(line);
     let mut styles: Vec<Option<crate::style::LineStyle>> = Vec::new();
     let mut offsets: Vec<usize> = Vec::new();
     for (offset, _) in line.char_indices() {
@@ -272,6 +276,7 @@ pub fn write_spans(out: &mut String, line: &str, spans: &[crate::style::Span], w
             out.push_str(pad.reset());
         }
     }
+    out.push_str(trailing_controls);
 }
 
 fn compute_line_diff(
