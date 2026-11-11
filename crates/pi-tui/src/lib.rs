@@ -2614,6 +2614,28 @@ fn resource_read_label(path: &str) -> Option<(&'static str, String)> {
     Some(("resource", path.to_string()))
 }
 
+/// `read` 的行范围后缀（ref `renderers/read.ts:36-43` 的 `formatReadLineRange`）：
+/// `offset` 缺省为 1；`limit` 存在时追加 `-{offset+limit-1}`；两者都没给则为空串。
+/// 真实会话实测：TS 的 `read …md:211-250`，我们此前没有这一段。
+fn read_line_range(args_json: Option<&str>) -> String {
+    let Some(text) = args_json else {
+        return String::new();
+    };
+    let Ok(value) = serde_json::from_str::<serde_json::Value>(text) else {
+        return String::new();
+    };
+    let offset = value.get("offset").and_then(serde_json::Value::as_u64);
+    let limit = value.get("limit").and_then(serde_json::Value::as_u64);
+    if offset.is_none() && limit.is_none() {
+        return String::new();
+    }
+    let start = offset.unwrap_or(1);
+    match limit {
+        Some(limit) => format!(":{start}-{}", start + limit.saturating_sub(1)),
+        None => format!(":{start}"),
+    }
+}
+
 /// 从 `write` 的调用参数里取待写入内容（ref `renderers/write.ts:113-116` 的 `args.content`）。
 fn write_args_content(args_json: Option<&str>) -> Option<String> {
     let value: serde_json::Value = serde_json::from_str(args_json?).ok()?;
@@ -3478,11 +3500,12 @@ fn render_all_cached_styled_inner(
                     // `read <kind> <相对路径> (ctrl+o to expand)`（`:74-84` 分类，
                     // 文件名白名单见 `:27`；`ctrl+o` 文案来自 `keyText("app.tools.expand")`）。
                     // 此前一律渲染 `read <路径>`，真实会话里 5 处资源读取都不对。
+                    let range = read_line_range(args_json.as_deref());
                     match resource_read_label(summary) {
                         Some((kind, label)) => {
-                            format!("read {kind} {label} (ctrl+o to expand)")
+                            format!("read {kind} {label}{range} (ctrl+o to expand)")
                         }
-                        None => format!("{name} {summary}"),
+                        None => format!("{name} {summary}{range}"),
                     }
                 } else if summary.is_empty() || matches!(native, NativeTool::Generic) {
                     // 没有渲染器的工具（`Generic`）头部**只有名字**
@@ -3490,7 +3513,14 @@ fn render_all_cached_styled_inner(
                     // 参数另起一块。
                     name.to_string()
                 } else {
-                    format!("{name} {summary}")
+                    // 展开态也带 `read` 的行范围（ref `renderers/read.ts:36-43` 在
+                    // `formatReadCall` 与紧凑头部里都追加）。
+                    let suffix = if matches!(native, NativeTool::Read) {
+                        read_line_range(args_json.as_deref())
+                    } else {
+                        String::new()
+                    };
+                    format!("{name} {summary}{suffix}")
                 };
                 // r3 专属：工具条目前补 ref 的 `Box` 顶 padding（`tool-execution.ts:105`）。
                 lines.push(String::new());
