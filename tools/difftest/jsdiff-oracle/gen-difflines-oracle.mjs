@@ -8,7 +8,7 @@ import { fileURLToPath } from "node:url";
 const here = dirname(fileURLToPath(import.meta.url));
 const repo = join(here, "..", "..", "..");
 const require = createRequire(join(here, "package.json"));
-const Diff = require(process.env.JSDIFF_PATH || "/root/node_modules/.pnpm/diff@8.0.4/node_modules/diff");
+const Diff = require(process.env.JSDIFF_PATH ?? "diff");
 
 const strip = (s) => s.replace(/\x1b\[[0-9;]*m/g, "");
 // 无样式：`theme.fg(name, text)` 返回 `text`（第一参是颜色名）。

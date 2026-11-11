@@ -15,7 +15,7 @@ import { fileURLToPath } from "node:url";
 const here = dirname(fileURLToPath(import.meta.url));
 const repo = join(here, "..", "..", "..");
 const require = createRequire(join(repo, "tools", "difftest", "jsdiff-oracle", "package.json"));
-const Diff = require(process.env.JSDIFF_PATH || "/root/node_modules/.pnpm/diff@8.0.4/node_modules/diff");
+const Diff = require(process.env.JSDIFF_PATH ?? "diff");
 
 // ref diff.ts:33-77
 function renderIntraLineDiff(oldContent, newContent) {

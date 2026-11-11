@@ -161,7 +161,7 @@ fn diff_tokens(old: &[String], new: &[String]) -> Vec<Op> {
         ops.push(Op::Add);
         j += 1;
     }
-    ops.extend(std::iter::repeat(Op::Keep).take(suffix));
+    ops.extend(std::iter::repeat_n(Op::Keep, suffix));
     ops
 }
 
@@ -211,7 +211,7 @@ fn common_suffix<'a>(left: &'a str, right: &str) -> &'a str {
     for (index, ch) in left.char_indices().rev() {
         match right_chars.next() {
             Some(other) if other == ch => start = index,
-            _ => break,
+            Some(_) | None => break,
         }
     }
     &left[start..]
@@ -513,7 +513,7 @@ pub fn render_diff_lines(diff: &str) -> Vec<String> {
                         removed.push((num.to_string(), content.replace('\t', "   ")));
                         index += 1;
                     }
-                    _ => break,
+                    Some(('+' | ' ', _, _)) | Some((_, _, _)) | None => break,
                 }
             }
             let mut added: Vec<(String, String)> = Vec::new();
@@ -523,7 +523,7 @@ pub fn render_diff_lines(diff: &str) -> Vec<String> {
                         added.push((num.to_string(), content.replace('\t', "   ")));
                         index += 1;
                     }
-                    _ => break,
+                    Some(('-' | ' ', _, _)) | Some((_, _, _)) | None => break,
                 }
             }
             if removed.len() == 1 && added.len() == 1 {
