@@ -214,3 +214,33 @@ fn schema_requires_command_and_allows_timeout() {
     assert_eq!(BashTool.schema()["required"], json!(["command"]));
     assert_eq!(BashTool.schema()["properties"]["timeout"]["type"], "number");
 }
+
+/// F52 债务②（F53c 补）：stdout / stderr **按到达顺序合并**，不是"先读完 stdout 再读 stderr"。
+///
+/// ref `core/tools/bash.ts:122-124`：两个流挂同一个 `onData` 回调，谁先到谁先写。
+/// 改前实现先读完 stdout 再读 stderr ⇒ 输出被重排成 `out1 out2 err1 err2`。
+#[tokio::test]
+async fn stdout_and_stderr_merge_in_arrival_order() {
+    let dir = tempfile::tempdir().expect("临时目录");
+    // 交替写：out1 → err1 → out2 → err2，每步之间留足时间让另一端读完。
+    let command = "echo out1; sleep 0.15; echo err1 1>&2; sleep 0.15; \
+                   echo out2; sleep 0.15; echo err2 1>&2";
+    let result = BashTool
+        .invoke(
+            json!({"command": command}),
+            &ctx(dir.path()),
+            &CancellationToken::new(),
+        )
+        .await;
+    assert!(!result.is_error, "{}", result.text_content());
+    let text = result.text_content();
+    let order: Vec<&str> = text
+        .lines()
+        .filter(|line| ["out1", "err1", "out2", "err2"].contains(line))
+        .collect();
+    assert_eq!(
+        order,
+        vec!["out1", "err1", "out2", "err2"],
+        "stdout/stderr 必须按到达顺序合并，实际：{text:?}"
+    );
+}
