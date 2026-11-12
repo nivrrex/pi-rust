@@ -105,10 +105,20 @@ echo "$serial_list" | tr ' ' '\n' | grep -v '^$' | while read -r name; do
   for run in $(seq 1 "$RUNS"); do echo "$name $run"; done
 done > "$OUT_ROOT/serial.txt"
 
-xargs -P "$JOBS" -n 2 sh -c "$(declare -f run_one); REPO=$REPO OUT_ROOT=$OUT_ROOT BIN=$BIN SCEN_DIR=$SCEN_DIR GOLD_DIR=$GOLD_DIR STYLE_CHECK=${STYLE_CHECK:-0} run_one \"\$0\" \"\$1\"" \
-  < "$OUT_ROOT/parallel.txt" > "$OUT_ROOT/parallel.log" 2>&1
-xargs -P 1 -n 2 sh -c "$(declare -f run_one); REPO=$REPO OUT_ROOT=$OUT_ROOT BIN=$BIN SCEN_DIR=$SCEN_DIR GOLD_DIR=$GOLD_DIR STYLE_CHECK=${STYLE_CHECK:-0} run_one \"\$0\" \"\$1\"" \
-  < "$OUT_ROOT/serial.txt" > "$OUT_ROOT/serial.log" 2>&1
+# **空清单必须不执行**：`xargs` 在输入为空时仍会跑一次（`$0=sh`、`$1` 为空），
+# 于是 `run_one sh ""` 打出一行 `sh run- nogolden` —— 曾让 light 的汇总多出
+# 1 个假 nogolden（27 个场景全有 golden 却报 nogolden=1）。
+# 用 `-r`（GNU）对空输入不执行；再对空 `$1` 兜底，兼容 BSD xargs。
+run_batch() {
+  jobs="$1"; list="$2"; log="$3"
+  [ -s "$list" ] || { : >"$log"; return 0; }
+  xargs -r -P "$jobs" -n 2 sh -c \
+    "$(declare -f run_one); REPO=$REPO OUT_ROOT=$OUT_ROOT BIN=$BIN SCEN_DIR=$SCEN_DIR GOLD_DIR=$GOLD_DIR STYLE_CHECK=${STYLE_CHECK:-0}; \
+     [ -n \"\$1\" ] || exit 0; run_one \"\$0\" \"\$1\"" \
+    < "$list" > "$log" 2>&1
+}
+run_batch "$JOBS" "$OUT_ROOT/parallel.txt" "$OUT_ROOT/parallel.log"
+run_batch 1 "$OUT_ROOT/serial.txt" "$OUT_ROOT/serial.log"
 
 cat "$OUT_ROOT/parallel.log" "$OUT_ROOT/serial.log" > "$OUT_ROOT/result.txt"
 same=$(grep -c ' same$' "$OUT_ROOT/result.txt" || true)

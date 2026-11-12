@@ -1597,6 +1597,54 @@ fn build_tui_agent_parts(
             }
         })
     });
+    // 取档位必须走 ref 的**叶子分支路径**（`session-manager.ts:390-433`）：
+    // `buildSessionPath` 沿 `parentId` 上溯 → `getSessionContextSettings` 只在该路径上找。
+    // 此前是"全文件倒序扫描最后一条 `thinking_level_change`"——分支切换后（旧分支上还有
+    // 一条档位记录）会取到**另一条分支**的值，页脚与 ref 不同（G2）。
+    let initial_thinking_level: Option<String> = resumed_path
+        .as_ref()
+        .and_then(|path| pi_core::session_io::SessionFile::read(path).ok())
+        .map(|file| {
+            let path_entries = pi_core::agent::projection::build_session_path(
+                &file.entries,
+                pi_core::agent::projection::LeafSelector::Unspecified,
+            );
+            let (level, _model) =
+                pi_core::agent::projection::get_session_context_settings(&path_entries);
+            level
+        })
+        // ref `sdk.ts:230-234`：只有"会话里**有** thinking 条目"时才用会话值，
+        // 没有就走 settings 默认；`get_session_context_settings` 无条目时返回 `"off"`
+        // （与 ref 同样的默认），因此这里还要用"是否真的存在条目"把两者区分开。
+        .filter(|_| {
+            resumed_path
+                .as_ref()
+                .and_then(|path| pi_core::session_io::SessionFile::read(path).ok())
+                .is_some_and(|file| {
+                    pi_core::agent::projection::build_session_path(
+                        &file.entries,
+                        pi_core::agent::projection::LeafSelector::Unspecified,
+                    )
+                    .iter()
+                    .any(|entry| {
+                        matches!(
+                            entry,
+                            pi_core::session::SessionEntry::ThinkingLevelChange { .. }
+                        )
+                    })
+                })
+        })
+        .or_else(|| {
+            // ref `sdk.ts:230-254` 的取值顺序：会话里的 `thinking_level_change` →
+            // ref `sdk.ts:230-254` 的取值顺序：会话里的 `thinking_level_change` →
+            // 每模型覆盖（`modelThinkingLevels["provider/modelId"]`）→
+            // `settings.defaultThinkingLevel` → `DEFAULT_THINKING_LEVEL`。
+            let per_model = settings
+                .model_thinking_levels
+                .as_ref()
+                .and_then(|map| map.get(&format!("{provider_name}/{model_id}")).cloned());
+            per_model.or_else(|| settings.default_thinking_level.clone())
+        });
     let writer = if parsed.no_session {
         None
     } else if let Some(path) = resumed_path.as_ref() {
@@ -1638,6 +1686,23 @@ fn build_tui_agent_parts(
                             Some(0.0),
                         ),
                     }
+                }
+                // F56/G2：**恢复分支也要把 `ctx.thinkingLevel` 写进 ctx**。
+                //
+                // 顺序与新建分支一致（必须在 `default_tools` → `HOST.get_or_init` 之前写，
+                // 由那里的 `push_ctx()` 一起带过去；迟于它则 `push_ctx` 找不到宿主而丢弃）。
+                //
+                // ref `types.ts:325-334`：`ctx.thinkingLevel` 是**当前值**；扩展页脚直接读它
+                // （`pi-ai-summary/src/footer-cny.ts:357-359`：
+                //  `const thinkingLevel = (ctx as any).thinkingLevel || "off";`
+                //  ⇒ 读不到就渲染成 ` • thinking off`）。
+                // 新建分支一直有这一行，`-c`/`--session`/`-r` 漏了 ⇒ 真机上
+                // "会话里是 high、pi 显示 high、pi-rs 显示 thinking off"。
+                if let Some(level) = initial_thinking_level
+                    .clone()
+                    .or_else(|| settings.default_thinking_level.clone())
+                {
+                    pi_cli::ext_tools::update_ctx_model(None, Some(level.as_str()));
                 }
                 pi_cli::ext_tools::set_ctx_available_providers(models_config.providers.len());
                 // F44/S2：恢复路径**不写 system 条目** ⇒ `append_system_message` 里那次
@@ -1744,54 +1809,27 @@ fn build_tui_agent_parts(
     // 没有该设置时回落到"当前 provider 下的全部模型"。
     // `-c`/`/resume`：从会话里取**最后一个** `thinking_level_change` 的档位（ref 的
     // `sessionManager` 读回 `thinkingLevel`）。
-    // 取档位必须走 ref 的**叶子分支路径**（`session-manager.ts:390-433`）：
-    // `buildSessionPath` 沿 `parentId` 上溯 → `getSessionContextSettings` 只在该路径上找。
-    // 此前是"全文件倒序扫描最后一条 `thinking_level_change`"——分支切换后（旧分支上还有
-    // 一条档位记录）会取到**另一条分支**的值，页脚与 ref 不同（G2）。
-    let initial_thinking_level: Option<String> = resumed_path
-        .as_ref()
-        .and_then(|path| pi_core::session_io::SessionFile::read(path).ok())
-        .map(|file| {
-            let path_entries = pi_core::agent::projection::build_session_path(
-                &file.entries,
-                pi_core::agent::projection::LeafSelector::Unspecified,
-            );
-            let (level, _model) =
-                pi_core::agent::projection::get_session_context_settings(&path_entries);
-            level
-        })
-        // ref `sdk.ts:230-234`：只有"会话里**有** thinking 条目"时才用会话值，
-        // 没有就走 settings 默认；`get_session_context_settings` 无条目时返回 `"off"`
-        // （与 ref 同样的默认），因此这里还要用"是否真的存在条目"把两者区分开。
-        .filter(|_| {
-            resumed_path
-                .as_ref()
-                .and_then(|path| pi_core::session_io::SessionFile::read(path).ok())
-                .is_some_and(|file| {
-                    pi_core::agent::projection::build_session_path(
-                        &file.entries,
-                        pi_core::agent::projection::LeafSelector::Unspecified,
-                    )
-                    .iter()
-                    .any(|entry| {
-                        matches!(
-                            entry,
-                            pi_core::session::SessionEntry::ThinkingLevelChange { .. }
-                        )
-                    })
-                })
-        })
-        .or_else(|| {
-            // ref `sdk.ts:230-254` 的取值顺序：会话里的 `thinking_level_change` →
-            // ref `sdk.ts:230-254` 的取值顺序：会话里的 `thinking_level_change` →
-            // 每模型覆盖（`modelThinkingLevels["provider/modelId"]`）→
-            // `settings.defaultThinkingLevel` → `DEFAULT_THINKING_LEVEL`。
-            let per_model = settings
-                .model_thinking_levels
-                .as_ref()
-                .and_then(|map| map.get(&format!("{provider_name}/{model_id}")).cloned());
-            per_model.or_else(|| settings.default_thinking_level.clone())
-        });
+    // F56/G2-3：把来源链记下来（`PI_TEST_THINKING_TRACE`，未设置时无任何行为差异）。
+    {
+        let (source, raw) = if resumed_path.is_some() {
+            match initial_thinking_level.as_deref() {
+                Some(level) => ("session_path", Some(level)),
+                None => ("settings", settings.default_thinking_level.as_deref()),
+            }
+        } else {
+            ("settings", settings.default_thinking_level.as_deref())
+        };
+        pi_cli::stages::trace_thinking(
+            source,
+            raw,
+            initial_thinking_level.as_deref().unwrap_or("<none>"),
+            &format!(
+                "provider={provider_name} model={model_id} reasoning={} resumed={}",
+                resolved.reasoning,
+                resumed_path.is_some()
+            ),
+        );
+    }
     let mut startup_warnings: Vec<String> = Vec::new();
     let available_models: Vec<pi_cli::tui::ModelChoice> = {
         let enabled: Vec<pi_cli::tui::ModelChoice> = settings

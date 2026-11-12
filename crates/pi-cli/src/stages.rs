@@ -29,3 +29,26 @@ pub fn mark(name: &str) {
         let _ = writeln!(file, "{name}\t{elapsed}");
     }
 }
+
+/// F56/G2-3：thinking 档位的**来源链**日志（`PI_TEST_THINKING_TRACE=<file>`）。
+///
+/// 未设置时**零行为差异**（不建文件、不格式化、不进渲染路径）：只在档位解析完成的那一刻
+/// 追加一行。用于回答"这个 `off` 到底从哪来"——真机上 pi-rs 显示 `off`、pi 显示 `high`，
+/// 但副本上复现不出，必须能从现场拿到来源链。
+pub fn trace_thinking(source: &str, raw: Option<&str>, resolved: &str, detail: &str) {
+    let Some(path) = std::env::var_os("PI_TEST_THINKING_TRACE") else {
+        return;
+    };
+    let elapsed = origin().elapsed().as_millis();
+    if let Ok(mut file) = std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(&path)
+    {
+        let _ = writeln!(
+            file,
+            "t={elapsed}\tsource={source}\traw={}\tresolved={resolved}\t{detail}",
+            raw.unwrap_or("<none>")
+        );
+    }
+}

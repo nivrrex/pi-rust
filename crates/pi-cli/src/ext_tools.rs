@@ -246,7 +246,8 @@ fn ctx_snapshot() -> serde_json::Value {
 /// 把最新 ctx 推给正在运行的宿主（`HostHandle::set_ctx`）。
 fn push_ctx() {
     if let Some(host) = HOST.get().and_then(|slot| slot.as_ref()) {
-        host.set_ctx(ctx_snapshot());
+        let snapshot = ctx_snapshot();
+        host.set_ctx(snapshot);
     }
 }
 

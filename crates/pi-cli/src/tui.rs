@@ -1530,6 +1530,28 @@ pub fn run(
         } else {
             Vec::new()
         };
+        // 非推理模型：ref 不显示档位（`footer.ts:206-211`），因此这里**不改**
+        // `state.thinking_level`（保持 `TuiState` 的初值），也不能被当成"off 档"。
+        if !parts_ref.supports_thinking {
+            crate::stages::trace_thinking(
+                "not_reasoning",
+                None,
+                "off",
+                &format!(
+                    "supports_thinking=false provider={} model={}",
+                    parts_ref
+                        .model_state
+                        .lock()
+                        .map(|s| s.provider_name.clone())
+                        .unwrap_or_default(),
+                    parts_ref
+                        .model_state
+                        .lock()
+                        .map(|s| s.model_id.clone())
+                        .unwrap_or_default()
+                ),
+            );
+        }
         if parts_ref.supports_thinking {
             // ref `ai/src/models.ts:924-931`：`xhigh`/`max` **只有在模型声明了
             // `thinkingLevelMap` 对应项时才出现**；没有映射表的推理模型只有这五档。
@@ -1543,8 +1565,19 @@ pub fn run(
                 .initial_thinking_level
                 .clone()
                 .unwrap_or_else(|| "medium".to_string());
-            state.thinking_level =
-                clamp_thinking_level(&state.available_thinking_levels, &requested);
+            let clamped = clamp_thinking_level(&state.available_thinking_levels, &requested);
+            // F56/G2-3：解析完成点也记一行（`requested` → `clamped` 若被夹）。
+            crate::stages::trace_thinking(
+                "tui_clamp",
+                Some(requested.as_str()),
+                &clamped,
+                &format!(
+                    "supports_thinking={} available={}",
+                    parts_ref.supports_thinking,
+                    state.available_thinking_levels.join(",")
+                ),
+            );
+            state.thinking_level = clamped;
             // 初始思考档位同步给扩展（页脚右侧 `… • <level>`，ref `footer.ts:184-190`）。
             crate::ext_tools::update_ctx_model(None, Some(state.thinking_level.as_str()));
         }

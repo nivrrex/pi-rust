@@ -51,6 +51,8 @@ run "lint-banned" ./scripts/lint-banned.sh
 run "kill-safety" ./scripts/check-kill-safety.sh
 # F56/P：safe-spawn / safe-kill 的行为用例（PID 复用、cmdline 不符、正常清理、拒绝按名匹配）。
 run "safe-tools tests" ./tools/difftest/test/test-safe-tools.sh
+# F56/A4：回归汇总不得把"空清单"算成一次运行（light 的假 nogolden）。
+run "regress-summary test" ./tools/difftest/test/test-regress-summary.sh
 run "check-spec-cites" python3 scripts/check-spec-cites.py
 run "check-unverified-map" python3 scripts/check-unverified-map.py
 run "check-scenarios" node scripts/check-scenarios.mjs
@@ -64,7 +66,7 @@ run "P7-6 残留进程检查" ./scripts/check-no-stray.sh
 run "P7-4e 钉子（非交互路径 S01）" ./scripts/check-s01-pin.sh
 
 if [ "${#failed[@]}" -gt 0 ]; then
-  printf '\n十四项检查：%d 项失败 -> %s\n' "${#failed[@]}" "${failed[*]}"
+  printf '\n十五项检查：%d 项失败 -> %s\n' "${#failed[@]}" "${failed[*]}"
   # H0.6：失败时把**完整输出**留档（只加留存，不改任何检查项与判据）
   if [ -n "${PRECOMMIT_LOG:-}" ] && [ -f "${PRECOMMIT_LOG}" ]; then
     mkdir -p notes
@@ -73,4 +75,4 @@ if [ "${#failed[@]}" -gt 0 ]; then
   fi
   exit 1
 fi
-printf '\n十四项检查：全部通过\n'
+printf '\n十五项检查：全部通过\n'
