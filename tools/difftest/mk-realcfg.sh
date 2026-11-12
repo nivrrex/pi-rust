@@ -40,10 +40,35 @@ MODELS_SRC="$WIN_REAL/models.json"
 SESSION_SRC="$WIN_REAL/2026-11-06T00-43-43-067Z_01a1ae4f-ba5b-72a9-9b2a-d6d9ad30b65e.jsonl"
 BRANCH=recover
 NOTHK_MODEL="ant-ling/Ling-3.2-flash"
+# `--from-home`（F55/G2）：直接用**用户这台 Linux 的**真实配置与会话做副本。
+# 与默认（Windows 语料 `tty/win-real`）的区别：settings/models/auth/扩展都取
+# `~/.pi/agent` 的当前状态，会话取 `sessions/--root-Desktop-pi-rust--/01a10051-*.jsonl`。
+# 目的：真机现象（页脚 `thinking off` vs `high`）只在**用户这份配置 + 这个会话**上出现，
+# Windows 语料复现不出来。默认**不生成** nothk 变体（会话 116 MB，复制两份是浪费）。
+FROM_HOME=0
+NOTHK=1
+OUT_EXPLICIT=0
 
 while [ $# -gt 0 ]; do
   case "$1" in
-    --out) OUT="$2"; shift 2 ;;
+    --from-home)
+      FROM_HOME=1
+      AGENT_SRC="${HOME}/.pi/agent"
+      SETTINGS_SRC="$AGENT_SRC/settings.json"
+      MODELS_SRC="$AGENT_SRC/models.json"
+      # 目录名是 cwd 的编码；`--root-Desktop-pi-rust--` 对应本仓库。缺省再退回任意
+      # `01a10051-*` 会话（`--session` 可覆盖成别的）。
+      # 文件名形如 `2026-10-03T05-51-14-162Z_01a10051-….jsonl` ⇒ 通配要带前缀 `*_`。
+      SESSION_SRC=$(ls -1 "$AGENT_SRC"/sessions/--root-Desktop-pi-rust--/*_01a10051-*.jsonl 2>/dev/null | head -1)
+      if [ -z "$SESSION_SRC" ]; then
+        SESSION_SRC=$(ls -1t "$AGENT_SRC"/sessions/*/*_01a10051-*.jsonl 2>/dev/null | head -1)
+      fi
+      NOTHK=0
+      # `--out` 未显式给出时用 `tmp/realcfg-linux`（与默认的 Windows 语料目录并列）。
+      if [ "$OUT_EXPLICIT" = "0" ]; then OUT="$REPO/tmp/realcfg-linux"; fi
+      shift ;;
+    --notk) NOTHK=1; shift ;;
+    --out) OUT="$2"; OUT_EXPLICIT=1; shift 2 ;;
     --mock-port) MOCK_PORT="$2"; shift 2 ;;
     --agent-src) AGENT_SRC="$2"; shift 2 ;;
     --settings-src) SETTINGS_SRC="$2"; shift 2 ;;
@@ -120,6 +145,8 @@ printf '# sandbox\n' > "$OUT/work/AGENTS.md"
 git -C "$OUT/work" add AGENTS.md >/dev/null 2>&1 || true
 
 # 会话副本：只改会话头 cwd；另生成"无 thinking_level_change"的推理模型变体。
+REALCFG_NOTHk=$NOTHK
+export REALCFG_NOTHk
 python3 - "$SESSION_SRC" "$OUT/sess" "$OUT/work" "$NOTHK_MODEL" <<'PYSESS'
 import json, os, sys
 src, sess_dir, work, model = sys.argv[1], sys.argv[2], sys.argv[3], sys.argv[4]
@@ -141,7 +168,10 @@ with open(verbatim, "w", encoding="utf-8") as fout:
             continue
         fout.write(line)
 
-# 2) nothk 变体：丢 thinking_level_change、model_change 指向推理模型。
+# 2) nothk 变体（`--from-home` 时跳过：会话 116 MB，两份复制成本高且该变体不需要）。
+if os.environ.get("REALCFG_NOTHk", "1") != "1":
+    print(name)
+    raise SystemExit(0)
 out = []
 for index, line in enumerate(lines):
     if not line.strip():
@@ -176,7 +206,11 @@ REALCFG_AGENT=$OUT/agent
 REALCFG_SESS=$OUT/sess
 REALCFG_WORK=$OUT/work
 REALCFG_SESSION_FILE=$OUT/sess/$SESSION_NAME
-REALCFG_SESSION_NOTHk=$OUT/sess/nothk-$SESSION_NAME
+if [ "$NOTHK" = "1" ]; then
+  REALCFG_SESSION_NOTHk=$OUT/sess/nothk-$SESSION_NAME
+else
+  REALCFG_SESSION_NOTHk=$OUT/sess/$SESSION_NAME
+fi
 REALCFG_MOCK_PORT=$MOCK_PORT
 REALCFG_BRANCH=$BRANCH
 EOF

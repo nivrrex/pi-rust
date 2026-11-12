@@ -1151,6 +1151,9 @@ pub fn next_switchable_model_directed<P>(
 pub struct AgentParts {
     /// 已构造好的 provider（print 路径同一个函数产物）。
     pub provider: std::sync::Arc<dyn pi_ai::Provider>,
+    /// 会话里 `compaction` 条目的总数（ref `interactive-mode.ts:4064-4070`：
+    /// `renderInitialMessages()` 末尾按它打一行 `Session compacted N times`）。
+    pub compaction_count: usize,
     /// 已解析的工具集（`print_mode::default_tools` 等）。
     pub tools: Vec<std::sync::Arc<dyn pi_core::tools::tool::Tool>>,
     /// 已加载的 skills（`/skill:<name> args` 展开用，ref `agent-session.ts:1797-1821`）。
@@ -1571,6 +1574,24 @@ pub fn run(
         fill_extension_renderers(&mut items);
         crate::stages::mark("transcript_renderers_filled");
         state.transcript.extend(items);
+    }
+    // ref `interactive-mode.ts:4064-4070`：`renderInitialMessages()` 之后，如果会话里
+    // 有 `compaction` 条目就补一行 `Session compacted N times`（单数 `1 time`）。
+    // 它走 `showStatus`（`Spacer(1)` + `Text(msg, 1, 0)` + dim），因此是**状态行**而不是
+    // 转录块；此前 pi-rs 完全没有这一行（G2/B，真实 26 次压缩的会话上 TS 有、我们没有）。
+    if let Some(count) = parts.as_ref().map(|parts| parts.compaction_count) {
+        if count > 0 {
+            let times = if count == 1 {
+                "1 time".to_string()
+            } else {
+                format!("{count} times")
+            };
+            state
+                .transcript
+                .push(pi_tui::TranscriptItem::Status(format!(
+                    "Session compacted {times}"
+                )));
+        }
     }
     // `-c` 续写：footer 的用量/费用要**接着会话累计**（T61 golden：`↑200 ↓40 $0.000`）。
     // F44/S2：恢复路径改用**带缓存字段**的累加器（此前用 `settings_selector::session_usage`，
@@ -5330,6 +5351,9 @@ fn draw(
         dump_output(&path, cols, rows, diff_state, &payload);
     }
     let result = write_frame(&mut out, &payload);
+    // 记录"本帧写出**之后**的字节数"。装帧边界必须对齐：`diff_render` 的整个 payload
+    // 就是这一帧（已含 `?2026h`/`?2026l`），所以累加它的长度天然落在帧尾；
+    // 之前记的是"写前偏移"再回退到帧尾，遇到 CRLF 分块写就会切进帧中间（实测 `hig`）。
     if crate::testhook::dump_enabled() && result.is_ok() {
         crate::testhook::record_bytes(payload.len());
     }

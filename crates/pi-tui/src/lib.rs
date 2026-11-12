@@ -2797,12 +2797,14 @@ fn render_all_cached_styled_inner(
     // ref `interactive-mode.ts:904`：`verbose || !quietStartup` 才打印 `Model scope:`。
     if !state.model_scope.is_empty() && !state.quiet_startup {
         // ref `interactive-mode.ts:905-916`：`Model scope: <id[:thinking], …> (Ctrl+P to cycle)`
-        lines.push(clamp_to_width(
-            &format!(
-                "Model scope: {} (Ctrl+P to cycle)",
-                state.model_scope.join(", ")
-            ),
-            cols,
+        //
+        // **不截断**：这条走 ref 的 `console.log`（TUI 接管之外），超宽由终端自己处理。
+        // `compare-tui` 的 `renderScreen` 与真实终端一致——越过第 `cols` 列的字符会写到
+        // 最后一列（覆盖），所以整行 117 列的行在 80 列下末尾显示的是 `)`，而截断成
+        // 80 列会停在 `(`。真实 Linux 配置的 3 个模型名就是这么把差异暴露出来的。
+        lines.push(format!(
+            "Model scope: {} (Ctrl+P to cycle)",
+            state.model_scope.join(", ")
         ));
     }
     lines.push(String::new());
@@ -3008,7 +3010,14 @@ fn render_all_cached_styled_inner(
                     .parent()
                     .map(|parent| parent.display().to_string())
                     .unwrap_or_else(|| path.clone());
-                lines.push(clamp_to_width(&format!("    {shown}"), cols));
+                // ref 的 `formatScopeGroups` 返回的是**字符串**，交给 `Text` 组件排版
+                // （`interactive-mode.ts:1825-1827` + `tui/src/components/text.ts:60-68`
+                // 的 `wrapTextWithAnsi`）⇒ 超宽**折行**，不是截断。
+                // 真实 Linux 配置下扩展目录名很长，80 列时 TS 折成 2 行、我们截成 1 行
+                // （F55/C 实测：`<AGENT>/exten` + `sions/pi-ai-summary`）。
+                for wrapped in wrap_to_width(&format!("    {shown}"), cols) {
+                    lines.push(wrapped);
+                }
             }
         } else {
             let range = push_compact_list(&mut lines, &state.extension_labels, cols);

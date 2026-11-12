@@ -77,9 +77,45 @@ pub fn newest_session_file(
 
 /// 比较 cwd 时统一形态（`resolvePath` 的近似：去掉末尾分隔符；能规范化就规范化）。
 fn resolve_for_compare(path: &std::path::Path) -> String {
-    let text = path.to_string_lossy();
+    normalize_cwd_for_compare(&path.to_string_lossy())
+}
+
+/// 把 cwd 归一成"可比较"的形态（ref `utils/paths.ts:78-106` 的 `normalizePath` +
+/// `nodeResolvePath` 在对应平台上的输出）。
+///
+/// 规则（纯函数，便于在 Linux 上单测 Windows 分支）：
+/// - 去掉尾部 `/` 与 `\`（`C:\a\` 与 `C:\a` 是同一个目录）；
+/// - Windows 下把分隔符统一成 `\`：ref 的 `nodeResolvePath` 是 **win32** 版
+///   `path.resolve`，它输出反斜杠；会话头里若存的是 `C:/Users/x`（Git Bash / WSL 写法），
+///   不归一就永远匹配不上（`session-manager.ts:744-746` 直接比较 `resolvePath(cwd)`）。
+/// - 盘符**保留原大小写**：ref 不做大小写折叠（`normalizePath` 只处理 `~`/`file://`），
+///   擅自小写化会与 ref 相反。
+#[must_use]
+pub fn normalize_cwd_for_compare(text: &str) -> String {
     let trimmed = text.trim_end_matches(['/', '\\']);
+    if cfg!(windows) || looks_like_windows_path(trimmed) {
+        return trimmed.replace('/', "\\");
+    }
     trimmed.to_string()
+}
+
+/// 是否是 Windows 形态的路径（`C:\…` 或 `C:/…`）。
+///
+/// 单独抽出来是为了让 Linux 上的单测能走 Windows 分支——测试用 `normalize_windows_cwd`
+/// 直接验证行为，不依赖 `cfg!(windows)`。
+#[must_use]
+pub fn looks_like_windows_path(text: &str) -> bool {
+    let mut chars = text.chars();
+    matches!(
+        (chars.next(), chars.next()),
+        (Some(drive), Some(':')) if drive.is_ascii_alphabetic()
+    )
+}
+
+/// Windows 平台的 cwd 归一（`normalize_cwd_for_compare` 的 Windows 分支）。
+#[must_use]
+pub fn normalize_windows_cwd(text: &str) -> String {
+    text.trim_end_matches(['/', '\\']).replace('/', "\\")
 }
 
 /// 读会话文件首行的 `cwd`（ref `readSessionHeaderForDiscovery`）：读不到或不是 JSON 就当没有。

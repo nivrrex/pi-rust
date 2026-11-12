@@ -192,7 +192,10 @@ for line in open(f"{out}/steps/marks.jsonl", encoding="utf-8"):
     marks.append(json.loads(line))
 json.dump({"cols": cols, "rows": rows, "snapshotOffsets": marks}, open(f"{out}/meta.json", "w"))
 PY
-  node "$REPO/tools/difftest/marks-to-steps.mjs" --raw "$OUT/raw.bin" --meta "$OUT/meta.json" --out "$OUT/steps" >/dev/null
+  # `--frame-backtrack`：pi-rs 侧记的是"已写字节数"，若某帧被分块写切断，
+  # 偏移会落在帧中间（实测 footer `• high` 被切成 `hig`）。回退到最后一个 `?2026l` 帧尾。
+  node "$REPO/tools/difftest/marks-to-steps.mjs" --raw "$OUT/raw.bin" --meta "$OUT/meta.json" \
+    --out "$OUT/steps" --frame-backtrack >/dev/null
 fi
 
 if [ "$IMPL" = "ts" ]; then

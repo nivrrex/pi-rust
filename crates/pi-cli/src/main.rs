@@ -1744,16 +1744,42 @@ fn build_tui_agent_parts(
     // 没有该设置时回落到"当前 provider 下的全部模型"。
     // `-c`/`/resume`：从会话里取**最后一个** `thinking_level_change` 的档位（ref 的
     // `sessionManager` 读回 `thinkingLevel`）。
+    // 取档位必须走 ref 的**叶子分支路径**（`session-manager.ts:390-433`）：
+    // `buildSessionPath` 沿 `parentId` 上溯 → `getSessionContextSettings` 只在该路径上找。
+    // 此前是"全文件倒序扫描最后一条 `thinking_level_change`"——分支切换后（旧分支上还有
+    // 一条档位记录）会取到**另一条分支**的值，页脚与 ref 不同（G2）。
     let initial_thinking_level: Option<String> = resumed_path
         .as_ref()
         .and_then(|path| pi_core::session_io::SessionFile::read(path).ok())
-        .and_then(|file| {
-            file.entries.iter().rev().find_map(|entry| match entry {
-                pi_core::session::SessionEntry::ThinkingLevelChange { thinking_level, .. } => {
-                    Some(thinking_level.clone())
-                }
-                _other => None,
-            })
+        .map(|file| {
+            let path_entries = pi_core::agent::projection::build_session_path(
+                &file.entries,
+                pi_core::agent::projection::LeafSelector::Unspecified,
+            );
+            let (level, _model) =
+                pi_core::agent::projection::get_session_context_settings(&path_entries);
+            level
+        })
+        // ref `sdk.ts:230-234`：只有"会话里**有** thinking 条目"时才用会话值，
+        // 没有就走 settings 默认；`get_session_context_settings` 无条目时返回 `"off"`
+        // （与 ref 同样的默认），因此这里还要用"是否真的存在条目"把两者区分开。
+        .filter(|_| {
+            resumed_path
+                .as_ref()
+                .and_then(|path| pi_core::session_io::SessionFile::read(path).ok())
+                .is_some_and(|file| {
+                    pi_core::agent::projection::build_session_path(
+                        &file.entries,
+                        pi_core::agent::projection::LeafSelector::Unspecified,
+                    )
+                    .iter()
+                    .any(|entry| {
+                        matches!(
+                            entry,
+                            pi_core::session::SessionEntry::ThinkingLevelChange { .. }
+                        )
+                    })
+                })
         })
         .or_else(|| {
             // ref `sdk.ts:230-254` 的取值顺序：会话里的 `thinking_level_change` →
@@ -1875,6 +1901,15 @@ fn build_tui_agent_parts(
         skills: tui_skills.clone(),
         resumed_path,
         initial_messages,
+        compaction_count: resumed_file
+            .as_ref()
+            .map(|file| {
+                file.entries
+                    .iter()
+                    .filter(|entry| entry.kind() == "compaction")
+                    .count()
+            })
+            .unwrap_or(0),
         startup_warnings,
         agent_dir: paths.agent_dir.clone(),
         cwd: cwd.to_string_lossy().to_string(),

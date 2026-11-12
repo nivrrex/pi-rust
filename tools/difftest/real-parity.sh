@@ -29,6 +29,7 @@ ROWS=40
 CONFIG=""
 KEEP=0
 MATRIX=1
+CONTINUE_MODE=0
 
 while [ $# -gt 0 ]; do
   case "$1" in
@@ -39,6 +40,10 @@ while [ $# -gt 0 ]; do
     --config) CONFIG="$2"; MATRIX=0; shift 2 ;;
     --out) OUT_ROOT="$2"; shift 2 ;;
     --keep) KEEP=1; shift ;;
+    # F55/C：`--continue` ⇒ 用 `-c` 而不是 `--session <file>`。
+    # 真实 Linux 会话 116 MB / 64196 条目，`--session` 与 `-c` 在 ref 里走**不同**的
+    # 恢复分支（`session-manager.ts:1779` vs `:1791-1800`），`-c` 才是真机用的那条。
+    --continue) CONTINUE_MODE=1; shift ;;
     *) echo "real-parity: 未知参数 $1" >&2; exit 2 ;;
   esac
 done
@@ -66,8 +71,13 @@ run_cell() {
   cell="$OUT_ROOT/$label"
   rm -rf "$cell"
   for impl in ts pi-rs; do
-    "$REPO/tools/difftest/run-real.sh" --impl "$impl" --keys "$keys" --cols "$cols" --rows "$ROWS" \
-      --config "$config" --session "$SESSION_FILE" --out "$cell/$impl" >"$cell.log" 2>&1 || true
+    if [ "$CONTINUE_MODE" = "1" ]; then
+      "$REPO/tools/difftest/run-real.sh" --impl "$impl" --keys "$keys" --cols "$cols" --rows "$ROWS" \
+        --config "$config" --continue --out "$cell/$impl" >"$cell.log" 2>&1 || true
+    else
+      "$REPO/tools/difftest/run-real.sh" --impl "$impl" --keys "$keys" --cols "$cols" --rows "$ROWS" \
+        --config "$config" --session "$SESSION_FILE" --out "$cell/$impl" >"$cell.log" 2>&1 || true
+    fi
   done
   # 比较步数 = 按键数 + 1（初态）；退出那一步（ctrl+d 之后）不参与比较。
   key_count=$(cat "$cell/pi-rs/key_count" 2>/dev/null || echo 0)
@@ -129,17 +139,24 @@ JSON
   fi
 }
 
+# 矩阵规模：默认 24 格（6 个键序列）；`MATRIX_KEYS` 可缩小（真实 Linux 会话 116 MB，
+# 每格 TS 侧要几十秒，CI 里跑全 24 格不现实）。空格分隔，空串用 `none` 表示。
+# **默认保持 6 个（24 格）**：既有判据不得放宽。真实 Linux 语料那套自己传更小的集合。
+MATRIX_KEYS=${MATRIX_KEYS:-"none,ctrl+o,ctrl+o_ctrl+o,ctrl+t,ctrl+t_ctrl+t,ctrl+o_ctrl+t"}
 if [ "$MATRIX" -eq 1 ]; then
   for cols in 110 80; do
     for config in ext ne; do
-      for keys in "" "ctrl+o" "ctrl+o,ctrl+o" "ctrl+t" "ctrl+t,ctrl+t" "ctrl+o,ctrl+t"; do
+      for keys in $(printf '%s' "$MATRIX_KEYS" | tr ',' ' '); do
+        [ "$keys" = "none" ] && keys=""
         run_cell "$cols" "$config" "$keys"
       done
     done
   done
-  for config in ext ne; do
-    run_resize_cell "resize-${config}" "$config"
-  done
+  if [ "${MATRIX_RESIZE:-1}" = "1" ]; then
+    for config in ext ne; do
+      run_resize_cell "resize-${config}" "$config"
+    done
+  fi
 else
   run_cell "${COLS:-110}" "${CONFIG:-ext}" "$KEYS"
 fi

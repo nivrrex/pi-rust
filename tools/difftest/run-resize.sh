@@ -27,6 +27,7 @@ while [ $# -gt 0 ]; do
     --rows) ROWS="$2"; shift 2 ;;
     --config) CONFIG="$2"; shift 2 ;;
     --session) SESSION_OVERRIDE="$2"; shift 2 ;;
+    --continue) CONTINUE=1; shift ;;
     --out) OUT="$2"; shift 2 ;;
     *) echo "run-resize: 未知参数 $1" >&2; exit 2 ;;
   esac
@@ -78,7 +79,13 @@ sys.exit(1)
 PYWAIT
 
 SESSION_FILE="$OUT/session.jsonl"
-ARGS="--session $SESSION_FILE"
+if [ "$CONTINUE" = "1" ]; then
+  # `-c`：ref 用 continueRecent（会话头 cwd 不参与过滤），与 `--session <file>` 是两条分支。
+  cp "$SESSION_FILE" "$OUT/sess/"
+  ARGS="-c"
+else
+  ARGS="--session $SESSION_FILE"
+fi
 if [ "$CONFIG" = "ne" ]; then
   ARGS="$ARGS --no-extensions"
 fi
