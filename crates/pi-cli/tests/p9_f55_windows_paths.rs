@@ -50,14 +50,10 @@ fn windows_drive_letter_case_is_preserved() {
 #[test]
 fn posix_paths_keep_forward_slashes() {
     assert_eq!(
-        pi_cli::session_writer::normalize_cwd_for_compare("/root/Desktop/pi-rust/"),
-        "/root/Desktop/pi-rust"
+        pi_cli::session_writer::normalize_cwd_for_compare("/srv/work/"),
+        "/srv/work"
     );
-    assert!(!pi_cli::session_writer::looks_like_windows_path(
-        "/root/Desktop"
-    ));
-    assert!(pi_cli::session_writer::looks_like_windows_path(
-        r"C:\Users"
-    ));
+    assert!(!pi_cli::session_writer::looks_like_windows_path("/srv"));
+    assert!(pi_cli::session_writer::looks_like_windows_path(r"C:\Users"));
     assert!(pi_cli::session_writer::looks_like_windows_path("C:/Users"));
 }

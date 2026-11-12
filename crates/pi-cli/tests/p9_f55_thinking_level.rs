@@ -66,8 +66,11 @@ fn write_agent(agent: &Path, reasoning: bool, default_thinking: Option<&str>) {
         serde_json::to_string(&models).expect("序列化 models"),
     )
     .expect("写 models");
-    std::fs::write(agent.join("auth.json"), r#"{"p":{"type":"api_key","key":"DUMMY"}}"#)
-        .expect("写 auth");
+    std::fs::write(
+        agent.join("auth.json"),
+        r#"{"p":{"type":"api_key","key":"DUMMY"}}"#,
+    )
+    .expect("写 auth");
 }
 
 /// 会话条目：(type, 附加字段)。`parent` 用**下标**表示（`None` = 根）。

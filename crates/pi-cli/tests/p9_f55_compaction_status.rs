@@ -47,15 +47,18 @@ fn write_agent(agent: &Path) {
         r#"{"providers":{"p":{"baseUrl":"http://127.0.0.1:1/v1","api":"openai-completions","apiKey":"DUMMY","models":[{"id":"m"}]}}}"#,
     )
     .expect("写 models");
-    std::fs::write(agent.join("auth.json"), r#"{"p":{"type":"api_key","key":"DUMMY"}}"#)
-        .expect("写 auth");
+    std::fs::write(
+        agent.join("auth.json"),
+        r#"{"p":{"type":"api_key","key":"DUMMY"}}"#,
+    )
+    .expect("写 auth");
 }
 
 /// 合成会话：1 个 user、1 个 assistant、`compactions` 次压缩，每两次压缩间一问一答。
 fn write_session(path: &Path, cwd: &Path, compactions: usize) {
     let mut lines: Vec<String> = Vec::new();
     let mut next = 0usize;
-    let mut id = |next: &mut usize| {
+    let id = |next: &mut usize| {
         *next += 1;
         format!("e{:03}", *next)
     };
@@ -127,8 +130,20 @@ fn write_session(path: &Path, cwd: &Path, compactions: usize) {
             .to_string(),
         );
         parent = entry;
-        push_message(&mut lines, &mut parent, "user", &format!("第{}问", index + 2), &mut next);
-        push_message(&mut lines, &mut parent, "assistant", &format!("第{}答", index + 2), &mut next);
+        push_message(
+            &mut lines,
+            &mut parent,
+            "user",
+            &format!("第{}问", index + 2),
+            &mut next,
+        );
+        push_message(
+            &mut lines,
+            &mut parent,
+            "assistant",
+            &format!("第{}答", index + 2),
+            &mut next,
+        );
     }
     std::fs::write(path, lines.join("\n") + "\n").expect("写会话");
 }
@@ -187,7 +202,7 @@ fn screen_of_continue(compactions: usize) -> Option<String> {
         .status()
         .expect("运行 pty-helper");
     assert!(status.success(), "pty-helper 应成功");
-    Some(std::fs::read_to_string(dump.join("tail.txt")).ok()?)
+    std::fs::read_to_string(dump.join("tail.txt")).ok()
 }
 
 /// 两次压缩 ⇒ 屏幕出现 `Session compacted 2 times`。
