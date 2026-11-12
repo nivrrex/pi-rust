@@ -2585,6 +2585,43 @@ fn item_style(
             collapsed_row: Some(_),
             ..
         } => None,
+        // 扩展接管了渲染（`renderCall`/`renderResult` 返回自己的组件）时，ref 只给
+        // `contentBox = Box(1, 1, theme.bg(toolPendingBg|toolSuccessBg))`
+        // （`tool-execution.ts:104-108`）——**只有底色**，前景由扩展自己的
+        // `theme.fg(…)` 决定；扩展没上色的行就是**终端默认前景**。
+        // 此前这类块落到下面的通用分支、被统一刷成 `muted`（真实会话 80 列实测：
+        // `report_to_user` 的 JSON 与结果正文共 149 格前景 i242，而 ref 是 null）。
+        TranscriptItem::ToolCall {
+            render_lines: Some(_),
+            is_error,
+            ..
+        }
+        | TranscriptItem::ToolCall {
+            result_render_lines: Some(_),
+            is_error,
+            ..
+        } => Some(LineStyle::bg(if *is_error {
+            palette.tool_error_bg
+        } else {
+            palette.tool_success_bg
+        })),
+        // 没有渲染器的工具（`Generic`）走 ref `contentText = Text("", 1, 1, theme.bg(…))`
+        // （`tool-execution.ts:106`）——同样是**只有底色**、正文是终端默认前景。
+        // 真实会话 80 列实测：`report_to_user` 的 JSON 参数块与结果正文共 149 格前景
+        // 被刷成 `muted`（i242），ref 是 `null`。
+        TranscriptItem::ToolCall {
+            name,
+            render_lines: None,
+            result_render_lines: None,
+            is_error,
+            ..
+        } if matches!(native_tool_kind(name), NativeTool::Generic) => {
+            Some(LineStyle::bg(if *is_error {
+                palette.tool_error_bg
+            } else {
+                palette.tool_success_bg
+            }))
+        }
         TranscriptItem::ToolCall { name, is_error, .. } => {
             let background = if *is_error {
                 palette.tool_error_bg

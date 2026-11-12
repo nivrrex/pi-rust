@@ -157,8 +157,13 @@ pub fn visible_width(text: &str) -> usize {
 ///
 /// ref `utils.ts:1050-1058` 的 padding 是纯空格，只被 `bgFn` 染色；把整行样式
 /// （含前景与粗体）铺到补位空格上会多出成片的 bold/fg 差异（T06 实测 96 格）。
+/// 补位空格的样式：保留底色与**属性**（粗体/暗/斜/下划线/删除线），丢掉前景。
+///
+/// ref `text.ts:79-84` 把 `line + padding` 一起交给 `applyBackgroundToLine`
+/// （`utils.ts:1050-1058`）——被折行切断的粗体会延续到补位空格；前景色不会
+/// （`applyBackgroundToLine` 只加背景）。
 fn padding_style(style: crate::style::LineStyle) -> crate::style::LineStyle {
-    crate::style::LineStyle::with_bg_only_tuple(style.bg)
+    crate::style::LineStyle { fg: None, ..style }
 }
 
 /// 把行尾的**控制序列**（`SGR` 复位、`OSC 8` 关闭）与可见文本分开。
@@ -245,6 +250,16 @@ pub fn write_spans(out: &mut String, line: &str, spans: &[crate::style::Span], w
         }
     }
     let mut last_background = None;
+    // **行尾最后一个字符**的样式（补位空格沿用它，见下方注释）。
+    //
+    // 关键是"行尾"而不是"最后一个有样式的字符"：ref `wrapTextWithAnsi`（`utils.ts:851-874`）
+    // 在非末行**不闭合** SGR，所以折行点处的样式状态由该行末尾那个字符决定；
+    // 行中间某段加粗早已在行内复位过，不会延续到补位空格
+    // （实测踩过：用"最后一个有样式的字符"会把行中间加粗的段尾也染上）。
+    let last_inline_style =
+        styles.last().copied().flatten().filter(|style| {
+            style.bold || style.dim || style.italic || style.underline || style.strike
+        });
     let mut current: Option<crate::style::LineStyle> = None;
     for index in 0..char_count {
         let style = styles[index];
@@ -266,7 +281,19 @@ pub fn write_spans(out: &mut String, line: &str, spans: &[crate::style::Span], w
         out.push_str("\u{1b}[0m");
     }
     // 末尾补空格：背景色覆盖到整行（Text 的 padding）。
-    if let Some(style) = last_background {
+    //
+    // 补位空格**继承行内最后一个字符的样式**（不只是底色）：ref 的
+    // `wrapTextWithAnsi`（`utils.ts:851-874`）在**非末行**不闭合 SGR，`Text.render`
+    // （`text.ts:79-84`）随后把 `line + padding` 一起交给 `applyBackgroundToLine`
+    // ⇒ 被折行切断的粗体/下划线会**延续到补位空格**。
+    // 真实会话 80 列实测（`1. 六·附新增第 6 节…**16 笔全**` 在列 51 处折行）：
+    // 第 54/55 列 ref `bold=true`、我们 `false`。
+    // 补位空格的样式：有"行内最后一段样式"时沿用它（去掉前景：ref 的补位空格
+    // 只继承底色与属性，前景仍是终端默认）；否则沿用整行底色（工具块的 padding 行）。
+    let pad_source = last_inline_style
+        .map(|style| crate::style::LineStyle { fg: None, ..style })
+        .or(last_background);
+    if let Some(style) = pad_source {
         let used = visible_width(line);
         if used < width {
             let pad = padding_style(style);
