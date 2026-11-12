@@ -61,10 +61,15 @@ cat > "$OUT/mock/scenario.json" <<EOF
   "responses": [{ "file": "$REPO/fixtures/sse/openai/text-basic.sse" }]
 }
 EOF
-"$REPO/target/debug/mock-provider" "$OUT/mock/scenario.json" --port "$REALCFG_MOCK_PORT" \
-  > "$OUT/mock/stdout.log" 2> "$OUT/mock/stderr.log" &
-MOCK_PID=$!
-trap 'kill -TERM "$MOCK_PID" 2>/dev/null || true' EXIT INT TERM
+# F56/P：mock 也走 safe-spawn（自建进程组 + pidfile 三元组），清理只在身份仍匹配时
+# 按**进程组**发信号。此前是"记 $! 再 kill"——PID 复用时会误杀无关进程（F55 事故）。
+MOCK_PIDFILE="$OUT/mock/pidfile"
+"$REPO/tools/difftest/safe-spawn.sh" --pidfile "$MOCK_PIDFILE" \
+  --out "$OUT/mock/stdout.log" -- "$REPO/target/debug/mock-provider" "$OUT/mock/scenario.json" \
+  --port "$REALCFG_MOCK_PORT" > "$OUT/mock/pid" 2>&1 || true
+if [ -s "$MOCK_PIDFILE" ]; then
+  trap 'tools/difftest/safe-kill.sh --pidfile "$MOCK_PIDFILE" --timeout 3 >/dev/null 2>&1 || true' EXIT INT TERM
+fi
 python3 - "$REALCFG_MOCK_PORT" <<'PYWAIT'
 import socket, sys, time
 port = int(sys.argv[1])

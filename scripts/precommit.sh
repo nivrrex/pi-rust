@@ -47,6 +47,10 @@ run "cargo test" cargo test --workspace
 run "只读目录（ref/ 与 TS 安装包）" node scripts/check-readonly-trees.mjs
 run "仓库约定（BOM/可执行位）" ./scripts/check-repo-conventions.sh
 run "lint-banned" ./scripts/lint-banned.sh
+# F56/P：禁止按名字/端口/模式批量杀进程（F55 误杀 openbox 的直接原因）。
+run "kill-safety" ./scripts/check-kill-safety.sh
+# F56/P：safe-spawn / safe-kill 的行为用例（PID 复用、cmdline 不符、正常清理、拒绝按名匹配）。
+run "safe-tools tests" ./tools/difftest/test/test-safe-tools.sh
 run "check-spec-cites" python3 scripts/check-spec-cites.py
 run "check-unverified-map" python3 scripts/check-unverified-map.py
 run "check-scenarios" node scripts/check-scenarios.mjs
@@ -60,7 +64,7 @@ run "P7-6 残留进程检查" ./scripts/check-no-stray.sh
 run "P7-4e 钉子（非交互路径 S01）" ./scripts/check-s01-pin.sh
 
 if [ "${#failed[@]}" -gt 0 ]; then
-  printf '\n十一项检查：%d 项失败 -> %s\n' "${#failed[@]}" "${failed[*]}"
+  printf '\n十四项检查：%d 项失败 -> %s\n' "${#failed[@]}" "${failed[*]}"
   # H0.6：失败时把**完整输出**留档（只加留存，不改任何检查项与判据）
   if [ -n "${PRECOMMIT_LOG:-}" ] && [ -f "${PRECOMMIT_LOG}" ]; then
     mkdir -p notes
@@ -69,4 +73,4 @@ if [ "${#failed[@]}" -gt 0 ]; then
   fi
   exit 1
 fi
-printf '\n十一项检查：全部通过\n'
+printf '\n十四项检查：全部通过\n'
