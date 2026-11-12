@@ -1,0 +1,23 @@
+{
+  "id": "Z3b-wrap-nowrap",
+  "cols": 100,
+  "rows": 30,
+  "helperExit": 0,
+  "exitCode": -9,
+  "stderr": "",
+  "mockStderr": "",
+  "requestLog": "/tmp/z3ts-Z3b-wrap-nowrap/requests.jsonl",
+  "snapshotOffsets": [
+    {
+      "name": "force-break",
+      "offset": 3504,
+      "t": 68699.003385219
+    },
+    {
+      "name": "after-backspace",
+      "offset": 3654,
+      "t": 68700.00614343
+    }
+  ],
+  "sessionDir": "/tmp/z3ts-Z3b-wrap-nowrap/session"
+}

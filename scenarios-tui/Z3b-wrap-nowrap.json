@@ -1,0 +1,75 @@
+{
+  "provider": "openai-completions",
+  "model": "mock-model",
+  "responses": [
+    {
+      "file": "fixtures/sse/openai/markdown-subset.sse"
+    }
+  ],
+  "files": {
+    "AGENTS.md": "# 项目规则\n\n- 项目级：改代码前先跑测试。\n"
+  },
+  "prompt": "say hi",
+  "id": "Z3b-wrap-nowrap",
+  "description": "F54/Z3：超宽无空格串强制断行（ref editor.ts:161-175 force-break），再退格回并",
+  "tui": {
+    "cols": 100,
+    "rows": 30,
+    "snapshots": [
+      "final"
+    ],
+    "steps": [
+      {
+        "action": "waitScreen",
+        "contains": "Pi can explain",
+        "timeoutMs": 25000
+      },
+      {
+        "action": "waitStable",
+        "quietMs": 600,
+        "timeoutMs": 20000
+      },
+      {
+        "action": "type",
+        "text": "abcdefghijklmnopqrstuvwxyz0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ"
+      },
+      {
+        "action": "waitStable",
+        "quietMs": 600,
+        "timeoutMs": 20000
+      },
+      {
+        "action": "snapshot",
+        "name": "force-break"
+      },
+      {
+        "action": "type",
+        "text": ""
+      },
+      {
+        "action": "waitStable",
+        "quietMs": 600,
+        "timeoutMs": 20000
+      },
+      {
+        "action": "snapshot",
+        "name": "after-backspace"
+      },
+      {
+        "action": "type",
+        "text": "\u0004"
+      },
+      {
+        "action": "waitStable",
+        "quietMs": 500,
+        "timeoutMs": 20000
+      },
+      {
+        "action": "snapshot",
+        "name": "final",
+        "quietMs": 600,
+        "timeoutMs": 20000
+      }
+    ]
+  }
+}

@@ -91,6 +91,44 @@ run_cell() {
   done
 }
 
+# F54/Z3：**窗口缩放**格（`pty-resize.py` + SIGWINCH）。与按键格并列：
+# 同一 realcfg、同一会话，脚本里按序注入长文本 → 110→60→110 两次缩放 → 退出，
+# 每个 mark 按**当时的宽度**还原屏幕后逐步逐行精确比较。
+run_resize_cell() {
+  label="$1"
+  config="$2"
+  cell="$OUT_ROOT/$label"
+  rm -rf "$cell"
+  script="$OUT_ROOT/$label.script.json"
+  cat > "$script" <<'JSON'
+[
+  {"waitFor": {"contains": "Pi can explain", "timeoutMs": 60000}},
+  {"waitStable": {"quietMs": 2500, "timeoutMs": 180000}},
+  {"mark": "wide"},
+  {"text": "缩放重排测试一二三四五六"},
+  {"waitStable": {"quietMs": 1200, "timeoutMs": 60000}},
+  {"mark": "typed"},
+  {"resize": {"cols": 60, "rows": 30}},
+  {"waitStable": {"quietMs": 1500, "timeoutMs": 60000}},
+  {"mark": "narrow"},
+  {"resize": {"cols": 110, "rows": 30}},
+  {"waitStable": {"quietMs": 1500, "timeoutMs": 60000}},
+  {"mark": "back"},
+  {"text": "\u0004"}
+]
+JSON
+  for impl in ts pi-rs; do
+    "$REPO/tools/difftest/run-resize.sh" --impl "$impl" --script "$script" --cols 110 --rows 30 \
+      --config "$config" --session "$SESSION_FILE" --out "$cell/$impl" >"$cell.log" 2>&1 || true
+  done
+  echo "=== $label" | tee -a "$SUMMARY"
+  if ! python3 "$REPO/tools/difftest/compare-steps.py" \
+      --left "$cell/ts/steps" --right "$cell/pi-rs/steps" --steps 3 \
+      --label "$label" >>"$SUMMARY" 2>&1; then
+    FAILED=$((FAILED + 1))
+  fi
+}
+
 if [ "$MATRIX" -eq 1 ]; then
   for cols in 110 80; do
     for config in ext ne; do
@@ -98,6 +136,9 @@ if [ "$MATRIX" -eq 1 ]; then
         run_cell "$cols" "$config" "$keys"
       done
     done
+  done
+  for config in ext ne; do
+    run_resize_cell "resize-${config}" "$config"
   done
 else
   run_cell "${COLS:-110}" "${CONFIG:-ext}" "$KEYS"

@@ -27,15 +27,22 @@ if (!rawPath || !metaPath || !outDir) {
 
 const meta = JSON.parse(readFileSync(metaPath, "utf8"));
 const raw = readFileSync(rawPath);
+// `--per-mark-dims`：每个 mark 带自己的 `cols`/`rows`（F54/Z3 的缩放场景，
+// 缩放前后屏幕宽度不同）。缺省沿用 `meta.cols`/`meta.rows`（既有调用方行为不变）。
+const perMarkDims = argv.includes("--per-mark-dims");
 const cols = meta.cols;
 const rows = meta.rows;
 mkdirSync(outDir, { recursive: true });
 
-const marks = meta.snapshotOffsets ?? [];
+const marks = meta.snapshotOffsets ?? meta.marks ?? [];
 marks.forEach((mark, index) => {
   // 每个 mark 独立截断：与 `compare-tui.mjs` 的 golden 口径相同（只比最后一个快照时，
   // 它会截到最后一个 offset；这里逐个还原，等价于"那一步结束时屏幕长这样"）。
-  const screen = normalizeScreen(renderScreen(trimRawToOffset(raw, mark.offset), cols, rows));
+  const markCols = perMarkDims && mark.cols ? mark.cols : cols;
+  const markRows = perMarkDims && mark.rows ? mark.rows : rows;
+  const screen = normalizeScreen(
+    renderScreen(trimRawToOffset(raw, mark.offset), markCols, markRows),
+  );
   writeFileSync(path.join(outDir, `step-${index}.txt`), `${screen.join("\n")}\n`);
 });
 writeFileSync(path.join(outDir, "steps.json"), JSON.stringify({ cols, rows, steps: marks.length }));

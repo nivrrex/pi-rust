@@ -1,0 +1,18 @@
+{
+  "id": "Z3a-wrap-cjk",
+  "cols": 100,
+  "rows": 30,
+  "helperExit": 0,
+  "exitCode": -9,
+  "stderr": "",
+  "mockStderr": "",
+  "requestLog": "/tmp/z3ts-Z3a-wrap-cjk/requests.jsonl",
+  "snapshotOffsets": [
+    {
+      "name": "wrapped",
+      "offset": 4233,
+      "t": 68398.697510796
+    }
+  ],
+  "sessionDir": "/tmp/z3ts-Z3a-wrap-cjk/session"
+}

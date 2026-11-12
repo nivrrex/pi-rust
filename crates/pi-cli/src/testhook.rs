@@ -46,13 +46,8 @@ impl TestHook {
         if keys_env.is_none() && dump_env.is_none() && tail_env.is_none() {
             return None;
         }
-        let keys: std::collections::VecDeque<String> = keys_env
-            .unwrap_or_default()
-            .split(',')
-            .map(str::trim)
-            .filter(|item| !item.is_empty())
-            .map(str::to_string)
-            .collect();
+        // `type:<文本>` 展开成逐字符注入（F54/Z3：长文本/CJK/超宽串/粘贴块）。
+        let keys = Self::expand_keys(&keys_env.unwrap_or_default());
         let dump_dir = dump_env
             .map(|value| value.trim().to_string())
             .filter(|value| !value.is_empty())
@@ -94,6 +89,30 @@ impl TestHook {
         let key = self.keys.pop_front()?;
         self.injected += 1;
         Some(key)
+    }
+
+    /// 把 `prefix:<文本>` 形式的键展开成逐字符追加的**文本**（F54/Z3）。
+    ///
+    /// 为什么用 `type:` 前缀：文本里可能有中文、可能有几十个字符，直接写进
+    /// `PI_TEST_KEYS`（逗号分隔）既不可读也不安全。`type:` 之后的整段按字符逐个注入，
+    /// 每个字符之间不额外等静止（与真人连打一致，也不依赖固定延迟）。
+    pub fn expand_keys(raw: &str) -> std::collections::VecDeque<String> {
+        let mut out = std::collections::VecDeque::new();
+        for item in raw
+            .split(',')
+            .map(str::trim)
+            .filter(|item| !item.is_empty())
+        {
+            match item.strip_prefix("type:") {
+                Some(text) => {
+                    for ch in text.chars() {
+                        out.push_back(format!("char:{ch}"));
+                    }
+                }
+                None => out.push_back(item.to_string()),
+            }
+        }
+        out
     }
 
     pub fn dump_dir(&self) -> Option<&Path> {
@@ -205,6 +224,14 @@ pub fn key_bytes_for_name(name: &str) -> Option<&'static str> {
         "enter" => "\r",
         "tab" => "\t",
         "backspace" => "\u{7f}",
+        // F54/Z3：方向键与 Home/End（编辑器折行后的行内/跨行移动）。
+        "left" => "\u{1b}[D",
+        "right" => "\u{1b}[C",
+        "up" => "\u{1b}[A",
+        "down" => "\u{1b}[B",
+        "home" => "\u{1b}[H",
+        "end" => "\u{1b}[F",
+        "delete" => "\u{1b}[3~",
         _other => return None,
     })
 }

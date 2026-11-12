@@ -1102,22 +1102,43 @@ pub enum NextModel<P> {
 ///
 /// `try_build` 负责把候选模型变成 provider（真实实现是 [`rebuild_provider`]，
 /// 单测里传闭包以便构造失败场景）。
+#[cfg(test)]
 fn next_switchable_model<P>(
     choices: &[ModelChoice],
     current_id: &str,
     current_provider: &str,
+    try_build: impl FnMut(&ModelChoice) -> Result<P, String>,
+) -> NextModel<P> {
+    next_switchable_model_directed(choices, current_id, current_provider, true, try_build)
+}
+
+/// `forward = false` 时按 `app.model.cycleBackward`（`ctrl+shift+p`）**反向**走。
+///
+/// ref `interactive-mode.ts:2998-2999`：两个键位绑到同一个 `cycleModel(direction)`
+/// （`:2960-2997` 里 `direction === "forward" ? +1 : -1`）。
+pub fn next_switchable_model_directed<P>(
+    choices: &[ModelChoice],
+    current_id: &str,
+    current_provider: &str,
+    forward: bool,
     mut try_build: impl FnMut(&ModelChoice) -> Result<P, String>,
 ) -> NextModel<P> {
     if choices.len() <= 1 {
         return NextModel::OnlyOne;
     }
+    let len = choices.len();
     let start = choices
         .iter()
         .position(|choice| choice.id == current_id && choice.provider == current_provider)
         .unwrap_or(0);
     let mut last_error: Option<String> = None;
-    for offset in 1..choices.len() {
-        let choice = &choices[(start + offset) % choices.len()];
+    for offset in 1..len {
+        let index = if forward {
+            (start + offset) % len
+        } else {
+            (start + len - offset % len) % len
+        };
+        let choice = &choices[index];
         match try_build(choice) {
             Ok(provider) => return NextModel::Chosen(choice.clone(), provider),
             Err(error) => last_error = Some(error),
@@ -1762,7 +1783,15 @@ pub fn run(
                 if let Some(name) = hook.next_key() {
                     // 键名先翻成字节，再走与真实按键相同的 `bytes → TuiEvent` 路径
                     // （直接喂键名会命中 `parse_key` 的首字符分支：实测 `ctrl+o` → `Char('c')`）。
-                    let bytes = crate::testhook::key_bytes_for_name(&name).unwrap_or(name.as_str());
+                    // `char:<c>`：单字符文本（`type:` 展开的结果），走同一 `bytes → TuiEvent` 路径。
+                    let owned;
+                    let bytes = match name.strip_prefix("char:") {
+                        Some(text) => {
+                            owned = text.to_string();
+                            owned.as_str()
+                        }
+                        None => crate::testhook::key_bytes_for_name(&name).unwrap_or(name.as_str()),
+                    };
                     if let Some(event) = map_key_sequence(bytes) {
                         let _ = tx.send(event);
                     }
@@ -2293,6 +2322,7 @@ pub fn run(
                     }
                     TuiEvent::CtrlO
                     | TuiEvent::CtrlShiftO
+                    | TuiEvent::CtrlShiftP
                     | TuiEvent::CtrlT
                     | TuiEvent::CtrlL
                     | TuiEvent::CtrlD
@@ -2323,6 +2353,7 @@ pub fn run(
                                 | TuiEvent::ToolRowRender { .. }
                                 | TuiEvent::ToolRowsRendered { .. }
                                 | TuiEvent::CtrlP
+                                | TuiEvent::CtrlShiftP
                                 | TuiEvent::CtrlS
                                 | TuiEvent::CtrlN
                                 | TuiEvent::CtrlR
@@ -3436,6 +3467,7 @@ pub fn run(
                     | TuiEvent::CtrlT
                     | TuiEvent::CtrlL
                     | TuiEvent::CtrlP
+                    | TuiEvent::CtrlShiftP
                     | TuiEvent::CtrlShiftO
                     | TuiEvent::CtrlS
                     | TuiEvent::CtrlN
@@ -3548,7 +3580,11 @@ pub fn run(
             }
             // P7-7f M：`Ctrl+P` 循环模型（ref `interactive-mode.ts:4378-4394`）；
             // 选择器打开时由选择器自己消费，这里只在没有选择器时生效。
-            if matches!(event, TuiEvent::CtrlP) && selector.is_none() {
+            if matches!(event, TuiEvent::CtrlP | TuiEvent::CtrlShiftP) && selector.is_none() {
+                // ref `core/keybindings.ts:108-115`：`ctrl+p` 前进、`shift+ctrl+p` 后退
+                // （Windows 上是 `alt+p`，我们的平台是 Unix）。两者共用同一个
+                // `cycleModel(direction)`（`interactive-mode.ts:2998-2999`）。
+                let forward = matches!(event, TuiEvent::CtrlP);
                 if let Some(parts_ref) = parts.as_ref() {
                     let current = parts_ref
                         .model_state
@@ -3561,9 +3597,13 @@ pub fn run(
                         .lock()
                         .map(|state| state.provider_name.clone())
                         .unwrap_or_default();
-                    let next = next_switchable_model(&ids, &current, &current_provider, |choice| {
-                        rebuild_provider(parts_ref, &choice.provider, &choice.id)
-                    });
+                    let next = next_switchable_model_directed(
+                        &ids,
+                        &current,
+                        &current_provider,
+                        forward,
+                        |choice| rebuild_provider(parts_ref, &choice.provider, &choice.id),
+                    );
                     match next {
                         NextModel::OnlyOne => {
                             let _ = apply(
@@ -7050,6 +7090,9 @@ pub fn map_key_sequence(seq: &str) -> Option<TuiEvent> {
         "ctrl+left" => TuiEvent::CtrlLeft,
         "ctrl+right" => TuiEvent::CtrlRight,
         // ref `keybindings.ts:231`：`app.tree.filter.cycleBackward` 默认 `shift+ctrl+o`。
+        // ref `core/keybindings.ts:112-115`：`app.model.cycleBackward` 非 Windows 默认
+        // `shift+ctrl+p`（Windows 是 `alt+p`）。kitty/modifyOtherKeys 两种编码都到这里。
+        "ctrl+shift+p" => TuiEvent::CtrlShiftP,
         "ctrl+shift+o" => TuiEvent::CtrlShiftO,
         "ctrl+l" => TuiEvent::CtrlL,
         "ctrl+c" => TuiEvent::Clear,

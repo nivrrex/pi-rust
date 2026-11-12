@@ -10,7 +10,7 @@ ref 权威来源：`packages/coding-agent/src/core/keybindings.ts`（动作定�
 | `app.thinking.toggle` | `ctrl+t` | **本批实现**（切换 + 写设置 + 状态行） | — |
 | `app.model.select` | `ctrl+l` | 已实现（`TuiEvent::CtrlL`） | — |
 | `app.model.cycleForward` | `ctrl+p` | 已实现（`TuiEvent::CtrlP`） | — |
-| `app.model.cycleBackward` | `shift+ctrl+p` | 已实现（`TuiEvent::CtrlShiftO`? 见注 1） | 待确认 |
+| `app.model.cycleBackward` | `shift+ctrl+p` | **已实现**（F54: `TuiEvent::CtrlShiftP` → `next_switchable_model_directed(forward=false)`） | 已验证 |
 | `app.session.toggleNamedFilter` | `ctrl+n` | 已实现（`TuiEvent::CtrlN`） | — |
 | `app.editor.external` | `ctrl+g` | **未实现**（提示行见到 `ctrl+g` 文案但无行为） | 缺陷 |
 | `app.message.copy` | `ctrl+x` | 已实现（F43：无消息时报 `Error: `） | — |
@@ -31,8 +31,11 @@ ref 权威来源：`packages/coding-agent/src/core/keybindings.ts`（动作定�
 | `/model` 等斜杠命令 | `/` | 已实现 | — |
 | `!` bash 模式 | `!` | 已实现 | — |
 
-注 1：`shift+ctrl+p`（非 Windows）在我们的映射里是 `CtrlShiftO`？**待确认**——
-`tui.rs` 的按键分派里 `char 'p' + SHIFT` 目前与 `ctrl+p` 同义（循环前进），
+注 1（F54 已修）：`shift+ctrl+p`（非 Windows）此前与 `ctrl+p` 同义（都前进）。
+现在 `parse_key` 的 kitty/modifyOtherKeys 两条编码都映射到 `TuiEvent::CtrlShiftP`
+（`keys.rs` 实测：`\x1b[112;6u` 与 `\x1b[27;6;112~` ⇒ `ctrl+shift+p`），
+分派走 `next_switchable_model_directed(.., forward=false)`（ref `interactive-mode.ts:2998-2999`
+两个键位共用 `cycleModel(direction)`）。原待确认记录：
 与 ref 的"后退"不同。**缺陷（未修）**。
 
 ## 本批实现
@@ -48,4 +51,4 @@ ref 权威来源：`packages/coding-agent/src/core/keybindings.ts`（动作定�
 
 1. `app.editor.external`（`ctrl+g`）：需要拉起外部编辑器并回填，属独立功能（ref
    `interactive-mode.ts:4436-4460`）。
-2. `app.model.cycleBackward`（`shift+ctrl+p`）：见注 1，行为与 ref 相反。
+2. ~~`app.model.cycleBackward`（`shift+ctrl+p`）：见注 1，行为与 ref 相反。~~ F54 已修（见注 1）。

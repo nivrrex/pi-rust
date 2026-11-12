@@ -386,6 +386,9 @@ pub enum TuiEvent {
     CtrlT,
     /// `ctrl+p`（主界面：循环到下一个模型；`/tree` 里无绑定）。
     CtrlP,
+    /// `ctrl+shift+p`（`app.model.cycleBackward`；ref `core/keybindings.ts:112-115`，
+    /// 非 Windows 的默认键）。此前与 `ctrl+p` 同义 ⇒ 无法回退。
+    CtrlShiftP,
     /// `ctrl+shift+o`（`/tree` 的反向过滤循环；ref `keybindings.ts:231`）。
     CtrlShiftO,
     /// `ctrl+s`（`/resume`/`/settings` 里的排序/默认设置键）。
@@ -1240,6 +1243,7 @@ pub fn apply(state: &mut TuiState, event: TuiEvent) -> TuiAction {
         }
         TuiEvent::CtrlL
         | TuiEvent::CtrlP
+        | TuiEvent::CtrlShiftP
         | TuiEvent::CtrlShiftO
         | TuiEvent::CtrlS
         | TuiEvent::CtrlN
@@ -4013,7 +4017,6 @@ fn render_all_cached_styled_inner(
     }
     // 编辑器框：上边框（整宽）→ 内容行 → 下边框（整宽）。ref `modes/interactive/components/custom-editor.ts`
     // 与 `dynamic-border.ts`；golden 的原始流里上下边框都是 `─`×100（整宽，无前导空格）。
-    let border = "─".repeat(cols);
     // P7-6p(续7)/W1：r3 专属——`/settings` 选择器（面板首行 `>`）在 golden 中
     // **编辑器上边框之前**还有 1 个空行（T17 帧0：`空 / 空 / 边框 / >`）；`/model`（首行为空串）无此空行。
     // ref 的选择器组件自带**前导 `Spacer(1)`**（`tree-selector.ts:1383` 的
@@ -4028,9 +4031,17 @@ fn render_all_cached_styled_inner(
     }) {
         lines.push(String::new());
     }
-    lines.push(border.clone());
-    // 多行编辑器（T09/T12 实测：`\n` 即换行，每行带一个前导空格，编辑器框随之增高）。
-    let input_lines: Vec<&str> = state.input.split('\n').collect();
+    // 编辑器折行（ref `editor.ts:520-560`）：可见行 = `layoutText` 的结果，超出
+    // `max(5, floor(rows*0.3))` 行时按光标滚动，边框上出现 `↑ N more` / `↓ N more`
+    // （`editor.ts:276-291`、`:509-514`、`:542-550`）。
+    let editor = editor_layout(&state.input, state.cursor, cols, rows);
+    let lines_below = editor
+        .lines
+        .len()
+        .saturating_sub(editor.scroll + editor.max_visible.min(editor.lines.len()));
+    let top_border = editor_scroll_border('↑', editor.scroll, cols);
+    lines.push(top_border);
+
     // **多行时不加前导空格**（T09/T12 的 golden 实测：`line one`/`line two` 顶格；
     // 单行时才是 ` say hi` 带一个前导空格的形态）。
     // **编辑器行一律不加前导空格**（T09/T11/T12/T13/T14 的 golden 全部如此：`hello world`、`中文🙂测试`、
@@ -4040,8 +4051,15 @@ fn render_all_cached_styled_inner(
         // r3：`Working` 占用编辑器内容行（ref 的"嵌入"形态）⇒ 不额外增加行。
         lines.push(text.clone());
     } else if !matches!(state.panel, Some((PanelPlacement::BelowEditor, _))) {
-        for line in &input_lines {
-            lines.push(clamp_to_width(line, cols));
+        // 折行后的**可见**行（滚动窗口内）；一行也没有时留一行（空编辑器）。
+        let start = editor.scroll.min(editor.lines.len());
+        let end = (editor.scroll + editor.max_visible).min(editor.lines.len());
+        if start == end {
+            lines.push(clamp_to_width(&state.input, cols));
+        } else {
+            for line in &editor.lines[start..end] {
+                lines.push(clamp_to_width(&line.text, cols));
+            }
         }
     }
     // 编辑器**内部**的面板（`/settings`、`/model` 选择器）：golden 实测它们画在
@@ -4054,7 +4072,7 @@ fn render_all_cached_styled_inner(
             lines.push(clamp_to_width(line, cols));
         }
     }
-    lines.push(border);
+    lines.push(editor_scroll_border('↓', lines_below, cols));
     // 扩展 widget（ref `types.ts:176` 的 `aboveEditor` / `belowEditor`）：
     // 按 key 升序，逐行左对齐（扩展自己负责颜色，本实现只画文本）。
     {
@@ -4128,7 +4146,9 @@ fn render_all_cached_styled_inner(
     } else {
         state.model.clone()
     };
-    let status_left = clamp_to_width(&state.status, cols);
+    // ref `footer.ts:181-185`：左侧超宽时用 `truncateToWidth(statsLeft, width, "...")`
+    // （截断**并补省略号**），不是简单的按宽裁。
+    let status_left = truncate_with_ellipsis(&state.status, cols);
     // ref `footer.ts:193-200`：可用 provider 多于 1 个时，右侧模型名前加 `(provider)`；
     // 加上后放不下（左侧 + 至少 2 空格 + 右侧 > 宽度）就退回不带前缀的写法。
     let mut status_right_text = status_right_text;
@@ -4141,12 +4161,32 @@ fn render_all_cached_styled_inner(
             status_right_text = with_provider;
         }
     }
-    let status_right = clamp_to_width(&status_right_text, cols);
-    let pad = cols.saturating_sub(
-        UnicodeWidthStr::width(status_left.as_str())
-            + UnicodeWidthStr::width(status_right.as_str()),
-    );
-    lines.push(format!("{status_left}{}{status_right}", " ".repeat(pad)));
+    // ref `footer.ts:198-223`：
+    // - 左右 + **至少 2 列**间隔放得下 ⇒ `padding = width - left - right`（右对齐）；
+    // - 放不下 ⇒ 右侧按 `availableForRight = width - left - 2` **截断**（不补省略号），
+    //   再按剩余空间补 padding；连 2 列间隔都不够 ⇒ 只输出左侧。
+    //
+    // 此前只在"两侧宽度相加 <= cols"时才补 padding、否则**紧贴**输出（无间隔），
+    // 于是 60 列窄窗口下 `(auto)Ling-3.2-flash` 连成一片、尾部还被 clamp 掉
+    // （F54/Z3 的 110→60 缩放下两侧差 6 列）。
+    const MIN_PADDING: usize = 2;
+    let left_width = UnicodeWidthStr::width(status_left.as_str());
+    let right_width = UnicodeWidthStr::width(status_right_text.as_str());
+    let status_line = if left_width + MIN_PADDING + right_width <= cols {
+        let pad = cols - left_width - right_width;
+        format!("{status_left}{}{status_right_text}", " ".repeat(pad))
+    } else {
+        let available_for_right = cols.saturating_sub(left_width + MIN_PADDING);
+        if available_for_right == 0 {
+            status_left.clone()
+        } else {
+            let truncated_right = clamp_to_width(&status_right_text, available_for_right);
+            let truncated_width = UnicodeWidthStr::width(truncated_right.as_str());
+            let pad = cols.saturating_sub(left_width + truncated_width);
+            format!("{status_left}{}{truncated_right}", " ".repeat(pad))
+        }
+    };
+    lines.push(status_line);
     // ref `components/footer.ts:235-246`：扩展状态**单独一行**，按 key 升序、空格连接、
     // 先做 `sanitizeStatusText`（换行/制表/回车→空格、压缩空格、trim），再按宽度截断
     // （超出用 dim 的 `...`）。
@@ -4268,14 +4308,28 @@ mod tests {
             .expect("有状态行");
         assert!(line.ends_with("(mock) mock-model • high"), "{line:?}");
 
-        // 左侧太宽（放不下至少 2 空格 + `(mock) …`）时退回不带前缀的写法。
+        // 左侧太宽时 ref 分两步（`footer.ts:193-223`）：
+        // 1) 带 `(provider)` 前缀放不下 ⇒ 回退成不带前缀的 `rightSideWithoutProvider`；
+        // 2) 仍然放不下 ⇒ 把右侧按 `availableForRight = width - left - 2` **截断**（不补省略号）。
+        // 此前我们只做第 1 步、第 2 步改成"紧贴输出"（无 2 列间隔），与 ref 不同：
+        // 40 列下 ref 是 `…(auto)  mock`（右侧只剩 4 列），我们曾输出整段且无间隔。
         s.status = "↑123456 ↓654321 99.9%/200k (auto)".to_string();
         let screen = render(&s, 40, 30);
-        let line = screen
-            .iter()
-            .find(|line| line.contains("mock-model"))
-            .expect("有状态行");
-        assert!(!line.contains("(mock)"), "{line:?}");
+        let left = "↑123456 ↓654321 99.9%/200k (auto)";
+        // `availableForRight = 40 - left_width - 2` ⇒ 右侧被截到这个宽度（不补省略号）。
+        let available = 40usize
+            .saturating_sub(UnicodeWidthStr::width(left))
+            .saturating_sub(2);
+        let expected = format!("{left}  {}", &"mock-model"[..available]);
+        assert_eq!(
+            UnicodeWidthStr::width(expected.as_str()),
+            40,
+            "前提：按 2 列间隔截断右侧后恰好铺满 40 列"
+        );
+        assert!(
+            screen.iter().any(|line| line == &expected),
+            "左侧太宽时右侧应截到 4 列并保留 2 列间隔：{screen:?}"
+        );
     }
 
     /// 边界判定用 `>` 而不是 `>=`（ref `footer.ts:194-200`）：刚好放得下时**保留**前缀，
@@ -8712,4 +8766,195 @@ mod render_hook_tests {
         let screen = render(&state, 80, 30);
         assert!(screen.iter().any(|line| line.contains("read input.txt")));
     }
+}
+
+/// 编辑器一行（折行后的可见行）。
+pub struct EditorLine {
+    /// 该可见行的文本。
+    pub text: String,
+    /// 光标在该行内的**字符**下标；`None` = 光标不在此行。
+    pub cursor_col: Option<usize>,
+}
+
+/// 编辑器排版结果（ref `components/editor.ts:520-560` 的 `render` 前半段）。
+pub struct EditorLayout {
+    pub lines: Vec<EditorLine>,
+    /// 光标所在的可见行下标。
+    pub cursor_line: usize,
+    /// 滚动偏移（可见行从 `lines[scroll]` 开始）。
+    pub scroll: usize,
+    /// 可见行的最大数量（`max(5, floor(rows * 0.3))`，ref `:534-535`）。
+    pub max_visible: usize,
+}
+
+/// 折行后的可见行宽度：ref `editor.ts:525` `layoutWidth = max(1, contentWidth - (paddingX ? 0 : 1))`。
+///
+/// `paddingX = 0`（`settings.editorPaddingX` 默认 0，`core/settings-manager.ts:1379-1381`）
+/// 时为 `cols - 1` —— 留 1 列给行尾光标。
+#[must_use]
+pub fn editor_layout_width(cols: usize) -> usize {
+    cols.saturating_sub(1).max(1)
+}
+
+/// 把 `line` 按 ref `wordWrapLine`（`editor.ts:126-215`）切块，返回 `(start_char, end_char)`。
+fn editor_word_wrap(line: &str, max_width: usize) -> Vec<(usize, usize)> {
+    let chars: Vec<char> = line.chars().collect();
+    if chars.is_empty() || max_width == 0 {
+        return vec![(0, 0)];
+    }
+    if UnicodeWidthStr::width(line) <= max_width {
+        return vec![(0, chars.len())];
+    }
+    let mut chunks: Vec<(usize, usize)> = Vec::new();
+    let mut current_width = 0usize;
+    let mut chunk_start = 0usize;
+    let mut wrap_opp: Option<(usize, usize)> = None; // (index, width_at_break)
+    for (index, ch) in chars.iter().enumerate() {
+        let g_width = UnicodeWidthChar::width(*ch).unwrap_or(0);
+        let is_ws = *ch == ' ';
+        if current_width + g_width > max_width {
+            match wrap_opp {
+                Some((opp_index, opp_width))
+                    if current_width - opp_width + g_width <= max_width =>
+                {
+                    chunks.push((chunk_start, opp_index));
+                    chunk_start = opp_index;
+                    current_width -= opp_width;
+                }
+                _other => {
+                    if chunk_start < index {
+                        chunks.push((chunk_start, index));
+                        chunk_start = index;
+                        current_width = 0;
+                    }
+                }
+            }
+            wrap_opp = None;
+        }
+        current_width += g_width;
+        let next = chars.get(index + 1).copied();
+        if let Some(next_ch) = next {
+            let next_is_ws = next_ch == ' ';
+            // 断点机会（ref `editor.ts:196-212`）：
+            // - 空白后紧跟非空白（多个空格并入，断在最后一个空格之后）；
+            // - 相邻两个非空白字符里**任一侧是 CJK**（CJK 之间处处可断）。
+            let whitespace_gap = is_ws && !next_is_ws;
+            let cjk_gap =
+                !is_ws && !next_is_ws && (is_cjk_breakable(*ch) || is_cjk_breakable(next_ch));
+            if whitespace_gap || cjk_gap {
+                wrap_opp = Some((index + 1, current_width));
+            }
+        }
+    }
+    chunks.push((chunk_start, chars.len()));
+    chunks
+}
+
+/// 编辑器排版（ref `editor.ts:995-1082` 的 `layoutText` + `:534-560` 的滚动窗口）。
+///
+/// 与 ref 的差异：不含 paste marker 的原子段处理（`[paste #N …]` 视为普通文本），
+/// `editorPaddingX > 0` 的右内边距不实现（默认 0；需要时另开任务卡）。
+#[must_use]
+pub fn editor_layout(input: &str, cursor: usize, cols: usize, rows: usize) -> EditorLayout {
+    let layout_width = editor_layout_width(cols);
+    let logical: Vec<&str> = input.split('\n').collect();
+    let layout_total: usize = logical.len().max(1);
+    let cursor_byte = input
+        .char_indices()
+        .nth(cursor)
+        .map_or(input.len(), |(index, _ch)| index);
+    let cursor_line = input[..cursor_byte]
+        .matches('\n')
+        .count()
+        .min(layout_total - 1);
+    let line_start_char: usize = input
+        .split('\n')
+        .take(cursor_line)
+        .map(|line| line.chars().count() + 1)
+        .sum();
+    let cursor_col = cursor.saturating_sub(line_start_char);
+
+    let mut lines: Vec<EditorLine> = Vec::new();
+    let mut cursor_index = 0usize;
+    for (index, logical_line) in logical.iter().enumerate() {
+        let chars: Vec<char> = logical_line.chars().collect();
+        let is_current = index == cursor_line;
+        if UnicodeWidthStr::width(*logical_line) <= layout_width {
+            let text: String = chars.iter().collect();
+            let has_cursor = is_current;
+            if has_cursor {
+                cursor_index = lines.len();
+            }
+            lines.push(EditorLine {
+                text,
+                cursor_col: has_cursor.then_some(cursor_col.min(chars.len())),
+            });
+            continue;
+        }
+        let chunks = editor_word_wrap(logical_line, layout_width);
+        let last_chunk = chunks.len().saturating_sub(1);
+        for (chunk_index, (start, end)) in chunks.iter().enumerate() {
+            let text: String = chars[*start..*end].iter().collect();
+            let mut has_cursor = false;
+            let mut col = 0usize;
+            if is_current {
+                if chunk_index == last_chunk {
+                    if cursor_col >= *start {
+                        has_cursor = true;
+                        col = cursor_col - start;
+                    }
+                } else if cursor_col >= *start && cursor_col < *end {
+                    has_cursor = true;
+                    col = (cursor_col - start).min(*end - start);
+                }
+            }
+            if has_cursor {
+                cursor_index = lines.len();
+            }
+            lines.push(EditorLine {
+                text,
+                cursor_col: has_cursor.then_some(col),
+            });
+        }
+    }
+
+    let max_visible = std::cmp::max(5, rows * 3 / 10);
+    let max_scroll = lines.len().saturating_sub(max_visible);
+    let scroll = if cursor_index < max_visible {
+        0
+    } else {
+        (cursor_index + 1 - max_visible).min(max_scroll)
+    };
+    EditorLayout {
+        lines,
+        cursor_line: cursor_index,
+        scroll,
+        max_visible,
+    }
+}
+
+/// 编辑器边框：`scroll > 0` / 下方还有内容时把 ` ↑ N more ` / ` ↓ N more ` 嵌在中间
+/// （ref `editor.ts:276-291` 的 `createScrollBorder`）。
+#[must_use]
+pub fn editor_scroll_border(direction: char, hidden: usize, cols: usize) -> String {
+    if hidden == 0 {
+        return "─".repeat(cols);
+    }
+    let label = format!(" {direction} {hidden} more ");
+    let label_width = UnicodeWidthStr::width(label.as_str());
+    if label_width + 2 <= cols {
+        let left = (cols - label_width) / 2;
+        return format!(
+            "{}{label}{}",
+            "─".repeat(left),
+            "─".repeat(cols - left - label_width)
+        );
+    }
+    let indicator = format!("─── {direction} {hidden} more ");
+    let indicator_width = UnicodeWidthStr::width(indicator.as_str());
+    if indicator_width <= cols {
+        return format!("{indicator}{}", "─".repeat(cols - indicator_width));
+    }
+    let truncated = clamp_to_width(&indicator, cols.saturating_sub(3).max(1));
+    format!("{truncated}...")
 }

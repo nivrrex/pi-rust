@@ -1,0 +1,62 @@
+{
+  "provider": "openai-completions",
+  "model": "mock-model",
+  "responses": [
+    {
+      "file": "fixtures/sse/openai/markdown-subset.sse"
+    }
+  ],
+  "files": {
+    "AGENTS.md": "# 项目规则\n\n- 项目级：改代码前先跑测试。\n"
+  },
+  "prompt": "say hi",
+  "id": "Z3a-wrap-cjk",
+  "description": "F54/Z3：输入一段长 CJK 文本（超过 1 行），检查编辑器折行与光标位置（ref editor.ts:1028-1082 wordWrapLine）",
+  "tui": {
+    "cols": 100,
+    "rows": 30,
+    "snapshots": [
+      "final"
+    ],
+    "steps": [
+      {
+        "action": "waitScreen",
+        "contains": "Pi can explain",
+        "timeoutMs": 25000
+      },
+      {
+        "action": "waitStable",
+        "quietMs": 600,
+        "timeoutMs": 20000
+      },
+      {
+        "action": "type",
+        "text": "这是一段很长的中文输入用来检查编辑器的折行行为一二三四五六七八九十这是一段很长的中文输入用来检查编辑器的折行行为一二三四五六七八九十"
+      },
+      {
+        "action": "waitStable",
+        "quietMs": 600,
+        "timeoutMs": 20000
+      },
+      {
+        "action": "snapshot",
+        "name": "wrapped"
+      },
+      {
+        "action": "type",
+        "text": "\u0004"
+      },
+      {
+        "action": "waitStable",
+        "quietMs": 500,
+        "timeoutMs": 20000
+      },
+      {
+        "action": "snapshot",
+        "name": "final",
+        "quietMs": 600,
+        "timeoutMs": 20000
+      }
+    ]
+  }
+}
