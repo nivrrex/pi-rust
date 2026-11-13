@@ -2792,7 +2792,11 @@ fn render_all_cached_styled_inner(
     // 启动告警 → `Model scope:` → 头部（ref 的顺序：`console.log` 在头部组件之前，
     // 而 `Model scope:` 也是在 `console.log`；T80 golden 首两行就是这两条）。
     for warning in &state.startup_warnings {
-        lines.push(clamp_to_width(&format!("Warning: {warning}"), cols));
+        // 同上：`\t` 展开（ref `text.ts:61`）。
+        lines.push(clamp_to_width(
+            &format!("Warning: {warning}").replace('\t', "   "),
+            cols,
+        ));
     }
     // ref `interactive-mode.ts:904`：`verbose || !quietStartup` 才打印 `Model scope:`。
     if !state.model_scope.is_empty() && !state.quiet_startup {
@@ -3323,7 +3327,12 @@ fn render_all_cached_styled_inner(
                 // 状态行**前面 1 行空行、后面不空**。前导空行由**上一条目**的尾随空行提供，
                 // 所以条目循环对 Status 跳过自己的段落空行（见 `status_row`），
                 // 这里只输出状态行 + 尾随空行（与其它条目一致）。
-                lines.push(clamp_to_width(&format!(" {text}"), cols));
+                // `\t` 必须先展开成 3 空格（ref `text.ts:61`）：`unicode-width` 把 `\t` 算 0 列，
+                // 而终端按制表位展开 ⇒ 行会比 `cols` 宽很多（F57 实测 80 列下 101 列）。
+                lines.push(clamp_to_width(
+                    &format!(" {text}").replace('\t', "   "),
+                    cols,
+                ));
                 lines.push(String::new());
             }
             TranscriptItem::Notice(text) => {
@@ -4115,7 +4124,9 @@ fn render_all_cached_styled_inner(
             lines.push(clamp_to_width(&state.input, cols));
         } else {
             for line in &editor.lines[start..end] {
-                lines.push(clamp_to_width(&line.text, cols));
+                // 编辑器行同样展开 `\t`（ref `Text` 组件对每一行都做 `replace(/\t/g, "   ")`，
+                // `text.ts:61`）。不展开时 80 列下会渲染成 100 列、整帧因超宽被丢弃。
+                lines.push(clamp_to_width(&line.text.replace('\t', "   "), cols));
             }
         }
     }

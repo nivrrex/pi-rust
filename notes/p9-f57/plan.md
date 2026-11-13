@@ -87,6 +87,9 @@
 - [x] D2 **根因**：`unicode-width` 把 `\t` 算 0 列，而未展开的制表符在终端按 8 列制表位渲染
       ⇒ 渲染行远超 `cols`。合成复现：80 列下扩展渲染行 `\t`×100 渲染成 **101 列**；
       120 列下同理可到 121+（`121 > 120` 同源）
+- [x] D3b 穷举全部"打印任意文本"的渲染路径后，又发现 3 条同样因 `\t` 越界：
+      `Status`（80 列 101）、编辑器 `input`（100）、启动 `Warning`（109）⇒ 一并展开。
+      用例 `t_f57_tab_width::other_text_paths_expand_tabs`（改前 `cols=80 status 超宽 [(2, 101)]`）
 - [x] D3 修：扩展 `renderCall`/`renderResult` 行折行**前**把 `\t` 展开成 3 空格
       （ref `packages/tui/src/components/text.ts:61`）。用例 `t_f57_tab_width`（3 项），
       改前 3/3 失败（`cols=80 时有 1 行超宽 [(3, 101)]`）、改后全过。**不用 clamp**

@@ -88,3 +88,38 @@ fn result_render_tabs_never_exceed_width() {
         .collect();
     assert!(over.is_empty(), "结果渲染行超宽：{over:?}");
 }
+
+/// 其余**会打印任意文本**的渲染路径也必须先展开 `\t`。
+///
+/// 改前实测（80 列）：`Status` 101 列、编辑器 `input` 100 列、启动 `Warning` 109 列，
+/// 三条都会让 `diff_render` 报 `rendered line N exceeds terminal width` 并**丢掉整帧**。
+#[test]
+fn other_text_paths_expand_tabs() {
+    for cols in [80usize, 120] {
+        let base = || {
+            let mut state = TuiState::new("0.87.1", "/tmp/work", "0.0");
+            state.quiet_startup = true;
+            state
+        };
+        let tabs = "\t".repeat(100);
+        // Status 行（`showStatus` 的 `Text(msg, 1, 0)`）。
+        let mut status = base();
+        status.transcript.push(TranscriptItem::Status(tabs.clone()));
+        // 启动告警（`Warning: …` 直接 `clamp_to_width`）。
+        let mut warning = base();
+        warning.startup_warnings.push(tabs.clone());
+        // 编辑器输入行（`editor.layout` 的可见行）。
+        let mut input = base();
+        input.input = tabs.clone();
+
+        for (tag, state) in [("status", status), ("warning", warning), ("input", input)] {
+            let over: Vec<(usize, usize)> = render_all(&state, cols, 400)
+                .iter()
+                .enumerate()
+                .map(|(index, line)| (index, pi_tui::display_width_ansi(line)))
+                .filter(|(_, width)| *width > cols)
+                .collect();
+            assert!(over.is_empty(), "cols={cols} {tag} 超宽：{over:?}");
+        }
+    }
+}
