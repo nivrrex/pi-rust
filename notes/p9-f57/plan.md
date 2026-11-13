@@ -139,3 +139,13 @@ git status 干净、删 `tmp/realcfg*`。
   **串行（`--jobs 1`）375 same / 0 different / 69 nogolden**；light **81 same / 0 / 0**
 - `self-verify` **26/26 same, rc=0**；`real-parity-linux` **8/8 same, rc=0**
 - `privacy-scan` 干净；`readonly` 8+2 一致；`check-orphans` 0
+
+## 追加（D3b 之后的 L3 复测）
+
+`cargo clean` → 全量重建 →
+- `test-gate` **225 组 / 1182 passed / 0 failed**；`fmt --check` 干净；`clippy -D warnings` 0 告警
+- `precommit` **16/16**
+- dark **并发 375/0/69**、**串行 375/0/69**；light **81/0/0**
+- `self-verify` **26/26 rc=0**；`real-parity-linux` **8/8 rc=0**
+- 真实会话 120 列（`/todo` + ctrl+o + ctrl+t）：`PI_TUI_RENDER_ERRORS` **0 次**、stderr 越界 **0 次**
+- `privacy-scan` 干净；`readonly` 8+2；`check-orphans` 0
