@@ -61,8 +61,20 @@ pub enum LeafSelector<'a> {
     Id(&'a str),
 }
 
-fn index_of(entries: &[SessionEntry], id: &str) -> Option<usize> {
-    entries.iter().position(|entry| entry.id() == Some(id))
+/// 建立 `id → 下标` 索引（ref `session-manager.ts:389-392` 的 `byId` Map）。
+///
+/// 为什么不再用线性 `position`：`build_session_path` 沿 `parentId` 上溯，
+/// 每一跳都线性扫一遍是 **O(n²)**。真实会话 6.4 万条时单次调用 ~67 s
+/// （F56/D 实测：`session_read 977ms → pre_writer 68089ms` 全在这一句）。
+/// ref 一开始就建 Map（`buildSessionProjection` 的 `byId`），每跳 O(1)。
+fn index_by_id(entries: &[SessionEntry]) -> std::collections::HashMap<&str, usize> {
+    let mut map = std::collections::HashMap::with_capacity(entries.len());
+    for (index, entry) in entries.iter().enumerate() {
+        if let Some(id) = entry.id() {
+            map.insert(id, index);
+        }
+    }
+    map
 }
 
 /// ref `session-manager.ts:390-416` `buildSessionPath`：沿 `parentId` 上溯再反转。
@@ -71,8 +83,9 @@ pub fn build_session_path(entries: &[SessionEntry], leaf: LeafSelector<'_>) -> V
     if matches!(leaf, LeafSelector::Null) {
         return Vec::new();
     }
+    let by_id = index_by_id(entries);
     let leaf_index = match leaf {
-        LeafSelector::Id(id) => index_of(entries, id),
+        LeafSelector::Id(id) => by_id.get(id).copied(),
         LeafSelector::Unspecified | LeafSelector::Null => None,
     };
     // ref `:403`：找不到（或没给）就用最后一条。
@@ -88,7 +101,7 @@ pub fn build_session_path(entries: &[SessionEntry], leaf: LeafSelector<'_>) -> V
         path.push(entries[index].clone());
         current = entries[index]
             .parent_id()
-            .and_then(|parent| index_of(entries, parent));
+            .and_then(|parent| by_id.get(parent).copied());
     }
     path.reverse();
     path

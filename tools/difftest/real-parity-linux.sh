@@ -17,7 +17,7 @@ cd "$REPO"
 : "${TS_PI_ENTRY:?需要 TS_PI_ENTRY=<pi-ts>/dist/bundle/cli.js}"
 
 OUT="$REPO/tmp/real-parity-linux"
-KINDS=${MATRIX_KEYS:-"none,ctrl+o"}
+KINDS=${MATRIX_KEYS:-"none|ctrl+o"}
 ROWS=40
 
 if [ "${SKIP_REALCFG:-0}" != "1" ]; then
@@ -36,7 +36,7 @@ SUMMARY="$OUT/summary.txt"
 
 for cols in 110 80; do
   for config in ext ne; do
-    for keys in $(printf '%s' "$KINDS" | tr ',' ' '); do
+    for keys in $(printf '%s' "$KINDS" | tr '|' ' '); do
       [ "$keys" = "none" ] && keys=""
       label="cols${cols}-${config}-keys$(printf '%s' "$keys" | tr ',' '_' | sed 's/^$/none/')"
       cell="$OUT/$label"

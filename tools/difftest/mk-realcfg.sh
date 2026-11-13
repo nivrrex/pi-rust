@@ -89,6 +89,15 @@ done
 rm -rf "$OUT"
 mkdir -p "$OUT/agent/extensions" "$OUT/sess" "$OUT/work"
 
+# `--from-home`：把会话目录**整棵树**复制进 `<out>/agent/sessions`，
+# 让 `-c`/`-r`/`--session <id>` 在副本上走与真机**同一条**恢复分支。
+# （此前只复制单个会话文件到 `sess/`，`PI_CODING_AGENT_SESSION_DIR` 指向它时
+#   `-c` 找不到会话 ⇒ 新开空会话，页脚/转录与真机完全不同——F55 的 G2 因此在副本上
+#   "复现不出"，其实是被这个缺陷掩盖了。）
+if [ "$FROM_HOME" = "1" ] && [ -d "$AGENT_SRC/sessions" ]; then
+  cp -a "$AGENT_SRC/sessions" "$OUT/agent/sessions"
+fi
+
 python3 - "$SETTINGS_SRC" "$OUT/agent/settings.json" <<'PYSET'
 import json, sys
 data = json.load(open(sys.argv[1], encoding="utf-8"))

@@ -142,11 +142,17 @@ JSON
 # 矩阵规模：默认 24 格（6 个键序列）；`MATRIX_KEYS` 可缩小（真实 Linux 会话 116 MB，
 # 每格 TS 侧要几十秒，CI 里跑全 24 格不现实）。空格分隔，空串用 `none` 表示。
 # **默认保持 6 个（24 格）**：既有判据不得放宽。真实 Linux 语料那套自己传更小的集合。
-MATRIX_KEYS=${MATRIX_KEYS:-"none,ctrl+o,ctrl+o_ctrl+o,ctrl+t,ctrl+t_ctrl+t,ctrl+o_ctrl+t"}
+#
+# 注意分隔符：`MATRIX_KEYS` 用 `,` 分隔**按键序列**，序列内部也用 `,`
+# （`ctrl+o,ctrl+o` 表示按两次）。F55 曾把它写成 `ctrl+o_ctrl+o`（拿 label 当键名），
+# 结果 `run-real.sh` 把整串当成**一个字面文本**打进输入框
+# （实测：输入行显示 `ctrl+o_ctrl+o`，real-parity 全格 different）。
+# 这里用 `|` 分隔序列，循环里转成 `,`。
+MATRIX_KEYS=${MATRIX_KEYS:-"none|ctrl+o|ctrl+o,ctrl+o|ctrl+t|ctrl+t,ctrl+t|ctrl+o,ctrl+t"}
 if [ "$MATRIX" -eq 1 ]; then
   for cols in 110 80; do
     for config in ext ne; do
-      for keys in $(printf '%s' "$MATRIX_KEYS" | tr ',' ' '); do
+      for keys in $(printf '%s' "$MATRIX_KEYS" | tr '|' ' '); do
         [ "$keys" = "none" ] && keys=""
         run_cell "$cols" "$config" "$keys"
       done

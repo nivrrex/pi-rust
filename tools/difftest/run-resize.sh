@@ -19,6 +19,7 @@ ROWS=30
 CONFIG=ext
 OUT=""
 SESSION_OVERRIDE=""
+CONTINUE=0
 while [ $# -gt 0 ]; do
   case "$1" in
     --impl) IMPL="$2"; shift 2 ;;

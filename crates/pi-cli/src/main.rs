@@ -1095,7 +1095,9 @@ fn run_print(parsed: &Args, json: bool) -> ExitCode {
                 // （它的末尾才会 flush 延后的 `session_start`）⇒ 这里补一次，否则扩展在
                 // `-c` / `--session` 下永远收不到 `session_start`。`flush` 是幂等的。
                 if had_system_for_flush {
+                    pi_cli::stages::mark("host_started");
                     pi_cli::ext_tools::flush_pending_session_start();
+                    pi_cli::stages::mark("session_start_flushed");
                 }
                 // **json 模式仍要打印 header 行**：golden/S14 的事件流里，第二阶段的开头
                 // 又是一条 `{"type":"session",…}`（第 15 行）。会话**文件**里不重复写，
@@ -1415,40 +1417,45 @@ fn build_tui_agent_parts(
     // assistant 消息的 `message.provider/model`（两者取更晚者）。
     // 此前 pi-rs 的恢复分支完全不读它 ⇒ 底栏右侧退回 settings 的模型（真机 `no-model`/
     // 错误模型），而 `getContextUsage()` 依赖 `state.model.contextWindow`，占比也随之变 0.0%。
-    let resumed_model: Option<(String, String)> = parsed
-        .session
-        .as_deref()
-        .map(std::path::PathBuf::from)
-        .or_else(|| {
-            (parsed.continue_session || parsed.resume).then(|| {
-                pi_cli::session_writer::newest_session_file(
-                    &paths.session_dir,
-                    continue_cwd_filter(paths, cwd),
-                )
-            })?
-        })
-        .and_then(|path| pi_core::session_io::SessionFile::read(&path).ok())
-        .and_then(|file| {
-            let mut found: Option<(String, String)> = None;
-            for entry in &file.entries {
-                match entry {
-                    pi_core::session::SessionEntry::ModelChange {
-                        provider, model_id, ..
-                    } => {
-                        found = Some((provider.clone(), model_id.clone()));
-                    }
-                    pi_core::session::SessionEntry::Message {
-                        message: pi_ai::message::Message::Assistant(assistant),
-                        ..
-                    } => {
-                        found = Some((assistant.provider.clone(), assistant.model.clone()));
-                    }
-                    pi_core::session::SessionEntry::Message { .. } => {}
-                    _other => {}
+    // F56/D：`resumed_path` / `resumed_file` **提前到这里**并只读一次。
+    // 后面所有需要会话内容的地方（模型恢复、档位、用量、转录、压缩计数）都复用这一份，
+    // 不再各自 `SessionFile::read`（那是 116 MB × N 次全量解析；ref 只建一个
+    // `SessionManager`，见 `sdk.ts:176-190`）。
+    let resumed_path = if let Some(explicit) = parsed.session.as_deref() {
+        Some(std::path::PathBuf::from(explicit))
+    } else if parsed.continue_session || parsed.resume {
+        pi_cli::session_writer::newest_session_file(
+            &paths.session_dir,
+            continue_cwd_filter(paths, cwd),
+        )
+    } else {
+        None
+    };
+    let resumed_file = resumed_path
+        .as_ref()
+        .and_then(|path| pi_core::session_io::SessionFile::read(path).ok());
+
+    let resumed_model: Option<(String, String)> = resumed_file.as_ref().and_then(|file| {
+        let mut found: Option<(String, String)> = None;
+        for entry in &file.entries {
+            match entry {
+                pi_core::session::SessionEntry::ModelChange {
+                    provider, model_id, ..
+                } => {
+                    found = Some((provider.clone(), model_id.clone()));
                 }
+                pi_core::session::SessionEntry::Message {
+                    message: pi_ai::message::Message::Assistant(assistant),
+                    ..
+                } => {
+                    found = Some((assistant.provider.clone(), assistant.model.clone()));
+                }
+                pi_core::session::SessionEntry::Message { .. } => {}
+                _other => {}
             }
-            found
-        });
+        }
+        found
+    });
     let (provider_name, model_id) = match resumed_model
         .map(Ok)
         .unwrap_or_else(|| resolve_startup_model(parsed, &settings, paths))
@@ -1545,20 +1552,7 @@ fn build_tui_agent_parts(
     // TUI 会话落盘（W4 会话层）：与 print 路径同一批调用（`SessionWriter::create` + `append_system_message`）。
     // `--continue/-c` / `--resume`：**续写最近一个会话**（而不是新建），并把历史消息读出来
     // （ref `sdk.ts` 的 continue 语义；此前 TUI 路径忽略这两个开关，导致续写会话是空屏、`/tree` 无历史）。
-    let resumed_path = if let Some(explicit) = parsed.session.as_deref() {
-        Some(std::path::PathBuf::from(explicit))
-    } else if parsed.continue_session || parsed.resume {
-        pi_cli::session_writer::newest_session_file(
-            &paths.session_dir,
-            continue_cwd_filter(paths, cwd),
-        )
-    } else {
-        None
-    };
     pi_cli::stages::mark("session_found");
-    let resumed_file = resumed_path
-        .as_ref()
-        .and_then(|path| pi_core::session_io::SessionFile::read(path).ok());
     // F49/Y1：恢复渲染只取 **`buildContextEntries`** 的结果，不是文件里的全部条目。
     // ref `core/session-manager.ts:476-509`：从最后一条 `compaction` 起（含其
     // `firstKeptEntryId` 之后保留的条目、以及 compaction 之后的全部条目）。
@@ -1601,38 +1595,37 @@ fn build_tui_agent_parts(
     // `buildSessionPath` 沿 `parentId` 上溯 → `getSessionContextSettings` 只在该路径上找。
     // 此前是"全文件倒序扫描最后一条 `thinking_level_change`"——分支切换后（旧分支上还有
     // 一条档位记录）会取到**另一条分支**的值，页脚与 ref 不同（G2）。
-    let initial_thinking_level: Option<String> = resumed_path
+    // F56/D：**复用已读的 `resumed_file`**，不再为取档位重读 116 MB 会话。
+    // 此前这里读了两次（`.map` 一次、`.filter` 里再一次），加上 `resumed_file` 共 **3 次**
+    // 全量解析——单次约 15 s，`session_read(1.8s) → tui_enter(134s)` 的 132 s 就是这么来的。
+    //
+    // ref 只建一次 `SessionManager`（`sdk.ts:176-190` 的 `SessionManager.create`），
+    // `buildSessionContext()` 复用同一份内存里的 entries ⇒ 整个文件**只解析 1 次**。
+    let resumed_path_entries = resumed_file.as_ref().map(|file| {
+        pi_core::agent::projection::build_session_path(
+            &file.entries,
+            pi_core::agent::projection::LeafSelector::Unspecified,
+        )
+    });
+    let initial_thinking_level: Option<String> = resumed_path_entries
         .as_ref()
-        .and_then(|path| pi_core::session_io::SessionFile::read(path).ok())
-        .map(|file| {
-            let path_entries = pi_core::agent::projection::build_session_path(
-                &file.entries,
-                pi_core::agent::projection::LeafSelector::Unspecified,
-            );
+        .map(|path_entries| {
             let (level, _model) =
-                pi_core::agent::projection::get_session_context_settings(&path_entries);
+                pi_core::agent::projection::get_session_context_settings(path_entries);
             level
         })
         // ref `sdk.ts:230-234`：只有"会话里**有** thinking 条目"时才用会话值，
         // 没有就走 settings 默认；`get_session_context_settings` 无条目时返回 `"off"`
         // （与 ref 同样的默认），因此这里还要用"是否真的存在条目"把两者区分开。
         .filter(|_| {
-            resumed_path
-                .as_ref()
-                .and_then(|path| pi_core::session_io::SessionFile::read(path).ok())
-                .is_some_and(|file| {
-                    pi_core::agent::projection::build_session_path(
-                        &file.entries,
-                        pi_core::agent::projection::LeafSelector::Unspecified,
+            resumed_path_entries.as_ref().is_some_and(|path_entries| {
+                path_entries.iter().any(|entry| {
+                    matches!(
+                        entry,
+                        pi_core::session::SessionEntry::ThinkingLevelChange { .. }
                     )
-                    .iter()
-                    .any(|entry| {
-                        matches!(
-                            entry,
-                            pi_core::session::SessionEntry::ThinkingLevelChange { .. }
-                        )
-                    })
                 })
+            })
         })
         .or_else(|| {
             // ref `sdk.ts:230-254` 的取值顺序：会话里的 `thinking_level_change` →
@@ -1645,6 +1638,7 @@ fn build_tui_agent_parts(
                 .and_then(|map| map.get(&format!("{provider_name}/{model_id}")).cloned());
             per_model.or_else(|| settings.default_thinking_level.clone())
         });
+    pi_cli::stages::mark("pre_writer");
     let writer = if parsed.no_session {
         None
     } else if let Some(path) = resumed_path.as_ref() {
@@ -1938,6 +1932,9 @@ fn build_tui_agent_parts(
     Ok(Some(std::sync::Arc::new(pi_cli::tui::AgentParts {
         skills: tui_skills.clone(),
         resumed_path,
+        resumed_entries: resumed_file
+            .as_ref()
+            .map(|file| std::sync::Arc::new(file.entries.clone())),
         initial_messages,
         compaction_count: resumed_file
             .as_ref()

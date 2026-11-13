@@ -29,6 +29,13 @@ const QUIET_TICKS: u32 = 2;
 #[derive(Debug, Clone)]
 pub struct TestHook {
     keys: std::collections::VecDeque<String>,
+    /// 序列跑完的标记：**只写最后一次快照**。
+    ///
+    /// 为什么需要：`note_idle` 每 `QUIET_TICKS` 个空闲轮询就返回一次 true，
+    /// `advance()` 只把计数清零、不会让"空闲"这件事停止发生。按键用完后仍会每
+    /// `QUIET_TICKS` 轮写一份 `step-N.txt` + `marks.jsonl`（实测 116 MB 会话 80 份，
+    /// real-parity 因此判 different）。这里用一个显式开关把"已收尾"钉住。
+    done: bool,
     dump_dir: Option<PathBuf>,
     tail: usize,
     step: usize,
@@ -61,6 +68,7 @@ impl TestHook {
             .unwrap_or(0);
         Some(Self {
             keys,
+            done: false,
             dump_dir,
             tail,
             step: 0,
@@ -131,6 +139,16 @@ impl TestHook {
     pub fn advance(&mut self) {
         self.step += 1;
         self.quiet_ticks = 0;
+    }
+
+    /// 标记"按键序列已跑完"：之后不再写任何快照。
+    pub fn finish(&mut self) {
+        self.done = true;
+    }
+
+    /// 是否已经收尾（`done` 之后不再产出快照）。
+    pub fn is_done(&self) -> bool {
+        self.done
     }
 
     pub fn injected(&self) -> usize {

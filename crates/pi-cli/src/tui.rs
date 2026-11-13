@@ -1169,6 +1169,12 @@ pub struct AgentParts {
     pub cwd: String,
     /// `--continue/-c` 时被续写的会话文件路径（`None` = 新建会话）。
     pub resumed_path: Option<std::path::PathBuf>,
+    /// 恢复会话时**已解析**的条目（`-c`/`--session`/`-r`）。
+    ///
+    /// 为什么带过来：footer 的累计用量（`session_usage_totals`）本来按路径重读整个文件，
+    /// 116 MB 会话等于解析第二遍（F56/D 实测 ~1.9 s）。这里复用同一份 entries。
+    /// 未恢复会话时为 `None`。
+    pub resumed_entries: Option<std::sync::Arc<Vec<pi_core::session::SessionEntry>>>,
     /// `--continue` 时从会话里读出的历史消息（按顺序进 `history` 与 transcript）。
     pub initial_messages: Vec<pi_ai::message::Message>,
     /// 启动期告警（ref `showWarning`：`Spacer(1)` + `Text("Warning: …")` 进转录区）。
@@ -1630,6 +1636,10 @@ pub fn run(
     // F44/S2：恢复路径改用**带缓存字段**的累加器（此前用 `settings_selector::session_usage`，
     // 它只有 input/output/cost ⇒ `-c` 后底栏缺 `R`/`W`/`CH`）。
     let resumed_usage = parts.as_ref().and_then(|parts| {
+        // 优先用已解析的 entries（零重读）；老调用方只给了路径时退回按路径读。
+        if let Some(entries) = parts.resumed_entries.as_deref() {
+            return Some(crate::session_writer::session_usage_totals_of(entries));
+        }
         let path = parts.resumed_path.as_ref()?;
         Some(crate::session_writer::session_usage_totals(path))
     });
@@ -1831,7 +1841,9 @@ pub fn run(
         // 首帧之前不产生快照：`PI_TEST_KEYS` 的语义是"首帧稳定后"才开始注入，
         // 否则初始态快照会落在空白屏上（`draw_count == 0`，实测）。
         if let Some(hook) = test_hook.as_mut() {
-            if test_previous_idle && draw_count > 0 && hook.note_idle() {
+            // `hook.is_done()`：按键序列跑完后**不再写快照**（`note_idle` 会周期性返回 true，
+            // 不挡住就会每 `QUIET_TICKS` 轮写一份，实测 116 MB 会话 80 份）。
+            if test_previous_idle && draw_count > 0 && !hook.is_done() && hook.note_idle() {
                 let screen = crate::testhook::visible_screen(&state, cols, rows);
                 hook.write_step(&screen, &state, draw_count, cols, rows);
                 if let Some(name) = hook.next_key() {
@@ -1850,6 +1862,11 @@ pub fn run(
                         let _ = tx.send(event);
                     }
                     hook.advance();
+                } else {
+                    // 按键序列已跑完：本轮快照已写（上方 `write_step`），只置收尾标记，
+                    // 之后不再产出快照。**不要再多写一次**——多写会让 step 内容与 TS 错位
+                    // （实测：转录区最后一行只剩 `ctrl+t_ctrl+t` 碎片 vs `c`）。
+                    hook.finish();
                 }
             }
         }
@@ -5091,9 +5108,12 @@ pub fn run(
     crate::ext_tools::emit_session_shutdown_sync("quit", None, std::time::Duration::from_secs(1));
     crate::ext_tools::shutdown_host(std::time::Duration::from_secs(1));
     // F53/T2：`PI_TEST_TAIL=N` —— 退出前把最终屏幕最后 N 行落盘（只在钩子启用时）。
+    //
+    // **不再在这里 `write_step`**：那是 F55 为 `--frame-backtrack` 加的，但它会让 pi-rs
+    // 比 TS 多出一步（TS 的 mark 数 = 按键数 + 1，pi-rs 会变成 +2）⇒ `compare-steps --steps N`
+    // 比到的那一步在两侧语义不同（实测：转录区末尾只剩 `ctrl+o_ctrl+o` vs `c` 的碎片）。
     if let Some(hook) = test_hook.as_ref() {
         let screen = crate::testhook::visible_screen(&state, cols, rows);
-        hook.write_step(&screen, &state, draw_count, cols, rows);
         hook.write_tail(&screen);
     }
     guard.restore();

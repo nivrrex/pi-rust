@@ -833,8 +833,17 @@ pub fn session_usage_totals(path: &std::path::Path) -> UsageTotals {
     let Ok(file) = pi_core::session_io::SessionFile::read(path) else {
         return UsageTotals::default();
     };
+    session_usage_totals_of(&file.entries)
+}
+
+/// 与 [`session_usage_totals`] 相同，但直接吃**已解析**的条目。
+///
+/// 用于恢复路径：调用方已经把会话读进内存（`resumed_file`），再按路径重读
+/// 等于把 116 MB 解析第二遍（F56/D 实测：`transcript_renderers_filled → first_draw_begin`
+/// 里约 1.9 s 全在这一句）。
+pub fn session_usage_totals_of(entries: &[pi_core::session::SessionEntry]) -> UsageTotals {
     let mut totals = UsageTotals::default();
-    for entry in &file.entries {
+    for entry in entries {
         let usage = match entry {
             pi_core::session::SessionEntry::Message { message, .. } => match message {
                 pi_ai::message::Message::Assistant(assistant) => Some(assistant.usage),
