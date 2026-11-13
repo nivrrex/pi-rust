@@ -1595,13 +1595,18 @@ pub fn run(
     // 启动告警画在帧最顶部（`Model scope:` 之前），不再塞进转录区 —— ref 里它们是
     // 框架之上的 `console.log`（T80 golden 首行就是 `Warning: No models match …`）。
     state.startup_warnings = startup_warnings;
-    let initial = parts
+    // F58/E1：**借用**而不是 `clone()`。`initial_messages` 是 6.4 万条会话的全量 `Vec<Message>`，
+    // 克隆一次的代价与"再解析一遍"同阶（600 万次 Rc/Box 分配）。
+    // ref 侧 `renderInitialMessages()`（`interactive-mode.ts:4056-4062`）直接用
+    // `this.sessionManager.buildContextEntries()` 的引用，不复制消息。
+    // 预测：省掉这次 clone 后 `tui_enter → transcript_built` 应明显下降。
+    let initial: &[pi_ai::message::Message] = parts
         .as_ref()
-        .map(|parts| parts.initial_messages.clone())
-        .unwrap_or_default();
+        .map(|parts| parts.initial_messages.as_slice())
+        .unwrap_or(&[]);
     crate::stages::mark("tui_enter");
     if !initial.is_empty() {
-        let mut items = transcript_from_messages(&initial);
+        let mut items = transcript_from_messages(initial);
         crate::stages::mark("transcript_built");
         // F51/Z0：**非内置工具**的渲染器来自扩展（ref 恢复时用的是
         // `getRegisteredToolDefinition(name)`，里面带着扩展注册的 `renderCall`/
@@ -1663,8 +1668,10 @@ pub fn run(
             }
         })
         .unwrap_or(0);
+    // `history` 需要**拥有**一份（agent run 的上下文要在它上面追加），
+    // 所以这里克隆**一次**即可；上面渲染路径是借用，不再额外复制。
     let history: std::sync::Arc<std::sync::Mutex<Vec<pi_ai::message::Message>>> =
-        std::sync::Arc::new(std::sync::Mutex::new(initial));
+        std::sync::Arc::new(std::sync::Mutex::new(initial.to_vec()));
     // 输入线程拿走一份发送端（agent run 需要主线程这份，故 clone 后再 move）。
     let input_tx = tx.clone();
     // P7-6ae/S3：**r3 走原始字节路径**（input.rs → 键名映射），R1/R2 仍走 crossterm。
