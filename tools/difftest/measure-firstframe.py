@@ -10,6 +10,14 @@
 - 稳定后立刻 `mark`（t1），再 `ctrl+d` 退出并记 t2 = 进程退出。
 - `first_frame = t1 - t0`，`total = t2 - t0`。
 
+**口径说明（F57/Q3）**：`t1` 是"页面静止"的时刻（`waitStable` 满足后打 mark），
+它比"首帧字节写出"晚一点（静止窗口本身 + PTY 读延迟）。因此
+`measure-firstframe.py` 的 `first_frame` 与进程内 `PI_TUI_STAGES` 的
+`first_frame_written` **不是同一个量**：
+- `PI_TUI_STAGES.first_frame_written`：进程内、首个 diff 帧写入完成的时刻（**报数用这个**）；
+- 本工具的 `first_frame`：外部可观测的"首次稳定"时刻（**回归/对照用这个**）。
+两者同批必须分开标注，不得混在同一张表里比较。
+
 用法：
     python3 tools/difftest/measure-firstframe.py --cmd "<命令含参数>" --out DIR \
         [--cols 110] [--rows 40] [--quiet-ms 1500]

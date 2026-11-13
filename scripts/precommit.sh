@@ -53,6 +53,8 @@ run "kill-safety" ./scripts/check-kill-safety.sh
 run "safe-tools tests" ./tools/difftest/test/test-safe-tools.sh
 # F56/A4：回归汇总不得把"空清单"算成一次运行（light 的假 nogolden）。
 run "regress-summary test" ./tools/difftest/test/test-regress-summary.sh
+# F57/C2：shim `copyToClipboard`（`/allcopy` 依赖）的行为用例（8 项，含假命令与 OSC 52）。
+run "shim clipboard tests" node --test tools/ext-host/test/shim-clipboard.test.mjs
 run "check-spec-cites" python3 scripts/check-spec-cites.py
 run "check-unverified-map" python3 scripts/check-unverified-map.py
 run "check-scenarios" node scripts/check-scenarios.mjs
@@ -66,7 +68,7 @@ run "P7-6 残留进程检查" ./scripts/check-no-stray.sh
 run "P7-4e 钉子（非交互路径 S01）" ./scripts/check-s01-pin.sh
 
 if [ "${#failed[@]}" -gt 0 ]; then
-  printf '\n十五项检查：%d 项失败 -> %s\n' "${#failed[@]}" "${failed[*]}"
+  printf '\n十六项检查：%d 项失败 -> %s\n' "${#failed[@]}" "${failed[*]}"
   # H0.6：失败时把**完整输出**留档（只加留存，不改任何检查项与判据）
   if [ -n "${PRECOMMIT_LOG:-}" ] && [ -f "${PRECOMMIT_LOG}" ]; then
     mkdir -p notes
@@ -75,4 +77,4 @@ if [ "${#failed[@]}" -gt 0 ]; then
   fi
   exit 1
 fi
-printf '\n十五项检查：全部通过\n'
+printf '\n十六项检查：全部通过\n'

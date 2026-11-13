@@ -55,8 +55,179 @@ export function createLocalBashOperations() {
   };
 }
 
-export async function copyToClipboard(text) {
-  throw new Error(`pi-ext-host shim: copyToClipboard 未实现（P9 后续批次）：${String(text).length} 字节`);
+// ── 剪贴板（F57/C）───────────────────────────────────────────────────────────
+//
+// 与 ref `utils/clipboard.ts:74-160` + `utils/clipboard-command.ts:1-53` 逐条对齐：
+//   1. 非 linux：先 `getNativeClipboard().setText`（我们没有本地实现，等价于失败继续）；
+//   2. 平台命令：darwin `pbcopy` / win32 `clip` / linux：`termux-clipboard-set`（`TERMUX_VERSION`）、
+//      `wl-copy`（`WAYLAND_DISPLAY`）、`xclip`/`xsel`（`DISPLAY`）；
+//   3. WSL：有 `WT_SESSION` 先 OSC 52，否则 PowerShell（`wslpath` 转路径后 `Set-Clipboard`）；
+//   4. OSC 52：远程会话（`SSH_CONNECTION`/`SSH_CLIENT`/`MOSH_CONNECTION`）或
+//      **headless**（linux 且无 `DISPLAY`/`WAYLAND_DISPLAY`/`TERMUX_VERSION`）且前面都失败时；
+//      base64 后长度 > 100_000 ⇒ 抛 `Clipboard unavailable: text exceeds the OSC 52 size limit`；
+//   5. 全部失败：按平台给出 ref 的具体错误文案（缺失依赖时提示装什么）。
+//
+// `runClipboardCommand` 的语义照 ref：**undefined = 失败**，空 Buffer = 成功；
+// 有 `input` 时 stdin 写入文本、否则 stdout 收数据；超时 `SIGKILL` 并按失败处理。
+const MAX_OSC52_ENCODED_LENGTH = 100_000;
+
+function isRemoteSession(env) {
+  return Boolean(env.SSH_CONNECTION || env.SSH_CLIENT || env.MOSH_CONNECTION);
+}
+
+/** 写 OSC 52 到 stdout；超长返回 false（ref `clipboard.ts:18-24`）。 */
+function emitOsc52(text, stream = process.stdout) {
+  const encoded = Buffer.from(text, "utf8").toString("base64");
+  if (encoded.length > MAX_OSC52_ENCODED_LENGTH) return false;
+  stream.write(`\x1b]52;c;${encoded}\x07`);
+  return true;
+}
+
+/**
+ * 跑一条剪贴板命令（ref `clipboard-command.ts:5-53`）。
+ * 返回 `undefined` 表示失败；返回 Buffer 表示成功（读命令的内容，写命令为空 Buffer）。
+ */
+function runClipboardCommand(command, args, options = {}) {
+  return new Promise((resolve) => {
+    const { spawn } = require("node:child_process");
+    const hasInput = options.input !== undefined;
+    const child = spawn(command, args, {
+      stdio: ["pipe", hasInput ? "ignore" : "pipe", "ignore"],
+      windowsHide: true,
+      // `options.env` 只影响"决策用哪个命令"；命令本身的查找走 `PATH`。
+      // 测试需要把 `PATH` 指向只含假命令的目录，所以这里必须把 env 透下去
+      // （ref 没有这一步是因为它跑在真实环境里；这不改变生产行为——生产不传 env）。
+      ...(options.env ? { env: options.env } : {}),
+    });
+    const chunks = [];
+    let length = 0;
+    let settled = false;
+    const finish = (result) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      resolve(result);
+    };
+    const abort = () => {
+      try {
+        child.kill("SIGKILL");
+      } catch {
+        // 已退出。
+      }
+      child.stdout?.destroy();
+      child.stdin?.destroy();
+      finish(undefined);
+    };
+    const timer = setTimeout(abort, options.timeoutMs ?? 3000);
+    child.on("error", () => finish(undefined));
+    child.on("close", (code) => {
+      if (!settled) finish(code === 0 ? Buffer.concat(chunks, length) : undefined);
+    });
+    child.stdout?.on("data", (chunk) => {
+      if (settled) return;
+      length += chunk.length;
+      if (length > (options.maxBufferBytes ?? 50 * 1024 * 1024)) abort();
+      else chunks.push(chunk);
+    });
+    child.stdin?.on("error", () => {}); // 写命令可能先退出
+    child.stdin?.end(options.input);
+  });
+}
+
+/** WSL 无 WSLg 时经 PowerShell 写 Windows 剪贴板（ref `clipboard.ts:34-58`）。 */
+async function copyViaWindowsClipboard(text, env) {
+  const { mkdtempSync, writeFileSync, rmSync } = require("node:fs");
+  const dir = mkdtempSync(path.join(os.tmpdir(), "pi-wsl-clip-"));
+  const tmpFile = path.join(dir, "clip.txt");
+  try {
+    writeFileSync(tmpFile, text, { encoding: "utf8", mode: 0o600 });
+    const listed = await runClipboardCommand("wslpath", ["-w", tmpFile], { timeoutMs: 1000, env });
+    const winPath = listed?.toString("utf8").trim();
+    if (!winPath) return false;
+    const script = `Set-Clipboard -Value ([System.IO.File]::ReadAllText('${winPath.replaceAll("'", "''")}', [System.Text.Encoding]::UTF8))`;
+    const result = await runClipboardCommand("powershell.exe", ["-NoProfile", "-Command", script], {
+      timeoutMs: 5000,
+      env,
+    });
+    return result !== undefined;
+  } catch {
+    return false;
+  } finally {
+    try {
+      rmSync(dir, { recursive: true, force: true });
+    } catch {
+      // 可能没创建成功。
+    }
+  }
+}
+
+function isWsl(env) {
+  if (process.platform !== "linux") return false;
+  if (env.WSL_DISTRO_NAME || env.WSL_INTEROP) return true;
+  try {
+    return require("node:fs").readFileSync("/proc/version", "utf8").toLowerCase().includes("microsoft");
+  } catch {
+    return false;
+  }
+}
+
+/** ref `utils/clipboard.ts:74` `copyToClipboard`。 */
+export async function copyToClipboard(text, options = {}) {
+  const value = String(text ?? "");
+  const env = options.env ?? process.env;
+  const platform = options.platform ?? process.platform;
+  const stream = options.stream ?? process.stdout;
+  let copied = false;
+  // ① 非 linux 先试原生剪贴板（我们没有本地实现 ⇒ 直接进入命令回退）。
+  if (platform !== "linux") {
+    // 留出接口：未来接 X11/Wayland 原生实现时插在这里。
+  }
+  // ② 平台命令。
+  if (!copied) {
+    const commands = [];
+    if (platform === "darwin") commands.push(["pbcopy", []]);
+    else if (platform === "win32") commands.push(["clip", []]);
+    else {
+      if (env.TERMUX_VERSION) commands.push(["termux-clipboard-set", []]);
+      if (env.WAYLAND_DISPLAY) commands.push(["wl-copy", []]);
+      if (env.DISPLAY) commands.push(["xclip", ["-selection", "clipboard"]], ["xsel", ["--clipboard", "--input"]]);
+    }
+    for (const [command, args] of commands) {
+      if (
+        (await runClipboardCommand(command, args, { input: value, timeoutMs: 5000, env })) !== undefined
+      ) {
+        copied = true;
+        break;
+      }
+    }
+  }
+  // ③ WSL：Windows Terminal 优先 OSC 52，否则 PowerShell。
+  let osc52Emitted = false;
+  if (!copied && platform === "linux" && isWsl(env)) {
+    if (env.WT_SESSION) osc52Emitted = emitOsc52(value, stream);
+    copied = osc52Emitted || (await copyViaWindowsClipboard(value, env));
+  }
+  // ④ OSC 52：远程会话或 headless 且前面都失败。
+  const headless = platform === "linux" && !env.DISPLAY && !env.WAYLAND_DISPLAY && !env.TERMUX_VERSION;
+  let oversized = false;
+  if (!osc52Emitted && (isRemoteSession(env) || (!copied && headless))) {
+    if (emitOsc52(value, stream)) copied = true;
+    else oversized = true;
+  }
+  if (copied) return;
+  if (oversized) throw new Error("Clipboard unavailable: text exceeds the OSC 52 size limit");
+  if (platform === "linux") {
+    if (env.TERMUX_VERSION) {
+      throw new Error("Clipboard unavailable: install the Termux:API app and `termux-api` package");
+    }
+    if (env.WAYLAND_DISPLAY) {
+      throw new Error("Clipboard unavailable: install `wl-clipboard` (`wl-copy`) or check Wayland access");
+    }
+    if (env.DISPLAY) {
+      throw new Error("Clipboard unavailable: install `xclip` or `xsel`, or check X11 access");
+    }
+  }
+  throw new Error("Clipboard unavailable");
 }
 
 // ref `components/assistant-message.ts:91` `updateContent(message, isStreaming)`：内容变化时重建行。

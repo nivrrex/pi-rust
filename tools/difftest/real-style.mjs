@@ -15,8 +15,152 @@
 
 import fs from "node:fs";
 import path from "node:path";
-import { renderStyledScreen, frameEnds } from "./compare-style.mjs";
+import { frameEnds } from "./compare-style.mjs";
 import { trimRawToOffset } from "./compare-tui.mjs";
+
+// F57/B3：`compare-style.mjs` 的 SGR 解析只认 0/1/2/3/7/22/23/27/39/49/38/48 与
+// 30–37/90–97/40–47/100–107，**没有 underline(4/24) 与 strike(9/29)**。
+// 那个文件是红线（不得改），所以这里自带一个解析器，覆盖**全部**会被主题用到的属性：
+// fg / bg / bold / dim / italic / underline / strike / inverse。
+// 与 `compare-style` 的差异只在这里，屏幕模型（CSI 光标、换行滚动、宽字符）仍复用
+// `compare-tui.mjs` 的口径（`renderStyledScreen` 不复用，因为它缺属性）。
+const DEFAULT = {
+  fg: null,
+  bg: null,
+  bold: false,
+  dim: false,
+  italic: false,
+  underline: false,
+  strike: false,
+  inverse: false,
+};
+
+function applySgr(style, params) {
+  const nums = params.length === 0 ? [0] : params;
+  for (let i = 0; i < nums.length; i += 1) {
+    const n = nums[i];
+    if (n === 0) Object.assign(style, DEFAULT);
+    else if (n === 1) style.bold = true;
+    else if (n === 2) style.dim = true;
+    else if (n === 3) style.italic = true;
+    else if (n === 4) style.underline = true;
+    else if (n === 7) style.inverse = true;
+    else if (n === 9) style.strike = true;
+    else if (n === 21 || n === 22) {
+      if (n === 22) {
+        style.bold = false;
+        style.dim = false;
+      } else style.bold = false;
+    } else if (n === 23) style.italic = false;
+    else if (n === 24) style.underline = false;
+    else if (n === 27) style.inverse = false;
+    else if (n === 29) style.strike = false;
+    else if (n === 39) style.fg = null;
+    else if (n === 49) style.bg = null;
+    else if (n === 38 || n === 48) {
+      const key = n === 38 ? "fg" : "bg";
+      const mode = nums[i + 1];
+      if (mode === 5) {
+        style[key] = `i${nums[i + 2]}`;
+        i += 2;
+      } else if (mode === 2) {
+        style[key] = `rgb(${nums[i + 2]},${nums[i + 3]},${nums[i + 4]})`;
+        i += 4;
+      }
+    } else if (n >= 30 && n <= 37) style.fg = `a${n - 30}`;
+    else if (n >= 90 && n <= 97) style.fg = `a${n - 90 + 8}`;
+    else if (n >= 40 && n <= 47) style.bg = `a${n - 40}`;
+    else if (n >= 100 && n <= 107) style.bg = `a${n - 100 + 8}`;
+  }
+}
+
+/** 把一段终端字节渲染成 `rows × cols` 的单元格矩阵（含**全部** SGR 属性）。 */
+function renderStyledFull(text, width, height) {
+  const screen = Array.from({ length: height }, () =>
+    Array.from({ length: width }, () => ({ ch: " ", ...DEFAULT })),
+  );
+  let row = 0;
+  let col = 0;
+  let style = { ...DEFAULT };
+  let i = 0;
+  while (i < text.length) {
+    const ch = text[i];
+    if (ch === "\x1b") {
+      const next = text[i + 1];
+      if (next === "[") {
+        let j = i + 2;
+        while (j < text.length && !/[A-Za-z@]/.test(text[j])) j += 1;
+        const final = text[j];
+        const body = text.slice(i + 2, j);
+        if (final === "m") {
+          applySgr(style, body.split(";").map((part) => (part === "" ? 0 : Number.parseInt(part, 10) || 0)));
+        } else if (final === "H" || final === "f") {
+          const [r = 1, c = 1] = body.split(";").map((p) => Number.parseInt(p, 10) || 1);
+          row = Math.min(height - 1, Math.max(0, r - 1));
+          col = Math.min(width - 1, Math.max(0, c - 1));
+        } else if (final === "A") row = Math.max(0, row - (Number.parseInt(body, 10) || 1));
+        else if (final === "B") row = Math.min(height - 1, row + (Number.parseInt(body, 10) || 1));
+        else if (final === "C") col = Math.min(width - 1, col + (Number.parseInt(body, 10) || 1));
+        else if (final === "D") col = Math.max(0, col - (Number.parseInt(body, 10) || 1));
+        else if (final === "G") col = Math.min(width - 1, Math.max(0, (Number.parseInt(body, 10) || 1) - 1));
+        else if (final === "K") {
+          const mode = Number.parseInt(body, 10) || 0;
+          if (mode === 0) for (let x = col; x < width; x += 1) screen[row][x] = { ch: " ", ...DEFAULT };
+          else if (mode === 2) screen[row].fill({ ch: " ", ...DEFAULT });
+        } else if (final === "J") {
+          const mode = Number.parseInt(body, 10) || 0;
+          if (mode === 2 || mode === 3) {
+            for (let y = 0; y < height; y += 1) screen[y].fill({ ch: " ", ...DEFAULT });
+            row = 0;
+            col = 0;
+          }
+        }
+        i = j + 1;
+        continue;
+      }
+      if (next === "]") {
+        let j = i + 2;
+        while (j < text.length && text[j] !== "\x07" && !(text[j] === "\x1b" && text[j + 1] === "\\")) j += 1;
+        i = text[j] === "\x07" ? j + 1 : j + 2;
+        continue;
+      }
+      i += 2;
+      continue;
+    }
+    if (ch === "\r") {
+      col = 0;
+      i += 1;
+      continue;
+    }
+    if (ch === "\n") {
+      if (row >= height - 1) {
+        for (let y = 1; y < height; y += 1) screen[y - 1] = screen[y].slice();
+        screen[height - 1] = Array.from({ length: width }, () => ({ ch: " ", ...DEFAULT }));
+      } else row += 1;
+      col = 0;
+      i += 1;
+      continue;
+    }
+    if (ch === "\b") {
+      col = Math.max(0, col - 1);
+      i += 1;
+      continue;
+    }
+    if (ch === "\x07") {
+      i += 1;
+      continue;
+    }
+    if (ch < " ") {
+      i += 1;
+      continue;
+    }
+    const target = col >= width ? width - 1 : col;
+    screen[row][target] = { ch, ...style };
+    col += 1;
+    i += 1;
+  }
+  return screen;
+}
 
 const argv = process.argv.slice(2);
 const get = (name, fallback) => {
@@ -78,19 +222,20 @@ function classify(rowText) {
 
 function styleDiff(a, b) {
   const fields = [];
-  for (const key of ["fg", "bg", "bold", "italic", "dim", "inverse"]) {
+  // F57/B3：比较**全部**属性（原缺 underline / strike）。
+  for (const key of ["fg", "bg", "bold", "dim", "italic", "underline", "strike", "inverse"]) {
     if (JSON.stringify(a[key]) !== JSON.stringify(b[key])) fields.push(key);
   }
   return fields;
 }
 
 function compareStep(leftRaw, rightRaw, leftOffset, rightOffset) {
-  const leftScreen = renderStyledScreen(
+  const leftScreen = renderStyledFull(
     trimRawToOffset(leftRaw, leftOffset).toString("utf8"),
     cols,
     rows,
   );
-  const rightScreen = renderStyledScreen(
+  const rightScreen = renderStyledFull(
     trimRawToOffset(rightRaw, rightOffset).toString("utf8"),
     cols,
     rows,

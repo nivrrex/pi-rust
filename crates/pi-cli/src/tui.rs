@@ -1987,7 +1987,22 @@ pub fn run(
             }
             let batch: Vec<(String, serde_json::Value, u64)> = batch;
             if !batch.is_empty() && !tool_row_disabled {
-                if last_draw.is_none() && tool_row_first_deadline.is_none() {
+                // F57/Q1：**少量待定行时不空等首帧**。
+                //
+                // 原来的做法是首帧最多等 1500 ms 让扩展把工具行渲染完，理由是"先画原生块
+                // 再回填折叠会把整段历史写两遍（95 MB 会话 826 KB+157 KB vs TS 188 KB）"。
+                // 但等待期间 pi-rs **一个字节都不输出**，而差分 harness 的"静止"判据是
+                // "600 ms 内没有新字节"（`pty-helper.py` 的 `waitStable`）⇒ 它会把这段
+                // 空等判成"画面已稳定"，把快照点钉在扩展结果到达**之前**；之后补画的那几帧
+                // 会让视口上滚，快照最终比 TS 少若干行（实测 T116 少 11 行、并发下偶尔触发）。
+                //
+                // 阈值取 8：待定行少时"多写一遍"的成本可以忽略（3 行 ≈ 几百字节），
+                // 而空等的代价是判稳口径失真；行数多时仍按原策略等（写两遍代价太大）。
+                const FIRST_DRAW_WAIT_MAX_ROWS: usize = 8;
+                if last_draw.is_none()
+                    && tool_row_first_deadline.is_none()
+                    && batch.len() > FIRST_DRAW_WAIT_MAX_ROWS
+                {
                     tool_row_first_deadline =
                         Some(std::time::Instant::now() + std::time::Duration::from_millis(1500));
                 }
@@ -5300,6 +5315,9 @@ fn draw(
 ) -> std::io::Result<()> {
     let mut out = std::io::stdout();
     let mut buffer = String::new();
+    // F57/D4：渲染错误**不写终端**（会打烂画面），只计数 + 可选落盘。
+    let mut render_error_count = 0u64;
+    let render_error_log = std::env::var_os("PI_TUI_RENDER_ERRORS").map(std::path::PathBuf::from);
     // P8e-18：帧内耗时（`PI_TUI_TIMING=<path>`，仅排查大帧用）。
     let timing = std::env::var_os("PI_TUI_TIMING");
     let started = std::time::Instant::now();
@@ -5372,9 +5390,28 @@ fn draw(
                     buffer.push_str(&cursor_bytes);
                 }
                 Err(error) => {
-                    // ref 在此处写 crash log 后 `throw`（`tui-main-screen.ts:534-548`）；
-                    // r3 的处置见 `notes/reports/P7-6n-wiring.md`：不 panic，跳帧并报一次 stderr。
-                    eprintln!("pi-rs[r3]: 渲染错误，跳过本帧：{error}");
+                    // ref 在此处**写 crash log 后 throw**（`tui-main-screen.ts:534-548`）：
+                    // 用 `stop()` 复原终端，然后把错误抛给调用方（进程退出），
+                    // 屏幕上不会留下任何错误文字。
+                    //
+                    // 本移植不 panic（见 `notes/reports/P7-6n-wiring.md`），但**也不能
+                    // `eprintln!`**：TUI 在 raw 模式下 stderr 就挂在同一个 PTY 上，
+                    // 那行字会直接写进画面、把当前帧打烂（实测 `raw.bin` 里能搜到
+                    // "跳过本帧"，用户截图里的越界提示就是这么跑到屏幕上的）。
+                    // 改为：计数 + 落到诊断文件（`PI_TUI_RENDER_ERRORS=<path>`），
+                    // 默认静默——与 ref"屏幕不显示错误文字"一致。
+                    render_error_count += 1;
+                    if let Some(path) = render_error_log.as_deref() {
+                        use std::io::Write as _;
+                        if let Ok(mut file) = std::fs::OpenOptions::new()
+                            .create(true)
+                            .append(true)
+                            .open(path)
+                        {
+                            let _ =
+                                writeln!(file, "帧渲染失败（第 {render_error_count} 次）：{error}");
+                        }
+                    }
                 }
             }
         }

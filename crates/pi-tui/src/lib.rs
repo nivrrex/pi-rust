@@ -3508,7 +3508,15 @@ fn render_all_cached_styled_inner(
                         // `clamp_to_width_ansi` 截断，真机 H 的 `(timeout 600s)` 就是这样丢的。
                         // SGR 要保留：`wrap_to_width_ansi` 负责跨行延续颜色；按纯文本裁
                         // 会把转义序列切断（F51 实测的 `\x1b\x1b[0m[0m` 污染）。
-                        for wrapped in wrap_to_width_ansi(&format!(" {line}"), cols) {
+                        // `\t` 必须先展开成空格：ref 的 `Text` 组件在排版前做
+                        // `text.replace(/\t/g, "   ")`（`packages/tui/src/components/text.ts:61`），
+                        // 而 `unicode-width` 把 `\t` 算成 **0 列**。不展开时折行器以为行很窄、
+                        // 实际终端按 8 列制表位展开 ⇒ 渲染出远超 `cols` 的行，
+                        // `diff_render` 直接报 `rendered line N exceeds terminal width`
+                        // （F57/D2 实测：80 列下含制表符的扩展行渲染成 101 列）。
+                        for wrapped in
+                            wrap_to_width_ansi(&format!(" {line}").replace('\t', "   "), cols)
+                        {
                             lines.push(wrapped);
                         }
                     }
@@ -3517,7 +3525,10 @@ fn render_all_cached_styled_inner(
                         // （此前 `clamp_to_width_ansi` 会把尾部丢掉：真机 H 的
                         // `(timeout 600s)` 消失就是这么来的）。
                         for line in extension_result {
-                            for wrapped in wrap_to_width_ansi(&format!(" {line}"), cols) {
+                            // 同上：`\t` 展开成 3 空格再折行（ref `text.ts:61`）。
+                            for wrapped in
+                                wrap_to_width_ansi(&format!(" {line}").replace('\t', "   "), cols)
+                            {
                                 lines.push(wrapped);
                             }
                         }
