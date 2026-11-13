@@ -1642,6 +1642,10 @@ pub fn apply(state: &mut TuiState, event: TuiEvent) -> TuiAction {
 /// 的页脚第二行只留下 `0.0%/262k (auto)`，右侧模型名被切掉）。
 #[must_use]
 pub fn clamp_to_width_ansi(text: &str, width: usize) -> String {
+    // F58/H2：同上，入口统一展开 `\t`。
+    if text.contains('\t') {
+        return clamp_to_width_ansi(&expand_tabs_for_layout(text), width);
+    }
     let mut out = String::with_capacity(text.len());
     let mut used = 0usize;
     let bytes = text.as_bytes();
@@ -1689,6 +1693,13 @@ pub fn clamp_to_width_ansi(text: &str, width: usize) -> String {
 /// 把字符串按显示宽度裁剪到 `width` 列（不补空格）。
 #[must_use]
 pub fn clamp_to_width(text: &str, width: usize) -> String {
+    // F58/H2：**排版入口统一展开 `\t`**（ref `text.ts:61` 等四处均如此）。
+    // 不展开时 `unicode-width` 把 `\t` 算 0 列 ⇒ 宽度被低估、终端按制表位展开后整行
+    // 远超 `cols`（用户的 `121 > 120`）。放在**入口**而不是各调用点，才不会漏。
+    // 无 `\t` 时直接走原路径（`contains` 是一次线性扫描，比 `replace` 分配便宜）。
+    if text.contains('\t') {
+        return clamp_to_width(&expand_tabs_for_layout(text), width);
+    }
     // P7-6al/F：**热路径**——旧实现每个字符都 `ch.to_string()` 再算宽度（每帧约 27 万次分配，
     // N=3000 时 render 占 35 ms）。`UnicodeWidthChar::width` 与 `UnicodeWidthStr::width(单字符)`
     // 语义等价（同一张宽度表），**输出字节完全不变**。
@@ -1758,8 +1769,35 @@ fn sanitize_status_text(text: &str) -> String {
         .join(" ")
 }
 
+/// 排版前把制表符展开成 **3 个空格**（ref 的公共行为）。
+///
+/// ref 里"每行文本在交给折行/排版前先把 `\t` 换成 3 空格"出现在四个地方，语义相同：
+/// - `packages/tui/src/components/text.ts:61`（`Text` 组件，**几乎全部文本行的出口**）
+/// - `packages/tui/src/components/markdown.ts:298`（markdown 渲染）
+/// - `coding-agent/src/modes/interactive/components/diff.ts:18`（diff 行）
+/// - `coding-agent/src/core/tools/render-utils.ts:32`（工具渲染器通用）
+///
+/// 为什么必须展开：`unicode-width` 把 `\t` 算作 **0 列**，而终端按下一个制表位展开
+/// （最多 8 列）。不展开时折行器以为整行很窄，实际渲染远超 `cols`，
+/// `diff_render` 直接报 `rendered line N exceeds terminal width` 并**丢掉整帧**
+/// （F57 实测：80 列下 `Status` 101 列、编辑器输入行 100 列、扩展渲染行 101 列）。
+///
+/// 本函数是 pi-rs 里**排版用**的唯一入口；散落的 `replace('\t', "   ")` 都应改调它。
+///
+/// **不要**把它用在编辑器粘贴归一化上：那里 ref `editor.ts:1146` 用 **4 个空格**
+/// （`normalizeText`：`\r\n`/`\r` → `\n`，再把 `\t` 换成 4 空格），
+/// 与排版口径不同（见 `apply_paste` 里的注释）。
+#[must_use]
+pub fn expand_tabs_for_layout(text: &str) -> String {
+    text.replace('\t', "   ")
+}
+
 /// 按显示宽度截断；超出时保留前 `cols-3` 列并追加 `...`（ref 的 `truncateToWidth(…, "...")`）。
 fn truncate_with_ellipsis(text: &str, cols: usize) -> String {
+    // F58/H2：入口统一展开 `\t`（ref `text.ts:61`；footer 状态行走 `Text` 组件）。
+    if text.contains('\t') {
+        return truncate_with_ellipsis(&expand_tabs_for_layout(text), cols);
+    }
     if UnicodeWidthStr::width(text) <= cols {
         return text.to_string();
     }
@@ -1987,6 +2025,10 @@ pub fn wrap_markdown_line(line: &str, cols: usize) -> Vec<String> {
 /// - 不去掉任何可见字符 ⇒ 内容保全（去 ANSI 后连接等于原文）。
 #[must_use]
 pub fn wrap_to_width_ansi(text: &str, width: usize) -> Vec<String> {
+    // F58/H2：入口统一展开 `\t`（ref `text.ts:61`）。
+    if text.contains('\t') {
+        return wrap_to_width_ansi(&expand_tabs_for_layout(text), width);
+    }
     if width == 0 {
         return vec![String::new()];
     }
@@ -2094,6 +2136,10 @@ pub fn strip_ansi(text: &str) -> String {
 }
 
 pub fn wrap_to_width(text: &str, width: usize) -> Vec<String> {
+    // F58/H2：入口统一展开 `\t`（ref `text.ts:61`）。
+    if text.contains('\t') {
+        return wrap_to_width(&expand_tabs_for_layout(text), width);
+    }
     if width == 0 {
         return vec![String::new()];
     }
@@ -2794,7 +2840,7 @@ fn render_all_cached_styled_inner(
     for warning in &state.startup_warnings {
         // 同上：`\t` 展开（ref `text.ts:61`）。
         lines.push(clamp_to_width(
-            &format!("Warning: {warning}").replace('\t', "   "),
+            &expand_tabs_for_layout(&format!("Warning: {warning}")),
             cols,
         ));
     }
@@ -3330,7 +3376,7 @@ fn render_all_cached_styled_inner(
                 // `\t` 必须先展开成 3 空格（ref `text.ts:61`）：`unicode-width` 把 `\t` 算 0 列，
                 // 而终端按制表位展开 ⇒ 行会比 `cols` 宽很多（F57 实测 80 列下 101 列）。
                 lines.push(clamp_to_width(
-                    &format!(" {text}").replace('\t', "   "),
+                    &expand_tabs_for_layout(&format!(" {text}")),
                     cols,
                 ));
                 lines.push(String::new());
@@ -3524,7 +3570,7 @@ fn render_all_cached_styled_inner(
                         // `diff_render` 直接报 `rendered line N exceeds terminal width`
                         // （F57/D2 实测：80 列下含制表符的扩展行渲染成 101 列）。
                         for wrapped in
-                            wrap_to_width_ansi(&format!(" {line}").replace('\t', "   "), cols)
+                            wrap_to_width_ansi(&expand_tabs_for_layout(&format!(" {line}")), cols)
                         {
                             lines.push(wrapped);
                         }
@@ -3535,9 +3581,10 @@ fn render_all_cached_styled_inner(
                         // `(timeout 600s)` 消失就是这么来的）。
                         for line in extension_result {
                             // 同上：`\t` 展开成 3 空格再折行（ref `text.ts:61`）。
-                            for wrapped in
-                                wrap_to_width_ansi(&format!(" {line}").replace('\t', "   "), cols)
-                            {
+                            for wrapped in wrap_to_width_ansi(
+                                &expand_tabs_for_layout(&format!(" {line}")),
+                                cols,
+                            ) {
                                 lines.push(wrapped);
                             }
                         }
@@ -3649,7 +3696,7 @@ fn render_all_cached_styled_inner(
                     .collect::<String>()
                     .replace("[0m", "");
                 for logical in text.split('\n') {
-                    let normalized = logical.replace('\t', "   ");
+                    let normalized = expand_tabs_for_layout(logical);
                     for wrapped in wrap_to_width(&normalized, cols.saturating_sub(2).max(1)) {
                         lines.push(clamp_to_width(&format!(" {wrapped}"), cols));
                     }
@@ -3801,7 +3848,7 @@ fn render_all_cached_styled_inner(
                     // TS `178 total`、我们裁完 `177 total`；展开态还少一行空行。
                     let all: Vec<String> = content
                         .split('\n')
-                        .map(|l| l.replace('\t', "   "))
+                        .map(|l| expand_tabs_for_layout(&l))
                         .collect();
                     let total = all.len();
                     let shown = if state.tools_expanded {
@@ -3830,7 +3877,7 @@ fn render_all_cached_styled_inner(
                             lines.push(String::new());
                             for line in body.replace('\r', "").split('\n') {
                                 for wrapped in wrap_to_width(
-                                    &line.replace('\t', "   "),
+                                    &expand_tabs_for_layout(line),
                                     cols.saturating_sub(2).max(1),
                                 ) {
                                     lines.push(clamp_to_width(&format!(" {wrapped}"), cols));
@@ -3895,7 +3942,7 @@ fn render_all_cached_styled_inner(
                         // 制表符换 3 空格后再折行（ref `text.ts:61/68`）。
                         let mut visual: Vec<String> = Vec::with_capacity(all.len());
                         for line in &all {
-                            let normalized = line.replace('\t', "   ");
+                            let normalized = expand_tabs_for_layout(line);
                             for wrapped in wrap_to_width(&normalized, cols.saturating_sub(2).max(1))
                             {
                                 visual.push(clamp_to_width(&format!(" {wrapped}"), cols));
@@ -4126,7 +4173,7 @@ fn render_all_cached_styled_inner(
             for line in &editor.lines[start..end] {
                 // 编辑器行同样展开 `\t`（ref `Text` 组件对每一行都做 `replace(/\t/g, "   ")`，
                 // `text.ts:61`）。不展开时 80 列下会渲染成 100 列、整帧因超宽被丢弃。
-                lines.push(clamp_to_width(&line.text.replace('\t', "   "), cols));
+                lines.push(clamp_to_width(&expand_tabs_for_layout(&line.text), cols));
             }
         }
     }

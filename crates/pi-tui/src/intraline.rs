@@ -495,7 +495,7 @@ pub fn render_diff_lines(diff: &str) -> Vec<String> {
     let mut index = 0usize;
     while index < lines.len() {
         let Some((prefix, _, _)) = parse_diff_line(lines[index]) else {
-            out.push(lines[index].replace('\t', "   "));
+            out.push(crate::expand_tabs_for_layout(lines[index]));
             index += 1;
             continue;
         };
@@ -504,7 +504,7 @@ pub fn render_diff_lines(diff: &str) -> Vec<String> {
             while index < lines.len() {
                 match parse_diff_line(lines[index]) {
                     Some(('-', num, content)) => {
-                        removed.push((num.to_string(), content.replace('\t', "   ")));
+                        removed.push((num.to_string(), crate::expand_tabs_for_layout(content)));
                         index += 1;
                     }
                     Some(('+' | ' ', _, _)) | Some((_, _, _)) | None => break,
@@ -514,7 +514,7 @@ pub fn render_diff_lines(diff: &str) -> Vec<String> {
             while index < lines.len() {
                 match parse_diff_line(lines[index]) {
                     Some(('+', num, content)) => {
-                        added.push((num.to_string(), content.replace('\t', "   ")));
+                        added.push((num.to_string(), crate::expand_tabs_for_layout(content)));
                         index += 1;
                     }
                     Some(('-' | ' ', _, _)) | Some((_, _, _)) | None => break,
@@ -539,12 +539,12 @@ pub fn render_diff_lines(diff: &str) -> Vec<String> {
         }
         if prefix == '+' {
             let (_, num, content) = parse_diff_line(lines[index]).unwrap_or(('+', "", ""));
-            out.push(format!("+{num} {}", content.replace('\t', "   ")));
+            out.push(format!("+{num} {}", crate::expand_tabs_for_layout(content)));
             index += 1;
             continue;
         }
         let (_, num, content) = parse_diff_line(lines[index]).unwrap_or((' ', "", ""));
-        out.push(format!(" {num} {}", content.replace('\t', "   ")));
+        out.push(format!(" {num} {}", crate::expand_tabs_for_layout(content)));
         index += 1;
     }
     out
