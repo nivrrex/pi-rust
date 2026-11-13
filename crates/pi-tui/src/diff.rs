@@ -162,8 +162,18 @@ pub fn visible_width(text: &str) -> usize {
 /// ref `text.ts:79-84` 把 `line + padding` 一起交给 `applyBackgroundToLine`
 /// （`utils.ts:1050-1058`）——被折行切断的粗体会延续到补位空格；前景色不会
 /// （`applyBackgroundToLine` 只加背景）。
+/// 补位空格的样式：**只有底色**（无前景、无 bold/dim/italic/underline/strike）。
+///
+/// ref `text.ts:74-84` 有背景时把 `line + padding` 整体交给 `applyBackgroundToLine`
+/// （`utils.ts:1050-1058`），而 `bgFn` 只做 `theme.bg(...)` —— 不会重复施加 bold。
+/// `wrapTextWithAnsi` 又对每个输出行 `trimEnd()` 并在非末行补 `lineEndReset`
+/// （`utils.ts:920-935`），折行断点的属性也不会流到 padding。
+///
+/// F54 曾让补位空格继承行尾字符的 bold/dim，导致真实会话 110 列的 `report_to_user` 行
+/// 整行 109 格加粗（TS 只有工具名 14 格），单行差 95 格——即用户截图的
+/// "pi-rs 有粗体、TS 无"。
 fn padding_style(style: crate::style::LineStyle) -> crate::style::LineStyle {
-    crate::style::LineStyle { fg: None, ..style }
+    crate::style::LineStyle::with_bg_only_tuple(style.bg)
 }
 
 /// 把行尾的**控制序列**（`SGR` 复位、`OSC 8` 关闭）与可见文本分开。
@@ -250,16 +260,6 @@ pub fn write_spans(out: &mut String, line: &str, spans: &[crate::style::Span], w
         }
     }
     let mut last_background = None;
-    // **行尾最后一个字符**的样式（补位空格沿用它，见下方注释）。
-    //
-    // 关键是"行尾"而不是"最后一个有样式的字符"：ref `wrapTextWithAnsi`（`utils.ts:851-874`）
-    // 在非末行**不闭合** SGR，所以折行点处的样式状态由该行末尾那个字符决定；
-    // 行中间某段加粗早已在行内复位过，不会延续到补位空格
-    // （实测踩过：用"最后一个有样式的字符"会把行中间加粗的段尾也染上）。
-    let last_inline_style =
-        styles.last().copied().flatten().filter(|style| {
-            style.bold || style.dim || style.italic || style.underline || style.strike
-        });
     let mut current: Option<crate::style::LineStyle> = None;
     for index in 0..char_count {
         let style = styles[index];
@@ -290,9 +290,31 @@ pub fn write_spans(out: &mut String, line: &str, spans: &[crate::style::Span], w
     // 第 54/55 列 ref `bold=true`、我们 `false`。
     // 补位空格的样式：有"行内最后一段样式"时沿用它（去掉前景：ref 的补位空格
     // 只继承底色与属性，前景仍是终端默认）；否则沿用整行底色（工具块的 padding 行）。
-    let pad_source = last_inline_style
-        .map(|style| crate::style::LineStyle { fg: None, ..style })
-        .or(last_background);
+    // F58/B：**只有"有背景"的行**才让补位空格继承属性。
+    //
+    // ref `text.ts:74-85` 里两条分支是不同的：
+    // - `if (this.customBgFn)`：把 `lineWithMargins` **整体**交给 `applyBackgroundToLine`
+    //   （`utils.ts:1050-1058`），非末行未闭合的 SGR 会延续到补位空格 ⇒ **继承属性**；
+    // - `else`：`lineWithMargins + " ".repeat(paddingNeeded)` —— 纯字符串拼接，
+    //   补位空格**不带任何 SGR**。
+    //
+    // 此前把两种情形都写成"继承行尾属性"，于是在**无背景**的行上多涂了粗体：
+    // 真实会话 110 列实测（`report_to_user` 工具头行）——pi-rs 整行 109 格 bold、
+    // TS 只有 14 格（`report_to_user` 本身），差 95 格。
+    // F58/B（**修正 F54 的过度泛化**）：补位空格**只带底色**，不带任何属性。
+    //
+    // ref 两条分支的实际差别不是"继承/不继承属性"，而是**谁写 SGR**：
+    // - `text.ts:74-78`（有 `customBgFn`）：`applyBackgroundToLine(line + padding)`
+    //   （`utils.ts:1050-1058`）把整串**再包一层 `bgFn`**——`bgFn` 只做
+    //   `theme.bg(...)`（背景色），**不重复施加 bold/italic**；
+    // - `text.ts:79-84`（无背景）：纯 `line + " ".repeat(n)`，不带 SGR。
+    //
+    // F54 曾把这里写成"补位空格继承行尾字符的 bold/dim/underline"，理由是"折行处未闭合的
+    // SGR 会延续"。但 `wrapTextWithAnsi` 实际对**每个**输出行都 `trimEnd()` 并在非末行
+    // 补 `lineEndReset`（`utils.ts:920-935`），折行断点处的属性**不会**流到 padding；
+    // 继续继承会多涂属性：真实会话 110 列实测 `report_to_user` 行——pi-rs 整行 109 格
+    // 加粗、TS 只有 14 格（工具名本身），单格差 95 格（用户截图的"pi-rs 有粗体、TS 无"即此）。
+    let pad_source = last_background;
     if let Some(style) = pad_source {
         let used = visible_width(line);
         if used < width {
