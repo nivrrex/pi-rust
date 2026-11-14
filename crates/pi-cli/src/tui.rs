@@ -2538,6 +2538,7 @@ pub fn run(
                     | TuiEvent::CompactionFailed(_)
                     | TuiEvent::AbortTurn
                     | TuiEvent::Shutdown
+                    | TuiEvent::TreeNavigated { .. }
                     | TuiEvent::Working(_) => {
                         let _ = apply(&mut state, event.clone());
                         dirty = true;
@@ -2666,6 +2667,7 @@ pub fn run(
                                 | TuiEvent::CompactionFailed(_)
                                 | TuiEvent::AbortTurn
                                 | TuiEvent::Shutdown
+                                | TuiEvent::TreeNavigated { .. }
                                 | TuiEvent::OverlayOpen(_)
                                 | TuiEvent::ExtensionWidget { .. }
                                 | TuiEvent::Clear
@@ -3209,7 +3211,26 @@ pub fn run(
                                                         "fromExtension": false,
                                                     }),
                                                 );
-                                                let _ = tx2.send(TuiEvent::BranchSummary(summary));
+                                                // ref `interactive-mode.ts:1952-1957`：树导航后
+                                                // **清空并重建会话区**（按新分支的
+                                                // `buildContextEntries` 重渲染），而不是只在
+                                                // 末尾追加一个 `[branch]` 块。此前只加块 ⇒
+                                                // 换分支后屏幕上仍是旧分支的全部内容。
+                                                let rebuilt = session_path
+                                                    .as_ref()
+                                                    .and_then(|path| {
+                                                        pi_core::session_io::SessionFile::read(path).ok()
+                                                    })
+                                                    .map(|file| {
+                                                        transcript_from_messages(
+                                                            &file.context_messages(),
+                                                        )
+                                                    })
+                                                    .unwrap_or_default();
+                                                let _ = tx2.send(TuiEvent::TreeNavigated {
+                                                    transcript: rebuilt,
+                                                    summary: Some(summary.clone()),
+                                                });
                                                 // 顺序与 TS 一致：先插 `[branch]` 块，再出状态行。
                                                 let _ = tx2.send(TuiEvent::Status(
                                                     "Navigated to selected point".to_string(),

@@ -574,6 +574,18 @@ pub enum TuiEvent {
         /// 压缩前的 token 数。
         tokens_before: u64,
     },
+    /// 树导航后**重建会话区**（ref `interactive-mode.ts:1952-1957`：
+    /// `chatContainer.clear()` + `renderInitialMessages()`，即按新分支的
+    /// `buildContextEntries` 重渲染）。
+    ///
+    /// 用整段替换而不是逐条增删：ref 也是整体重建。`summary` 非空时在其后追加
+    /// `[branch]` 块（ref `renderInitialMessages` 之后由 `addMessageToChat` 加）。
+    TreeNavigated {
+        /// 新分支渲染出的会话区（`buildContextEntries` 的结果）。
+        transcript: Vec<TranscriptItem>,
+        /// 本次导航生成的摘要正文（`None` = 未摘要）。
+        summary: Option<String>,
+    },
     /// 扩展请求退出程序（ref `types.ts:346` 的 `ctx.shutdown()`）。
     ///
     /// ref 的 `shutdown()` 是"优雅退出 pi"：`interactive-mode.ts` 把它接到同一条
@@ -815,6 +827,20 @@ pub fn apply(state: &mut TuiState, event: TuiEvent) -> TuiAction {
         }
         TuiEvent::AbortTurn => {
             // 界面不变（真正的取消由 pi-cli 主循环做，它持有取消令牌）。
+            TuiAction::Redraw
+        }
+        TuiEvent::TreeNavigated {
+            transcript,
+            summary,
+        } => {
+            // ref `interactive-mode.ts:1952-1957`：清空 → 按新分支重渲染 → 加摘要块。
+            state.transcript = transcript;
+            if let Some(summary) = summary {
+                state.transcript.push(TranscriptItem::BranchSummary {
+                    summary,
+                    expanded: state.tools_expanded,
+                });
+            }
             TuiAction::Redraw
         }
         TuiEvent::Shutdown => {
