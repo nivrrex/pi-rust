@@ -255,16 +255,26 @@ fn aborted_turn_settles() {
     } else {
         last.to_string()
     };
+    // ref 有**两条**合法的中止文案，取决于取消发生在请求发出之前还是流中途：
+    // - 请求尚未发出 ⇒ `This operation was aborted`（`agent/run.rs:544-549`，
+    //   对应 golden/S09b 的"带着已中止信号去发请求"，TS 的 fetch 直接抛 AbortError）；
+    // - 流已开始 ⇒ `Operation aborted`（`tui.rs` 的 `assistant_notice` 对
+    //   `StopReason::Aborted` 的兜底文案，ref `assistant-message.ts` 同款）。
+    // 两者都说明回合被中止了；**具体哪一种取决于调度**，不能只认一种
+    // （否则用例本身会偶发红，实测过一次）。
+    const ABORT_MARKERS: [&str; 2] = ["Operation aborted", "This operation was aborted"];
+    let marker = ABORT_MARKERS
+        .iter()
+        .find(|marker| outcome.screen.contains(**marker));
     assert!(
-        outcome.screen.contains("Operation aborted"),
-        "abort 之后应出现 ref 的中止文案 `Operation aborted`。屏幕：\n{}",
+        marker.is_some(),
+        "abort 之后应出现 ref 的中止文案（{} 之一）。屏幕：\n{}",
+        ABORT_MARKERS.join(" 或 "),
         outcome.screen
     );
-    // 最后一段画面里不应再有 `Working`（abort 之前画过的不算）。
-    let tail_after_abort = outcome
-        .screen
-        .split("Operation aborted")
-        .nth(1)
+    // 中止文案之后不应再画 `Working`（之前画过的不算）。
+    let tail_after_abort = marker
+        .and_then(|marker| outcome.screen.split(marker).nth(1))
         .unwrap_or_default();
     assert!(
         !tail_after_abort.contains("Working"),
