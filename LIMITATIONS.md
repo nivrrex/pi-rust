@@ -665,6 +665,10 @@ ref 的对应实现见 `interactive-mode.ts:2541`/`:2543`（`showExtensionNotify
       `pasteToEditor`、`setEditorText`、`getEditorText`、`editor`、
       `addAutocompleteProvider`、`setEditorComponent`、`getEditorComponent`、
       `getAllThemes`、`getTheme`、`setTheme`。
+    - `after_provider_response` 事件（ref `sdk.ts:357-362`）**未实现**：用户已装扩展中
+      无人订阅（全仓 grep 为 0），不属"已装扩展用到的未实现项"。实现前提是在
+      `pi-ai` 的 HTTP 层暴露响应头。`before_provider_request` 已实现（F60/10，
+      只通知不改写载荷——两个使用方都只计数/遥测）。
     - `ExtensionAPI`（`:1349-1600`）：`registerShortcut`、`registerMessageRenderer`、
       `registerEntryRenderer`、`registerProvider`、`unregisterProvider`、
       `sendMessage`、`exec`、`setModel`、`setThinkingLevel`、`setSessionName`、
