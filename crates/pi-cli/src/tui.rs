@@ -1907,9 +1907,10 @@ pub fn run(
     let mut selector: Option<SelectorUi> = None;
     // `/settings` → 子菜单时保存父列表状态，Esc 时原样回去（ref `closeSubmenu` 恢复到原选中项）。
     let mut settings_parent: Option<(crate::settings_selector::SettingsSelector, usize)> = None;
-    // `/tree` 选中条目要放回编辑器的文本（`Summarize branch?` 选完之后用）。
+    // `/tree` 选中条目要放回编辑器的文本（`Summarize branch?` 选完之后用；ref 的 `editorText`）。
     let mut pending_tree_restore: Option<String> = None;
-    // `/tree` 选中条目的 id（`branch_summary` 条目的 `fromId`）。
+    // 导航后的**新叶子 id**（ref `agent-session.ts:3713-3724` 的 `newLeafId`）：
+    // 目标是用户消息时取它的 `parentId`（回到该消息之前），否则取目标本身。
     let mut pending_tree_restore_id: Option<String> = None;
     // `Summarize with custom prompt` 提交的指令文本（拼进摘要请求）。
     let mut pending_custom_instructions: Option<String> = None;
@@ -2997,9 +2998,39 @@ pub fn run(
                                 pending_tree_restore = visible
                                     .get(sel.selected)
                                     .map(|index| sel.rows[*index].text.clone());
-                                pending_tree_restore_id = visible
-                                    .get(sel.selected)
-                                    .map(|index| sel.rows[*index].id.clone());
+                                // ref `agent-session.ts:3713-3723`：导航目标若是**用户消息**
+                                // （或 custom message），新叶子取它的 `parentId`——效果是
+                                // "回到这条消息**之前**"，消息文本回到编辑器可重新编辑；
+                                // 其它条目（assistant/tool/system）则以目标本身为叶子
+                                // （"停在这一点"）。
+                                //
+                                // 此前一律用选中行自己的 id ⇒ 选中用户消息时叶子落在**该消息**
+                                // 上，于是这条消息既留在上下文里、又同时被放回编辑器，
+                                // 再发出去就重复了。
+                                // 新叶子与回填文本的规则在 `pi_tui::tree_target_leaf` 里
+                                // （纯函数，`t_f60_tree_target_leaf` 覆盖；ref
+                                // `agent-session.ts:3713-3724`）。
+                                //
+                                // "根"在 TUI 侧用**空串**表达（`parentId` 为 `None` 说明
+                                // 目标在根上）；写摘要条目时再转回 `None`。
+                                if let Some(row) =
+                                    visible.get(sel.selected).map(|index| &sel.rows[*index])
+                                {
+                                    let (leaf, restore) = pi_tui::tree_target_leaf(
+                                        matches!(
+                                            row.kind,
+                                            crate::settings_selector::TreeRowKind::User
+                                        ),
+                                        &row.id,
+                                        row.parent_id.as_deref(),
+                                        pending_tree_restore.as_deref().unwrap_or_default(),
+                                    );
+                                    pending_tree_restore_id = leaf.or(Some(String::new()));
+                                    if let Some(text) = restore {
+                                        pending_tree_restore = Some(text);
+                                    }
+                                }
+
                                 let prompt = crate::settings_selector::SummarizeSelector::new();
                                 state.open_panel(
                                     pi_tui::PanelPlacement::BelowEditor,
@@ -3184,8 +3215,11 @@ pub fn run(
                                                         // ref `session-manager.ts:1603-1611`：
                                                         // 摘要条目的 `parentId` 是**导航目标**，
                                                         // `fromId` 是被离开的旧叶子。
+                                                        // 空串 = 导航到根（ref `newLeafId === null`）。
+                                                        let target_parent =
+                                                            target_id.as_deref().filter(|id| !id.is_empty());
                                                         let _ = guard.append_branch_summary(
-                                                            target_id.as_deref(),
+                                                            target_parent,
                                                             from_id,
                                                             &summary,
                                                             usage.map_or(0, |(input, _)| input),

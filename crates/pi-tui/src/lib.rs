@@ -9114,6 +9114,29 @@ pub struct EditorLine {
     pub cursor_col: Option<usize>,
 }
 
+/// `/tree` 导航的**新叶子**与"回填编辑器的文本"（ref `agent-session.ts:3713-3724`）。
+///
+/// 规则（逐字对照 ref）：
+/// - 目标是**用户消息**（或 custom message）⇒ 新叶子取它的 `parentId`
+///   （"回到这条消息**之前**"），正文放回编辑器供重新编辑；`parentId` 为 `None` 即导航到根。
+/// - 其它条目（assistant / tool / system）⇒ 新叶子就是目标本身，不回填文本。
+///
+/// 抽成纯函数：判断只依赖"是不是用户消息 / 目标 id / 父 id / 正文"，
+/// 与 UI 状态无关，便于单测（`t_f60_tree_target_leaf`）。
+#[must_use]
+pub fn tree_target_leaf(
+    is_user_message: bool,
+    target_id: &str,
+    parent_id: Option<&str>,
+    text: &str,
+) -> (Option<String>, Option<String>) {
+    if is_user_message {
+        (parent_id.map(str::to_string), Some(text.to_string()))
+    } else {
+        (Some(target_id.to_string()), None)
+    }
+}
+
 /// 编辑器排版结果（ref `components/editor.ts:520-560` 的 `render` 前半段）。
 pub struct EditorLayout {
     pub lines: Vec<EditorLine>,
