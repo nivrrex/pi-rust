@@ -761,6 +761,33 @@ async function dispatch(frame) {
     // `runner.ts:1080-1135` 的 emitToolResult）：
     // - tool_call：按顺序跑，**第一个 block 立刻返回**（后续处理器不再执行）；
     // - tool_result：链式——每个处理器看到前一个改过的 event；某个处理器抛错只记录。
+    // `context`：请求前的消息变换（ref `runner.ts:1190-1219` 的 `emitContext`）。
+    // 扩展可以返回 `{messages}` 新列表，也可以**原地改** `event.messages`；
+    // system 消息由宿主还原（这里只处理传进来的非 system 列表）。
+    if (name === "context") {
+      let current = Array.isArray(params?.payload?.messages) ? params.payload.messages.slice() : [];
+      const snapshot = current.slice();
+      for (const handler of list) {
+        try {
+          const event = { type: "context", messages: current };
+          const result = await handler(event, contextForExtension());
+          if (result && Array.isArray(result.messages)) {
+            current = result.messages.slice();
+          } else if (event.messages !== current) {
+            // 处理器把 `event.messages` 换成了新数组。
+            current = event.messages;
+          } else if (current.some((message, index) => message !== snapshot[index])) {
+            // 原地改了元素（对象引用变化或字段变化）——保持当前数组。
+            current = current.slice();
+          }
+        } catch (error) {
+          errors.push(String(error && error.message ? error.message : error));
+          process.stderr.write(`[ext-host] context handler failed: ${errors[errors.length - 1]}\n`);
+        }
+      }
+      respond(id, { handled: list.length, errors, result: { messages: current } });
+      return;
+    }
     if (name === "tool_call" || name === "tool_result") {
       let current = { ...(params?.payload ?? {}) };
       // **就地修改**的载体（ref `agent-loop.ts:727` + `agent-session.ts:538-543`）：

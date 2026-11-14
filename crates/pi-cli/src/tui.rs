@@ -4785,9 +4785,19 @@ pub fn run(
                                     Some(attempt)
                                 });
                                 concrete_sink.set_retry_attempt(attempt);
+                                // **请求前的 `context` 变换**（ref `runner.ts:1190-1219` 的
+                                // `emitContext`）：`context-gateway`（用户已装）在这里做
+                                // 投影层老化（把重复发送过的工具结果全文换成视图，
+                                // `index.ts:320-`）。此前 pi-rs 完全不派发 ⇒ 老化从未生效。
+                                //
+                                // 位置：每次**尝试**前都跑一次（重试时上下文可能已被
+                                // 上一轮的产物改变），但不改 `messages` 本身——变换只作用于
+                                // 这一次请求，会话历史保持原样（ref 同样是"投影"，不改历史）。
+                                let request_messages =
+                                    crate::ext_tools::transform_context(messages.clone());
                                 let result = runtime.block_on(pi_core::agent::run::run_loop(
                                     &agent_loop,
-                                    messages.clone(),
+                                    request_messages,
                                     &cancel,
                                 ));
                                 let Ok(produced) = result else {

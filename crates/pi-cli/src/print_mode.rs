@@ -306,13 +306,12 @@ impl PrintRun {
                 });
                 // 第二轮起告诉循环"这是第几次重试"：它在成功那轮的 `message_end` 后发 `auto_retry_end`。
                 agent_loop.set_retry_attempt(if attempts == 0 { None } else { Some(attempts) });
+                // 请求前的 `context` 变换（ref `runner.ts:1190-1219` 的 `emitContext`）：
+                // `context-gateway` 在这里做投影层老化。只作用于**本次请求**，
+                // `transcript` 本身不变（ref 同样是投影语义）。
+                let request_messages = crate::ext_tools::transform_context(transcript.clone());
                 messages = match agent_loop
-                    .run(
-                        transcript.clone(),
-                        &|_| Vec::new(),
-                        &|_| Vec::new(),
-                        &cancel,
-                    )
+                    .run(request_messages, &|_| Vec::new(), &|_| Vec::new(), &cancel)
                     .await
                 {
                     Ok(round) => round,

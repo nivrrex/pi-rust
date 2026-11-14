@@ -1669,6 +1669,83 @@ pub fn run_input_hooks(text: &str, source: &str) -> InputOutcome {
     }
 }
 
+/// 请求前的 `context` 变换（ref `runner.ts:1190-1219` 的 `emitContext`）。
+///
+/// 语义（与 ref 逐条对应）：
+/// 1. 只把**非 system** 消息交给扩展（`visibleMessages = messages.filter(role !== "system")`）；
+/// 2. 扩展可以返回新列表，也可以**原地改写** `event.messages`；
+///    两者都没有改动 ⇒ 该处理器等于没说话；
+/// 3. 处理完把 system 消息**还原**回原位（`restoreSystemMessages`）；
+/// 4. 处理器抛错只记录、不中断请求。
+///
+/// 真实使用方 `context-gateway`（用户已装）在这里做**投影层老化**：把重复发送过的
+/// 工具结果全文换成视图（`index.ts:320-`），会话原史不动。此前 pi-rs 完全不派发
+/// `context` ⇒ 老化层从未生效，上下文只增不减。
+pub fn transform_context(messages: Vec<pi_ai::message::Message>) -> Vec<pi_ai::message::Message> {
+    let Some(host) = HOST.get().and_then(|slot| slot.as_ref()).cloned() else {
+        return messages;
+    };
+    // 拆出 system（ref 的 `visibleMessages` 与 `restoreSystemMessages` 用同一位置信息）。
+    let mut visible: Vec<pi_ai::message::Message> = Vec::with_capacity(messages.len());
+    let mut system_slots: Vec<(usize, pi_ai::message::Message)> = Vec::new();
+    for (index, message) in messages.iter().enumerate() {
+        if matches!(message, pi_ai::message::Message::System { .. }) {
+            system_slots.push((index, message.clone()));
+        } else {
+            visible.push(message.clone());
+        }
+    }
+    if visible.is_empty() {
+        return messages;
+    }
+    let snapshot = visible.clone();
+    // ref 的 `AgentMessage` 里 user/assistant 的 `content` 一律是**块数组**
+    // （`content: string` 只在会话文件的旧形态里出现）。这里把裸字符串统一成
+    // `[{type:"text",text}]` 再交给扩展：否则扩展侧 `content.map(...)` 拿到的是
+    // 字符串（`pi-secrets` / `context-gateway` 都按数组处理），改写会静默失效。
+    let payload_messages: Vec<serde_json::Value> = visible
+        .iter()
+        .map(|message| {
+            let mut value = serde_json::to_value(message).unwrap_or(serde_json::Value::Null);
+            if let Some(object) = value.as_object_mut() {
+                if let Some(serde_json::Value::String(text)) = object.get("content") {
+                    let text = text.clone();
+                    object.insert(
+                        "content".to_string(),
+                        serde_json::json!([{ "type": "text", "text": text }]),
+                    );
+                }
+            }
+            value
+        })
+        .collect();
+    let payload = serde_json::json!({
+        "type": "context",
+        "messages": payload_messages,
+    });
+    let Ok(Some(value)) = host.emit_value("context", payload, std::time::Duration::from_secs(10))
+    else {
+        return messages;
+    };
+    // 扩展可以回新列表（`handlerResult.messages`），也可以原地改；两者都按"有改动"处理。
+    let returned: Option<Vec<pi_ai::message::Message>> = value
+        .get("messages")
+        .and_then(|value| serde_json::from_value(value.clone()).ok());
+    let Some(new_visible) = returned else {
+        return messages;
+    };
+    if new_visible == snapshot {
+        return messages;
+    }
+    // 还原 system：按原来的下标顺序插回去（ref `restoreSystemMessages`）。
+    let mut restored = new_visible;
+    for (slot, message) in system_slots {
+        let at = slot.min(restored.len());
+        restored.insert(at, message);
+    }
+    restored
+}
+
 /// `before_agent_start` 的结果：注入的自定义消息 + 系统提示覆盖。
 #[derive(Debug, Clone, Default)]
 pub struct BeforeAgentStart {
