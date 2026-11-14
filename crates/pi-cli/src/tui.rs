@@ -6647,6 +6647,28 @@ impl pi_core::agent::EventSink for TuiEventSink {
                 );
                 None
             }
+            // ref `agent-session.ts:1104-1110`：`tool_execution_update` 也派发给扩展。
+            // `pi-ai-summary`（用户已装）用它记录**工具执行中**的诊断快照
+            // （`src/events.ts:123-135`：`partialResult` 是累计快照而非增量）。
+            // 此前不派发 ⇒ 它的诊断字段永远是 `hasPartialResult: undefined`。
+            AgentEvent::ToolExecutionUpdate {
+                tool_call_id,
+                tool_name,
+                args,
+                partial,
+            } => {
+                crate::ext_tools::emit_event(
+                    "tool_execution_update",
+                    serde_json::json!({
+                        "type": "tool_execution_update",
+                        "toolCallId": tool_call_id,
+                        "toolName": tool_name,
+                        "args": args,
+                        "partialResult": partial,
+                    }),
+                );
+                None
+            }
             AgentEvent::EntryAppended { .. }
             | AgentEvent::CompactionStart { .. }
             | AgentEvent::CompactionEnd { .. }
@@ -6654,7 +6676,6 @@ impl pi_core::agent::EventSink for TuiEventSink {
             | AgentEvent::SummarizationRetryAttemptStart { .. }
             | AgentEvent::SummarizationRetryFinished
             | AgentEvent::QueueUpdate
-            | AgentEvent::ToolExecutionUpdate { .. }
             | AgentEvent::AutoRetryStart { .. }
             | AgentEvent::AutoRetryEnd { .. } => None,
         };
