@@ -677,3 +677,11 @@ ref 的对应实现见 `interactive-mode.ts:2541`/`:2543`（`showExtensionNotify
       `registerMarkdownTransformer` 已在 F60/6 实现（`pi-secrets` 靠它脱敏密钥，
       此前只记录不应用 ⇒ 密钥会画到屏幕上）。
     推翻条件：某个已装扩展开始依赖上述任一项时，按 ref 逐个补齐并补对拍用例。
+27. **F60/11 `ctx.ui.custom` 面板的按键覆盖面**：宿主把按键经 `ext.custom.input`
+    原样转给扩展组件（`interactive-mode.ts:2858-2900` 同语义），当前映射覆盖
+    `字符 / Enter / Ctrl+J / Esc / Backspace / Tab / Shift+Tab / ↑↓←→`。
+    **未覆盖**：`Home`、`End`、`Delete`、`PageUp`、`PageDown`——用户已装扩展在
+    custom 面板里没有用到它们（全仓 grep `Key.home|Key.end|Key.delete|Key.pageUp|
+    Key.pageDown` 为 0），因此不属"已装扩展用到的未实现项"。
+    推翻条件：某个已装扩展的 custom 组件开始用 `matchesKey(data, Key.home)` 之类，
+    届时在 `key_bytes`（`crates/pi-cli/src/tui.rs`）与 `pi_tui::input` 两侧同时补映射。
