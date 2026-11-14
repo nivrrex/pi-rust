@@ -321,10 +321,10 @@ fn transcript_from_messages(messages: &[pi_ai::message::Message]) -> Vec<pi_tui:
                                     serde_json::Value::Object(arguments.clone()).to_string(),
                                 ),
                                 name: name.clone(),
-                                summary: {
-                                    let value = serde_json::Value::Object(arguments.clone());
-                                    tool_summary_for(name, &value)
-                                },
+                                // F59/E3b：**不克隆整个 arguments**（write/edit 的参数里带
+                                // 整份文件内容，克隆一次就是几 MB）。`tool_summary_for` 只
+                                // 按 key 取一个字符串字段，借用一个临时 Map 即可。
+                                summary: tool_summary_from_args(name, arguments),
                             });
                             // 登记以便后续 `toolResult` 按 id 配对（ref 的
                             // `renderedPendingTools.set(content.id, component)`）。
@@ -569,6 +569,38 @@ fn fill_extension_renderers(items: &mut [pi_tui::TranscriptItem]) {
 }
 
 /// 把内容块里的文本按行拼接（忽略 thinking / 工具调用 / 图片）。
+/// 与 [`tool_summary_for`] 相同，但**借用** `arguments`（不复制整个对象）。
+///
+/// F59/E3b：`serde_json::Value::Object(arguments.clone())` 在 `write`/`edit` 上会克隆
+/// 整份文件内容（单条几 MB，2917 条累计可观）。这里直接按 key 取 `&str`。
+fn tool_summary_from_args(
+    name: &str,
+    arguments: &serde_json::Map<String, serde_json::Value>,
+) -> String {
+    let field = |keys: &[&str]| -> Option<String> {
+        keys.iter()
+            .find_map(|key| arguments.get(*key).and_then(|value| value.as_str()))
+            .map(str::to_string)
+    };
+    let picked = match name {
+        // ref 的路径键序 `file_path ?? path ?? filePath`（`renderers/write.ts:103` 等）。
+        "read" | "write" | "edit" | "ls" | "grep" | "find" => {
+            field(&["file_path", "path", "filePath"])
+        }
+        "bash" | "powershell" => field(&["command"]),
+        "todo" | "report_to_user" => field(&["kind"]),
+        _other => None,
+    };
+    if let Some(text) = picked {
+        return text;
+    }
+    match arguments.values().find_map(|value| value.as_str()) {
+        Some(text) => text.to_string(),
+        None if arguments.is_empty() => String::new(),
+        None => serde_json::Value::Object(arguments.clone()).to_string(),
+    }
+}
+
 fn text_of(blocks: &[pi_ai::types::Content]) -> String {
     blocks
         .iter()
@@ -1606,7 +1638,11 @@ pub fn run(
         .unwrap_or(&[]);
     crate::stages::mark("tui_enter");
     if !initial.is_empty() {
+        // F59/E3b：细分 `transcript_from_messages` —— 它在循环里对**每个**工具调用/结果
+        // 同步发一次扩展 RPC（`render_tool_block`），大会话 30307 个 toolCall 时可能是主体。
+        crate::stages::mark("transcript_from_messages_begin");
         let mut items = transcript_from_messages(initial);
+        crate::stages::mark("transcript_from_messages_done");
         crate::stages::mark("transcript_built");
         // F51/Z0：**非内置工具**的渲染器来自扩展（ref 恢复时用的是
         // `getRegisteredToolDefinition(name)`，里面带着扩展注册的 `renderCall`/
@@ -2048,6 +2084,14 @@ pub fn run(
         let waiting_first_tool_batch = last_draw.is_none()
             && !tool_row_pending.is_empty()
             && tool_row_first_deadline.is_some_and(|deadline| std::time::Instant::now() < deadline);
+        // F59/E3a：等待判定打点（只在首帧路径上记，避免刷屏）。
+        if last_draw.is_none() && dirty {
+            if waiting_first_tool_batch {
+                crate::stages::mark("wait_tool_batch");
+            } else if waiting_first_ui {
+                crate::stages::mark("wait_first_ui");
+            }
+        }
         if dirty && render_ready && !waiting_first_tool_batch && !waiting_first_ui {
             if last_draw.is_none() {
                 crate::stages::mark("first_draw_begin");
@@ -5334,7 +5378,12 @@ fn draw(
             // P7-6n：主屏差分渲染（`TuiMainScreen.doRender` 移植）。`render_all` 给**全量**行，
             // 可见窗口由 `diff_render` 的 `height` 决定（不预裁剪）。
             // **不再外包同步序列**：`diff_render` 自己已经写出 `?2026h/…/?2026l`（`tui-main-screen.ts:283/317/494/567`）。
+            // F59/E3a：`draw()` 内部细分打点（`PI_TUI_STAGES`）。
+            // 目的是裁决"`renderers_filled → first_draw_begin` 的 ~1.15 s 是排版耗时还是
+            // 事件循环等待"——此前两种归因互相矛盾，必须用打点定论。
+            crate::stages::mark("draw_render_begin");
             let frame = pi_tui::render_all_marker_cached_styled(state, cols, rows, render_cache);
+            crate::stages::mark("draw_render_done");
             // S1：样式/坐标诊断转储（`PI_TUI_STYLE_DUMP=<path>`，仅排查用）。
             if let Some(path) = std::env::var_os("PI_TUI_STYLE_DUMP") {
                 use std::io::Write as _;
@@ -5388,6 +5437,7 @@ fn draw(
             }
             // 每帧把"是否有浮层"告知差分层（ref `hasOverlayEntries`）。
             diff_state.has_overlay = state.panel.is_some();
+            crate::stages::mark("draw_diff_begin");
             match pi_tui::diff::diff_render_with_cursor_styled(
                 diff_state, &lines, &styles, &spans, cols, rows,
             ) {
@@ -5447,7 +5497,9 @@ fn draw(
     if let Some(path) = output_dump_path() {
         dump_output(&path, cols, rows, diff_state, &payload);
     }
+    crate::stages::mark("draw_write_begin");
     let result = write_frame(&mut out, &payload);
+    crate::stages::mark("draw_write_done");
     // 记录"本帧写出**之后**的字节数"。装帧边界必须对齐：`diff_render` 的整个 payload
     // 就是这一帧（已含 `?2026h`/`?2026l`），所以累加它的长度天然落在帧尾；
     // 之前记的是"写前偏移"再回退到帧尾，遇到 CRLF 分块写就会切进帧中间（实测 `hig`）。
