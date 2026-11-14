@@ -652,14 +652,14 @@ ref 的对应实现见 `interactive-mode.ts:2541`/`:2543`（`showExtensionNotify
     改前这些命令落到 `other => {}` ⇒ 屏幕一个字节都不变（与 `/todo` 冻结、`/compact`
     无反应同属"无响应"缺陷，见 `notes/p9-f60/plan.md` 第 3 节）。
     推翻条件：需要其中任一条时按 ref 逐条移植（每条都有自己的 ref 实现与状态副作用）。
-25. **F60/3 未实现的扩展 `ctx` / `ctx.ui` / `pi` API**（用户已装扩展均未使用，
+25. **F60/3 未实现的扩展 `ctx` / `ctx.ui` / `pi` API**（F60/5 已补
+    `abort`/`shutdown`/`isIdle`/`isProjectTrusted`/`hasPendingMessages`，见下）（用户已装扩展均未使用，
     全仓 grep 逐项确认；ref 行号见 `extensions/types.ts`）：
     - `ExtensionContext`：`modelRegistry`(`:325`)、`scopedModels`(`:332`)、
-      `isIdle`(`:336`)、`isProjectTrusted`(`:338`)、`signal`(`:340`)、`abort`(`:342`)、
-      `hasPendingMessages`(`:344`)、`shutdown`(`:346`)、`compact`(`:350`)、
-      `getSystemPrompt`(`:352`)。其中 `pi-agent-resilience` 调 `ctx.abort()`、
-      `pi-ai-summary` 调 `ctx.isProjectTrusted?.()`，都在 `try/catch` 或可选调用内，
-      缺失时降级为"不中止 / 不信任"，不影响主流程。
+      `signal`(`:340`)、`compact`(`:350`)、`getSystemPrompt`(`:352`)。
+      （`isIdle`/`isProjectTrusted`/`abort`/`hasPendingMessages`/`shutdown`
+      已在 F60/5 实现——`pi-agent-resilience` 真的依赖 `ctx.abort()`，
+      缺失时它的 `try/catch` 会把 TypeError 吞掉、自动恢复静默失效。）
     - `ExtensionUIContext`（`:137-217`）：`onTerminalInput`、`setWorkingMessage`、
       `setWorkingVisible`、`setWorkingIndicator`、`setHiddenThinkingLabel`、
       `pasteToEditor`、`setEditorText`、`getEditorText`、`editor`、
