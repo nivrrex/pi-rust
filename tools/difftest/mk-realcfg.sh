@@ -47,6 +47,7 @@ NOTHK_MODEL="ant-ling/Ling-3.2-flash"
 # Windows 语料复现不出来。默认**不生成** nothk 变体（会话 116 MB，复制两份是浪费）。
 FROM_HOME=0
 NOTHK=1
+WITH_HANDOFF=0
 OUT_EXPLICIT=0
 
 while [ $# -gt 0 ]; do
@@ -68,6 +69,7 @@ while [ $# -gt 0 ]; do
       if [ "$OUT_EXPLICIT" = "0" ]; then OUT="$REPO/tmp/realcfg-linux"; fi
       shift ;;
     --notk) NOTHK=1; shift ;;
+    --with-handoff) WITH_HANDOFF=1; shift ;;
     --out) OUT="$2"; OUT_EXPLICIT=1; shift 2 ;;
     --mock-port) MOCK_PORT="$2"; shift 2 ;;
     --agent-src) AGENT_SRC="$2"; shift 2 ;;
@@ -145,8 +147,16 @@ for name in providers:
 json.dump(out, open(dst, "w", encoding="utf-8"), ensure_ascii=False, indent=2)
 PYAUTH
 
-# 真实扩展：只拷 pi-ai-summary（guard / handoff 会改键行为，不参与对拍）。
+# 真实扩展：默认只拷 pi-ai-summary（guard / handoff 会改键行为，不参与 24 格对拍）。
 cp -a "$AGENT_SRC/extensions/pi-ai-summary" "$OUT/agent/extensions/pi-ai-summary"
+# `--with-handoff`（F60）：额外拷 `pi-handoff-gate`（`/todo`、`/allcopy`、续跑校验）。
+# 用户真机上这两个命令就来自它；`/todo` 卡死与 `/allcopy` 报错都只能在**装了它**的副本上复现。
+# 不带这个开关时行为与之前完全一致（不进入 24 格对拍语料）。
+if [ "$WITH_HANDOFF" = "1" ]; then
+  [ -d "$AGENT_SRC/extensions/pi-handoff-gate" ] || {
+    echo "mk-realcfg: --with-handoff 需要 $AGENT_SRC/extensions/pi-handoff-gate" >&2; exit 1; }
+  cp -a "$AGENT_SRC/extensions/pi-handoff-gate" "$OUT/agent/extensions/pi-handoff-gate"
+fi
 
 # 合成 git 仓库（只为让页脚有确定的分支名）。
 git -C "$OUT/work" init -q -b "$BRANCH"

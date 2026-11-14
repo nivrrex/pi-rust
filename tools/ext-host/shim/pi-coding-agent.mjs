@@ -4,6 +4,14 @@
 // 返回 Proxy/undefined 会直接抛 `ERR_INVALID_ARG_TYPE`（S6 实测）。
 import os from "node:os";
 import path from "node:path";
+// F60/1：本文件是 **ESM**（`.mjs`），真实宿主用 `await import()` 加载扩展，
+// 因此**没有** CommonJS 的 `require` / `__dirname` / `module`。
+// 此前 `copyToClipboard` 内部写的是 `require("node:child_process")`，
+// 单测因为预置了 `globalThis.require` 才通过，真实环境下走到命令分支就抛
+// `ReferenceError: require is not defined`（用户 `/allcopy` 的报错）。
+// 一律改用 ESM 静态 import。
+import { spawn } from "node:child_process";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { Text, Container, Spacer, SelectList } from "./pi-tui.mjs";
 
 export function getAgentDir() {
@@ -89,7 +97,6 @@ function emitOsc52(text, stream = process.stdout) {
  */
 function runClipboardCommand(command, args, options = {}) {
   return new Promise((resolve) => {
-    const { spawn } = require("node:child_process");
     const hasInput = options.input !== undefined;
     const child = spawn(command, args, {
       stdio: ["pipe", hasInput ? "ignore" : "pipe", "ignore"],
@@ -136,7 +143,6 @@ function runClipboardCommand(command, args, options = {}) {
 
 /** WSL 无 WSLg 时经 PowerShell 写 Windows 剪贴板（ref `clipboard.ts:34-58`）。 */
 async function copyViaWindowsClipboard(text, env) {
-  const { mkdtempSync, writeFileSync, rmSync } = require("node:fs");
   const dir = mkdtempSync(path.join(os.tmpdir(), "pi-wsl-clip-"));
   const tmpFile = path.join(dir, "clip.txt");
   try {
@@ -165,7 +171,7 @@ function isWsl(env) {
   if (process.platform !== "linux") return false;
   if (env.WSL_DISTRO_NAME || env.WSL_INTEROP) return true;
   try {
-    return require("node:fs").readFileSync("/proc/version", "utf8").toLowerCase().includes("microsoft");
+    return readFileSync("/proc/version", "utf8").toLowerCase().includes("microsoft");
   } catch {
     return false;
   }

@@ -17,11 +17,21 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { createRequire } from "node:module";
 
-const require = createRequire(import.meta.url);
-// shim 里用 `require("node:child_process")`（CommonJS 风格），ESM 下需要全局 require。
-globalThis.require = require;
+// F60/1b：**不要**在这里预置 `globalThis.require`。
+//
+// 真实宿主 `tools/ext-host/runner.mjs` 用 `await import(extensionImportUrl(...))`
+// 加载扩展（ESM），**从不**注入 CommonJS 的 `require`。此前的测试为了让
+// `shim` 里残留的 `require("node:child_process")` 通过，先设了
+// `globalThis.require = createRequire(import.meta.url)` —— 这正是"测试通过、
+// 真机报 `require is not defined`"的原因。
+//
+// 现在测试与真实宿主走**同一条加载路径**：直接 `import()`，不提供任何
+// CommonJS 垫片。这样只要 shim 里再出现 `require`/`__dirname`/`module`，
+// 测试就会像真机一样失败。
+if (typeof globalThis.require !== "undefined") {
+  throw new Error("测试环境不应存在 globalThis.require（会掩盖 ESM 下的 require 误用）");
+}
 
 const shim = await import("../shim/pi-coding-agent.mjs");
 
