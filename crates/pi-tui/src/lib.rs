@@ -3846,10 +3846,8 @@ fn render_all_cached_styled_inner(
                     // 于是它**被算作一行**（`write.ts:113-118`）。
                     // 真实会话实测（`汇总分析/工作区总览与导航.md`，内容以 `\n` 结尾）：
                     // TS `178 total`、我们裁完 `177 total`；展开态还少一行空行。
-                    let all: Vec<String> = content
-                        .split('\n')
-                        .map(|l| expand_tabs_for_layout(&l))
-                        .collect();
+                    let all: Vec<String> =
+                        content.split('\n').map(expand_tabs_for_layout).collect();
                     let total = all.len();
                     let shown = if state.tools_expanded {
                         total

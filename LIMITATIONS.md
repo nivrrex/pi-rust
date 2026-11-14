@@ -627,3 +627,20 @@ ref 的对应实现见 `interactive-mode.ts:2541`/`:2543`（`showExtensionNotify
     已与 TS 一致；Windows conhost 是否需额外 `ENABLE_VIRTUAL_TERMINAL_PROCESSING`
     （crossterm 的 `supports_ansi()` 已尝试开启，失败忽略）未验证。推翻条件：Windows 真机
     仍显示 cmd 默认标题。
+21. **F58/Q 工具行首帧等待阈值无 ref 依据**：`crates/pi-cli/src/tui.rs` 的
+    `FIRST_DRAW_WAIT_MAX_ROWS = 8`（待定扩展工具行 ≤8 时首帧**不**空等最多 1500 ms）。
+    ref 在同一进程内同步渲染工具行（`coding-agent/src/modes/interactive/components/tool-execution.ts:110-118`），
+    不存在"等扩展回填折叠行"这一步，因此**找不到对应阈值**；这是 pi-rs 跨进程渲染的实现细节。
+    设为 8 的依据是"少量行重画两遍的字节代价可忽略"（3 行约几百字节），并非 ref 规格。
+    推翻条件：①在 ref 找到等价的"首帧等待渲染器"点 ⇒ 改为照抄 ref 策略；
+    ②折叠行改回本进程内渲染 ⇒ 删除该阈值。
+22. **F58/C Alacritty 的 OSC 52 开关未核实**：`/allcopy` 在无 `xclip`/`xsel`（headless）或
+    远程会话下走 OSC 52（`\x1b]52;c;<base64>\x07`，与 ref `utils/clipboard.ts:18-24` 逐字节一致）。
+    **Alacritty 默认是否启用 OSC 52 写入**未在 ref 的 `docs/`、`CHANGELOG.md` 中找到依据，
+    本批未验证，标"未核实"。推翻条件：在 Alacritty 中实测 `copyToClipboard` 后剪贴板内容
+    与写入文本不一致，或需在 `alacritty.toml` 显式开启对应选项。
+23. **F58/H 编辑器制表符口径与排版不同（有意保留）**：排版统一展开 `\t` → **3 空格**
+    （ref `text.ts:61`/`markdown.ts:298`/`diff.ts:18`/`render-utils.ts:32`），
+    而编辑器粘贴归一化用 **4 空格**（ref `editor.ts:1146` 的 `normalizeText`）。
+    两处未合并成同一常量，避免改变括号粘贴的缩进与光标列。推翻条件：ref 后续版本
+    把两处口径统一（届时合并）。
