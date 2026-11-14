@@ -136,3 +136,20 @@ git status 干净、删 `tmp/realcfg*`。
 - dark **并发 375 same / 0 different / 69 nogolden**、**串行（`--jobs 1`）375/0/69**
 - light **81 same / 0 different / 0 nogolden**
 - `self-verify` **26/26 rc=0**；`real-parity-linux` **8/8 rc=0**
+
+## E3f：进一步实验（批次体积 / payload / 块大小），全部撤销
+
+| 实验 | 预测 | 实测 | 裁决 |
+|---|---|---|---|
+| `CHUNK` 50 → 400（59 块合并成 8 块） | 少 51 次 RPC 往返 ⇒ 更快 | 7.53 / 7.56 s（基线 6.82 / 6.89） | **更慢 ⇒ 撤销**（单条 RPC 行数过多反增开销） |
+| `truncate_result_payload` 上限 8 KB → 512 B | payload 变小 ⇒ 传输更快 | 7.32 / 7.29 s | **无改善 ⇒ 撤销**（payload 体积不是瓶颈） |
+
+**为什么这些都不是瓶颈**：用 `PI_TOOL_ROW_LOG` 采集行级统计，1938 行里
+**1862 行返回 `arr(1)`、76 行 `arr(2)`，无一行 null** —— 扩展对每一行都真的
+构造了 `ToolExecutionComponent` 并 `render()`。这 1206 ms 是扩展的真实计算，
+不是空等、不是传输、不是调度。
+
+**与 ref 的差异根因**：ref 在同一进程内同步渲染（`tool-execution.ts:110-118`），
+没有"发 RPC + 等回包"的往返；pi-rs 因为扩展跑在独立 Node 进程，必须跨进程。
+要消除这 1.2 s 只能把扩展渲染搬回 Rust 进程内（等于放弃扩展渲染器），
+与规格冲突 ⇒ **本批不做，登记为架构性差异**。E3e 差距 2.0 s 的缺项由此确认。
