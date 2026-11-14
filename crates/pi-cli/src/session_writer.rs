@@ -701,14 +701,38 @@ impl SessionWriter {
     ///
     /// # Errors
     /// 写文件失败时返回错误描述。
+    /// 写一条 `branch_summary`（ref `session-manager.ts:1593-1618` 的 `branchWithSummary`）。
+    ///
+    /// **`parent_id` 是导航目标**（`branchFromId`），**不是**当前叶子：
+    /// ref 的实现是
+    /// ```text
+    /// const fromId = this.leafId ?? "root";
+    /// this.leafId = branchFromId;          // 先把叶子挪到目标
+    /// entry = { parentId: branchFromId, fromId, summary, … };
+    /// ```
+    /// 也就是说摘要在**新分支**上、`fromId` 记的是被离开的旧叶子。
+    ///
+    /// 我此前用 `take_id_and_parent()`（parent = 当前叶子 = 旧分支末尾）⇒ 摘要被挂到
+    /// **旧分支**上，`fromId` 也丢了：会话树里出现"旧分支又多出一条子节点"，
+    /// 而切过去的分支上什么都没有（ref 的 `getBranch()` 与新屏幕不一致）。
+    ///
+    /// `parent_id: None` = 导航到根（ref 允许 `branchFromId === null`）。
     pub fn append_branch_summary(
         &mut self,
+        parent_id: Option<&str>,
         from_id: &str,
         summary: &str,
         usage_input: u64,
         usage_output: u64,
     ) -> Result<(), String> {
-        let (entry_id, parent_id) = self.take_id_and_parent();
+        let (entry_id, _ignored_parent) = self.take_id_and_parent();
+        // 叶子改由**导航目标**决定（ref 里 `this.leafId = branchFromId` 在构造条目之前）。
+        if let Some(chain) = self.chain.as_ref() {
+            if let Ok(mut guard) = chain.lock() {
+                *guard = Some(entry_id.clone());
+            }
+        }
+        let parent_id = parent_id.map(str::to_string);
         let mut usage = serde_json::Map::new();
         usage.insert("input".to_string(), serde_json::Value::from(usage_input));
         usage.insert("output".to_string(), serde_json::Value::from(usage_output));

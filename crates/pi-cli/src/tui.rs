@@ -3098,7 +3098,15 @@ pub fn run(
                                             parts_ref.system_message.clone();
                                         let writer_for_summary =
                                             parts_ref.writer.as_ref().map(std::sync::Arc::clone);
-                                        let from_id_for_summary = pending_tree_restore_id.clone();
+                                        // **导航目标**（`newLeafId`）：摘要条目挂在它下面。
+                                        let target_id = pending_tree_restore_id.clone();
+                                        // **旧叶子**（ref 的 `fromId`）：导航**之前**的叶子。
+                                        // `session_chain` 此时仍指向旧分支末尾（尚未写摘要条目）。
+                                        let from_id_for_summary = crate::ext_tools::session_chain()
+                                            .lock()
+                                            .ok()
+                                            .and_then(|guard| guard.clone())
+                                            .or_else(|| pending_tree_restore_id.clone());
                                         let custom_instructions_for_request =
                                             pending_custom_instructions.take();
                                         let session_path =
@@ -3173,7 +3181,11 @@ pub fn run(
                                                     (writer_for_summary.as_ref(), from_id_for_summary.as_deref())
                                                 {
                                                     if let Ok(mut guard) = writer.lock() {
+                                                        // ref `session-manager.ts:1603-1611`：
+                                                        // 摘要条目的 `parentId` 是**导航目标**，
+                                                        // `fromId` 是被离开的旧叶子。
                                                         let _ = guard.append_branch_summary(
+                                                            target_id.as_deref(),
                                                             from_id,
                                                             &summary,
                                                             usage.map_or(0, |(input, _)| input),
