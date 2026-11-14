@@ -2536,6 +2536,8 @@ pub fn run(
                     | TuiEvent::CompactionSummary { .. }
                     | TuiEvent::CompactionFinished { .. }
                     | TuiEvent::CompactionFailed(_)
+                    | TuiEvent::AbortTurn
+                    | TuiEvent::Shutdown
                     | TuiEvent::Working(_) => {
                         let _ = apply(&mut state, event.clone());
                         dirty = true;
@@ -2662,6 +2664,8 @@ pub fn run(
                                 | TuiEvent::CompactionSummary { .. }
                                 | TuiEvent::CompactionFinished { .. }
                                 | TuiEvent::CompactionFailed(_)
+                                | TuiEvent::AbortTurn
+                                | TuiEvent::Shutdown
                                 | TuiEvent::OverlayOpen(_)
                                 | TuiEvent::ExtensionWidget { .. }
                                 | TuiEvent::Clear
@@ -3995,6 +3999,32 @@ pub fn run(
                     continue;
                 }
             }
+            // 扩展请求中止（ref `types.ts:342` 的 `ctx.abort()`，来自 `host.action.call`
+            // 的 `abort` 动作）。与 Esc 走**同一条**取消路径，但不依赖 `busy`：
+            // ref 的 `abort()` 语义就是"中止当前 agent 操作"，没在跑时是无操作
+            // （`agent-session.ts` 的 `abort()` 在空闲时直接返回）。
+            // 真实使用方 `pi-agent-resilience` 只会在流进行中调用（`index.ts:116/227`）。
+            if matches!(event, TuiEvent::AbortTurn) {
+                let mut cancelled = false;
+                if let Some(token) = compact_cancel.lock().ok().and_then(|slot| slot.clone()) {
+                    token.cancel();
+                    cancelled = true;
+                }
+                if let Some(token) = turn_cancel
+                    .lock()
+                    .ok()
+                    .and_then(|slot| slot.as_ref().cloned())
+                {
+                    token.cancel();
+                    cancelled = true;
+                }
+                // 有东西被取消就重绘（`Working` 行会随后被 `AgentSettled` 撤掉）；
+                // 什么都没在跑时保持界面不动（ref 的空闲 `abort()` 是无操作）。
+                if cancelled {
+                    dirty = true;
+                }
+                continue;
+            }
             // Escape 中止**正在进行的压缩**（ref `interactive-mode.ts:3562-3566`：
             // 压缩期间 `onEscape` 被换成 `session.abortCompaction()`）。
             // 优先于下面那条"中止回合"的分支：压缩时 `busy` 可能为假，
@@ -4717,6 +4747,13 @@ pub fn run(
                                     &cancel,
                                 ));
                                 let Ok(produced) = result else {
+                                    // **必须撤掉 `Working` 并结算**：`run_loop` 出错
+                                    // （含被 `ctx.abort()` 取消导致的提前返回）时，
+                                    // 这里原来的 `return` 会直接结束线程 ⇒ 屏幕永远停在
+                                    // `Working` 行上，用户看到的就是"卡住"
+                                    // （真机 `pi-agent-resilience` 调 abort 后正是如此）。
+                                    let _ = tx.send(TuiEvent::Working(false));
+                                    concrete_sink.emit_settled();
                                     return;
                                 };
                                 let last_error =
@@ -4801,6 +4838,17 @@ pub fn run(
                                     break produced;
                                 }
                             };
+
+                            // ref `agent-session.ts:875-876`：`agent_settled` 是**整轮结束**
+                            // （含所有重试尝试）之后的事件，由包装层发——print 路径也正是这样做的
+                            // （`print_mode.rs:645`，在它自己的重试循环之后）。`run_loop` 只发
+                            // `agent_start`/`agent_end`，所以这里必须补发，否则：
+                            // ① 扩展（`pi-agent-resilience` 的预算记账/状态复位）永远收不到；
+                            // ② 屏幕上 `Working` 行只能靠 `agent_end` 的路径撤掉，
+                            //    abort 之后会一直挂着（用户看到"卡住"）。
+                            // 直接复用 `TuiEventSink` 的映射：发一条 `AgentSettled`
+                            // 走与 `run_loop` 内事件完全相同的路径（含扩展派发）。
+                            concrete_sink.emit_settled();
 
                             // `run_loop` 返回的是**整段上下文**（含我们传进去的初始消息）⇒ 落盘时只取
                             // 超出初始长度的尾部，否则第二轮会把第一轮的消息再写一遍（T08 实测 pi-rs 10 条
@@ -5985,6 +6033,9 @@ pub struct TuiEventSink {
     /// ref `compaction.ts:218-246` 的 `estimateContextTokens`：没有 usage 时百分比按**整个投影**算，
     /// 只算最后一条 assistant 会偏小（T10 实测 1.1% vs TS 1.2%）。
     context_tokens: std::sync::Arc<std::sync::atomic::AtomicU64>,
+    /// 本 run 内的轮次序号（ref `agent-session.ts:1064` 的 `_turnIndex`：
+    /// 每次 `agent_start` 归零、每个 `turn_start` 自增，进 `turn_start` 事件载荷）。
+    turn_index: std::sync::Arc<std::sync::atomic::AtomicU32>,
 }
 
 impl TuiEventSink {
@@ -6007,7 +6058,17 @@ impl TuiEventSink {
             system_message,
             retry_attempt: std::sync::Arc::new(std::sync::atomic::AtomicU32::new(0)),
             context_tokens: std::sync::Arc::new(std::sync::atomic::AtomicU64::new(0)),
+            turn_index: std::sync::Arc::new(std::sync::atomic::AtomicU32::new(0)),
         }
+    }
+
+    /// 发一条"整轮已结算"（ref `agent-session.ts:875-876` 的 `agent_settled`）。
+    ///
+    /// 为什么由包装层发：`run_loop` 的边界是**一次尝试**（重试时会被多次调用），
+    /// 而 `agent_settled` 的语义是"整轮结束，含全部重试尝试"。print 路径同样在
+    /// 自己的重试循环之后发（`print_mode.rs:645`）。
+    pub fn emit_settled(&self) {
+        pi_core::agent::EventSink::emit(self, pi_core::agent::AgentEvent::AgentSettled);
     }
 
     /// 记下本轮投影的 token 估算（系统提示 + 历史 + 本轮输入），供 footer 百分比使用。
@@ -6340,26 +6401,44 @@ impl pi_core::agent::EventSink for TuiEventSink {
                 }
             },
             AgentEvent::MessageUpdate {
-                assistant_event, ..
-            } => match assistant_event {
-                Some(pi_ai::AssistantEvent::TextDelta { delta, .. }) => {
-                    Some(TuiEvent::AssistantDelta(delta))
+                message,
+                assistant_event,
+            } => {
+                // ref `agent-session.ts:1084-1091`：`message_update` 也派发给扩展。
+                // `pi-agent-resilience` 的**流活动看门狗**与**文本循环检测**都挂在这里
+                // （`index.ts:203-227`）；此前完全不派发 ⇒ 两项保护从未生效。
+                crate::ext_tools::emit_event(
+                    "message_update",
+                    serde_json::json!({
+                        "type": "message_update",
+                        "message": serde_json::to_value(&message)
+                            .unwrap_or(serde_json::Value::Null),
+                        "assistantMessageEvent": assistant_event
+                            .as_ref()
+                            .map(|event| serde_json::json!({ "type": assistant_event_kind(event) })),
+                    }),
+                );
+                match assistant_event {
+                    Some(pi_ai::AssistantEvent::TextDelta { delta, .. }) => {
+                        Some(TuiEvent::AssistantDelta(delta))
+                    }
+                    // P7-6ao/T：thinking 增量单独进会话区（ref 默认**显示** thinking，
+                    // 见 `settings-manager.ts:978`）。
+                    Some(pi_ai::AssistantEvent::ThinkingDelta { delta, .. }) => {
+                        Some(TuiEvent::ThinkingDelta(delta))
+                    }
+                    Some(pi_ai::AssistantEvent::Start)
+                    | Some(pi_ai::AssistantEvent::TextStart { .. })
+                    | Some(pi_ai::AssistantEvent::TextEnd { .. })
+                    | Some(pi_ai::AssistantEvent::ThinkingStart { .. })
+                    | Some(pi_ai::AssistantEvent::ThinkingEnd { .. })
+                    | None => None,
+                    Some(other) => {
+                        let _ = other;
+                        None
+                    }
                 }
-                // P7-6ao/T：thinking 增量单独进会话区（ref 默认**显示** thinking，见 `settings-manager.ts:978`）。
-                Some(pi_ai::AssistantEvent::ThinkingDelta { delta, .. }) => {
-                    Some(TuiEvent::ThinkingDelta(delta))
-                }
-                Some(pi_ai::AssistantEvent::Start)
-                | Some(pi_ai::AssistantEvent::TextStart { .. })
-                | Some(pi_ai::AssistantEvent::TextEnd { .. })
-                | Some(pi_ai::AssistantEvent::ThinkingStart { .. })
-                | Some(pi_ai::AssistantEvent::ThinkingEnd { .. })
-                | None => None,
-                Some(other) => {
-                    let _ = other;
-                    None
-                }
-            },
+            }
             AgentEvent::ToolExecutionStart {
                 tool_call_id,
                 tool_name,
@@ -6430,8 +6509,29 @@ impl pi_core::agent::EventSink for TuiEventSink {
                     .to_string()),
                 })
             }
-            AgentEvent::AgentStart => Some(TuiEvent::Working(true)),
-            AgentEvent::AgentSettled => Some(TuiEvent::Working(false)),
+            AgentEvent::AgentStart => {
+                // ref `agent-session.ts:1064`：`this._turnIndex = 0`。
+                self.turn_index
+                    .store(0, std::sync::atomic::Ordering::SeqCst);
+                // ref `agent-session.ts:1063-1065`：`agent_start` **同时**派发给扩展
+                // （载荷只有 `{type}`）。`pi-agent-resilience` 等扩展靠它开始计时/建状态，
+                // 此前完全没有派发 ⇒ 扩展的 `agent_start` 处理器永不执行。
+                crate::ext_tools::emit_event(
+                    "agent_start",
+                    serde_json::json!({ "type": "agent_start" }),
+                );
+                Some(TuiEvent::Working(true))
+            }
+            AgentEvent::AgentSettled => {
+                // ref `agent-session.ts:875-876`：`agent_settled` 先派发给扩展、再作为
+                // agent 事件发出。`pi-agent-resilience` 用它做预算记账与状态复位
+                // （`index.ts` 的 `agent_settled` 处理器），此前完全不派发。
+                crate::ext_tools::emit_event(
+                    "agent_settled",
+                    serde_json::json!({ "type": "agent_settled" }),
+                );
+                Some(TuiEvent::Working(false))
+            }
             AgentEvent::AgentEnd { messages, .. } => {
                 // P9-1-D：`agent_end` 向扩展派发（ref `agent-session.ts:1061-1062`
                 // `_emitExtensionEvent` 的 agent_end 分支，载荷 `{type, messages}`）。
@@ -6462,15 +6562,44 @@ impl pi_core::agent::EventSink for TuiEventSink {
                 );
                 None
             }
+            // ref `agent-session.ts:1068-1073`：`turn_start` 的载荷是
+            // `{type, turnIndex, timestamp}`（扩展用它做轮次计数）。
+            AgentEvent::TurnStart => {
+                let turn_index = self
+                    .turn_index
+                    .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                crate::ext_tools::emit_event(
+                    "turn_start",
+                    serde_json::json!({
+                        "type": "turn_start",
+                        "turnIndex": turn_index,
+                        "timestamp": now_millis(),
+                    }),
+                );
+                None
+            }
+            // ref `agent-session.ts:1077-1092`：`message_start` / `message_update` /
+            // `message_end` 都派发给扩展。`pi-agent-resilience` 依赖 `message_update`
+            // 做**流活动看门狗**与**文本循环检测**（`index.ts:203-227`），
+            // `pi-ai-summary` 依赖 `message_end` 统计用量 —— 此前这三类一并不派发，
+            // 那些扩展的相关逻辑从未生效。
+            AgentEvent::MessageStart { message } => {
+                crate::ext_tools::emit_event(
+                    "message_start",
+                    serde_json::json!({
+                        "type": "message_start",
+                        "message": serde_json::to_value(&message).unwrap_or(serde_json::Value::Null),
+                    }),
+                );
+                None
+            }
             AgentEvent::EntryAppended { .. }
             | AgentEvent::CompactionStart { .. }
             | AgentEvent::CompactionEnd { .. }
             | AgentEvent::SummarizationRetryScheduled { .. }
             | AgentEvent::SummarizationRetryAttemptStart { .. }
             | AgentEvent::SummarizationRetryFinished
-            | AgentEvent::TurnStart
             | AgentEvent::QueueUpdate
-            | AgentEvent::MessageStart { .. }
             | AgentEvent::ToolExecutionUpdate { .. }
             | AgentEvent::AutoRetryStart { .. }
             | AgentEvent::AutoRetryEnd { .. } => None,
@@ -6479,6 +6608,37 @@ impl pi_core::agent::EventSink for TuiEventSink {
             // 接收端关闭（TUI 已退出）不是错误：丢弃即可。
             let _ = self.tx.send(tui_event);
         }
+    }
+}
+
+/// 当前毫秒时间戳（`turn_start` 事件载荷的 `timestamp`，ref 用 `Date.now()`）。
+fn now_millis() -> i64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|value| value.as_millis() as i64)
+        .unwrap_or(0)
+}
+
+/// provider 增量事件的**类型名**（`message_update` 载荷里的 `assistantMessageEvent.type`）。
+///
+/// ref 传的是完整事件对象（`types.ts:495`）；我们只需要"是哪种增量"，
+/// 因为扩展侧（`pi-agent-resilience`）判断的是 `message` 的累积内容，
+/// `assistantMessageEvent` 只在少数扩展里被读 `type`。
+fn assistant_event_kind(event: &pi_ai::AssistantEvent) -> &'static str {
+    use pi_ai::AssistantEvent;
+    match event {
+        AssistantEvent::Start => "start",
+        AssistantEvent::TextStart { .. } => "text_start",
+        AssistantEvent::TextDelta { .. } => "text_delta",
+        AssistantEvent::TextEnd { .. } => "text_end",
+        AssistantEvent::ThinkingStart { .. } => "thinking_start",
+        AssistantEvent::ThinkingDelta { .. } => "thinking_delta",
+        AssistantEvent::ThinkingEnd { .. } => "thinking_end",
+        AssistantEvent::ToolCallStart { .. } => "toolcall_start",
+        AssistantEvent::ToolCallDelta { .. } => "toolcall_delta",
+        AssistantEvent::ToolCallEnd { .. } => "toolcall_end",
+        AssistantEvent::Done { .. } => "done",
+        AssistantEvent::Error { .. } => "error",
     }
 }
 

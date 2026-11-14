@@ -574,6 +574,18 @@ pub enum TuiEvent {
         /// 压缩前的 token 数。
         tokens_before: u64,
     },
+    /// 扩展请求退出程序（ref `types.ts:346` 的 `ctx.shutdown()`）。
+    ///
+    /// ref 的 `shutdown()` 是"优雅退出 pi"：`interactive-mode.ts` 把它接到同一条
+    /// `shutdown()` 路径（派发 `session_shutdown` 后恢复终端）。这里同样走正常退出，
+    /// 与 `/quit` 等价。
+    Shutdown,
+    /// 扩展请求中止当前回合（ref `types.ts:342` 的 `ctx.abort()`）。
+    ///
+    /// 消费方是 `pi-cli` 的主循环：它把回合的 `CancellationToken` 取消掉
+    /// （与 Esc 走同一条取消路径）。**不改变界面**，所以 `apply` 只返回 `Redraw`。
+    /// 真实使用方：`pi-agent-resilience` 在流卡住/文本循环时调用（`index.ts:116/227`）。
+    AbortTurn,
     /// 手动压缩失败（ref `interactive-mode.ts:3604-3612` 的 `showError`）。
     ///
     /// 与 [`TuiEvent::AssistantNotice`] 的区别：它还要**撤掉**压缩状态行
@@ -800,6 +812,16 @@ pub fn apply(state: &mut TuiState, event: TuiEvent) -> TuiAction {
                 expanded: false,
             });
             TuiAction::Redraw
+        }
+        TuiEvent::AbortTurn => {
+            // 界面不变（真正的取消由 pi-cli 主循环做，它持有取消令牌）。
+            TuiAction::Redraw
+        }
+        TuiEvent::Shutdown => {
+            // 与 `/quit` 同一条退出路径（ref `types.ts:346` 的 `ctx.shutdown()`：
+            // `interactive-mode.ts` 把它接到 `this.shutdown()`）。
+            state.exited = true;
+            TuiAction::Exit
         }
         TuiEvent::CompactionFailed(message) => {
             clear_compaction_status(state);

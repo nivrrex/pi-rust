@@ -248,6 +248,40 @@ function contextForExtension() {
     getContextUsage() {
       return hostCtx.usage ?? undefined;
     },
+    // ref `types.ts:342` 的 `ctx.abort()`：中止当前 agent 操作。
+    //
+    // 真实使用方是 `pi-agent-resilience`（流卡住 `stream_stall` / 文本循环检测，
+    // `index.ts:116/227`）。此前这里**没有**这个成员 ⇒ 扩展的
+    // `try { ctx.abort() } catch {}` 把 `TypeError: ctx.abort is not a function`
+    // 吞掉 ⇒ 自动恢复静默失效（既不中止也不报错，用户只能看到"卡住"）。
+    //
+    // 走 `host.action.call`（与 `createBashToolDefinition` 同一条通道）：宿主侧
+    // 发一条 `TuiEvent::AbortTurn`，由主循环取消该回合的 `CancellationToken`。
+    abort() {
+      return send("host.action.call", { action: "abort", args: {} });
+    },
+    // ref `types.ts:336/338/344/346`：这四项都属"阅读会话运行时状态"。
+    // 未实现时**显式返回保守值**而不是 undefined（扩展里的 `ctx.isIdle?.()` 之类
+    // 若拿到 undefined 会当成"未知"，而 ref 语义是布尔/无参方法）。
+    // - `isIdle`：宿主在每轮 `agent_settled` 之后更新 `hostCtx.isIdle`；
+    //   没有该字段时按"未知即不空闲"处理（宁可让扩展多等，也不误导它提前动作）。
+    isIdle() {
+      return hostCtx.isIdle === true;
+    },
+    // - `isProjectTrusted`：pi-rs 没有 project trust 机制（无 `/trust` 状态机），
+    //   保守返回 false（= "未信任"），与 ref 在未保存信任决定时的取值一致。
+    isProjectTrusted() {
+      return false;
+    },
+    // - `hasPendingMessages`：队列在宿主侧，扩展看不到 ⇒ 无待发消息。
+    hasPendingMessages() {
+      return false;
+    },
+    // - `shutdown`：让宿主退出。走同一条动作通道，由主循环决定退出方式
+    //   （TUI 走正常退出路径，会先派发 `session_shutdown`）。
+    shutdown() {
+      return send("host.action.call", { action: "shutdown", args: {} });
+    },
     ui: {
       // ref `types.ts:276-282`：`ctx.ui.theme` 是**当前主题对象**（扩展用它上色，
       // 例如 `pi-handoff-gate` 的 Todo 面板：`ctx.ui.theme.fg(role, text)`）。

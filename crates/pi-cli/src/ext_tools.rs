@@ -336,6 +336,40 @@ fn spawn_action_sink() -> Option<std::sync::mpsc::Sender<pi_ext_host::ActionCall
         };
         while let Ok(call) = rx.recv() {
             let result = match call.action.as_str() {
+                // ref `types.ts:342` 的 `ctx.abort()`：中止当前 agent 操作。
+                //
+                // 真实使用方是 `pi-agent-resilience`（用户已装）：
+                // 流卡住（`stream_stall`）或检测到文本循环时调用它（`index.ts:116/227`），
+                // 此前 runner 侧 `ctx.abort` 缺失 ⇒ 扩展的 `try { ctx.abort() } catch {}`
+                // 把 TypeError 吞掉 ⇒ **自动恢复完全不生效**（只是静默失败，不报错）。
+                //
+                // 实现方式：这条通道本来就通向宿主主循环，用一次
+                // `TuiEvent::AbortTurn` 把请求交回去（取消令牌由 TUI 持有，
+                // 不在 ext-host 线程里）。print/rpc 没有 TUI 事件通道 ⇒ 回一个
+                // 明确的错误而不是假装成功。
+                "abort" => match UI_TX.get().map(|tx| tx.send(pi_tui::TuiEvent::AbortTurn)) {
+                    Some(Ok(())) => serde_json::json!({ "ok": true }),
+                    Some(Err(error)) => serde_json::json!({
+                        "ok": false,
+                        "error": format!("abort: ui channel closed: {error}"),
+                    }),
+                    None => serde_json::json!({
+                        "ok": false,
+                        "error": "abort: no interactive UI in this mode",
+                    }),
+                },
+                // ref `types.ts:346` 的 `ctx.shutdown()`：优雅退出（与 `/quit` 同路径）。
+                "shutdown" => match UI_TX.get().map(|tx| tx.send(pi_tui::TuiEvent::Shutdown)) {
+                    Some(Ok(())) => serde_json::json!({ "ok": true }),
+                    Some(Err(error)) => serde_json::json!({
+                        "ok": false,
+                        "error": format!("shutdown: ui channel closed: {error}"),
+                    }),
+                    None => serde_json::json!({
+                        "ok": false,
+                        "error": "shutdown: no interactive UI in this mode",
+                    }),
+                },
                 "bash" => {
                     let command = call
                         .args
