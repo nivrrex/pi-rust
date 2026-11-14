@@ -40,6 +40,25 @@ pub trait EventSink: Send + Sync {
 
     /// 结束本线程开启的原子段（没有开启时是空操作）。工具返回后兜底调用。
     fn end_section(&self) {}
+
+    /// **发请求之前**的通知（ref `sdk.ts:351-356` 的 `before_provider_request`）。
+    ///
+    /// 循环在每次 `provider.stream(...)` 之前调用它。默认实现是空操作，
+    /// 只有需要把这件事告诉扩展的产品层（TUI / print）才实现。
+    ///
+    /// 为什么不做成"可改写载荷"：`before_provider_request` 在 ref 里返回的是**整个
+    /// 请求体**，改写它要跨到 provider 的序列化层；而当前的使用方
+    /// （`pi-agent-resilience` 只计数、`context-gateway` 只遥测）**都不改请求**，
+    /// 所以这里只暴露"要发请求了"这一事实。需要改写时再加带返回值的版本。
+    ///
+    /// 返回值：`Some(request)` 时循环**改用**返回的请求（给将来的改写留口，当前无人使用）。
+    fn before_provider_request(
+        &self,
+        request: pi_ai::ProviderRequest,
+    ) -> Option<pi_ai::ProviderRequest> {
+        let _ = request;
+        None
+    }
 }
 
 /// 丢弃全部事件。
@@ -560,6 +579,12 @@ impl AgentLoop {
         // 是一条 `stopReason: "error"` + `errorMessage` 的 assistant 消息，**该轮照常收尾**
         // （`message_start`/`message_end`/`turn_end`/`agent_end`），重试由产品层在其后发起。
         // 我原先直接上抛，导致失败那轮连事件都没有、包装器也看不到"可重试的失败"。
+        // ref `sdk.ts:351-356`：发请求前把载荷交给扩展（`before_provider_request`）。
+        // 使用方只计数/遥测，因此这里默认只做通知；实现了改写钩子的产品层可以换掉请求。
+        let request = self
+            .sink
+            .before_provider_request(request.clone())
+            .unwrap_or(request);
         let mut stream = match self.provider.stream(request).await {
             Ok(stream) => stream,
             Err(error) => {

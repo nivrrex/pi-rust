@@ -6309,6 +6309,23 @@ fn tool_summary(args: &serde_json::Value) -> String {
 }
 
 impl pi_core::agent::EventSink for TuiEventSink {
+    /// ref `sdk.ts:351-356`：发请求前通知扩展（`before_provider_request`）。
+    ///
+    /// 使用方（`pi-agent-resilience` 计数、`context-gateway` 遥测）都**不改请求**，
+    /// 所以这里只派发通知、不替换载荷（`None`）。载荷本身不发给扩展：
+    /// ref 传的是 provider 请求体，而我们的请求体要到 provider 序列化层才成形，
+    /// 当前无人读取它（两个扩展的处理器都不看参数）。
+    fn before_provider_request(
+        &self,
+        _request: pi_ai::ProviderRequest,
+    ) -> Option<pi_ai::ProviderRequest> {
+        crate::ext_tools::emit_event(
+            "before_provider_request",
+            serde_json::json!({ "type": "before_provider_request" }),
+        );
+        None
+    }
+
     fn emit(&self, event: pi_core::agent::AgentEvent) {
         use pi_core::agent::AgentEvent;
         let mapped = match event {

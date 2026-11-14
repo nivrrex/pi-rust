@@ -946,13 +946,29 @@ pub fn to_json_event(event: &AgentEvent) -> Result<serde_json::Value, JsonEventE
     }
 }
 
+/// `before_provider_request` 的 print 侧派发（ref `sdk.ts:351-356`）。
+///
+/// 三个 print sink 都要有：`--print` / `--json` 也会加载扩展，
+/// `pi-agent-resilience` 的"provider 请求计数"与 `context-gateway` 的遥测
+/// 在非交互路径上同样需要这次通知。
+macro_rules! print_before_provider_request {
+    () => {
+        fn before_provider_request(
+            &self,
+            _request: pi_ai::ProviderRequest,
+        ) -> Option<pi_ai::ProviderRequest> {
+            crate::ext_tools::emit_event(
+                "before_provider_request",
+                serde_json::json!({ "type": "before_provider_request" }),
+            );
+            None
+        }
+    };
+}
+
 /// 什么都不做的 sink（text 模式用）。
 #[derive(Debug, Default)]
 pub struct NoopEventSink;
-
-impl EventSink for NoopEventSink {
-    fn emit(&self, _event: AgentEvent) {}
-}
 
 /// **逐事件实时**写到 stdout 的 sink（json 模式用）。
 ///
@@ -962,6 +978,8 @@ impl EventSink for NoopEventSink {
 pub struct StdoutJsonSink;
 
 impl EventSink for StdoutJsonSink {
+    print_before_provider_request!();
+
     fn emit(&self, event: AgentEvent) {
         use std::io::Write;
         let line = to_json_event_line(&event);
@@ -998,7 +1016,15 @@ impl JsonLineSink {
     }
 }
 
+impl EventSink for NoopEventSink {
+    print_before_provider_request!();
+
+    fn emit(&self, _event: AgentEvent) {}
+}
+
 impl EventSink for JsonLineSink {
+    print_before_provider_request!();
+
     fn emit(&self, event: AgentEvent) {
         // 投影失败**不静默吞掉**：写成一行带 `projectionError` 的记录，让问题可见
         // （TS 侧是直接抛错，见 `json-event.ts:23-30,52-54`）。
