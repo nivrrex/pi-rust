@@ -3180,6 +3180,35 @@ pub fn run(
                                                     }
                                                 }
                                                 let summary_for_percent = summary.clone();
+                                                // ref `agent-session.ts:3762-3768`：树导航完成后**必须**
+                                                // 派发 `session_tree`（载荷 `{type, newLeafId, oldLeafId,
+                                                // summaryEntry, fromExtension}`）。
+                                                //
+                                                // 真实使用方 `pi-handoff-gate`（用户已装）在
+                                                // `session_tree` 里从 `getBranch()` **重建 todo 清单**
+                                                // （`index.ts:305-308`，注释写明"随会话分支；压缩不影响"）。
+                                                // 此前我们只切叶子、从不派发该事件 ⇒ 换分支后清单**停在旧分支**
+                                                // （用户看到的是"分支切换了但清单没跟着变"）。
+                                                let new_leaf = crate::ext_tools::session_chain()
+                                                    .lock()
+                                                    .ok()
+                                                    .and_then(|guard| guard.clone());
+                                                crate::ext_tools::emit_event(
+                                                    "session_tree",
+                                                    serde_json::json!({
+                                                        "type": "session_tree",
+                                                        // 切换后的叶子（`session_chain` 由
+                                                        // `append_branch_summary` 更新）。
+                                                        "newLeafId": new_leaf,
+                                                        // 导航前的叶子（本分支里就是被摘要的那一段的起点）。
+                                                        "oldLeafId": from_id_for_summary,
+                                                        // 摘要条目由 `append_branch_summary` 写盘，
+                                                        // 这里不重复构造（ref 的 `summaryEntry` 是完整条目，
+                                                        // 扩展只读 `.id`，缺省为 `null` 也不影响重建）。
+                                                        "summaryEntry": serde_json::Value::Null,
+                                                        "fromExtension": false,
+                                                    }),
+                                                );
                                                 let _ = tx2.send(TuiEvent::BranchSummary(summary));
                                                 // 顺序与 TS 一致：先插 `[branch]` 块，再出状态行。
                                                 let _ = tx2.send(TuiEvent::Status(
