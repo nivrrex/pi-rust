@@ -677,6 +677,11 @@ ref 的对应实现见 `interactive-mode.ts:2541`/`:2543`（`showExtensionNotify
       `registerMarkdownTransformer` 已在 F60/6 实现（`pi-secrets` 靠它脱敏密钥，
       此前只记录不应用 ⇒ 密钥会画到屏幕上）。
     推翻条件：某个已装扩展开始依赖上述任一项时，按 ref 逐个补齐并补对拍用例。
+27a. **F60/13 `session_before_tree` 未实现**：ref `agent-session.ts:3640-3651` 在树导航前
+    派发该事件，扩展可取消导航（`{cancel}`）或提供摘要（`{summary, customInstructions,
+    replaceInstructions, label}`）。用户已装扩展中无人订阅（全仓 grep 为 0），
+    不属"已装扩展用到的未实现项"。推翻条件：某个已装扩展开始用它时按 ref 实现前置流程。
+
 27. **F60/11 `ctx.ui.custom` 面板的按键覆盖面**：宿主把按键经 `ext.custom.input`
     原样转给扩展组件（`interactive-mode.ts:2858-2900` 同语义），当前映射覆盖
     `字符 / Enter / Ctrl+J / Esc / Backspace / Tab / Shift+Tab / ↑↓←→`。
