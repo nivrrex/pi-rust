@@ -234,6 +234,7 @@ pub fn run_manual_compaction(
     parts: &AgentParts,
     custom_instructions: Option<&str>,
     thinking_level: &str,
+    cancel: &tokio_util::sync::CancellationToken,
 ) -> Result<Option<ManualCompaction>, String> {
     let Some(writer_slot) = parts.writer.as_ref() else {
         return Err("no session file".to_string());
@@ -268,16 +269,33 @@ pub fn run_manual_compaction(
     // `perform_auto_compaction` 负责：`prepare_compaction` 的判定（"Already compacted" /
     // "Nothing to compact (session too small)" 两条错误文案都在那里）→ 摘要请求 →
     // 写 `compaction` 条目 → 用投影重建上下文。
-    let outcome = runtime.block_on(crate::auto_compaction::perform_auto_compaction(
-        &entries,
-        &config,
-        custom_instructions,
-        Some("manual"),
-        None,
-        provider.as_ref(),
-        &mut guard,
-    ))?;
+    // ref `agent-session.ts:2412` 的 `_compactionAbortController`：摘要请求可被 esc 中止
+    // （`interactive-mode.ts:3562-3566` 把 `onEscape` 换成 `abortCompaction()`）。
+    // 取消后**不写 compaction 条目**（`perform_auto_compaction` 在写之前就返回错误）。
+    let outcome = runtime
+        .block_on(crate::auto_compaction::perform_auto_compaction_cancellable(
+            &entries,
+            &config,
+            custom_instructions,
+            Some("manual"),
+            None,
+            provider.as_ref(),
+            &mut guard,
+            cancel,
+        ))
+        .map_err(|error| {
+            if cancel.is_cancelled() {
+                "Compaction cancelled".to_string()
+            } else {
+                error
+            }
+        })?;
     drop(guard);
+    if cancel.is_cancelled() {
+        // 中止语义（ref `:2537-2549`）：`aborted: true`、`errorMessage: undefined`
+        // ⇒ 屏幕上是 `Compaction cancelled`（`:3600-3603` 的 `showError`）。
+        return Err("Compaction cancelled".to_string());
+    }
     let Some(run) = outcome else {
         return Ok(None);
     };
@@ -1957,6 +1975,11 @@ pub fn run(
     }
     // **当前回合的取消令牌**：Escape 用它中止正在跑的回合（ref 的 `session.abort()`）。
     // 槽位在提交线程启动回合时填入，回合结束后清空。
+    // 手动压缩的中止令牌（ref `agent-session.ts:2412` 的 `_compactionAbortController`）。
+    // Esc 时取消它 ⇒ 摘要请求中断、`compaction` 条目不写。
+    let compact_cancel: std::sync::Arc<
+        std::sync::Mutex<Option<tokio_util::sync::CancellationToken>>,
+    > = std::sync::Arc::new(std::sync::Mutex::new(None));
     let turn_cancel: std::sync::Arc<std::sync::Mutex<Option<tokio_util::sync::CancellationToken>>> =
         std::sync::Arc::new(std::sync::Mutex::new(None));
     // F31/S3：agent streaming 期间把 bash 结果排队，等本轮结束再落盘
@@ -3972,6 +3995,22 @@ pub fn run(
                     continue;
                 }
             }
+            // Escape 中止**正在进行的压缩**（ref `interactive-mode.ts:3562-3566`：
+            // 压缩期间 `onEscape` 被换成 `session.abortCompaction()`）。
+            // 优先于下面那条"中止回合"的分支：压缩时 `busy` 可能为假，
+            // 不先判压缩就会直接落到普通 Escape 分支里什么都不做。
+            if matches!(event, TuiEvent::Escape) && selector.is_none() {
+                let token = compact_cancel
+                    .lock()
+                    .ok()
+                    .and_then(|slot| slot.clone())
+                    .filter(|token| !token.is_cancelled());
+                if let Some(token) = token {
+                    token.cancel();
+                    dirty = true;
+                    continue;
+                }
+            }
             // Escape 中止正在执行的回合（ref `interactive-mode.ts:3607-3613`
             // `escape` → `session.abort()`；重试倒计时期间同样生效）。
             if matches!(event, TuiEvent::Escape) && busy && selector.is_none() {
@@ -5300,6 +5339,13 @@ pub fn run(
                             let parts_compact = std::sync::Arc::clone(&parts_ref);
                             let history_compact = std::sync::Arc::clone(&history);
                             let level_now = state.thinking_level.clone();
+                            // 供 Esc 中止（ref `interactive-mode.ts:3562-3566` 把
+                            // `onEscape` 换成 `session.abortCompaction()`）。
+                            let cancel_compact = tokio_util::sync::CancellationToken::new();
+                            if let Ok(mut slot) = compact_cancel.lock() {
+                                *slot = Some(cancel_compact.clone());
+                            }
+                            let cancel_slot = std::sync::Arc::clone(&compact_cancel);
                             std::thread::spawn(move || {
                                 let outcome =
                                     std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
@@ -5307,6 +5353,7 @@ pub fn run(
                                             &parts_compact,
                                             custom.as_deref(),
                                             &level_now,
+                                            &cancel_compact,
                                         )
                                     }));
                                 let message = match outcome {
@@ -5340,14 +5387,38 @@ pub fn run(
                                         "Error: Compaction failed: internal error".to_string(),
                                     )),
                                 };
+                                // 收尾：清掉令牌槽。否则下一次按 Esc 会先把一个**已结束**
+                                // 的压缩再取消一遍（无副作用但会让按键被这次分支吞掉）。
+                                if let Ok(mut slot) = cancel_slot.lock() {
+                                    *slot = None;
+                                }
                                 if let Some(event) = message {
                                     let _ = tx_compact.send(event);
                                 }
                             });
                         }
+                        "scoped-models" => push_unimplemented(&mut state, "scoped-models"),
+                        "export" => push_unimplemented(&mut state, "export"),
+                        "import" => push_unimplemented(&mut state, "import"),
+                        "share" => push_unimplemented(&mut state, "share"),
+                        "bug" => push_unimplemented(&mut state, "bug"),
+                        "copy" => push_unimplemented(&mut state, "copy"),
+                        "name" => push_unimplemented(&mut state, "name"),
+                        "changelog" => push_unimplemented(&mut state, "changelog"),
+                        "fork" => push_unimplemented(&mut state, "fork"),
+                        "clone" => push_unimplemented(&mut state, "clone"),
+                        "trust" => push_unimplemented(&mut state, "trust"),
+                        "reload" => push_unimplemented(&mut state, "reload"),
                         other => {
-                            // 其余命令尚未实现 ⇒ 不改变屏幕。
-                            let _ = other;
+                            // F60/3：**已识别但未实现**的内置命令不得静默丢弃。
+                            //
+                            // 此前这里只 `let _ = other;`（"不改变屏幕"），于是
+                            // `/export`、`/fork`、`/name`、`/reload` 等 12 条命令
+                            // 回车后**一个字节都不变** —— 与用户报告的
+                            // "/todo 卡死 / /compact 无反应"是同一类缺陷（无响应）。
+                            // ref 的每条命令都有自己的实现，我们尚未移植，
+                            // 因此明确告诉用户"这条还没实现"，而不是假装执行了。
+                            push_unimplemented(&mut state, other);
                         }
                     }
                     dirty = true;
@@ -7361,6 +7432,22 @@ fn spawn_r3_input_thread(tx: std::sync::mpsc::Sender<TuiEvent>) {
             wake = next;
         }
     });
+}
+
+/// 已识别但尚未移植的内置命令：**必须给出可见提示**。
+///
+/// F60/3：`TuiAction::Command` 的分派表曾经只覆盖 11 条，其余 12 条落到
+/// `other => { let _ = other; }` —— 回车后屏幕一个字节都不变，用户只能认为程序卡死
+/// （与 `/todo` 冻结、`/compact` 无反应是同一类"无响应"）。
+///
+/// 现在每条未实现命令都有自己的分支并调用本函数：行为不变（不执行任何动作），
+/// 但屏幕上会出现一行明确提示。`t_f60_builtin_dispatch` 把"每条 ref 命令都有分支"
+/// 钉成契约，新增命令忘了加分支会直接红。
+fn push_unimplemented(state: &mut TuiState, name: &str) {
+    let _ = apply(
+        state,
+        TuiEvent::Status(format!("Command /{name} is not implemented yet.")),
+    );
 }
 
 /// 把一个 `InputEvent` 依次过协商层与 OSC 11，再映射成 `TuiEvent`。

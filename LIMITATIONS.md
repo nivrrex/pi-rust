@@ -644,3 +644,31 @@ ref 的对应实现见 `interactive-mode.ts:2541`/`:2543`（`showExtensionNotify
     而编辑器粘贴归一化用 **4 空格**（ref `editor.ts:1146` 的 `normalizeText`）。
     两处未合并成同一常量，避免改变括号粘贴的缩进与光标列。推翻条件：ref 后续版本
     把两处口径统一（届时合并）。
+24. **F60/3 12 条内置斜杠命令未移植**：`scoped-models`、`export`、`import`、`share`、
+    `bug`、`copy`、`name`、`changelog`、`fork`、`clone`、`trust`、`reload`
+    （ref `core/slash-commands.ts:19-44` 的 24 条中余下部分）。pi-rs **识别**它们
+    （不会误当 prompt 发给模型），回车后打印
+    `Command /<name> is not implemented yet.`，不执行任何动作。
+    改前这些命令落到 `other => {}` ⇒ 屏幕一个字节都不变（与 `/todo` 冻结、`/compact`
+    无反应同属"无响应"缺陷，见 `notes/p9-f60/plan.md` 第 3 节）。
+    推翻条件：需要其中任一条时按 ref 逐条移植（每条都有自己的 ref 实现与状态副作用）。
+25. **F60/3 未实现的扩展 `ctx` / `ctx.ui` / `pi` API**（用户已装扩展均未使用，
+    全仓 grep 逐项确认；ref 行号见 `extensions/types.ts`）：
+    - `ExtensionContext`：`modelRegistry`(`:325`)、`scopedModels`(`:332`)、
+      `isIdle`(`:336`)、`isProjectTrusted`(`:338`)、`signal`(`:340`)、`abort`(`:342`)、
+      `hasPendingMessages`(`:344`)、`shutdown`(`:346`)、`compact`(`:350`)、
+      `getSystemPrompt`(`:352`)。其中 `pi-agent-resilience` 调 `ctx.abort()`、
+      `pi-ai-summary` 调 `ctx.isProjectTrusted?.()`，都在 `try/catch` 或可选调用内，
+      缺失时降级为"不中止 / 不信任"，不影响主流程。
+    - `ExtensionUIContext`（`:137-217`）：`onTerminalInput`、`setWorkingMessage`、
+      `setWorkingVisible`、`setWorkingIndicator`、`setHiddenThinkingLabel`、
+      `pasteToEditor`、`setEditorText`、`getEditorText`、`editor`、
+      `addAutocompleteProvider`、`setEditorComponent`、`getEditorComponent`、
+      `getAllThemes`、`getTheme`、`setTheme`。
+    - `ExtensionAPI`（`:1349-1600`）：`registerShortcut`、`registerMessageRenderer`、
+      `registerEntryRenderer`、`registerProvider`、`unregisterProvider`、
+      `sendMessage`、`exec`、`setModel`、`setThinkingLevel`、`setSessionName`、
+      `setLabel`、`setActiveTools`。这些由 `runner.mjs` 的 `noteNotImplemented`
+      打 `[ext-host] … 未实现` 警告（不静默）；`registerMarkdownTransformer`
+      记录但不应用（退化为原文）。
+    推翻条件：某个已装扩展开始依赖上述任一项时，按 ref 逐个补齐并补对拍用例。

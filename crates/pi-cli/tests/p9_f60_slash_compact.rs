@@ -54,13 +54,20 @@ fn mock_provider_bin() -> Option<PathBuf> {
 ///
 /// 端口由内核分配（`127.0.0.1:0`），避免与真实端口或其他用例冲突；
 /// 它与被测进程在同一台机器上，但**不联外网**：`baseUrl` 指向这个 loopback 端口。
-fn spawn_mock(listener: TcpListener, body: &'static str) -> std::thread::JoinHandle<()> {
+fn spawn_mock(
+    listener: TcpListener,
+    body: &'static str,
+    delay_ms: u64,
+) -> std::thread::JoinHandle<()> {
     std::thread::spawn(move || {
         for stream in listener.incoming() {
             let Ok(mut stream) = stream else { return };
             // 读完请求头（不解析：所有请求都回同一段响应）。
             let mut buffer = [0u8; 8192];
             let _ = stream.read(&mut buffer);
+            if delay_ms > 0 {
+                std::thread::sleep(std::time::Duration::from_millis(delay_ms));
+            }
             let response = format!(
                 "HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
                 body.len(),
@@ -178,11 +185,22 @@ struct Run {
 
 /// 在真 pty 里跑 `pi-rs -c`，注入 `/compact` + 回车，然后 Ctrl+D 退出。
 fn run_compact() -> Option<Run> {
+    run_compact_with(
+        r#"[{"waitStable":{"quietMs":1500,"timeoutMs":60000}},{"mark":"s0"},
+            {"text":"/compact"},{"delayMs":600},{"mark":"typed"},
+            {"text":"\r"},{"delayMs":6000},{"mark":"after"},
+            {"text":"\u0004"},{"delayMs":1200},{"mark":"exit"}]"#,
+        0,
+    )
+}
+
+/// 同一套装配，按键脚本与假 provider 的响应延迟可配（后者用于稳定命中"请求在途"窗口）。
+fn run_compact_with(script: &str, response_delay_ms: u64) -> Option<Run> {
     let node = node_path()?;
     let _ = mock_provider_bin();
     let listener = TcpListener::bind("127.0.0.1:0").expect("绑定 loopback 端口");
     let port = listener.local_addr().expect("本地地址").port();
-    let _mock = spawn_mock(listener, SSE_BODY);
+    let _mock = spawn_mock(listener, SSE_BODY, response_delay_ms);
 
     let tmp = tempfile::tempdir().expect("临时目录");
     let agent = tmp.path().join("agent");
@@ -197,14 +215,7 @@ fn run_compact() -> Option<Run> {
     write_session(&session_path, &work);
 
     let keys_path = tmp.path().join("keys.json");
-    std::fs::write(
-        &keys_path,
-        r#"[{"waitStable":{"quietMs":1500,"timeoutMs":60000}},{"mark":"s0"},
-            {"text":"/compact"},{"delayMs":600},{"mark":"typed"},
-            {"text":"\r"},{"delayMs":6000},{"mark":"after"},
-            {"text":"\u0004"},{"delayMs":1200},{"mark":"exit"}]"#,
-    )
-    .expect("写 keys");
+    std::fs::write(&keys_path, script).expect("写 keys");
     let raw_path = tmp.path().join("raw.bin");
     let code_path = tmp.path().join("code.txt");
     let dump = tmp.path().join("steps");
@@ -363,6 +374,38 @@ fn slash_compact_leaves_the_process_responsive() {
         run.exit_code,
         Some(0),
         "压缩后 Ctrl+D 应正常退出（进程卡死会让 exit code 缺失）。屏幕：\n{}",
+        run.screen
+    );
+}
+
+/// **Esc 中止**（ref `interactive-mode.ts:3562-3566` 的 `abortCompaction`）。
+///
+/// 状态行写着 `(esc to cancel)`，所以按 Esc 必须真的取消：不写 `compaction` 条目，
+/// 屏幕上出现 `Compaction cancelled`。
+///
+/// 要稳定命中"请求在途"窗口，让假 provider **慢下来**（每个请求先睡 2 s 再回），
+/// 这样 600 ms 后按 Esc 时摘要一定还没回。这不是固定延迟断言——断言的是
+/// "按 Esc 之后的**结果**"，与耗时无关。
+#[test]
+fn slash_compact_can_be_cancelled_with_escape() {
+    let Some(run) = run_compact_with(
+        r#"[{"waitStable":{"quietMs":1500,"timeoutMs":60000}},{"mark":"s0"},
+            {"text":"/compact"},{"delayMs":400},{"text":"\r"},{"delayMs":600},
+            {"text":"\u001b"},{"delayMs":6000},{"mark":"after"},
+            {"text":"\u0004"},{"delayMs":1500},{"mark":"exit"}]"#,
+        2000,
+    ) else {
+        eprintln!("跳过：本机没有 node");
+        return;
+    };
+    assert!(
+        run.screen.contains("Compaction cancelled"),
+        "Esc 之后应出现 \"Compaction cancelled\"。屏幕：\n{}",
+        run.screen
+    );
+    assert_eq!(
+        run.compaction_entries, 0,
+        "被取消的压缩不得写 compaction 条目。屏幕：\n{}",
         run.screen
     );
 }

@@ -11,8 +11,8 @@ use crate::session_writer::SessionWriter;
 use pi_ai::message::Message;
 use pi_ai::types::StopReason;
 use pi_core::agent::compaction::{
-    compact_with_provider, prepare_compaction, threshold_outcome, CompactionSettings,
-    ThresholdOutcome,
+    compact_with_provider, compact_with_provider_cancellable, prepare_compaction,
+    threshold_outcome, CompactionSettings, ThresholdOutcome,
 };
 use pi_core::agent::projection::{build_session_projection, LeafSelector};
 use pi_core::session::SessionEntry;
@@ -252,12 +252,45 @@ pub async fn perform_auto_compaction(
     provider: &dyn pi_ai::Provider,
     writer: &mut SessionWriter,
 ) -> Result<Option<CompactionRun>, String> {
+    // 自动压缩路径没有"用户 esc 中止"这一层（ref 的手动压缩才有
+    // `_compactionAbortController`），因此传一个永不取消的令牌。
+    let never = tokio_util::sync::CancellationToken::new();
+    perform_auto_compaction_cancellable(
+        entries,
+        config,
+        custom_instructions,
+        reason,
+        sink,
+        provider,
+        writer,
+        &never,
+    )
+    .await
+}
+
+/// 与 [`perform_auto_compaction`] 相同，但摘要请求**可被取消**（手动 `/compact` 用）。
+///
+/// ref 的区别只在 `agent-session.ts:2412` 建了 `_compactionAbortController`：
+/// 取消后不写 `compaction` 条目、`compaction_end` 带 `aborted: true`。
+/// 这里取消点有两处：①摘要请求本身（`compact_with_provider` 内部按令牌中断）；
+/// ②摘要成功后、写条目之前（避免"已取消却仍落盘"）。
+#[allow(clippy::too_many_arguments)]
+pub async fn perform_auto_compaction_cancellable(
+    entries: &[SessionEntry],
+    config: &CompactionConfig,
+    custom_instructions: Option<&str>,
+    reason: Option<&str>,
+    sink: Option<&dyn pi_core::agent::EventSink>,
+    provider: &dyn pi_ai::Provider,
+    writer: &mut SessionWriter,
+    cancel: &tokio_util::sync::CancellationToken,
+) -> Result<Option<CompactionRun>, String> {
     let Some(preparation) =
         prepare_compaction(entries, &config.settings).map_err(|error| error.to_string())?
     else {
         return Ok(None);
     };
-    let result = compact_with_provider(
+    let result = compact_with_provider_cancellable(
         &preparation,
         &pi_core::agent::compaction::SummarizationRequest {
             model: &config.model,
@@ -273,8 +306,12 @@ pub async fn perform_auto_compaction(
         })
         .as_ref()
         .map(|observer| observer as &dyn pi_core::agent::compaction::SummarizationRetryObserver),
+        cancel,
     )
     .await?;
+    if cancel.is_cancelled() {
+        return Err("Compaction cancelled".to_string());
+    }
     // `systemMessage` 用**会话文件原始行**里的那条 system 消息（保序；见本文件顶部的说明）。
     // ref `session-manager.ts:1262-1274` 取的是当前投影的最后一条 system。
     let system_message = raw_system_message_from_session(writer.path());

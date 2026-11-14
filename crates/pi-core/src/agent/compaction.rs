@@ -1268,10 +1268,27 @@ pub async fn summarize_with_provider(
     options: &SummarizationOptions,
     observer: Option<&dyn SummarizationRetryObserver>,
 ) -> Result<(String, pi_ai::Usage), String> {
+    let never = tokio_util::sync::CancellationToken::new();
+    summarize_with_provider_cancellable(provider, model, prompt_text, options, observer, &never)
+        .await
+}
+
+/// 与 [`summarize_with_provider`] 相同，但可被取消（每次重试的退避等待也可中断）。
+pub async fn summarize_with_provider_cancellable(
+    provider: &dyn pi_ai::Provider,
+    model: &str,
+    prompt_text: &str,
+    options: &SummarizationOptions,
+    observer: Option<&dyn SummarizationRetryObserver>,
+    cancel: &tokio_util::sync::CancellationToken,
+) -> Result<(String, pi_ai::Usage), String> {
     let mut attempt = 0_u32;
     loop {
         attempt += 1;
-        match summarize_once(provider, model, prompt_text, options).await {
+        if cancel.is_cancelled() {
+            return Err("Compaction cancelled".to_string());
+        }
+        match summarize_once(provider, model, prompt_text, options, cancel).await {
             Ok(success) => {
                 if attempt > 1 {
                     if let Some(observer) = observer {
@@ -1298,7 +1315,13 @@ pub async fn summarize_with_provider(
                     observer.scheduled(attempt, SUMMARIZATION_MAX_ATTEMPTS, delay_ms, raw);
                     observer.attempt_start();
                 }
-                tokio::time::sleep(std::time::Duration::from_millis(delay_ms)).await;
+                // 退避等待也要能被打断（ref 的 abort 会让整个 `compact()` 立刻返回）。
+                tokio::select! {
+                    () = cancel.cancelled() => {
+                        return Err("Compaction cancelled".to_string());
+                    }
+                    () = tokio::time::sleep(std::time::Duration::from_millis(delay_ms)) => {}
+                }
             }
         }
     }
@@ -1310,6 +1333,7 @@ async fn summarize_once(
     model: &str,
     prompt_text: &str,
     options: &SummarizationOptions,
+    cancel: &tokio_util::sync::CancellationToken,
 ) -> Result<(String, pi_ai::Usage), String> {
     use crate::agent::compaction_prompts::SUMMARIZATION_SYSTEM_PROMPT;
     let user = Message::User {
@@ -1333,11 +1357,26 @@ async fn summarize_once(
         thinking: None,
         headers: Vec::new(),
     };
+    if cancel.is_cancelled() {
+        return Err("Compaction cancelled".to_string());
+    }
     let mut stream = provider
         .stream(request)
         .await
         .map_err(|error| format!("摘要请求失败：{error}"))?;
-    while futures::StreamExt::next(&mut stream).await.is_some() {}
+    // 取消要能中断"等下一个事件"本身（同 `agent/run.rs` 的 `stream_turn`）：
+    // 只看 `is_cancelled()` 会让在途请求永远等下去。
+    loop {
+        let next = tokio::select! {
+            () = cancel.cancelled() => {
+                return Err("Compaction cancelled".to_string());
+            }
+            event = futures::StreamExt::next(&mut stream) => event,
+        };
+        if next.is_none() {
+            break;
+        }
+    }
     let message = stream
         .final_message()
         .map_err(|poisoned| format!("摘要请求的最终消息不可用：{poisoned}"))?
@@ -1387,6 +1426,22 @@ pub async fn compact_with_provider(
     provider: &dyn pi_ai::Provider,
     observer: Option<&dyn SummarizationRetryObserver>,
 ) -> Result<CompactionResult, String> {
+    // 不需要取消的调用方（自动压缩、rpc、print）走这里：传一个永不取消的令牌。
+    let never = tokio_util::sync::CancellationToken::new();
+    compact_with_provider_cancellable(preparation, request, provider, observer, &never).await
+}
+
+/// 与 [`compact_with_provider`] 相同，但摘要请求**可被取消**。
+///
+/// ref `agent-session.ts:2412`：手动压缩建 `_compactionAbortController`，其 `signal` 会传给
+/// `_getSummarizationRequestAuth` 与摘要调用（`:2440-2460`）。取消即中断在途请求。
+pub async fn compact_with_provider_cancellable(
+    preparation: &Preparation,
+    request: &SummarizationRequest<'_>,
+    provider: &dyn pi_ai::Provider,
+    observer: Option<&dyn SummarizationRetryObserver>,
+    cancel: &tokio_util::sync::CancellationToken,
+) -> Result<CompactionResult, String> {
     let settings = preparation.settings;
     let (summary, usage) = if is_split_turn(preparation) {
         let mut history_text = preparation
@@ -1407,12 +1462,13 @@ pub async fn compact_with_provider(
                 request.model_reasoning,
                 request.thinking_level,
             );
-            let (text, usage) = summarize_with_provider(
+            let (text, usage) = summarize_with_provider_cancellable(
                 provider,
                 request.model,
                 &prompt.prompt_text,
                 &options,
                 observer,
+                cancel,
             )
             .await?;
             history_text = text;
