@@ -12,10 +12,6 @@
 
 use std::path::{Path, PathBuf};
 
-fn repo_root() -> PathBuf {
-    PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../..")
-}
-
 fn node_path() -> Option<PathBuf> {
     let output = std::process::Command::new("sh")
         .arg("-c")
