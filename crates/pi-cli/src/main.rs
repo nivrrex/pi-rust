@@ -1929,6 +1929,10 @@ fn build_tui_agent_parts(
         .iter()
         .map(|choice| choice.provider.clone())
         .collect();
+    // 压缩用的思考档位：与会话当前档位一致（ref 的 `getCompactionSettings(model)` 之后
+    // 摘要请求带的是**当前**档位）。`initial_thinking_level` 下面要移进 `AgentParts`，
+    // 所以先在这里取一份。
+    let compaction_thinking_level = initial_thinking_level.clone();
     Ok(Some(std::sync::Arc::new(pi_cli::tui::AgentParts {
         skills: tui_skills.clone(),
         resumed_path,
@@ -2015,6 +2019,21 @@ fn build_tui_agent_parts(
         context_window: resolved.context_window,
         system_message,
         writer,
+        // 手动 `/compact` 与自动压缩共用同一份配置（ref `agent-session.ts:2415`）。
+        // `--no-session` 时没有会话文件可压，用一份默认值即可（命令会先检查 writer）。
+        compaction: pi_cli::auto_compaction::CompactionConfig {
+            settings: settings.compaction_settings(),
+            context_window: resolved.context_window,
+            model: resolved.model_id.clone(),
+            model_provider: provider_name.to_string(),
+            model_max_tokens: resolved.max_tokens,
+            model_reasoning: resolved.reasoning,
+            thinking_level: compaction_thinking_level.or(Some(if resolved.reasoning {
+                "medium".to_string()
+            } else {
+                "off".to_string()
+            })),
+        },
     })))
 }
 

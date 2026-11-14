@@ -1504,12 +1504,14 @@ pub fn menu_commands_of(host: &pi_ext_host::HostHandle) -> Vec<(String, String)>
     }
 }
 
-/// 尝试把 `/name args` 交给扩展命令（ref `agent-session.ts:1766-1789`）。
+/// 解析 `/name args` 成 `(name, args)`；不是扩展命令则 `None`。
 ///
-/// 返回 `true` 表示已处理（**不**再把这段文本当 prompt 发送）。命令不存在 ⇒ `false`。
-pub fn try_run_command(text: &str) -> bool {
+/// **只做解析**（纯函数、不阻塞）：调用方先用它判断"这是不是一个扩展命令"，
+/// 再把真正的执行丢到后台线程 —— 见 [`spawn_command`]。
+#[must_use]
+pub fn parse_command(text: &str) -> Option<(String, String)> {
     if !text.starts_with('/') {
-        return false;
+        return None;
     }
     let body = &text[1..];
     let (name, args) = match body.find(' ') {
@@ -1517,18 +1519,60 @@ pub fn try_run_command(text: &str) -> bool {
         None => (body, ""),
     };
     if !command_names().iter().any(|known| known == name) {
-        return false;
+        return None;
     }
+    Some((name.to_string(), args.to_string()))
+}
+
+/// 同步执行扩展命令（**仅 print / rpc 用**）。
+///
+/// 这两条路径没有"主循环 + 事件队列"，命令的 UI 输出直接走 stderr/流，
+/// 因此同步不会造成"屏幕不刷新"。TUI 必须用 [`spawn_command`]。
+///
+/// 返回 `true` 表示已处理（**不**再把这段文本当 prompt 发送）；命令不存在 ⇒ `false`。
+pub fn try_run_command(text: &str) -> bool {
+    let Some((name, args)) = parse_command(text) else {
+        return false;
+    };
     let Some(host) = HOST.get().and_then(|slot| slot.as_ref()).cloned() else {
         return false;
     };
-    match host.invoke_command(name, args, std::time::Duration::from_secs(30)) {
+    match host.invoke_command(&name, &args, std::time::Duration::from_secs(30)) {
         Ok(_value) => true,
         Err(error) => {
             eprintln!("pi-rs: 扩展命令 {name} 执行失败：{error}");
             true
         }
     }
+}
+
+/// 在**后台线程**执行扩展命令（ref `agent-session.ts:1766-1789`）。
+///
+/// 为什么不能在主循环里同步执行：`HostHandle::invoke_command` 会 `block_on` 到扩展
+/// handler 返回（上限 30 s）。期间主循环无法 `recv` 事件，而 handler 里的
+/// `ctx.ui.notify` / `ctx.ui.setWidget` 正通过**事件队列**回灌给主循环 ——
+/// 于是命令的可见效果（`/todo` 的清单文本、widget 更新）全部被压到命令返回之后，
+/// 屏幕在这几秒里**一个字节都不输出**（真 pty 实测：`/todo` 回车后 6.1 s 零输出，
+/// 用户感知为"输入无反应，只能 ctrl+d"）。
+///
+/// 放到后台线程后，主循环继续转，`notify`/`setWidget` 事件即时生效。
+pub fn spawn_command(name: String, args: String) {
+    std::thread::spawn(move || {
+        let Some(host) = HOST.get().and_then(|slot| slot.as_ref()).cloned() else {
+            return;
+        };
+        if let Err(error) = host.invoke_command(&name, &args, std::time::Duration::from_secs(30)) {
+            // 失败要让用户看见（ref 的 handler 抛错由 runner 记 `[ext-host] command … failed`，
+            // 宿主侧把错误转成一条可见提示）。走 notify 事件而不是 stderr：
+            // stderr 在 TUI raw 模式下会打烂画面（F57/D4 的教训）。
+            if let Some(ui_tx) = UI_TX.get().cloned() {
+                let _ = ui_tx.send(pi_tui::TuiEvent::ExtensionNotice {
+                    message: format!("Command {name} failed: {error}"),
+                    kind: Some("error".to_string()),
+                });
+            }
+        }
+    });
 }
 
 /// 派发 `input` 事件（ref `agent-session.ts:1553-1572` + `runner.ts:1412-1460`）。

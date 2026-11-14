@@ -167,6 +167,8 @@ pub struct Palette {
     pub border_muted: (u8, u8, u8),
     /// `userMessageBg`
     pub user_message_bg: (u8, u8, u8),
+    /// `customMessageBg`（压缩/分支摘要块与自定义消息块的底色，ref `customMessageBg`）
+    pub custom_message_bg: (u8, u8, u8),
     /// `toolSuccessBg`
     pub tool_success_bg: (u8, u8, u8),
     /// `toolErrorBg`
@@ -216,6 +218,7 @@ impl Palette {
             border: get(theme, "border").unwrap_or((0x50, 0x50, 0x50)),
             border_muted: get(theme, "borderMuted").unwrap_or((0x50, 0x50, 0x50)),
             user_message_bg: get(theme, "userMessageBg").unwrap_or((0x34, 0x35, 0x41)),
+            custom_message_bg: get(theme, "customMessageBg").unwrap_or((0x2d, 0x28, 0x38)),
             tool_success_bg: get(theme, "toolSuccessBg").unwrap_or((0x28, 0x32, 0x28)),
             tool_error_bg: get(theme, "toolErrorBg").unwrap_or((0x3c, 0x28, 0x28)),
             md_heading: get(theme, "mdHeading").unwrap_or((0xf0, 0xc6, 0x74)),

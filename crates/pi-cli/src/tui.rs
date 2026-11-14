@@ -210,6 +210,107 @@ fn produced_tail(
         .unwrap_or(&[])
 }
 
+/// 手动压缩的产物（后台线程 → 事件队列）。
+pub struct ManualCompaction {
+    /// 摘要正文。
+    pub summary: String,
+    /// 压缩前的 token 数。
+    pub tokens_before: u64,
+    /// 压缩后的上下文消息（调用方用它替换进程内历史）。
+    pub messages: Vec<pi_ai::message::Message>,
+    /// 重建好的会话区（`buildContextEntries` 的渲染结果；**不含**压缩块本身）。
+    pub transcript: Vec<pi_tui::TranscriptItem>,
+}
+
+/// 执行一次手动压缩（ref `agent-session.ts:2406-2550`）。
+///
+/// 纯编排，**不做 I/O 之外的判断**：能不能压由 `prepare_compaction` 决定（"Already
+/// compacted" / "Nothing to compact (session too small)" 两条错误文案也在那里），
+/// 摘要与写条目由 `perform_auto_compaction` 完成（自动压缩共用同一条路径，
+/// 区别只有 `reason: "manual"` 与自定义指令）。
+///
+/// 返回 `Ok(None)` = 不需要压缩（会话太小）；`Err` = 真的失败（调用方转成 `Error:` 状态行）。
+pub fn run_manual_compaction(
+    parts: &AgentParts,
+    custom_instructions: Option<&str>,
+    thinking_level: &str,
+) -> Result<Option<ManualCompaction>, String> {
+    let Some(writer_slot) = parts.writer.as_ref() else {
+        return Err("no session file".to_string());
+    };
+    // 压缩期间**独占**会话写器：ref 的 `compact()` 先 `await this.abort()` 再压，
+    // 因此不会有并发的回合写入。持有同一把锁表达同一语义。
+    let mut guard = writer_slot
+        .lock()
+        .map_err(|_| "session writer lock is poisoned".to_string())?;
+    let path = guard.path().to_path_buf();
+    // 会话文件**可能还不存在**（懒创建：`--no-session` 之外的新会话在首条消息落盘前
+    // 没有文件）。ref 的 `getBranch()` 读的是内存里的条目，空会话就是空数组 ⇒
+    // `prepareCompaction` 返回 null ⇒ `Nothing to compact (session too small)`。
+    // 这里同样按"空条目"处理，而不是报 `Failed to read session`（真机上那是句
+    // 让人摸不着头脑的错误）。
+    let entries = if path.is_file() {
+        pi_core::session_io::SessionFile::read(&path)
+            .map_err(|error| format!("Failed to read session: {error}"))?
+            .entries
+    } else {
+        Vec::new()
+    };
+    let mut config = parts.compaction.clone();
+    config.thinking_level = Some(thinking_level.to_string());
+    let (provider, runtime) = (
+        std::sync::Arc::clone(&parts.provider),
+        tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .map_err(|error| format!("runtime: {error}"))?,
+    );
+    // `perform_auto_compaction` 负责：`prepare_compaction` 的判定（"Already compacted" /
+    // "Nothing to compact (session too small)" 两条错误文案都在那里）→ 摘要请求 →
+    // 写 `compaction` 条目 → 用投影重建上下文。
+    let outcome = runtime.block_on(crate::auto_compaction::perform_auto_compaction(
+        &entries,
+        &config,
+        custom_instructions,
+        Some("manual"),
+        None,
+        provider.as_ref(),
+        &mut guard,
+    ))?;
+    drop(guard);
+    let Some(run) = outcome else {
+        return Ok(None);
+    };
+    // ref `:3577-3592`：`buildContextEntries()` 的第一个条目必须是刚写的 compaction；
+    // 屏幕上的会话区 = `entries.slice(1)`（保留的旧条目 + 压缩之后的条目），
+    // 压缩块由调用方追加在末尾。
+    let rebuilt = pi_core::session_io::SessionFile::read(&path)
+        .map_err(|error| format!("Failed to read session: {error}"))?;
+    let messages = rebuilt.context_messages();
+    let retained: Vec<pi_ai::message::Message> = messages
+        .iter()
+        .filter(|message| !matches!(message, pi_ai::message::Message::CompactionSummary { .. }))
+        .cloned()
+        .collect();
+    let summary = run
+        .result_event
+        .get("summary")
+        .and_then(serde_json::Value::as_str)
+        .unwrap_or_default()
+        .to_string();
+    let tokens_before = run
+        .result_event
+        .get("tokensBefore")
+        .and_then(serde_json::Value::as_u64)
+        .unwrap_or(0);
+    Ok(Some(ManualCompaction {
+        summary,
+        tokens_before,
+        messages,
+        transcript: transcript_from_messages(&retained),
+    }))
+}
+
 /// 把会话里的历史消息转成 TUI transcript 项（`--continue` / `/resume` 重放用）。
 ///
 /// ref 侧没有"只看裸字符串"的限制：`content` 既可能是字符串，也可能是块数组
@@ -1238,6 +1339,13 @@ pub struct AgentParts {
     pub agent_dir: std::path::PathBuf,
     /// 会话写入器（`--no-session` 时为 `None`）：每轮结束把新消息按既有格式落盘（W4 会话层对拍的前提）。
     pub writer: Option<std::sync::Arc<std::sync::Mutex<crate::session_writer::SessionWriter>>>,
+    /// 手动 `/compact` 用的压缩参数（ref `agent-session.ts:2415` 的
+    /// `settingsManager.getCompactionSettings(model)`）。
+    ///
+    /// 与自动压缩同一份配置来源（`settings.compaction_settings()`），但这里带上下文窗口
+    /// 与模型能力，`perform_auto_compaction` 才能在不带自定义指令时按 `prepare_compaction`
+    /// 判定"能不能压/压到哪"。
+    pub compaction: crate::auto_compaction::CompactionConfig,
 }
 
 /// 启动字节（切默认后只剩主屏路径）：`2004h` → kitty push/查询/DA1 → `2031h` → DSR 996 → 隐藏光标。
@@ -2402,6 +2510,9 @@ pub fn run(
                     | TuiEvent::UsageTotals { .. }
                     | TuiEvent::Status(_)
                     | TuiEvent::BranchSummary(_)
+                    | TuiEvent::CompactionSummary { .. }
+                    | TuiEvent::CompactionFinished { .. }
+                    | TuiEvent::CompactionFailed(_)
                     | TuiEvent::Working(_) => {
                         let _ = apply(&mut state, event.clone());
                         dirty = true;
@@ -2525,6 +2636,9 @@ pub fn run(
                                 | TuiEvent::HeaderOverride(_)
                                 | TuiEvent::Title(_)
                                 | TuiEvent::CustomOpen(_)
+                                | TuiEvent::CompactionSummary { .. }
+                                | TuiEvent::CompactionFinished { .. }
+                                | TuiEvent::CompactionFailed(_)
                                 | TuiEvent::OverlayOpen(_)
                                 | TuiEvent::ExtensionWidget { .. }
                                 | TuiEvent::Clear
@@ -3678,6 +3792,7 @@ pub fn run(
                     | pi_tui::TranscriptItem::Notice(_)
                     | pi_tui::TranscriptItem::Status(_)
                     | pi_tui::TranscriptItem::BranchSummary { .. }
+                    | pi_tui::TranscriptItem::CompactionSummary { .. }
                     | pi_tui::TranscriptItem::ToolCall { .. }
                     | pi_tui::TranscriptItem::BashExecution { .. } => None,
                 });
@@ -4092,7 +4207,11 @@ pub fn run(
                     // 实测 30 轮快速输入 RSS 冲到 396 MB 并被 OOM 杀（退出码 137），
                     // 且多个回合的增量会交错写进同一 transcript（表现为内容错乱）。
                     // P9 E3：扩展命令优先（ref `agent-session.ts:1615-1625`：先命令、后 `input` 钩子）。
-                    if crate::ext_tools::try_run_command(&text) {
+                    // F60/2：**命令执行不能阻塞主循环**（见 `ext_tools::spawn_command` 的注释）。
+                    // 这里只解析；真正执行丢到后台线程，主循环继续处理事件，
+                    // 于是 `ctx.ui.notify`/`setWidget` 的效果能立刻可见。
+                    if let Some((name, args)) = crate::ext_tools::parse_command(&text) {
+                        crate::ext_tools::spawn_command(name, args);
                         state.input.clear();
                         dirty = true;
                         continue;
@@ -5125,6 +5244,106 @@ pub fn run(
                             );
                             state.open_panel(pi_tui::PanelPlacement::BelowEditor, sel.lines());
                             selector = Some(SelectorUi::Thinking(sel));
+                        }
+                        "compact" => {
+                            // 手动压缩（ref `interactive-mode.ts:3187-3192` →
+                            // `handleCompactCommand` `:6822-6830` → `agent-session.ts:2406-2550`）。
+                            //
+                            // 行为链（与 ref 逐段对应）：
+                            // ① 清编辑器（`:3189` 的 `this.editor.setText("")`）；
+                            // ② `compaction_start{reason:"manual"}` → 状态行
+                            //    `Compacting context... (esc to cancel)`（`:3558-3566` 的
+                            //    `CompactionStatusIndicator`，`status-indicator.ts:85-99`）；
+                            // ③ 生成摘要 → 写 `compaction` 条目 → 用投影重建上下文；
+                            // ④ `compaction_end` 后：清会话区、按 `buildContextEntries` 重渲染、
+                            //    末尾追加压缩块（`:3577-3596`）；
+                            // ⑤ 失败时 `showError("Compaction failed: …")`（`:3604-3612`）。
+                            //
+                            // **必须在后台线程跑**：摘要是一次真实 provider 请求，
+                            // 同步执行会让主循环在几秒到几十秒内不收事件（F60/2 的同一条教训）。
+                            let custom = name
+                                .split_once(' ')
+                                .map(|(_word, rest)| rest.trim().to_string())
+                                .filter(|value| !value.is_empty());
+                            let Some(parts_ref) = parts.as_ref().map(std::sync::Arc::clone) else {
+                                let _ = apply(
+                                    &mut state,
+                                    TuiEvent::Status(
+                                        "No models available. Check your installation or add models to models.json."
+                                            .to_string(),
+                                    ),
+                                );
+                                dirty = true;
+                                continue;
+                            };
+                            if parts_ref.writer.is_none() {
+                                // `--no-session`：没有会话文件可压（ref 在 print 模式下也不会
+                                // 走到这里；给出明确错误而不是静默什么都不做）。
+                                let _ = apply(
+                                    &mut state,
+                                    TuiEvent::Status(
+                                        "-compact: no session file to compact".to_string(),
+                                    ),
+                                );
+                                dirty = true;
+                                continue;
+                            }
+                            state.input.clear();
+                            state.cursor = 0;
+                            let _ = apply(
+                                &mut state,
+                                TuiEvent::Status(
+                                    "Compacting context... (esc to cancel)".to_string(),
+                                ),
+                            );
+                            let tx_compact = tx.clone();
+                            let parts_compact = std::sync::Arc::clone(&parts_ref);
+                            let history_compact = std::sync::Arc::clone(&history);
+                            let level_now = state.thinking_level.clone();
+                            std::thread::spawn(move || {
+                                let outcome =
+                                    std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                                        run_manual_compaction(
+                                            &parts_compact,
+                                            custom.as_deref(),
+                                            &level_now,
+                                        )
+                                    }));
+                                let message = match outcome {
+                                    Ok(Ok(Some(run))) => {
+                                        // 压缩后的上下文替换进程内历史：后续回合要用新投影
+                                        // （否则请求体仍是压缩前的全部消息）。
+                                        if let Ok(mut guard) = history_compact.lock() {
+                                            *guard = run.messages.clone();
+                                        }
+                                        Some(TuiEvent::CompactionFinished {
+                                            summary: run.summary.clone(),
+                                            tokens_before: run.tokens_before,
+                                            transcript: run.transcript,
+                                        })
+                                    }
+                                    // ref `agent-session.ts:2432-2436`：给不出方案就**抛错**
+                                    // （`Already compacted` / `Nothing to compact (session too
+                                    // small)`），由 `interactive-mode.ts:3604-3612` 的
+                                    // `showError` 打出来 ⇒ 这里是错误提示，不是状态行。
+                                    Ok(Ok(None)) => Some(TuiEvent::CompactionFailed(
+                                        "Error: Compaction failed: Nothing to compact (session too small)"
+                                            .to_string(),
+                                    )),
+                                    // ref `:3604-3612`：失败走 `showError`（error 色、`Error: ` 前缀、
+                                    // 前置 `Spacer(1)`）⇒ 用 `AssistantNotice`（渲染成 `Notice`，
+                                    // 与 `showError` 同款）。
+                                    Ok(Err(error)) => Some(TuiEvent::CompactionFailed(format!(
+                                        "Error: Compaction failed: {error}"
+                                    ))),
+                                    Err(_) => Some(TuiEvent::CompactionFailed(
+                                        "Error: Compaction failed: internal error".to_string(),
+                                    )),
+                                };
+                                if let Some(event) = message {
+                                    let _ = tx_compact.send(event);
+                                }
+                            });
                         }
                         other => {
                             // 其余命令尚未实现 ⇒ 不改变屏幕。

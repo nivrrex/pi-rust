@@ -367,6 +367,7 @@ fn item_kind(item: &pi_tui::TranscriptItem) -> &'static str {
         Item::Status(_) => "status",
         Item::SkillInvocation { .. } => "skill",
         Item::BranchSummary { .. } => "branch",
+        Item::CompactionSummary { .. } => "compaction",
     }
 }
 

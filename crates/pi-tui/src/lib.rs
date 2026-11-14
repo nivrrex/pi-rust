@@ -201,6 +201,20 @@ pub enum TranscriptItem {
         /// 是否展开（`ctrl+o` 切换；本实现暂未接键盘）。
         expanded: bool,
     },
+    /// 压缩摘要块（ref `components/compaction-summary-message.ts:15-63`）：
+    /// ` [compaction]` 标签 + 空行 + 折叠态 `Compacted from N tokens (ctrl+o to expand)`。
+    ///
+    /// ref 的 `CompactionSummaryMessageComponent` 是 `Box(1, 1, theme.bg("customMessageBg"))`：
+    /// 整块**底色** + 每行 1 列内边距；标签是 `customMessageLabel` 粗体、正文是
+    /// `customMessageText`、`ctrl+o` 提示是 dim。
+    CompactionSummary {
+        /// 摘要正文（折叠态不显示）。
+        summary: String,
+        /// 压缩前的 token 数（`tokensBefore`；折叠行里的 `N tokens`）。
+        tokens_before: u64,
+        /// 是否展开（`ctrl+o` 切换，与工具块共用同一开关）。
+        expanded: bool,
+    },
     /// 用户 `!` / `!!` 命令块（ref `components/bash-execution.ts:32-60`）：
     /// 上边框 + ` $ <command>` + 输出 + 下边框；`!!` 用 dim 边框。
     BashExecution {
@@ -549,6 +563,36 @@ pub enum TuiEvent {
     AssistantNotice(String),
     /// 分支摘要（`/tree` 选 `Summarize` 后追加一块）。
     BranchSummary(String),
+    /// 手动/自动压缩完成（ref `interactive-mode.ts:3558-3585` 的 `compaction_end` 分支）。
+    ///
+    /// `summary` 是摘要正文、`tokens_before` 是折叠行里的 token 数。调用方（pi-cli）
+    /// 负责重建会话区后送入本事件——ref 在该分支里就是 `chatContainer.clear()`
+    /// 后按 `buildContextEntries` 重渲染。
+    CompactionSummary {
+        /// 摘要正文。
+        summary: String,
+        /// 压缩前的 token 数。
+        tokens_before: u64,
+    },
+    /// 手动压缩失败（ref `interactive-mode.ts:3604-3612` 的 `showError`）。
+    ///
+    /// 与 [`TuiEvent::AssistantNotice`] 的区别：它还要**撤掉**压缩状态行
+    /// （`Compacting context... (esc to cancel)`，ref 的 `clearStatusIndicator("compaction")`）。
+    CompactionFailed(String),
+    /// 手动压缩完成后的**整段替换**（ref `interactive-mode.ts:3577-3596`）。
+    ///
+    /// 与 [`TuiEvent::CompactionSummary`] 的区别：这条事件自带**重建好的会话区**，
+    /// 处理时先整体替换 `state.transcript` 再追加压缩块。ref 的顺序是
+    /// `chatContainer.clear()` → 重渲染保留条目 → 追加压缩块 → 状态/用量失效；
+    /// 分开两条事件（先清空、后追加）在无面板时会多写一帧，且中间那一帧是空屏。
+    CompactionFinished {
+        /// 摘要正文（压缩块的折叠/展开内容）。
+        summary: String,
+        /// 压缩前的 token 数。
+        tokens_before: u64,
+        /// 重建后的会话区（`buildContextEntries` 的渲染结果；**不含**压缩块本身）。
+        transcript: Vec<TranscriptItem>,
+    },
     /// **绝对**用量（会话累计）：直接覆盖 footer 上的 `↑n ↓n $x` 与百分比。
     ///
     /// ref `footer.ts:86-105` 是遍历**整个会话的条目**求和，不是事件累加；`-c`/`/resume`
@@ -734,6 +778,17 @@ fn move_cursor_vertical(state: &mut TuiState, delta: isize) -> bool {
     true
 }
 
+/// 撤掉压缩进行中的状态行（ref `interactive-mode.ts:3574` 的 `clearStatusIndicator("compaction")`）。
+///
+/// 只删**这一条**（`Compacting context...`），不影响其它状态行（`Tool output: …` 等）。
+fn clear_compaction_status(state: &mut TuiState) {
+    if let Some(index) = state.transcript.iter().rposition(|item| {
+        matches!(item, TranscriptItem::Status(text) if text.starts_with("Compacting context"))
+    }) {
+        state.transcript.remove(index);
+    }
+}
+
 pub fn apply(state: &mut TuiState, event: TuiEvent) -> TuiAction {
     if state.exited {
         return TuiAction::Exit;
@@ -743,6 +798,43 @@ pub fn apply(state: &mut TuiState, event: TuiEvent) -> TuiAction {
             state.transcript.push(TranscriptItem::BranchSummary {
                 summary: message,
                 expanded: false,
+            });
+            TuiAction::Redraw
+        }
+        TuiEvent::CompactionFailed(message) => {
+            clear_compaction_status(state);
+            // ref `showError`（`:4463-4467`）：`Spacer(1)` + `Text(theme.fg("error", "Error: …"))`。
+            // 文案里已经带了 `Error: ` 前缀（与 `showError` 的参数拼接方式一致）。
+            state.transcript.push(TranscriptItem::Notice(message));
+            TuiAction::Redraw
+        }
+        TuiEvent::CompactionFinished {
+            summary,
+            tokens_before,
+            transcript,
+        } => {
+            // ref `interactive-mode.ts:3577-3596`：清空 → 重渲染保留条目 → 追加压缩块。
+            clear_compaction_status(state);
+            state.transcript = transcript;
+            state.transcript.push(TranscriptItem::CompactionSummary {
+                summary,
+                tokens_before,
+                expanded: state.tools_expanded,
+            });
+            TuiAction::Redraw
+        }
+        TuiEvent::CompactionSummary {
+            summary,
+            tokens_before,
+        } => {
+            // ref `interactive-mode.ts:3558-3585`：`compaction_end` 且 `result` 非空时，
+            // 先 `chatContainer.clear()` + 按 `buildContextEntries` 重渲染，再把压缩块
+            // 追加到**末尾**。这里的 "clear + 重渲染" 由 pi-cli 用重建好的上下文完成，
+            // 本事件只负责“把压缩块放进去”。
+            state.transcript.push(TranscriptItem::CompactionSummary {
+                summary,
+                tokens_before,
+                expanded: state.tools_expanded,
             });
             TuiAction::Redraw
         }
@@ -909,6 +1001,7 @@ pub fn apply(state: &mut TuiState, event: TuiEvent) -> TuiAction {
                 | Some(TranscriptItem::SkillInvocation { .. })
                 | Some(TranscriptItem::Assistant(_))
                 | Some(TranscriptItem::BranchSummary { .. })
+                | Some(TranscriptItem::CompactionSummary { .. })
                 | Some(TranscriptItem::Status(_))
                 | Some(TranscriptItem::Notice(_))
                 | Some(TranscriptItem::ToolCall { .. })
@@ -1070,6 +1163,7 @@ pub fn apply(state: &mut TuiState, event: TuiEvent) -> TuiAction {
                 Some(TranscriptItem::User(_))
                 | Some(TranscriptItem::SkillInvocation { .. })
                 | Some(TranscriptItem::BranchSummary { .. })
+                | Some(TranscriptItem::CompactionSummary { .. })
                 | Some(TranscriptItem::Status(_))
                 | Some(TranscriptItem::Thinking { .. })
                 | Some(TranscriptItem::Notice(_))
@@ -1686,6 +1780,23 @@ pub fn clamp_to_width_ansi(text: &str, width: usize) -> String {
         out.push(ch);
         used += w;
         index += ch.len_utf8();
+    }
+    out
+}
+
+/// 千分位分组（`12060` → `"12,060"`）：ref 的 `toLocaleString()` 等价物。
+///
+/// 只在**压缩块**的 `Compacted from N tokens` 里用（`compaction-summary-message.ts:36`）；
+/// footer 的 `↑n ↓n` 与 `x%/Nk` 走另一套缩写（`format_tokens`），两者不能混。
+#[must_use]
+pub fn group_thousands(value: u64) -> String {
+    let digits = value.to_string();
+    let mut out = String::with_capacity(digits.len() + digits.len() / 3);
+    for (index, ch) in digits.chars().enumerate() {
+        if index > 0 && (digits.len() - index).is_multiple_of(3) {
+            out.push(',');
+        }
+        out.push(ch);
     }
     out
 }
@@ -2624,6 +2735,11 @@ fn item_style(
         // 不是 muted（#808080 → 244）。`compare-style` 实测 TS 侧为 i241。
         TranscriptItem::Status(_) => Some(LineStyle::fg(palette.dim)),
         TranscriptItem::BranchSummary { .. } => Some(LineStyle::fg(palette.accent)),
+        // 压缩块：ref `compaction-summary-message.ts:17` 是 `Box(1, 1, theme.bg("customMessageBg"))`
+        // ⇒ 整块只有**底色**（前景由块内各自的 `customMessageLabel`/`customMessageText` 决定）。
+        TranscriptItem::CompactionSummary { .. } => {
+            Some(LineStyle::fg(palette.text).with_bg(palette.custom_message_bg))
+        }
         // F48/X3：扩展原型补丁给出的折叠行**自带颜色**（`theme.fg(...)`），不得再叠
         // `toolSuccessBg`/`toolErrorBg` 底色 —— TS 侧折叠行是**无背景**的（真机截图与
         // `T116` golden 逐格实测）。返回 `None` ⇒ 终端默认样式，行内 SGR 由扩展行自带。
@@ -3132,9 +3248,19 @@ fn render_all_cached_styled_inner(
             } => format!(
                 "b\u{1}{command}\u{1}{output}\u{1}{exit_code:?}\u{1}{cancelled}\u{1}{truncated}\u{1}{full_output_path:?}\u{1}{exclude_from_context}\u{1}{running}"
             ),
-            TranscriptItem::BranchSummary { summary, expanded } => {
-                format!("b\u{1}{expanded}\u{1}{summary}")
+            // 展开态渲染读的是 `state.tools_expanded`（见渲染分支），因此键里必须是它，
+            // 不能是条目快照的 `expanded`（否则 `ctrl+o` 命中旧缓存、屏幕不变）。
+            TranscriptItem::BranchSummary { summary, .. } => {
+                format!("b\u{1}\u{1}{}\u{1}{summary}", state.tools_expanded)
             }
+            TranscriptItem::CompactionSummary {
+                summary,
+                tokens_before,
+                ..
+            } => format!(
+                "c\u{1}{}\u{1}{tokens_before}\u{1}{summary}",
+                state.tools_expanded
+            ),
             TranscriptItem::Status(text) => format!("s\u{1}{text}"),
             TranscriptItem::Thinking { text, label } => format!(
                 // `hide_thinking_block` 与标签内容都必须进键：否则 ctrl+t 与扩展标签
@@ -3351,8 +3477,12 @@ fn render_all_cached_styled_inner(
                 }
                 lines.push(String::new());
             }
-            TranscriptItem::BranchSummary { summary, expanded } => {
+            TranscriptItem::BranchSummary { summary, .. } => {
                 // ref `branch-summary-message.ts:32-53`：`[branch]` 标签 + 空行 + 折叠/展开内容。
+                // 展开态由**全局** `toolOutputExpanded` 决定（ref `interactive-mode.ts:3421/3497`
+                // 对每个组件调 `setExpanded(this.toolOutputExpanded)`），所以这里读 `state`，
+                // 不读条目里快照下来的 `expanded`（否则 `ctrl+o` 对已存在的块永远无效）。
+                let expanded = &state.tools_expanded;
                 lines.push(clamp_to_width(" [branch]", cols));
                 lines.push(String::new());
                 if *expanded {
@@ -3365,6 +3495,39 @@ fn render_all_cached_styled_inner(
                     }
                 } else {
                     lines.push(clamp_to_width(" Branch summary (ctrl+o to expand)", cols));
+                }
+                lines.push(String::new());
+            }
+            TranscriptItem::CompactionSummary {
+                summary,
+                tokens_before,
+                ..
+            } => {
+                // 同 `BranchSummary`：展开态取全局 `toolOutputExpanded`。
+                let expanded = &state.tools_expanded;
+                // ref `compaction-summary-message.ts:41-62`：
+                //   `[compaction]` 标签（`customMessageLabel` 粗体）→ 空行 →
+                //   折叠态 `Compacted from N tokens (ctrl+o to expand)`（dim 提示）；
+                //   展开态 `**Compacted from N tokens**` + 摘要 markdown。
+                // Box 的左右各 1 列内边距由下面每行的前导空格提供。
+                lines.push(clamp_to_width(" [compaction]", cols));
+                lines.push(String::new());
+                // ref `compaction-summary-message.ts:36`：`tokensBefore.toLocaleString()`
+                // ⇒ **千分位分组**（`12,060`），不是 footer 那种 `12k` 缩写。
+                let tokens = group_thousands(*tokens_before);
+                if *expanded {
+                    for line in
+                        render_markdown(&format!("**Compacted from {tokens} tokens**\n\n{summary}"))
+                    {
+                        for wrapped in wrap_markdown_line(&line, cols) {
+                            lines.push(wrapped);
+                        }
+                    }
+                } else {
+                    lines.push(clamp_to_width(
+                        &format!(" Compacted from {tokens} tokens (ctrl+o to expand)"),
+                        cols,
+                    ));
                 }
                 lines.push(String::new());
             }
