@@ -3375,10 +3375,24 @@ fn render_all_cached_styled_inner(
                 // 这里只输出状态行 + 尾随空行（与其它条目一致）。
                 // `\t` 必须先展开成 3 空格（ref `text.ts:61`）：`unicode-width` 把 `\t` 算 0 列，
                 // 而终端按制表位展开 ⇒ 行会比 `cols` 宽很多（F57 实测 80 列下 101 列）。
-                lines.push(clamp_to_width(
-                    &expand_tabs_for_layout(&format!(" {text}")),
-                    cols,
-                ));
+                //
+                // F60/2：状态文本**可能是多行**（扩展的 `ctx.ui.notify` 原样传入，
+                // `pi-handoff-gate` 的 `/todo` 就是一份多行清单）。必须逐行排版：
+                //
+                // ① ref 的 `Text` 组件本身也是逐行的（`text.ts:69` 的
+                //    `wrapTextWithAnsi` 内部先 `split(/\r\n|\r|\n/)`，`utils.ts:858`）；
+                // ② 不拆行时帧里会带内嵌 `\n`，而两层的宽度口径不一致——
+                //    `clamp_to_width` 用 `UnicodeWidthChar::width`（`\n` 算 **0** 列），
+                //    差分层的 `visible_width` 按普通字符算（`\n` 算 **1** 列）⇒
+                //    同一行 "120 vs 122"，`diff_render` 报 `LineTooWide` 并**丢弃整帧**。
+                //    因为该 `Status` 一直在帧里，之后**每一帧**都失败 ⇒ 屏幕永久冻结
+                //    （真机 `/todo` 卡死，只能 Ctrl+D；见 `t_f60_multiline_status`）。
+                for line in text.lines() {
+                    lines.push(clamp_to_width(
+                        &expand_tabs_for_layout(&format!(" {line}")),
+                        cols,
+                    ));
+                }
                 lines.push(String::new());
             }
             TranscriptItem::Notice(text) => {
