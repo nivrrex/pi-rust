@@ -77,6 +77,12 @@ enum Cmd {
         content: Value,
         reply: Sender<Result<Option<String>, HostError>>,
     },
+    /// 渲染前把 Markdown 交给扩展改写（ref `types.ts:1473`）。
+    MarkdownTransform {
+        markdown: String,
+        width: usize,
+        reply: Sender<Result<String, HostError>>,
+    },
     /// 查询某工具在宿主侧是否有定义（F51/Z0）。
     ToolKnown {
         tool_name: String,
@@ -164,6 +170,8 @@ pub struct HostHandle {
     flags: Vec<crate::handshake::FlagSpec>,
     /// 单个扩展的加载失败（F19：`ext.ready` 的可选 `loadErrors`）。
     load_errors: Vec<(String, String)>,
+    /// 扩展注册的 Markdown 变换器个数（0 = 不必走 RPC）。
+    markdown_transformer_count: usize,
     /// 跨线程写端与应答路由（UI 按键不经过 actor）。
     wire: std::sync::Arc<crate::client::Wire>,
     runtime: tokio::runtime::Handle,
@@ -205,6 +213,7 @@ struct HostMeta {
     events: Vec<String>,
     flags: Vec<crate::handshake::FlagSpec>,
     load_errors: Vec<(String, String)>,
+    markdown_transformer_count: usize,
 }
 
 impl HostHandle {
@@ -230,6 +239,7 @@ impl HostHandle {
                 events: meta.events,
                 flags: meta.flags,
                 load_errors: meta.load_errors,
+                markdown_transformer_count: meta.markdown_transformer_count,
                 wire: meta.wire,
                 runtime: meta.runtime,
             }),
@@ -452,6 +462,21 @@ impl HostHandle {
         self.call(|reply| Cmd::ThinkingLabel { content, reply })
     }
 
+    /// 把 Markdown 交给扩展**渲染前**改写（`pi-secrets` 用它脱敏）。
+    pub fn transform_markdown(&self, markdown: &str, width: usize) -> Result<String, HostError> {
+        self.call(|reply| Cmd::MarkdownTransform {
+            markdown: markdown.to_string(),
+            width,
+            reply,
+        })
+    }
+
+    /// 扩展注册的 Markdown 变换器个数（0 = 不必走 RPC）。
+    #[must_use]
+    pub fn markdown_transformer_count(&self) -> usize {
+        self.markdown_transformer_count
+    }
+
     /// 查询某工具在宿主侧是否有定义；`None` = 宿主没给结论。
     pub fn tool_known(&self, tool_name: &str) -> Result<Option<bool>, HostError> {
         self.call(|reply| Cmd::ToolKnown {
@@ -597,6 +622,7 @@ fn actor_main(
         events: host.events().to_vec(),
         flags: host.flags().to_vec(),
         load_errors: host.load_errors().to_vec(),
+        markdown_transformer_count: host.markdown_transformer_count(),
     };
     if ready.send(Ok(meta)).is_err() {
         runtime.block_on(host.shutdown());
@@ -696,6 +722,14 @@ fn actor_main(
             }
             Cmd::ThinkingLabel { content, reply } => {
                 let result = runtime.block_on(host.invoke_render_thinking(content));
+                let _ = reply.send(result);
+            }
+            Cmd::MarkdownTransform {
+                markdown,
+                width,
+                reply,
+            } => {
+                let result = runtime.block_on(host.transform_markdown(&markdown, width));
                 let _ = reply.send(result);
             }
             Cmd::ToolKnown { tool_name, reply } => {

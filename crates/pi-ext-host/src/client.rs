@@ -337,6 +337,8 @@ pub struct ExtHost {
     flags: Vec<crate::handshake::FlagSpec>,
     /// 单个扩展的加载失败（F19）。
     load_errors: Vec<(String, String)>,
+    /// 扩展注册的 Markdown 变换器个数（ref `types.ts:1473`；0 = 不必走 RPC）。
+    markdown_transformer_count: usize,
     pid: Option<u32>,
     port: u16,
     /// 宿主可变状态（reader 任务与 actor 共享）。
@@ -532,6 +534,7 @@ impl ExtHost {
             child,
             _stdin: stdin,
             load_errors: Vec::new(),
+            markdown_transformer_count: 0,
             reader: BufReader::new(read_half),
             wire: std::sync::Arc::new(Wire {
                 writer: std::sync::Arc::new(tokio::sync::Mutex::new(writer)),
@@ -669,6 +672,35 @@ impl ExtHost {
     /// `AssistantMessageComponent.prototype.updateContent`，在里面写
     /// `row.hiddenThinkingLabel = buildThinkingLabel(...)`（`:346`）。
     /// 宿主建一个组件实例跑它，再把标签读回来；`None` = 没有扩展接管。
+    /// 扩展注册的 Markdown 变换器个数（握手时上报；0 = 不必为渲染走 RPC）。
+    #[must_use]
+    pub fn markdown_transformer_count(&self) -> usize {
+        self.markdown_transformer_count
+    }
+
+    /// 把一段 Markdown 交给扩展**渲染前**改写（ref `types.ts:1473`）。
+    ///
+    /// 真实使用方 `pi-secrets` 用它把密钥替换成掩码（`src/index.ts:326`），
+    /// 保证密钥不进终端 scrollback。多扩展时按注册顺序**链式**应用（runner 侧做）。
+    pub async fn transform_markdown(
+        &mut self,
+        markdown: &str,
+        width: usize,
+    ) -> Result<String, HostError> {
+        let response = self
+            .call(
+                "ext.markdown.transform",
+                json!({ "markdown": markdown, "width": width }),
+                Duration::from_secs(5),
+            )
+            .await?;
+        Ok(response
+            .get("markdown")
+            .and_then(serde_json::Value::as_str)
+            .unwrap_or(markdown)
+            .to_string())
+    }
+
     pub async fn invoke_render_thinking(
         &mut self,
         content: Value,
@@ -1510,12 +1542,14 @@ impl ExtHost {
                     events,
                     flags,
                     load_errors,
+                    markdown_transformer_count,
                 } => {
                     self.tools = tools;
                     self.commands = commands;
                     self.events = events;
                     self.flags = flags;
                     self.load_errors = load_errors;
+                    self.markdown_transformer_count = markdown_transformer_count;
                     let response = encode_response(incoming.id, Ok(json!({"ok": true})));
                     self.write_line(&response).await?;
                     return Ok(());

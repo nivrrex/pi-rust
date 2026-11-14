@@ -4058,6 +4058,16 @@ pub fn run(
             // 打开模型选择器并把按键**改写成"/model + Enter"**，交给同一套命令分发。
             // `Model catalogs refreshed.` 是**面板内部**的一行（`/model` 构造选择器时
             // 已放进 `refresh_status`），不能再往 transcript push（会整体下移 2 行）。
+            // 扩展的 **Markdown 脱敏**（ref `types.ts:1473` 的
+            // `registerMarkdownTransformer`）：`pi-secrets` 用它把密钥换成掩码，
+            // 保证不进终端 scrollback（`src/index.ts:326`）。
+            //
+            // 位置：事件进 `apply` **之前**统一处理一次，覆盖所有后续路径
+            // （主路径、选择器路径、Ctrl+L 改写之前）。
+            // 为什么不在渲染层做：渲染是纯函数且每帧调用，跨进程 RPC 逐帧跑代价太大；
+            // 而变换器做的是**逐次字面量替换**（`redactCounted`），对增量与整段等价，
+            // 因此逐块做与 ref「整段渲染前做」结果一致（不会漏跨块的密钥）。
+            let event = sanitize_event_markdown(event);
             let mut event = event;
             if matches!(event, TuiEvent::CtrlL)
                 && selector.is_none()
@@ -4224,6 +4234,11 @@ pub fn run(
                 }
                 TuiAction::Exit => break 'main,
                 TuiAction::Submit(text) => {
+                    // 扩展的 Markdown 脱敏同样覆盖**用户消息**（ref 把变换器同时传给
+                    // `UserMessageComponent` 与 `AssistantMessageComponent`，
+                    // `interactive-mode.ts:2137-2139`）。`pi-secrets` 靠它避免用户把
+                    // 密钥粘进编辑器后又被回显到 scrollback。
+                    let text = crate::ext_tools::transform_markdown(&text, cols);
                     // `/login <provider>` 已选定 provider：这次提交的是 API key。
                     // ref `interactive-mode.ts:6003-6040`（api_key 型对话框）。
                     if let Some(provider) = state.pending_login_provider.take() {
@@ -6608,6 +6623,24 @@ impl pi_core::agent::EventSink for TuiEventSink {
             // 接收端关闭（TUI 已退出）不是错误：丢弃即可。
             let _ = self.tx.send(tui_event);
         }
+    }
+}
+
+/// 对会进入会话区 Markdown 的事件应用扩展的变换器（ref `types.ts:1473`）。
+///
+/// 覆盖 ref 把变换器传进去的那两类组件（`interactive-mode.ts:2137-2139`）：
+/// 用户消息（`UserMessageComponent`）与助手消息（`AssistantMessageComponent`）。
+/// 只在**有扩展注册变换器时**才走 RPC（`transform_markdown` 内部先查计数）。
+fn sanitize_event_markdown(event: TuiEvent) -> TuiEvent {
+    if crate::ext_tools::markdown_transformer_count() == 0 {
+        return event;
+    }
+    match event {
+        // 助手流式增量：逐块替换等价于整段替换（变换器做的是字面量替换）。
+        TuiEvent::AssistantDelta(delta) => {
+            TuiEvent::AssistantDelta(crate::ext_tools::transform_markdown(&delta, 0))
+        }
+        other => other,
     }
 }
 

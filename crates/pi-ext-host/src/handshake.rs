@@ -130,6 +130,9 @@ pub enum Step {
         flags: Vec<FlagSpec>,
         /// 单个扩展的加载失败（`(path, message)`，F19 新增可选字段）。
         load_errors: Vec<(String, String)>,
+        /// 扩展注册的 Markdown 变换器个数（ref `types.ts:1473`）。
+        /// `0` = 不必为渲染走 RPC；`>0` 时 pi-cli 在**渲染前**请求 `ext.markdown.transform`。
+        markdown_transformer_count: usize,
     },
     /// 不产生回复（例如 `host.log`）。
     None,
@@ -208,6 +211,10 @@ impl Handshake {
                 let flags = parse_flags(params.get("flags"))?;
                 // F19：单个扩展的加载失败（可选字段；旧 runner 不报 ⇒ 空）。
                 let load_errors = parse_load_errors(params.get("loadErrors"))?;
+                let markdown_transformer_count = params
+                    .get("markdownTransformerCount")
+                    .and_then(Value::as_u64)
+                    .unwrap_or(0) as usize;
                 self.phase = Phase::Ready;
                 Ok(Step::Ready {
                     tools,
@@ -215,6 +222,7 @@ impl Handshake {
                     events,
                     flags,
                     load_errors,
+                    markdown_transformer_count,
                 })
             }
             Phase::Ready => {

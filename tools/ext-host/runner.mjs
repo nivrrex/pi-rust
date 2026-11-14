@@ -530,6 +530,25 @@ async function dispatch(frame) {
     }
     return;
   }
+  if (method === "ext.markdown.transform") {
+    // ref `interactive-mode.ts:2137-2139` 的 `getMarkdownTransformers()`：
+    // 按注册顺序**链式**应用（前一个的输出是后一个的输入）。
+    // 每个 transformer 的签名是 `(markdown, context) => markdown`
+    // （`types.ts:1304`），`context` 目前给 `{availableWidth}`。
+    let text = String(params?.markdown ?? "");
+    const context = { availableWidth: Number(params?.width ?? 80) };
+    const errors = [];
+    for (const transformer of markdownTransformers) {
+      try {
+        const next = transformer(text, context);
+        if (typeof next === "string") text = next;
+      } catch (error) {
+        errors.push(String(error && error.message ? error.message : error));
+      }
+    }
+    respond(id, { markdown: text, ...(errors.length > 0 ? { errors } : {}) });
+    return;
+  }
   if (method === "ext.render.thinking") {
     // F51/Z1：把**思考块的折叠标签**交给扩展决定（ref 的
     // `AssistantMessageComponent.updateContent` 原型补丁，见
@@ -930,6 +949,9 @@ function noteNotImplemented(name) {
   process.stderr.write(`[ext-host] ${name} 未实现（本批），已按 no-op 处理\n`);
 }
 
+/// 扩展注册的 Markdown 变换器（按加载顺序；ref `runner.ts:725-727`）。
+const markdownTransformers = [];
+
 const pi = {
   on(event, handler) {
     if (!events.includes(event)) events.push(event);
@@ -991,9 +1013,19 @@ const pi = {
   registerEntryRenderer() {
     noteNotImplemented("pi.registerEntryRenderer");
   },
+  // ref `types.ts:1473` 的 `registerMarkdownTransformer`：把用户/助手 Markdown
+  // **渲染前**交给扩展改写。
+  //
+  // 真实使用方是 `pi-secrets`（用户已装）：`pi.registerMarkdownTransformer((md) =>
+  // redactText("markdown", md))`（`src/index.ts:326`）—— 它把命中的密钥替换成掩码，
+  // 靠这个钩子保证**密钥不出现在终端 scrollback 里**（注释写明"message_end/tool_result
+  // 之前就已经流式渲染，必须有自己的钩子"）。
+  //
+  // 此前这里只 `void transformer`（记录不应用）⇒ 脱敏**完全失效**：
+  // 密钥会原样画到屏幕上。这是比"功能缺失"更严重的问题（属于信息泄露），
+  // 因此本批实现它。
   registerMarkdownTransformer(transformer) {
-    void transformer;
-    // 记录但不应用（首版不渲染扩展的 markdown 变换）。
+    if (typeof transformer === "function") markdownTransformers.push(transformer);
   },
   registerProvider() {
     noteNotImplemented("pi.registerProvider");
@@ -1354,6 +1386,8 @@ async function main() {
       type: spec.type,
       ...(spec.default !== undefined ? { default: spec.default } : {}),
     })),
+    // 注册了几个 Markdown 变换器（宿主据此决定是否每帧走一次 RPC）。
+    markdownTransformerCount: markdownTransformers.length,
   });
 }
 

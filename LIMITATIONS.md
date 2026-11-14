@@ -669,6 +669,7 @@ ref 的对应实现见 `interactive-mode.ts:2541`/`:2543`（`showExtensionNotify
       `registerEntryRenderer`、`registerProvider`、`unregisterProvider`、
       `sendMessage`、`exec`、`setModel`、`setThinkingLevel`、`setSessionName`、
       `setLabel`、`setActiveTools`。这些由 `runner.mjs` 的 `noteNotImplemented`
-      打 `[ext-host] … 未实现` 警告（不静默）；`registerMarkdownTransformer`
-      记录但不应用（退化为原文）。
+      打 `[ext-host] … 未实现` 警告（不静默）。
+      `registerMarkdownTransformer` 已在 F60/6 实现（`pi-secrets` 靠它脱敏密钥，
+      此前只记录不应用 ⇒ 密钥会画到屏幕上）。
     推翻条件：某个已装扩展开始依赖上述任一项时，按 ref 逐个补齐并补对拍用例。

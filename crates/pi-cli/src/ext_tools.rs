@@ -1341,6 +1341,35 @@ pub fn render_tool_block(
     flatten_render_frame(&frame, width)
 }
 
+/// 扩展注册了几个 Markdown 变换器（0 = 不必为渲染走 RPC）。
+#[must_use]
+pub fn markdown_transformer_count() -> usize {
+    HOST.get()
+        .and_then(|slot| slot.as_ref())
+        .map_or(0, pi_ext_host::HostHandle::markdown_transformer_count)
+}
+
+/// 把一段 Markdown 交给扩展**渲染前**改写（ref `types.ts:1473`）。
+///
+/// 真实使用方 `pi-secrets`（用户已装）注册
+/// `(md) => redactText("markdown", md)`（`src/index.ts:326`），
+/// 目的是让密钥**不进终端 scrollback**——它自己的注释写明「message_end/tool_result
+/// 之前就已经流式渲染，必须有自己的钩子」。此前宿主只记录不应用 ⇒ 脱敏完全失效。
+///
+/// 没有扩展注册变换器时**原样返回**（零 RPC、零开销）；RPC 失败也原样返回
+/// （渲染不能因为脱敏链路故障而中断）。
+#[must_use]
+pub fn transform_markdown(markdown: &str, width: usize) -> String {
+    if markdown.is_empty() || markdown_transformer_count() == 0 {
+        return markdown.to_string();
+    }
+    let Some(host) = HOST.get().and_then(|slot| slot.as_ref()).cloned() else {
+        return markdown.to_string();
+    };
+    host.transform_markdown(markdown, width)
+        .unwrap_or_else(|_| markdown.to_string())
+}
+
 /// 按需重渲染扩展 UI（F38/K4）：返回 `None` 表示没有扩展接管/渲染失败，调用方回落原生渲染。
 ///
 /// `digest` 为宿主算的状态摘要；`(kind, key, width, digest)` 相同的请求在 runner 侧命中缓存。
