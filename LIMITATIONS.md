@@ -690,3 +690,13 @@ ref 的对应实现见 `interactive-mode.ts:2541`/`:2543`（`showExtensionNotify
     Key.pageDown` 为 0），因此不属"已装扩展用到的未实现项"。
     推翻条件：某个已装扩展的 custom 组件开始用 `matchesKey(data, Key.home)` 之类，
     届时在 `key_bytes`（`crates/pi-cli/src/tui.rs`）与 `pi_tui::input` 两侧同时补映射。
+27b. **F60/19 未派发的扩展事件（11 个）**：ref `extensions/types.ts` 的 `ExtensionAPI.on`
+     重载共 **30 个**事件名，pi-rs 已派发 19 个（覆盖用户已装扩展实际订阅的全部 21 个，
+     含两个由 `agent_*` 别名覆盖的）。以下 11 个**未派发**，且用户已装扩展中
+     **无一订阅**（逐个 grep 确认），故不属"已装扩展用到的未实现项"：
+     `after_provider_response`(`:357-362` sdk 层)、`before_provider_headers`(`:1391`)、
+     `context_with_system`(`:1382`)、`model_select`(`:1414`)、`project_trust`(`:1354`)、
+     `session_compact`(`:1373`)、`session_compact_failed`(`:1374`)、
+     `session_info_changed`(`:1360`)、`thinking_level_select`(`:1415`)、
+     `ui_prompt_start`(`:1404`)、`ui_prompt_end`(`:1405`)。
+     推翻条件：某个已装扩展开始订阅其中任一项时，按 ref 对应行号实现并补对拍用例。
