@@ -1375,6 +1375,14 @@ pub struct AgentParts {
     pub startup_warnings: Vec<String>,
     /// 该 provider 下可切换的模型 id 列表（`models.json` 顺序；Ctrl+P 循环用）。
     pub available_models: Vec<ModelChoice>,
+    /// **全部可用模型**（不受 `enabledModels` 限制），供 `/scoped-models` 面板列出。
+    ///
+    /// ref 的面板用 `modelRuntime.getAvailableSnapshot()`（`scoped-models-selector.ts:5220`
+    /// 的 `allModels`）——那是**运行时全部可用模型**，与"当前 scope"是两个概念：
+    /// scope 只是过滤，可开关的对象仍是全集。`available_models` 在配置了
+    /// `enabledModels` 时**只含 scope 内的模型**，拿它当全集会让面板只能操作
+    /// 已经启用的那些（实测：scope=[p/m2] 时面板只有 m2 一行，无法启用 m1）。
+    pub all_available_models: Vec<ModelChoice>,
     /// `/scoped-models` 面板改动的**本会话生效**范围（ref
     /// `scoped-models-selector.ts:24-90` 的 `EnabledIds`：`None` = 全部启用）。
     ///
@@ -2610,6 +2618,17 @@ pub fn run(
                         _other => false,
                     };
                     if handled {
+                        // **每次改动都同步到共享槽**（ref `scoped-models-selector.ts:250-270`
+                        // 的 `onChange`：面板里的改动立刻影响 Ctrl+P，不必等 `ctrl+s` 落盘）。
+                        // 少了这一步时，面板里勾选的模型只在写 settings 后、下次启动才生效——
+                        // 真机上表现为"面板里改了、Ctrl+P 还是老样子"。
+                        if let SelectorUi::ScopedModels(sel) = &*open_selector {
+                            if let Some(parts) = parts.as_ref() {
+                                if let Ok(mut guard) = parts.scoped_models.lock() {
+                                    *guard = sel.enabled.clone();
+                                }
+                            }
+                        }
                         state
                             .open_panel(pi_tui::PanelPlacement::BelowEditor, open_selector.lines());
                         dirty = true;
@@ -4154,8 +4173,10 @@ pub fn run(
                     // `scoped-models-selector.ts:24-90` 的 `EnabledIds`）：
                     // `None` = 全部启用；`Some(list)` = 只循环这些，且**按列表顺序**
                     // （ref 的 `scopedModels` 是有序的，`getSortedIds` 决定顺序）。
-                    let ids =
-                        scoped_model_choices(&parts_ref.available_models, &parts_ref.scoped_models);
+                    let ids = scoped_model_choices(
+                        &parts_ref.all_available_models,
+                        &parts_ref.scoped_models,
+                    );
                     let current_provider = parts_ref
                         .model_state
                         .lock()
@@ -5808,8 +5829,10 @@ pub fn run(
                             let (all_ids, enabled) = parts.as_ref().map_or_else(
                                 || (Vec::new(), Some(Vec::new())),
                                 |parts| {
+                                    // 面板列出**全部可用模型**（ref 的 `allModels`），
+                                    // 不是被 scope 过滤后的 `available_models`。
                                     let all: Vec<String> = parts
-                                        .available_models
+                                        .all_available_models
                                         .iter()
                                         .map(|choice| format!("{}/{}", choice.provider, choice.id))
                                         .collect();

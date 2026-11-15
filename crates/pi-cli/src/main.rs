@@ -1926,6 +1926,28 @@ fn build_tui_agent_parts(
             fallback
         }
     };
+    // **全部可用模型**（不受 `enabledModels` 限制）：`/scoped-models` 面板的可操作对象。
+    // 与上面 `available_models` 的"无 scope"分支同一套来源（`collect_models`）。
+    let all_available_models: Vec<pi_cli::tui::ModelChoice> = {
+        let models_json_text = std::fs::read_to_string(paths.agent_dir.join("models.json")).ok();
+        let authenticated = pi_cli::list_models::authenticated_providers(
+            &paths.agent_dir,
+            models_json_text.as_deref(),
+        );
+        let rows = pi_cli::list_models::collect_models(
+            models_json_text.as_deref(),
+            catalog.as_ref(),
+            &authenticated,
+        );
+        let mut all = pi_cli::list_models::to_model_choices(&rows);
+        if all.is_empty() {
+            all.push(pi_cli::tui::ModelChoice {
+                provider: provider_name.to_string(),
+                id: resolved.model_id.clone(),
+            });
+        }
+        all
+    };
     // `enabledModels` 是否配置（ref 的 `scopedModels.length > 0`）：页脚的 `(provider)` 前缀
     // 与 `/model` 候选都按它切换口径，所以先算一次、两处共用。
     let scoped_models_configured = settings
@@ -2019,6 +2041,7 @@ fn build_tui_agent_parts(
         initial_thinking_level,
         supports_thinking: resolved.reasoning,
         scoped_models,
+        all_available_models,
         model_state: std::sync::Arc::new(std::sync::Mutex::new(pi_cli::tui::CurrentModelState {
             model_id: resolved.model_id.clone(),
             provider_name: provider_name.to_string(),

@@ -240,6 +240,9 @@ pub fn key_bytes_for_name(name: &str) -> Option<&'static str> {
         "shift+tab" => "\u{1b}[Z",
         "escape" => "\u{1b}",
         "enter" => "\r",
+        // F61/19：面板里空格是"切换启用"（ref `scoped-models-selector.ts:299-310`）。
+        // 缺这一条时 `space` 会被当成 5 个字母的**文本**注入（实测：面板选中项不变）。
+        "space" => " ",
         "tab" => "\t",
         "backspace" => "\u{7f}",
         // F54/Z3：方向键与 Home/End（编辑器折行后的行内/跨行移动）。
