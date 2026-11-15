@@ -12,6 +12,7 @@ fn choices() -> Vec<ModelChoice> {
         .map(|id| ModelChoice {
             id: (*id).to_string(),
             provider: "p".to_string(),
+            name: (*id).to_string(),
         })
         .collect()
 }

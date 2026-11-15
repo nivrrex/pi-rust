@@ -11,6 +11,11 @@ use pi_ai::config::{BuiltInCatalog, ModelsConfig, ProviderConfig};
 pub struct ModelRow {
     pub provider: String,
     pub id: String,
+    /// 显示名（`models.json` 的 `name`；缺省时用 `id`）。
+    ///
+    /// 只为 `/scoped-models` 面板的 `Model Name:` 行与分页行存在
+    /// （ref `scoped-models-selector.ts:262-268`）；`/model` 的表与 Ctrl+P 不用它。
+    pub name: Option<String>,
     pub context_window: Option<u64>,
     pub max_tokens: Option<u64>,
     pub reasoning: bool,
@@ -67,6 +72,7 @@ pub fn collect_models(
                     rows.push(ModelRow {
                         provider: provider_name.clone(),
                         id: model.id.clone(),
+                        name: model.name.clone(),
                         context_window: model.context_window,
                         max_tokens: model.max_tokens,
                         reasoning: model.reasoning.unwrap_or(false),
@@ -92,6 +98,8 @@ pub fn collect_models(
             rows.push(ModelRow {
                 provider: provider.to_string(),
                 id: model.id.clone(),
+                // 内置目录（`pi_ai::config::BuiltInModel`）没有 `name` 字段，回落为 `id`。
+                name: None,
                 context_window: model.context_window,
                 max_tokens: model.max_tokens,
                 // 内置目录不带 `reasoning`/`input` 字段（导出时被裁掉了），按上游缺省处理。
@@ -164,6 +172,7 @@ pub fn to_model_choices(rows: &[ModelRow]) -> Vec<crate::tui::ModelChoice> {
         .map(|row| crate::tui::ModelChoice {
             provider: row.provider.clone(),
             id: row.id.clone(),
+            name: row.name.clone().unwrap_or_else(|| row.id.clone()),
         })
         .collect()
 }
@@ -263,6 +272,7 @@ mod tests {
             ModelRow {
                 provider: "openrouter".to_string(),
                 id: "free".to_string(),
+                name: None,
                 context_window: Some(200_000),
                 max_tokens: Some(8_192),
                 reasoning: true,
@@ -271,6 +281,7 @@ mod tests {
             ModelRow {
                 provider: "deepseek".to_string(),
                 id: "deepseek-v4.1-flash".to_string(),
+                name: None,
                 context_window: Some(128_000),
                 max_tokens: None,
                 reasoning: false,
@@ -315,6 +326,7 @@ mod tests {
             ModelRow {
                 provider: "openrouter".to_string(),
                 id: "deepseek-v4.1-flash".to_string(),
+                name: None,
                 context_window: None,
                 max_tokens: None,
                 reasoning: false,
@@ -323,6 +335,7 @@ mod tests {
             ModelRow {
                 provider: "anthropic".to_string(),
                 id: "claude".to_string(),
+                name: None,
                 context_window: None,
                 max_tokens: None,
                 reasoning: false,

@@ -1842,6 +1842,8 @@ fn build_tui_agent_parts(
             .map(|(provider, model)| pi_cli::tui::ModelChoice {
                 provider: provider.to_string(),
                 id: model.to_string(),
+                // `enabledModels` 里写的是裸 id，没有显示名；用 id 顶替。
+                name: model.to_string(),
             })
             .collect();
         if !enabled.is_empty() {
@@ -1921,6 +1923,7 @@ fn build_tui_agent_parts(
                 fallback.push(pi_cli::tui::ModelChoice {
                     provider: provider_name.to_string(),
                     id: resolved.model_id.clone(),
+                    name: resolved.model_id.clone(),
                 });
             }
             fallback
@@ -1944,6 +1947,7 @@ fn build_tui_agent_parts(
             all.push(pi_cli::tui::ModelChoice {
                 provider: provider_name.to_string(),
                 id: resolved.model_id.clone(),
+                name: resolved.model_id.clone(),
             });
         }
         all
@@ -2260,6 +2264,7 @@ mod enabled_models_tests {
         ModelChoice {
             provider: provider.to_string(),
             id: id.to_string(),
+            name: id.to_string(),
         }
     }
 

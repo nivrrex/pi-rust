@@ -174,3 +174,147 @@ fn editing_the_scope_immediately_affects_ctrl_p() {
         "面板启用 m1 之后，Ctrl+P 应能回到 m1（改动即时生效）。实际序列：{models:?}"
     );
 }
+
+// ---------------------------------------------------------------------------
+// 面板版式与按键语义（对齐 TS 版实测，Pi v0.87.1 100×30 的 `/scoped-models`）
+// ---------------------------------------------------------------------------
+
+fn selector() -> pi_cli::settings_selector::ScopedModelsSelector {
+    use pi_cli::settings_selector::{ScopedModelRow, ScopedModelsSelector};
+    let rows = vec![
+        ScopedModelRow {
+            full_id: "ant-ling/Ling-3.2-flash".to_string(),
+            id: "Ling-3.2-flash".to_string(),
+            provider: "ant-ling".to_string(),
+            name: "Ling 3.2 Flash".to_string(),
+            available: true,
+        },
+        ScopedModelRow {
+            full_id: "command-code/deepseek-v4.1-flash".to_string(),
+            id: "deepseek-v4.1-flash".to_string(),
+            provider: "command-code".to_string(),
+            name: "DeepSeek V4.1 Flash".to_string(),
+            available: true,
+        },
+    ];
+    ScopedModelsSelector::new(rows, None)
+}
+
+/// 首屏版式与 TS 实测一致：标题、`Session-only. Ctrl+S`、搜索框 `> `、
+/// `✓ ` + `名称 [provider]`、按键提示行、`· all enabled`。
+#[test]
+fn panel_matches_the_ts_layout() {
+    let lines = selector().lines();
+    let joined = lines.join("\n");
+    assert!(joined.contains("Model Configuration"), "{joined}");
+    assert!(
+        joined.contains("Session-only. Ctrl+S to save to settings."),
+        "{joined}"
+    );
+    assert!(joined.contains("> "), "应有搜索框：{joined}");
+    assert!(
+        joined.contains("→ ✓ Ling 3.2 Flash [ant-ling]"),
+        "选中行应是 '→ ✓ 名称 [provider]'：{joined}"
+    );
+    assert!(
+        joined.contains("Enter toggle · Ctrl+A all · Ctrl+X clear · Ctrl+P provider"),
+        "按键提示应与 TS 一致：{joined}"
+    );
+    assert!(joined.contains("· all enabled"), "{joined}");
+}
+
+/// Enter 切换（**不是空格**）；空格进搜索框（ref `:406-408`）。
+#[test]
+fn enter_toggles_and_space_goes_to_search() {
+    let mut sel = selector();
+    sel.toggle_selected();
+    let after_enter = sel.enabled.clone();
+    assert!(
+        matches!(&after_enter, Some(list) if list.len() == 1),
+        "Enter 应关掉当前项，得到 1 项：{after_enter:?}"
+    );
+    // 空格不是切换键：走 push_search。
+    sel.push_search(' ');
+    assert_eq!(sel.search, " ");
+    let after_space = sel.enabled.clone();
+    assert_eq!(
+        after_enter, after_space,
+        "空格不应改变启用集合（它属于搜索框）"
+    );
+}
+
+/// 搜索过滤 + `Model Name:` 行（ref `:222-238`、`:271-280`）。
+#[test]
+fn search_filters_rows_and_reports_the_selected_name() {
+    let mut sel = selector();
+    sel.push_search('d');
+    sel.push_search('s');
+    let lines = sel.lines().join("\n");
+    assert!(
+        lines.contains("DeepSeek V4.1 Flash") || lines.contains("deepseek-v4.1-flash"),
+        "搜索 'ds' 应命中 deepseek：{lines}"
+    );
+    assert!(
+        !lines.contains("→ ✓ Ling 3.2 Flash"),
+        "搜索生效后 Ling 不应是选中行：{lines}"
+    );
+    assert!(lines.contains("Model Name:"), "{lines}");
+    // 退格清空后恢复全部
+    while sel.pop_search() {}
+    assert!(sel.lines().join("\n").contains("Ling 3.2 Flash"));
+}
+
+/// `ctrl+p` 按 provider 整组开关（ref `:364-382`）。
+#[test]
+fn ctrl_p_toggles_the_whole_provider() {
+    let mut sel = selector();
+    sel.toggle_provider();
+    assert!(
+        matches!(&sel.enabled, Some(list) if list == &vec!["command-code/deepseek-v4.1-flash".to_string()]),
+        "应只关掉 ant-ling 的那一项：{:?}",
+        sel.enabled
+    );
+    // **选中项随排序移动**：关掉 ant-ling 之后 `filtered()` 把 deepseek 排到前面，
+    // `selected` 仍是 0 ⇒ 第二次按的是 command-code 那一组，把它也关掉 ⇒ 空集。
+    // 这是 ref 的行为（`getSortedIds` 把已启用项提前，`:77-81`），不是缺陷。
+    sel.toggle_provider();
+    assert!(
+        matches!(&sel.enabled, Some(list) if list.is_empty()),
+        "第二次按的是（已排到前面的）command-code，应清空：{:?}",
+        sel.enabled
+    );
+    // 第三次：当前选中项已不在可用集合…仍指 command-code，provider 非全启用 ⇒ enable 回来。
+    sel.toggle_provider();
+    assert!(
+        matches!(&sel.enabled, Some(list) if !list.is_empty()),
+        "第三次应把该 provider 重新启用：{:?}",
+        sel.enabled
+    );
+}
+
+/// 分页：`maxVisible=8`，超出时给 `(n/total)`（ref `:246-260`）。
+#[test]
+fn pagination_caps_at_eight_rows() {
+    use pi_cli::settings_selector::{ScopedModelRow, ScopedModelsSelector};
+    let rows: Vec<ScopedModelRow> = (0..12)
+        .map(|index| ScopedModelRow {
+            full_id: format!("p/m{index}"),
+            id: format!("m{index}"),
+            provider: "p".to_string(),
+            name: format!("Model {index}"),
+            available: true,
+        })
+        .collect();
+    let sel = ScopedModelsSelector::new(rows, None);
+    let lines = sel.lines();
+    let model_rows = lines
+        .iter()
+        .filter(|line| line.starts_with("→ ") || line.starts_with("  "))
+        .filter(|line| line.contains("[p]"))
+        .count();
+    assert_eq!(model_rows, 8, "最多显示 8 行：{lines:?}");
+    assert!(
+        lines.iter().any(|line| line.contains("(1/12)")),
+        "应显示位置指示：{lines:?}"
+    );
+}

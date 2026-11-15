@@ -1244,6 +1244,11 @@ impl SelectorUi {
 pub struct ModelChoice {
     pub provider: String,
     pub id: String,
+    /// 显示名（`models.json` 的 `name`；缺省与 `id` 相同）。
+    ///
+    /// `/scoped-models` 面板的分页行与 `Model Name:` 行用它（ref
+    /// `scoped-models-selector.ts:262-268` 用 `item.model.name`）；Ctrl+P 只用 `id`。
+    pub name: String,
 }
 
 /// 按 `/scoped-models` 的启用集合过滤 Ctrl+P 候选，并**按启用顺序**排列
@@ -2558,17 +2563,26 @@ pub fn run(
                 if let SelectorUi::ScopedModels(sel) = open_selector {
                     use pi_tui::TuiEvent as E;
                     let handled = match &event {
-                        E::Char(' ') => {
+                        // **Enter 切换**（ref `:331-341` 用 `tui.select.confirm`，默认 `enter`）。
+                        // 上一版把空格当切换键，与 TS 实测不符：空格会落进搜索框（`:406-408`）。
+                        E::Enter => {
                             sel.toggle_selected();
+                            true
+                        }
+                        // `ctrl+p` → `app.models.toggleProvider`（ref `:364-382`）。
+                        // 输入层把它当 Ctrl+P（平时是模型循环）；面板打开时按面板语义用。
+                        E::CtrlP => {
+                            sel.toggle_provider();
                             true
                         }
                         // `ctrl+a` → `app.models.enableAll`（ref `keybindings.ts:190-193`）；
                         // 输入层把它当成 `LineStart`，这里按面板语义复用。
+                        // 搜索框非空时只作用于过滤结果（ref `:345-352`）。
                         E::LineStart => {
                             sel.enable_all();
                             true
                         }
-                        // `ctrl+x` → `app.models.clearAll`（`:194-197`）。
+                        // `ctrl+x` → `app.models.clearAll`（`:355-362`）。
                         E::CtrlX => {
                             sel.clear_all();
                             true
@@ -2616,6 +2630,28 @@ pub fn run(
                             true
                         }
                         _other => false,
+                    };
+                    // 其余按键**全部进搜索框**（ref `:406-408` 的 fallthrough）。
+                    // 只对 ScopedModels 生效：别的选择器（`/model`、`/resume`）有自己的
+                    // 搜索/过滤路径，不能被这里抢走。
+                    let handled = if handled {
+                        true
+                    } else {
+                        match &event {
+                            E::Char(ch) => {
+                                sel.push_search(*ch);
+                                true
+                            }
+                            E::Backspace => sel.pop_search(),
+                            // 上下/翻页/重排之外的编辑键在面板里无意义，吞掉避免漏进编辑器。
+                            E::CursorLeft
+                            | E::CursorRight
+                            | E::LineStart
+                            | E::LineEnd
+                            | E::Delete
+                            | E::Tab => true,
+                            _other => false,
+                        }
                     };
                     if handled {
                         // **每次改动都同步到共享槽**（ref `scoped-models-selector.ts:250-270`
@@ -5826,15 +5862,21 @@ pub fn run(
                         "scoped-models" => {
                             // ref `interactive-mode.ts:3088-3092` → `showModelsSelector()`
                             // （`scoped-models-selector.ts:97-220`）：管理 Ctrl+P 的循环范围。
-                            let (all_ids, enabled) = parts.as_ref().map_or_else(
+                            let (rows, enabled) = parts.as_ref().map_or_else(
                                 || (Vec::new(), Some(Vec::new())),
                                 |parts| {
                                     // 面板列出**全部可用模型**（ref 的 `allModels`），
                                     // 不是被 scope 过滤后的 `available_models`。
-                                    let all: Vec<String> = parts
+                                    let all: Vec<crate::settings_selector::ScopedModelRow> = parts
                                         .all_available_models
                                         .iter()
-                                        .map(|choice| format!("{}/{}", choice.provider, choice.id))
+                                        .map(|choice| crate::settings_selector::ScopedModelRow {
+                                            full_id: format!("{}/{}", choice.provider, choice.id),
+                                            id: choice.id.clone(),
+                                            provider: choice.provider.clone(),
+                                            name: choice.name.clone(),
+                                            available: true,
+                                        })
                                         .collect();
                                     // **以共享槽为准**（它保存着本会话里上次面板改动的
                                     // 结果；首次打开时它来自 settings 的 `enabledModels`）。
@@ -5846,7 +5888,7 @@ pub fn run(
                                     (all, enabled)
                                 },
                             );
-                            if all_ids.is_empty() {
+                            if rows.is_empty() {
                                 let _ = apply(
                                     &mut state,
                                     TuiEvent::Status(
@@ -5856,7 +5898,7 @@ pub fn run(
                                 );
                             } else {
                                 let sel = crate::settings_selector::ScopedModelsSelector::new(
-                                    all_ids, enabled,
+                                    rows, enabled,
                                 );
                                 state.open_panel(pi_tui::PanelPlacement::BelowEditor, sel.lines());
                                 selector = Some(SelectorUi::ScopedModels(sel));
@@ -9254,6 +9296,7 @@ mod windows_input_tests {
             .map(|(provider, id)| ModelChoice {
                 provider: (*provider).to_string(),
                 id: (*id).to_string(),
+                name: (*id).to_string(),
             })
             .collect()
     }
@@ -9294,7 +9337,8 @@ mod windows_input_tests {
             NextModel::Chosen(
                 ModelChoice {
                     provider: "a".to_string(),
-                    id: "one".to_string()
+                    id: "one".to_string(),
+                    name: "one".to_string(),
                 },
                 "one".to_string()
             )

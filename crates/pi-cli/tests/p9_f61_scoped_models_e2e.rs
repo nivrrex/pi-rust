@@ -161,16 +161,21 @@ fn scoped_models_opens_the_panel() {
         screen.contains("Model Configuration"),
         "应显示面板标题（ref :132-133）。屏幕：\n{screen}"
     );
+    // 版式对齐 TS 实测：每行是 `名称 [provider]`（ref `:262-266`），
+    // 不是 `provider/id`。夹具里 name 与 id 相同，所以显示 `m1 [p]`。
     assert!(
-        screen.contains("p/m1") && screen.contains("p/m2"),
-        "面板应列出两个模型。屏幕：\n{screen}"
+        screen.contains("m1 [p]") && screen.contains("m2 [p]"),
+        "面板应列出两个模型（名称 [provider]）。屏幕：\n{screen}"
     );
 }
 
-/// 空格切换 + `ctrl+s` 真的写进 `enabledModels`。
+/// Enter 切换 + `ctrl+s` 真的写进 `enabledModels`。
+///
+/// 切换键是 **Enter**（ref `scoped-models-selector.ts:331` 的 `tui.select.confirm`）；
+/// 空格属于搜索框（`:406-408`），不会改动启用集合。
 #[test]
 fn scoped_models_ctrl_s_persists_the_selection() {
-    let Some((screen, settings)) = run(&[" ", "\u{13}"]) else {
+    let Some((screen, settings)) = run(&["\r", "\u{13}"]) else {
         eprintln!("跳过：本机没有 node");
         return;
     };
@@ -184,7 +189,7 @@ fn scoped_models_ctrl_s_persists_the_selection() {
     );
     assert!(
         !settings.contains("\"p/m1\""),
-        "被空格关掉的第一个模型不应出现在 enabledModels 里。settings：\n{settings}"
+        "被 Enter 关掉的第一个模型不应出现在 enabledModels 里。settings：\n{settings}"
     );
 }
 

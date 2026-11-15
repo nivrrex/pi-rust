@@ -19,6 +19,7 @@
 
 // P7-6k/W2：主屏差分渲染的纯函数移植（本批不接线，见模块文档）。
 pub mod diff;
+pub mod fuzzy;
 pub mod gitinfo;
 pub mod intraline;
 /// `/scoped-models` 的纯逻辑（ref `scoped-models-selector.ts:24-90`）。

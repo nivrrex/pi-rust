@@ -645,9 +645,16 @@ ref 的对应实现见 `interactive-mode.ts:2541`/`:2543`（`showExtensionNotify
     两处未合并成同一常量，避免改变括号粘贴的缩进与光标列。推翻条件：ref 后续版本
     把两处口径统一（届时合并）。
 24. **F61/17 起 5 条内置斜杠命令未移植**：`share`、`bug`、`changelog`、`trust`、`reload`
-    （`scoped-models` 在 F61/16-F61/17 实现：纯逻辑 `crates/pi-tui/src/scoped_models.rs`
-    + 面板 `ScopedModelsSelector`，空格切换/`ctrl+a` 全开/`ctrl+x` 全关/`alt+↑↓` 重排/
-    `ctrl+s` 落盘 `enabledModels`，ref `scoped-models-selector.ts:24-365`）
+    （`scoped-models` 在 F61/16-F61/20 实现：纯逻辑 `crates/pi-tui/src/scoped_models.rs`
+    + 模糊匹配 `crates/pi-tui/src/fuzzy.rs`（ref `packages/tui/src/fuzzy.ts` 逐行转写）
+    + 面板 `ScopedModelsSelector`。**Enter 切换**（ref 用 `tui.select.confirm`，空格属于
+    搜索框）/`ctrl+a` 全开/`ctrl+x` 全关/`ctrl+p` 整组按 provider 开关/`alt+↑↓` 重排/
+    `ctrl+s` 落盘 `enabledModels`；搜索框、`maxVisible=8` 分页、`(n/total)`、`Model Name:`
+    行、按键提示页脚、`名称 [provider]` 行格式均对齐 TS 实测（100×30 并排对比：
+    结构、提示行、分页、计数逐行一致）。
+    **未做**：TS 多一行 `Refreshing model catalogs…`（catalog 热刷新状态，我们不热刷新）；
+    `ctrl+c` 在面板内的"清空搜索/取消"语义（`TuiEvent` 无 `CtrlC`，该键走中止路径）。
+    推翻条件：补上 catalog 热刷新，或给输入层加 `CtrlC` 事件）
     （`copy` 在 F61/5 实现：与 `ctrl+x` 同为"复制最后一条助手消息"；
     `name` 在 F61/6 实现：写 `session_info` 条目，ref `session-manager.ts:1302-1325`；
     `clone` 在 F61/8 实现：`handleCloneCommand` → 复制当前叶子路径到新会话，

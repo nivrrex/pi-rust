@@ -196,11 +196,13 @@ fn sequential_enable_builds_the_cycle_order() {
 fn selector_key_semantics_match_ref() {
     use pi_tui::scoped_models::EnabledIds;
     // 用 pi-cli 的面板结构需要 pi-cli 依赖，这里直接用纯函数复现它的按键映射，
-    // 确认"空格=toggle、ctrl+a=enableAll、ctrl+x=clearAll、alt+↑↓=move"的组合正确。
+    // 确认"toggle（Enter）=toggle、ctrl+a=enableAll、ctrl+x=clearAll、alt+↑↓=move"
+    // 的组合正确。切换键在 ref 里是 `tui.select.confirm`（= Enter，
+    // `scoped-models-selector.ts:331`），空格会落进搜索框（`:406-408`）。
     let all = ids(&["a/m1", "a/m2", "a/m3"]);
     let mut enabled: EnabledIds = None;
 
-    // 空格在 None 上 ⇒ 关掉当前项（第一项）
+    // 在 None 上 toggle ⇒ 关掉当前项（第一项）
     enabled = toggle(&enabled, &all, "a/m1");
     assert_eq!(enabled, Some(ids(&["a/m2", "a/m3"])));
     // ctrl+x 全关

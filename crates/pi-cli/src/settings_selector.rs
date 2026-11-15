@@ -1183,117 +1183,328 @@ pub fn shorten_path(path: &str, home: &str) -> String {
 /// - `ctrl+↑/ctrl+↓` 在启用列表内上移/下移（决定 Ctrl+P 顺序，ref `:314-320` 的 `move`）
 /// - `ctrl+s` 落盘到 settings（ref 的 `app.models.save`）
 pub struct ScopedModelsSelector {
-    /// 全部可用模型的 id（`provider/id`）。
-    pub all_ids: Vec<String>,
+    /// 全部可用模型（`provider`/`id`/`name`），`provider/id` 是唯一键。
+    pub all: Vec<ScopedModelRow>,
     /// 启用集合（`None` = 全部启用）。
     pub enabled: pi_tui::scoped_models::EnabledIds,
-    /// 选中下标（按 `sorted_ids` 的显示顺序）。
+    /// 选中下标（按**过滤后**的显示顺序）。
     pub selected: usize,
     /// 已落盘提示（`ctrl+s` 后置位）。
     pub persisted: bool,
+    /// 搜索框内容（ref 的 `searchInput`）。
+    pub search: String,
 }
+
+/// 面板里的一行模型（ref `ModelItem`，`scoped-models-selector.ts:83-87`）。
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ScopedModelRow {
+    /// `provider/id`（唯一键）。
+    pub full_id: String,
+    /// 裸模型 id（显示用）。
+    pub id: String,
+    pub provider: String,
+    /// 显示名（缺省与 `id` 相同）。
+    pub name: String,
+    /// 是否在**可用**集合里（ref 用 `item.model === undefined` 表示不可用）。
+    ///
+    /// 显式 `enabledModels` 里可能有当前不可用的条目（provider 被删/凭据过期），
+    /// ref 把它们标 `[unavailable]` 并画删除线，而不是隐藏（`:263-266`）。
+    pub available: bool,
+}
+
+/// 分页可见行数（ref `scoped-models-selector.ts:141` 的 `maxVisible = 8`）。
+const MAX_VISIBLE: usize = 8;
+
+/// 键位提示文本（ref 的 `keyDisplayText`，`:207-214` 的拼装顺序）。
+///
+/// 与 TS 版实测逐字一致（`/scoped-models` 面板末行）：
+/// `Enter toggle · Ctrl+A all · Ctrl+X clear · Ctrl+P provider · Alt+Up/Alt+Down reorder · Ctrl+S save`
+const KEY_HINTS: &str = "Enter toggle · Ctrl+A all · Ctrl+X clear · Ctrl+P provider · \
+Alt+Up/Alt+Down reorder · Ctrl+S save";
 
 impl ScopedModelsSelector {
     /// 由可用模型与当前启用集合构造。
+    ///
+    /// `enabled` 里出现、但不在 `all` 里的 id 会补成 `available: false` 的行，
+    /// 与 ref 一致（`:194-198` 的 `unavailableCount` 需要它们存在）。
     #[must_use]
-    pub fn new(all_ids: Vec<String>, enabled: pi_tui::scoped_models::EnabledIds) -> Self {
+    pub fn new(all: Vec<ScopedModelRow>, enabled: pi_tui::scoped_models::EnabledIds) -> Self {
+        let mut rows = all;
+        if let Some(list) = &enabled {
+            for id in list {
+                if !rows.iter().any(|row| row.full_id == *id) {
+                    let (provider, model_id) = id.split_once('/').unwrap_or(("", id.as_str()));
+                    rows.push(ScopedModelRow {
+                        full_id: id.clone(),
+                        id: model_id.to_string(),
+                        provider: provider.to_string(),
+                        name: model_id.to_string(),
+                        available: false,
+                    });
+                }
+            }
+        }
         Self {
-            all_ids,
+            all: rows,
             enabled,
             selected: 0,
             persisted: false,
+            search: String::new(),
         }
     }
 
-    /// 显示顺序（已启用的按列表顺序在前）。
+    /// 全部 id（`all` 的顺序，供纯函数 `scoped_models` 用）。
+    #[must_use]
+    pub fn all_ids(&self) -> Vec<String> {
+        self.all.iter().map(|row| row.full_id.clone()).collect()
+    }
+
+    /// 显示顺序（已启用的按列表顺序在前；ref `getSortedIds`）。
     #[must_use]
     pub fn order(&self) -> Vec<String> {
-        pi_tui::scoped_models::sorted_ids(&self.enabled, &self.all_ids)
+        pi_tui::scoped_models::sorted_ids(&self.enabled, &self.all_ids())
+    }
+
+    /// 过滤 + 排序后的行（ref `refresh()` 的 `filteredItems`，`:222-238`）。
+    ///
+    /// 搜索文本口径照 `model-search.ts:6-10` 的 `getModelSearchText`：
+    /// `id provider provider/id provider id name`（重复 provider 是上游原样）。
+    #[must_use]
+    pub fn filtered(&self) -> Vec<ScopedModelRow> {
+        let by_id: std::collections::HashMap<&str, &ScopedModelRow> = self
+            .all
+            .iter()
+            .map(|row| (row.full_id.as_str(), row))
+            .collect();
+        let ordered: Vec<ScopedModelRow> = self
+            .order()
+            .into_iter()
+            .filter_map(|id| by_id.get(id.as_str()).map(|row| (*row).clone()))
+            .collect();
+        let needle = self.search.trim();
+        if needle.is_empty() {
+            return ordered;
+        }
+        pi_tui::fuzzy::fuzzy_filter(&ordered, needle, |row| {
+            let name = if row.name.is_empty() {
+                String::new()
+            } else {
+                format!(" {}", row.name)
+            };
+            format!(
+                "{} {} {}/{} {} {}{}",
+                row.id, row.provider, row.provider, row.id, row.provider, row.id, name
+            )
+        })
+    }
+
+    /// 当前选中的行。
+    #[must_use]
+    pub fn selected_row(&self) -> Option<ScopedModelRow> {
+        self.filtered().get(self.selected).cloned()
     }
 
     /// 当前选中的 id。
     #[must_use]
     pub fn selected_id(&self) -> Option<String> {
-        self.order().get(self.selected).cloned()
+        self.selected_row().map(|row| row.full_id)
     }
 
-    /// 上移选中项。
+    /// 上移选中项（**循环**，ref `:296-303`：从 0 跳到末尾）。
     pub fn move_up(&mut self) {
-        self.selected = self.selected.saturating_sub(1);
-    }
-
-    /// 下移选中项。
-    pub fn move_down(&mut self) {
-        if self.selected + 1 < self.all_ids.len() {
-            self.selected += 1;
+        let len = self.filtered().len();
+        if len == 0 {
+            return;
         }
+        self.selected = if self.selected == 0 {
+            len - 1
+        } else {
+            self.selected - 1
+        };
     }
 
-    /// 切换当前项（空格）。
+    /// 下移选中项（**循环**，ref `:305-312`）。
+    pub fn move_down(&mut self) {
+        let len = self.filtered().len();
+        if len == 0 {
+            return;
+        }
+        self.selected = if self.selected + 1 == len {
+            0
+        } else {
+            self.selected + 1
+        };
+    }
+
+    /// 切换当前项（**Enter**，ref `:331-341` 用的是 `tui.select.confirm`）。
+    ///
+    /// 注意：ref 的 `tui.select.confirm` 是 `enter`，空格键会**落进搜索框**
+    /// （`:406-408` 的 fallthrough）。上一版把空格当切换键，与 TS 实测不符。
     pub fn toggle_selected(&mut self) {
         if let Some(id) = self.selected_id() {
-            self.enabled = pi_tui::scoped_models::toggle(&self.enabled, &self.all_ids, &id);
+            self.enabled = pi_tui::scoped_models::toggle(&self.enabled, &self.all_ids(), &id);
             self.persisted = false;
         }
     }
 
-    /// 全开（`ctrl+a`）。
+    /// 全开（`ctrl+a`）。搜索框非空时只对**过滤结果**生效（ref `:345-352`）。
     pub fn enable_all(&mut self) {
-        self.enabled = pi_tui::scoped_models::enable_all(&self.enabled, &self.all_ids, None);
+        let targets = self.targets();
+        self.enabled =
+            pi_tui::scoped_models::enable_all(&self.enabled, &self.all_ids(), targets.as_deref());
         self.persisted = false;
     }
 
-    /// 全关（`ctrl+d`）。
+    /// 全关（`ctrl+x`）。搜索框非空时只对**过滤结果**生效（ref `:355-362`）。
     pub fn clear_all(&mut self) {
-        self.enabled = pi_tui::scoped_models::clear_all(&self.enabled, &self.all_ids, None);
+        let targets = self.targets();
+        self.enabled =
+            pi_tui::scoped_models::clear_all(&self.enabled, &self.all_ids(), targets.as_deref());
         self.persisted = false;
     }
 
-    /// 在启用列表内移动当前项（`ctrl+↑/↓`，决定 Ctrl+P 顺序）。
+    /// 当前搜索框非空时，操作范围限定为过滤结果（ref 的 `targetIds`）。
+    fn targets(&self) -> Option<Vec<String>> {
+        if self.search.trim().is_empty() {
+            return None;
+        }
+        Some(self.filtered().into_iter().map(|row| row.full_id).collect())
+    }
+
+    /// 切换当前项所属 provider 的全部模型（`ctrl+p`，ref `:364-382`）。
+    pub fn toggle_provider(&mut self) {
+        let Some(row) = self.selected_row() else {
+            return;
+        };
+        let provider = row.provider.clone();
+        let provider_ids: Vec<String> = self
+            .all
+            .iter()
+            .filter(|item| item.provider == provider)
+            .map(|item| item.full_id.clone())
+            .collect();
+        if provider_ids.is_empty() {
+            return;
+        }
+        let all_on = provider_ids
+            .iter()
+            .all(|id| pi_tui::scoped_models::is_enabled(&self.enabled, id));
+        let all_ids = self.all_ids();
+        self.enabled = if all_on {
+            pi_tui::scoped_models::clear_all(&self.enabled, &all_ids, Some(&provider_ids))
+        } else {
+            pi_tui::scoped_models::enable_all(&self.enabled, &all_ids, Some(&provider_ids))
+        };
+        self.persisted = false;
+    }
+
+    /// 在启用列表内移动当前项（`alt+↑/↓`，决定 Ctrl+P 顺序；ref `:318-329`）。
     pub fn reorder_selected(&mut self, delta: isize) {
-        if let Some(id) = self.selected_id() {
-            self.enabled = pi_tui::scoped_models::move_item(&self.enabled, &id, delta);
+        let Some(id) = self.selected_id() else {
+            return;
+        };
+        if !pi_tui::scoped_models::is_enabled(&self.enabled, &id) {
+            return;
+        }
+        let before = self.enabled.clone();
+        self.enabled = pi_tui::scoped_models::move_item(&self.enabled, &id, delta);
+        if self.enabled != before {
+            // ref 同步移动选中下标（`:324`），否则连按会来回跳。
+            #[allow(clippy::cast_possible_wrap)]
+            let next = self.selected as isize + delta;
+            if next >= 0 {
+                #[allow(clippy::cast_sign_loss)]
+                {
+                    self.selected = next as usize;
+                }
+            }
             self.persisted = false;
         }
     }
 
-    /// 面板行（标题 + 每项一行 + 计数）。
+    /// 追加搜索字符（ref 把其余按键全交给 `searchInput`，`:406-408`）。
+    pub fn push_search(&mut self, ch: char) {
+        self.search.push(ch);
+        self.selected = 0;
+    }
+
+    /// 退格（删除搜索框末尾一个字符）。
+    pub fn pop_search(&mut self) -> bool {
+        if self.search.pop().is_some() {
+            self.selected = 0;
+            true
+        } else {
+            false
+        }
+    }
+
+    /// 面板行（边框由 `open_panel` 画，这里只出内容）。
     ///
-    /// 版式照 ref `:132-137` 的头部与 `:194-220` 的底部计数；
-    /// 不做宽度截断（由渲染层统一裁剪）。
+    /// 版式对齐 TS 版实测（`/scoped-models` on Pi v0.87.1，100×30）：
+    /// 标题、`Session-only.`、空行、搜索框、空行、可见行、`(n/total)`、
+    /// 空行、`Model Name:`、空行、按键提示 + `· n/total enabled`。
     #[must_use]
     pub fn lines(&self) -> Vec<String> {
+        let filtered = self.filtered();
+        let total = self.all.len();
         let mut out = vec![
             " Model Configuration".to_string(),
-            " Session-only. ctrl+s to save to settings.".to_string(),
+            " Session-only. Ctrl+S to save to settings.".to_string(),
+            String::new(),
+            format!("> {}", self.search),
             String::new(),
         ];
-        let order = self.order();
-        for (index, id) in order.iter().enumerate() {
-            let marker = if index == self.selected { "→ " } else { "  " };
-            let checked = if pi_tui::scoped_models::is_enabled(&self.enabled, id) {
-                "[x] "
+        if filtered.is_empty() {
+            out.push("  No matching models".to_string());
+            return out;
+        }
+        let selected = self.selected.min(filtered.len() - 1);
+        let start = selected
+            .saturating_sub(MAX_VISIBLE / 2)
+            .min(filtered.len().saturating_sub(MAX_VISIBLE));
+        let end = (start + MAX_VISIBLE).min(filtered.len());
+        for (index, row) in filtered.iter().enumerate().take(end).skip(start) {
+            let marker = if index == selected { "→ " } else { "  " };
+            let status = if pi_tui::scoped_models::is_enabled(&self.enabled, &row.full_id) {
+                "✓ "
             } else {
-                "[ ] "
+                "  "
             };
-            out.push(format!("{marker}{checked}{id}"));
+            let label = if row.available {
+                row.name.clone()
+            } else {
+                format!("{} [unavailable]", row.name)
+            };
+            out.push(format!("{marker}{status}{label} [{}]", row.provider));
+        }
+        if start > 0 || end < filtered.len() {
+            out.push(format!("  ({}/{})", selected + 1, filtered.len()));
+        }
+        if let Some(row) = filtered.get(selected) {
+            out.push(String::new());
+            out.push(format!(
+                "  Model Name: {}",
+                if row.available {
+                    row.name.clone()
+                } else {
+                    "Model unavailable".to_string()
+                }
+            ));
         }
         out.push(String::new());
-        let (enabled, unavailable, all) =
-            pi_tui::scoped_models::footer_counts(&self.enabled, &self.all_ids);
-        let count_text = if all {
+        let (enabled_count, _, all_enabled) =
+            pi_tui::scoped_models::footer_counts(&self.enabled, &self.all_ids());
+        let count_text = if all_enabled {
             "all enabled".to_string()
         } else {
-            format!("{enabled} enabled")
+            format!("{enabled_count}/{total} enabled")
         };
-        let mut footer = count_text;
-        if unavailable > 0 {
-            footer.push_str(&format!(" · {unavailable} unavailable"));
-        }
+        let mut footer = format!("  {KEY_HINTS}");
         if self.persisted {
-            footer.push_str(" · saved");
+            footer.push_str(" (saved)");
         }
-        out.push(format!(" {footer}"));
+        out.push(footer);
+        out.push(format!("· {count_text}"));
         out
     }
 }
