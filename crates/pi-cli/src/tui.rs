@@ -3267,9 +3267,18 @@ pub fn run(
                                                     .and_then(|path| {
                                                         pi_core::session_io::SessionFile::read(path).ok()
                                                     })
+                                                    // **必须用投影口径**（沿当前叶子路径）：
+                                                    // `context_messages` 是"全文件顺序里从最后一条
+                                                    // compaction 起"，会把**被离开的旧分支**也带进来
+                                                    // ⇒ 导航后屏幕上仍然显示旧分支内容（T52 实测：
+                                                    // 我们的最终视口比 golden 多两行 `say hi` /
+                                                    // `Hello world`，golden 只有 `[branch]` 块）。
+                                                    // `projected_messages` 走 `build_session_path`，
+                                                    // 正是 ref `renderInitialMessages()` 读的
+                                                    // `buildContextEntries`。
                                                     .map(|file| {
                                                         transcript_from_messages(
-                                                            &file.context_messages(),
+                                                            &file.projected_messages(),
                                                         )
                                                     })
                                                     .unwrap_or_default();

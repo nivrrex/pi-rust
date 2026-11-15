@@ -96,3 +96,37 @@ fn tree_navigation_appends_the_summary_block_last() {
         "展开态应显示摘要正文。屏幕：\n{expanded}"
     );
 }
+
+/// 导航后传入的 `transcript` **不得**包含被离开的旧分支内容。
+///
+/// 这条锁住的是一个真实回退（F61 定位）：树导航后重建会话区时若用
+/// `context_messages`（全文件顺序）而不是投影口径（沿当前叶子路径），
+/// 会把旧分支也带回来 —— `T52-tree-summarize` 的最终视口因此比 golden
+/// 多两行（`say hi` / `Hello world`），而 golden 只有一个 `[branch]` 块。
+///
+/// 这里用**事件语义**表达该约束：`TreeNavigated` 的 `transcript` 就是"新分支的
+/// 渲染结果"，旧分支出现即违反契约。
+#[test]
+fn tree_navigation_does_not_keep_the_old_branch() {
+    let mut state = base_state();
+    state
+        .transcript
+        .push(TranscriptItem::User("旧分支内容".to_string()));
+    let new_branch = vec![TranscriptItem::User("新分支内容".to_string())];
+    let _ = apply(
+        &mut state,
+        TuiEvent::TreeNavigated {
+            transcript: new_branch,
+            summary: Some("摘要".to_string()),
+        },
+    );
+    let screen = render_all(&state, 100, 40).join("\n");
+    assert!(
+        !screen.contains("旧分支内容"),
+        "导航后不应保留旧分支（golden 里只有 [branch] 块）。屏幕：\n{screen}"
+    );
+    assert!(
+        screen.contains("新分支内容"),
+        "新分支内容应出现。屏幕：\n{screen}"
+    );
+}
