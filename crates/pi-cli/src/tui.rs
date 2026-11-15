@@ -5681,7 +5681,68 @@ pub fn run(
                             });
                         }
                         "scoped-models" => push_unimplemented(&mut state, "scoped-models"),
-                        "export" => push_unimplemented(&mut state, "export"),
+                        "export" => {
+                            // ref `interactive-mode.ts:5593-5607` 的 `handleExportCommand`：
+                            // 目标是 `.jsonl` ⇒ `exportToJsonl`（导出**当前分支**）；
+                            // 否则导出 HTML。成功/失败各一行状态。
+                            //
+                            // **HTML 导出未实现**（ref 那套自包含模板与工具 HTML 渲染器
+                            // 属独立子功能，已登记 LIMITATIONS）；这里对非 `.jsonl`
+                            // 明确报错，不假装成功。
+                            let argument = name
+                                .strip_prefix("export")
+                                .map(str::trim)
+                                .unwrap_or_default()
+                                .to_string();
+                            if argument.is_empty() {
+                                let _ = apply(
+                                    &mut state,
+                                    TuiEvent::Status("Usage: /export <path.jsonl>".to_string()),
+                                );
+                            } else if !argument.ends_with(".jsonl") {
+                                let _ = apply(
+                                    &mut state,
+                                    TuiEvent::ExtensionNotice {
+                                        message: "Failed to export session: HTML export is not implemented yet (use a .jsonl path)".to_string(),
+                                        kind: Some("error".to_string()),
+                                    },
+                                );
+                            } else {
+                                let target = std::path::PathBuf::from(&argument);
+                                let exported = parts
+                                    .as_ref()
+                                    .and_then(|parts| {
+                                        parts.writer.as_ref().and_then(|writer| {
+                                            writer.lock().ok().map(|guard| {
+                                                export_branch_to_jsonl(guard.path(), &target)
+                                            })
+                                        })
+                                    })
+                                    .unwrap_or_else(|| Err("no session file".to_string()));
+                                match exported {
+                                    Ok(path) => {
+                                        let _ = apply(
+                                            &mut state,
+                                            TuiEvent::Status(format!(
+                                                "Session exported to: {}",
+                                                path.display()
+                                            )),
+                                        );
+                                    }
+                                    Err(error) => {
+                                        let _ = apply(
+                                            &mut state,
+                                            TuiEvent::ExtensionNotice {
+                                                message: format!(
+                                                    "Failed to export session: {error}"
+                                                ),
+                                                kind: Some("error".to_string()),
+                                            },
+                                        );
+                                    }
+                                }
+                            }
+                        }
                         "import" => {
                             // ref `interactive-mode.ts:5591-5640` 的 `handleImportCommand`：
                             // `/import <path.jsonl>` 把外部 JSONL 换成当前会话；
@@ -8110,6 +8171,62 @@ fn spawn_r3_input_thread(tx: std::sync::mpsc::Sender<TuiEvent>) {
             wake = next;
         }
     });
+}
+
+/// `/export <path.jsonl>`：把**当前分支路径**导出成 JSONL
+/// （ref `session-export.ts:32-45` 的 `exportSessionToJsonl` +
+/// `serializeSessionBranch`：会话头 + 该分支的全部条目，**不是**整份文件）。
+///
+/// 目标目录不存在时逐级创建（ref `:41-42`）。
+fn export_branch_to_jsonl(
+    source: &std::path::Path,
+    target: &std::path::Path,
+) -> Result<std::path::PathBuf, String> {
+    let file =
+        pi_core::session_io::SessionFile::read(source).map_err(|error| format!("{error}"))?;
+    let entries: Vec<serde_json::Value> = file
+        .entries
+        .iter()
+        .map(|entry| serde_json::to_value(entry).unwrap_or(serde_json::Value::Null))
+        .collect();
+    // 叶子：**会话链上记录的当前叶子**（`/tree`、`/resume` 会移动它），
+    // 只有拿不到时才回退到"文件里最后一条有 id 的条目"。
+    //
+    // 用最后一条会导出错的支：文件里的最后一条可能属于**被离开的旧分支**
+    // （实测：会话里有 `u1→a1` 主线与一条更晚写入的 `o1` 旧分支，导出只能拿到 `o1`）。
+    let leaf = crate::ext_tools::session_chain()
+        .lock()
+        .ok()
+        .and_then(|guard| guard.clone())
+        .or_else(|| {
+            entries
+                .iter()
+                .rev()
+                .find_map(|entry| entry.get("id")?.as_str().map(str::to_string))
+        });
+    let path = crate::rpc_session::branch_path(&entries, leaf.as_deref());
+    if path.is_empty() {
+        return Err("nothing to export".to_string());
+    }
+    // 会话头取自源文件（保序：直接用原始行）。
+    let header_line = std::fs::read_to_string(source)
+        .map_err(|error| error.to_string())?
+        .lines()
+        .find(|line| line.trim_start().starts_with('{'))
+        .map(str::to_string)
+        .unwrap_or_default();
+    if let Some(parent) = target.parent() {
+        if !parent.as_os_str().is_empty() {
+            std::fs::create_dir_all(parent).map_err(|error| error.to_string())?;
+        }
+    }
+    let mut text = header_line;
+    for item in &path {
+        text.push('\n');
+        text.push_str(&item.to_string());
+    }
+    std::fs::write(target, text).map_err(|error| error.to_string())?;
+    Ok(target.to_path_buf())
 }
 
 /// `/import`：把外部 JSONL 复制进会话目录并**替换**当前会话文件的内容

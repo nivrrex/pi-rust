@@ -644,7 +644,7 @@ ref 的对应实现见 `interactive-mode.ts:2541`/`:2543`（`showExtensionNotify
     而编辑器粘贴归一化用 **4 空格**（ref `editor.ts:1146` 的 `normalizeText`）。
     两处未合并成同一常量，避免改变括号粘贴的缩进与光标列。推翻条件：ref 后续版本
     把两处口径统一（届时合并）。
-24. **F61/14 起 7 条内置斜杠命令未移植**：`scoped-models`、`export`、`share`、
+24. **F61/15 起 6 条内置斜杠命令未移植**：`scoped-models`、`share`、
     `bug`、`changelog`、`trust`、`reload`
     （`copy` 在 F61/5 实现：与 `ctrl+x` 同为"复制最后一条助手消息"；
     `name` 在 F61/6 实现：写 `session_info` 条目，ref `session-manager.ts:1302-1325`；
@@ -653,7 +653,9 @@ ref 的对应实现见 `interactive-mode.ts:2541`/`:2543`（`showExtensionNotify
     `fork` 在 F61/13 实现：列出可分叉用户消息 → 以该消息**之前**为界分叉，
     ref `interactive-mode.ts:5341-5368`；
     `import` 在 F61/14 实现：`/import <path.jsonl>` 把外部会话复制进会话目录并切过去，
-    ref `interactive-mode.ts:5591-5640`）
+    ref `interactive-mode.ts:5591-5640`；
+    `export` 在 F61/15 **部分实现**：`/export <path.jsonl>` 导出当前分支
+    （ref `session-export.ts:32-45`），**HTML 导出未实现**并明确报错不假装成功）
     （ref `core/slash-commands.ts:19-44` 的 24 条中余下部分）。pi-rs **识别**它们
     （不会误当 prompt 发给模型），回车后打印
     `Command /<name> is not implemented yet.`，不执行任何动作。
