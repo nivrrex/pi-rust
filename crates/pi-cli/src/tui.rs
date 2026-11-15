@@ -3952,49 +3952,7 @@ pub fn run(
                 continue;
             }
             if matches!(event, TuiEvent::CtrlX) && selector.is_none() {
-                let last = state.transcript.iter().rev().find_map(|item| match item {
-                    pi_tui::TranscriptItem::Assistant(text) => Some(text.clone()),
-                    pi_tui::TranscriptItem::User(_)
-                    | pi_tui::TranscriptItem::SkillInvocation { .. }
-                    | pi_tui::TranscriptItem::Thinking { .. }
-                    | pi_tui::TranscriptItem::Notice(_)
-                    | pi_tui::TranscriptItem::Status(_)
-                    | pi_tui::TranscriptItem::BranchSummary { .. }
-                    | pi_tui::TranscriptItem::CompactionSummary { .. }
-                    | pi_tui::TranscriptItem::ToolCall { .. }
-                    | pi_tui::TranscriptItem::BashExecution { .. } => None,
-                });
-                match last {
-                    Some(text) => {
-                        // 剪贴板策略见 `crate::clipboard`（平台命令 → OSC 52 → 报错），
-                        // 与 ref `utils/clipboard.ts:74-140` 一致。
-                        match crate::clipboard::write_to_clipboard(&text) {
-                            Ok(()) => {
-                                let _ = apply(
-                                    &mut state,
-                                    TuiEvent::Status(
-                                        "Copied last agent message to clipboard".to_string(),
-                                    ),
-                                );
-                            }
-                            Err(error) => {
-                                let _ = apply(&mut state, TuiEvent::Status(error));
-                            }
-                        }
-                    }
-                    None => {
-                        let _ = apply(
-                            &mut state,
-                            // ref `interactive-mode.ts:6392` 走 `showError`（`:4463-4467`）：
-                            // 文案带 `Error: ` 前缀、用 error 色（不是 dim 的状态行）。
-                            // 复用 `ExtensionNotice{kind:"error"}` 这条既有路径，它已经按 ref 加了前缀。
-                            TuiEvent::ExtensionNotice {
-                                message: "No agent messages to copy yet.".to_string(),
-                                kind: Some("error".to_string()),
-                            },
-                        );
-                    }
-                }
+                copy_last_assistant_message(&mut state);
                 dirty = true;
                 continue;
             }
@@ -5616,7 +5574,11 @@ pub fn run(
                         "import" => push_unimplemented(&mut state, "import"),
                         "share" => push_unimplemented(&mut state, "share"),
                         "bug" => push_unimplemented(&mut state, "bug"),
-                        "copy" => push_unimplemented(&mut state, "copy"),
+                        "copy" => {
+                            // ref `interactive-mode.ts:3126-3129` 的 `/copy` →
+                            // `handleCopyCommand()`；与 `ctrl+x` 同一语义，共用实现。
+                            copy_last_assistant_message(&mut state);
+                        }
                         "name" => push_unimplemented(&mut state, "name"),
                         "changelog" => push_unimplemented(&mut state, "changelog"),
                         "fork" => push_unimplemented(&mut state, "fork"),
@@ -7837,6 +7799,55 @@ fn spawn_r3_input_thread(tx: std::sync::mpsc::Sender<TuiEvent>) {
             wake = next;
         }
     });
+}
+
+/// 把**最后一条助手消息**复制到剪贴板（ref `interactive-mode.ts:6377-6407`）。
+///
+/// `/copy`（`:3126-3129`）与 `ctrl+x`（`app.message.copy`）是**同一段语义**，
+/// 抽成一个函数而不是写两份：成功 `Copied last agent message to clipboard`、
+/// 无消息 `Error: No agent messages to copy yet.`（ref 走 `showError`，带前缀）。
+fn copy_last_assistant_message(state: &mut TuiState) {
+    let last = state.transcript.iter().rev().find_map(|item| match item {
+        pi_tui::TranscriptItem::Assistant(text) => Some(text.clone()),
+        pi_tui::TranscriptItem::User(_)
+        | pi_tui::TranscriptItem::SkillInvocation { .. }
+        | pi_tui::TranscriptItem::Thinking { .. }
+        | pi_tui::TranscriptItem::Notice(_)
+        | pi_tui::TranscriptItem::Status(_)
+        | pi_tui::TranscriptItem::BranchSummary { .. }
+        | pi_tui::TranscriptItem::CompactionSummary { .. }
+        | pi_tui::TranscriptItem::ToolCall { .. }
+        | pi_tui::TranscriptItem::BashExecution { .. } => None,
+    });
+    match last {
+        Some(text) => {
+            // 剪贴板策略见 `crate::clipboard`（平台命令 → OSC 52 → 报错），
+            // 与 ref `utils/clipboard.ts:74-140` 一致。
+            match crate::clipboard::write_to_clipboard(&text) {
+                Ok(()) => {
+                    let _ = apply(
+                        state,
+                        TuiEvent::Status("Copied last agent message to clipboard".to_string()),
+                    );
+                }
+                Err(error) => {
+                    let _ = apply(state, TuiEvent::Status(error));
+                }
+            }
+        }
+        None => {
+            let _ = apply(
+                state,
+                // ref `interactive-mode.ts:6392` 走 `showError`（`:4463-4467`）：
+                // 文案带 `Error: ` 前缀、用 error 色（不是 dim 的状态行）。
+                // 复用 `ExtensionNotice{kind:"error"}` 这条既有路径，它已经按 ref 加了前缀。
+                TuiEvent::ExtensionNotice {
+                    message: "No agent messages to copy yet.".to_string(),
+                    kind: Some("error".to_string()),
+                },
+            );
+        }
+    }
 }
 
 /// 已识别但尚未移植的内置命令：**必须给出可见提示**。
