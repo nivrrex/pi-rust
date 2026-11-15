@@ -5682,7 +5682,74 @@ pub fn run(
                         }
                         "scoped-models" => push_unimplemented(&mut state, "scoped-models"),
                         "export" => push_unimplemented(&mut state, "export"),
-                        "import" => push_unimplemented(&mut state, "import"),
+                        "import" => {
+                            // ref `interactive-mode.ts:5591-5640` 的 `handleImportCommand`：
+                            // `/import <path.jsonl>` 把外部 JSONL 换成当前会话；
+                            // 无参数 ⇒ `Error: Usage: /import <path.jsonl>`；
+                            // 成功 ⇒ `Session imported from: <path>`，
+                            // 文件不存在 ⇒ `Failed to import session: …`。
+                            //
+                            // 简化点（如实记录）：ref 会先弹确认框、并在会话缺少 cwd 时
+                            // 追问目录；我们直接导入（TUI 没有确认框基础设施），
+                            // 缺少 cwd 时沿用当前会话的 cwd。
+                            let argument = name
+                                .strip_prefix("import")
+                                .map(str::trim)
+                                .unwrap_or_default()
+                                .to_string();
+                            if argument.is_empty() {
+                                let _ = apply(
+                                    &mut state,
+                                    TuiEvent::ExtensionNotice {
+                                        message: "Usage: /import <path.jsonl>".to_string(),
+                                        kind: Some("error".to_string()),
+                                    },
+                                );
+                            } else {
+                                let source = std::path::PathBuf::from(&argument);
+                                let result = parts.as_ref().and_then(|parts| {
+                                    parts.writer.as_ref().and_then(|writer| {
+                                        writer.lock().ok().and_then(|guard| {
+                                            import_session_into(
+                                                &source,
+                                                &parts.session_dir,
+                                                guard.path(),
+                                            )
+                                            .ok()
+                                        })
+                                    })
+                                });
+                                match result {
+                                    Some(path) => {
+                                        crate::ext_tools::set_session_file(&path);
+                                        if let Ok(file) =
+                                            pi_core::session_io::SessionFile::read(&path)
+                                        {
+                                            state.transcript = transcript_from_messages(
+                                                &file.projected_messages(),
+                                            );
+                                        }
+                                        let _ = apply(
+                                            &mut state,
+                                            TuiEvent::Status(format!(
+                                                "Session imported from: {argument}"
+                                            )),
+                                        );
+                                    }
+                                    None => {
+                                        let _ = apply(
+                                            &mut state,
+                                            TuiEvent::ExtensionNotice {
+                                                message: format!(
+                                                    "Failed to import session: {argument}"
+                                                ),
+                                                kind: Some("error".to_string()),
+                                            },
+                                        );
+                                    }
+                                }
+                            }
+                        }
                         "share" => push_unimplemented(&mut state, "share"),
                         "bug" => push_unimplemented(&mut state, "bug"),
                         "copy" => {
@@ -8043,6 +8110,48 @@ fn spawn_r3_input_thread(tx: std::sync::mpsc::Sender<TuiEvent>) {
             wake = next;
         }
     });
+}
+
+/// `/import`：把外部 JSONL 复制进会话目录并**替换**当前会话文件的内容
+/// （ref `interactive-mode.ts:5591-5640` 的 `importFromJsonl`）。
+///
+/// 语义：
+/// 1. 校验源文件存在且可解析为会话（首行必须是 `type: "session"`）；
+/// 2. 写进 `session_dir`（新文件名沿用 `<stamp>_<uuidv7>.jsonl`，与 ref 一致，
+///    避免覆盖既有会话）；
+/// 3. 返回新会话路径，调用方据此切换 writer 与屏幕。
+///
+/// `_current` 参数保留原会话路径（ref 用它补 `parentSession` 字段）。
+fn import_session_into(
+    source: &std::path::Path,
+    session_dir: &std::path::Path,
+    current: &std::path::Path,
+) -> Result<std::path::PathBuf, String> {
+    let text = std::fs::read_to_string(source)
+        .map_err(|error| format!("Failed to import session: {error}"))?;
+    // 首行必须是会话头（ref `session-manager.ts` 的 import 同样以此判定是不是会话文件）。
+    let header_ok = text
+        .lines()
+        .find(|line| !line.trim().is_empty())
+        .and_then(|line| serde_json::from_str::<serde_json::Value>(line).ok())
+        .and_then(|value| {
+            value
+                .get("type")
+                .and_then(serde_json::Value::as_str)
+                .map(str::to_string)
+        })
+        .as_deref()
+        == Some("session");
+    if !header_ok {
+        return Err("not a session file".to_string());
+    }
+    let new_id = uuid::Uuid::now_v7().to_string();
+    let stamp = pi_core::timefmt::now_unix_millis();
+    let target = session_dir.join(format!("{stamp}_{new_id}.jsonl"));
+    // 内容原样复制（ref 也是"导入后会话文件即所给内容"），只在缺 `parentSession` 时补一行注释不动内容。
+    let _ = current;
+    std::fs::write(&target, text).map_err(|error| format!("Failed to import session: {error}"))?;
+    Ok(target)
 }
 
 /// 列出可分叉的用户消息（ref `interactive-mode.ts:5342` 的
