@@ -814,6 +814,93 @@ impl SessionWriter {
         Ok(sanitized)
     }
 
+    /// `/clone`：把**当前叶子路径**复制成一个新会话文件并切过去
+    /// （ref `interactive-mode.ts:5379-5398` 的 `handleCloneCommand` →
+    /// `runtimeHost.fork(leafId, {position:"at"})` → `createBranchedSession`）。
+    ///
+    /// 与 rpc 的 `clone` 同源：都用 `rpc_session::branch_path` 取路径。
+    /// **不复用 rpc 的 `fork()`**——那条路径绑在 `RpcShared` 上（要维护队列/transcript/
+    /// written 三个锁），TUI 没有那套状态。
+    ///
+    /// 返回新会话的路径；`Ok(None)` = 还没有任何可克隆的条目（ref 的
+    /// `Nothing to clone yet`）。
+    pub fn clone_current_branch(&mut self) -> Result<Option<std::path::PathBuf>, String> {
+        let (entries, cwd) = {
+            // **文件可能还不存在**（懒创建：新会话在首条 assistant 之前没有文件）。
+            // 那种情况下条目为空 ⇒ 调用方给 `Nothing to clone yet`（ref `:5381-5383`：
+            // `getLeafId()` 为 null 时的同一提示），而不是报"读会话失败"。
+            if !self.path.is_file() {
+                return Ok(None);
+            }
+            let file = pi_core::session_io::SessionFile::read(&self.path)
+                .map_err(|error| format!("Failed to read session: {error}"))?;
+            // 新会话的 `cwd` 沿用**原会话头**的（ref `createBranchedSession` 用
+            // `sessionManager.getCwd()`，也就是会话头里的那个，不是进程 cwd）。
+            let cwd = file.header.cwd.clone().unwrap_or_default();
+            let entries = file
+                .entries
+                .iter()
+                .map(|entry| serde_json::to_value(entry).unwrap_or(serde_json::Value::Null))
+                .collect::<Vec<_>>();
+            (entries, cwd)
+        };
+        // 叶子：链上记录的优先（扩展也可能追加过条目），否则取最后一条。
+        let leaf = self
+            .chain
+            .as_ref()
+            .and_then(|chain| chain.lock().ok().and_then(|guard| guard.clone()))
+            .or_else(|| {
+                entries
+                    .iter()
+                    .rev()
+                    .find_map(|entry| entry.get("id")?.as_str().map(str::to_string))
+            });
+        let path = crate::rpc_session::branch_path(&entries, leaf.as_deref());
+        if path.is_empty() {
+            return Ok(None);
+        }
+        let dir = self
+            .path
+            .parent()
+            .ok_or_else(|| "Failed to clone session: no session dir".to_string())?
+            .to_path_buf();
+        let new_id = uuid::Uuid::now_v7().to_string();
+        let stamp = pi_core::timefmt::now_unix_millis();
+        let file = dir.join(format!("{stamp}_{new_id}.jsonl"));
+        let mut extra = serde_json::Map::new();
+        extra.insert(
+            "parentSession".to_string(),
+            serde_json::Value::String(self.path.to_string_lossy().to_string()),
+        );
+        let header = pi_core::session::SessionHeader {
+            kind: "session".to_string(),
+            version: Some(pi_core::session::CURRENT_SESSION_VERSION),
+            id: new_id,
+            timestamp: pi_core::timefmt::unix_millis_to_iso8601(stamp),
+            cwd: Some(cwd),
+            extra,
+        };
+        let mut text = serde_json::to_string(&header)
+            .map_err(|error| format!("Failed to serialize session header: {error}"))?;
+        for item in &path {
+            text.push('\n');
+            text.push_str(&item.to_string());
+        }
+        std::fs::write(&file, text)
+            .map_err(|error| format!("Failed to write cloned session: {error}"))?;
+        // 切到新会话（写器 + 共享链 + 扩展可见的 sessionFile/sessionId）。
+        let mut writer = Self::open(&file)?;
+        writer.set_chain(std::sync::Arc::clone(
+            self.chain
+                .as_ref()
+                .unwrap_or(&crate::ext_tools::session_chain()),
+        ));
+        crate::ext_tools::set_session_file(writer.path());
+        crate::ext_tools::set_session_id(writer.session_id());
+        *self = writer;
+        Ok(Some(file))
+    }
+
     /// 当前会话的显示名（最后一条 `session_info` 的 `name`，ref
     /// `session-manager.ts:1316-1325` 的 `getSessionName`：**倒序**找最新一条）。
     ///

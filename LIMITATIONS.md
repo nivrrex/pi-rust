@@ -644,10 +644,12 @@ ref 的对应实现见 `interactive-mode.ts:2541`/`:2543`（`showExtensionNotify
     而编辑器粘贴归一化用 **4 空格**（ref `editor.ts:1146` 的 `normalizeText`）。
     两处未合并成同一常量，避免改变括号粘贴的缩进与光标列。推翻条件：ref 后续版本
     把两处口径统一（届时合并）。
-24. **F61/6 起 10 条内置斜杠命令未移植**：`scoped-models`、`export`、`import`、`share`、
-    `bug`、`changelog`、`fork`、`clone`、`trust`、`reload`
+24. **F61/8 起 9 条内置斜杠命令未移植**：`scoped-models`、`export`、`import`、`share`、
+    `bug`、`changelog`、`fork`、`trust`、`reload`
     （`copy` 在 F61/5 实现：与 `ctrl+x` 同为"复制最后一条助手消息"；
-    `name` 在 F61/6 实现：写 `session_info` 条目，ref `session-manager.ts:1302-1325`）
+    `name` 在 F61/6 实现：写 `session_info` 条目，ref `session-manager.ts:1302-1325`；
+    `clone` 在 F61/8 实现：`handleCloneCommand` → 复制当前叶子路径到新会话，
+    ref `interactive-mode.ts:5379-5398`）
     （ref `core/slash-commands.ts:19-44` 的 24 条中余下部分）。pi-rs **识别**它们
     （不会误当 prompt 发给模型），回车后打印
     `Command /<name> is not implemented yet.`，不执行任何动作。

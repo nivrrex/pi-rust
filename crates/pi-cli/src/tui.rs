@@ -5676,7 +5676,46 @@ pub fn run(
                         }
                         "changelog" => push_unimplemented(&mut state, "changelog"),
                         "fork" => push_unimplemented(&mut state, "fork"),
-                        "clone" => push_unimplemented(&mut state, "clone"),
+                        "clone" => {
+                            // ref `interactive-mode.ts:5379-5398` 的 `handleCloneCommand`：
+                            // 取当前叶子 → `fork(leafId, {position:"at"})`
+                            // （即 `createBranchedSession`）→ `Cloned to new session`；
+                            // 还没有可克隆的条目时 `Nothing to clone yet`。
+                            let result = parts.as_ref().and_then(|parts| {
+                                parts.writer.as_ref().and_then(|writer| {
+                                    writer
+                                        .lock()
+                                        .ok()
+                                        .and_then(|mut guard| guard.clone_current_branch().ok())
+                                })
+                            });
+                            match result {
+                                Some(Some(path)) => {
+                                    // 新会话的上下文：状态行报告即可。屏幕内容与
+                                    // ref 一致地**保持不变**（ref 克隆后不重渲染历史，
+                                    // 只给一行状态并清编辑器）。
+                                    crate::ext_tools::set_session_file(&path);
+                                    let _ = apply(
+                                        &mut state,
+                                        TuiEvent::Status("Cloned to new session".to_string()),
+                                    );
+                                }
+                                Some(None) => {
+                                    let _ = apply(
+                                        &mut state,
+                                        TuiEvent::Status("Nothing to clone yet".to_string()),
+                                    );
+                                }
+                                None => {
+                                    let _ = apply(
+                                        &mut state,
+                                        TuiEvent::Status(
+                                            "Cannot clone session in this mode.".to_string(),
+                                        ),
+                                    );
+                                }
+                            }
+                        }
                         "trust" => push_unimplemented(&mut state, "trust"),
                         "reload" => push_unimplemented(&mut state, "reload"),
                         other => {

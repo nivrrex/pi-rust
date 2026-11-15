@@ -747,7 +747,10 @@ fn message_text(entry: &serde_json::Value) -> String {
 
 /// root→leaf 的条目路径（沿 `parentId` 上溯后反转）。`leaf` 为 `None` 时返回空
 /// （TS 的 `buildSessionPath` 在 `leafId === null` 时返回 `[]`）。
-fn branch_path(entries: &[serde_json::Value], leaf: Option<&str>) -> Vec<serde_json::Value> {
+pub(crate) fn branch_path(
+    entries: &[serde_json::Value],
+    leaf: Option<&str>,
+) -> Vec<serde_json::Value> {
     let Some(leaf) = leaf else {
         return Vec::new();
     };
@@ -779,7 +782,9 @@ fn branch_path(entries: &[serde_json::Value], leaf: Option<&str>) -> Vec<serde_j
 }
 
 /// 路径条目里的消息（**解析失败就报错**，不静默丢）。
-fn path_messages(path: &[serde_json::Value]) -> Result<Vec<pi_ai::message::Message>, String> {
+pub(crate) fn path_messages(
+    path: &[serde_json::Value],
+) -> Result<Vec<pi_ai::message::Message>, String> {
     let mut out = Vec::new();
     for entry in path {
         if entry.get("type").and_then(serde_json::Value::as_str) != Some("message") {
