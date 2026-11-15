@@ -56,6 +56,11 @@ pub enum Message {
     /// 系统消息。`content` 是字符串或文本块数组。
     System {
         content: UserContent,
+        /// 毫秒时间戳。**缺省为 0**：手工编辑/其它工具写出的会话可能没有这个字段，
+        /// 缺它时整条消息会反序列化失败、被 `SessionFile::read` 当成坏行**静默跳过**
+        /// （F61 实测：一条合法的 user 消息因缺 `timestamp` 而在上下文里消失，
+        /// `/session` 面板显示 `Total: 2 / User: 0`）。
+        #[serde(default)]
         timestamp: i64,
         #[serde(flatten)]
         extra: Map<String, Value>,
@@ -63,6 +68,8 @@ pub enum Message {
     /// 用户消息。
     User {
         content: UserContent,
+        /// 毫秒时间戳；缺省为 0（理由同 `System::timestamp`）。
+        #[serde(default)]
         timestamp: i64,
         #[serde(flatten)]
         extra: Map<String, Value>,
@@ -78,6 +85,8 @@ pub enum Message {
         content: Vec<ToolResultContent>,
         #[serde(rename = "isError")]
         is_error: bool,
+        /// 毫秒时间戳；缺省为 0（理由同 `System::timestamp`）。
+        #[serde(default)]
         timestamp: i64,
         #[serde(flatten)]
         extra: Map<String, Value>,

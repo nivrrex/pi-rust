@@ -914,6 +914,68 @@ pub fn session_usage_totals(path: &std::path::Path) -> UsageTotals {
 /// 用于恢复路径：调用方已经把会话读进内存（`resumed_file`），再按路径重读
 /// 等于把 116 MB 解析第二遍（F56/D 实测：`transcript_renderers_filled → first_draw_begin`
 /// 里约 1.9 s 全在这一句）。
+/// 读取会话条目的辅助：优先用 `AgentParts` 里**已解析的** `resumed_entries`
+/// （F56 的性能约定：116 MB 会话不要反复解析），没有则读文件。
+fn entries_of_parts(
+    parts: &crate::tui::AgentParts,
+) -> Option<std::sync::Arc<Vec<pi_core::session::SessionEntry>>> {
+    if let Some(entries) = parts.resumed_entries.as_ref() {
+        return Some(std::sync::Arc::clone(entries));
+    }
+    let path = parts
+        .writer
+        .as_ref()
+        .and_then(|writer| writer.lock().ok().map(|guard| guard.path().to_path_buf()))?;
+    pi_core::session_io::SessionFile::read(&path)
+        .ok()
+        .map(|file| std::sync::Arc::new(file.entries))
+}
+
+/// `/session` 面板的消息统计（ref `interactive-mode.ts:6453-6456` 的
+/// `totalMessages` / `userMessages` / `assistantMessages` / `toolCalls` / `toolResults`）。
+///
+/// 返回 `(total, user, assistant, tool_calls, tool_results)`。
+/// 口径：`total` 计所有 `message` 条目（含 toolResult），`tool_calls` 数助手消息里的
+/// `toolCall` 内容块，`tool_results` 数 `toolResult` 条目。
+#[must_use]
+pub fn session_message_stats(parts: &crate::tui::AgentParts) -> (u64, u64, u64, u64, u64) {
+    let Some(entries) = entries_of_parts(parts) else {
+        return (0, 0, 0, 0, 0);
+    };
+    let (mut total, mut user, mut assistant, mut calls, mut results) =
+        (0u64, 0u64, 0u64, 0u64, 0u64);
+    for entry in entries.iter() {
+        let pi_core::session::SessionEntry::Message { message, .. } = entry else {
+            continue;
+        };
+        total += 1;
+        match message {
+            pi_ai::message::Message::User { .. } => user += 1,
+            pi_ai::message::Message::Assistant(assistant_message) => {
+                assistant += 1;
+                calls += assistant_message
+                    .content
+                    .iter()
+                    .filter(|block| matches!(block, pi_ai::types::Content::ToolCall { .. }))
+                    .count() as u64;
+            }
+            pi_ai::message::Message::ToolResult { .. } => results += 1,
+            other => {
+                let _ = other;
+            }
+        }
+    }
+    (total, user, assistant, calls, results)
+}
+
+/// `/session` 面板的用量汇总（复用 [`session_usage_totals_of`] 的既有口径）。
+pub fn usage_totals_of_parts(parts: &crate::tui::AgentParts) -> UsageTotals {
+    entries_of_parts(parts)
+        .map(|entries| session_usage_totals_of(&entries))
+        .unwrap_or_default()
+}
+
+/// 会话累计用量（按 `resumed_entries` 或会话文件）。
 pub fn session_usage_totals_of(entries: &[pi_core::session::SessionEntry]) -> UsageTotals {
     let mut totals = UsageTotals::default();
     for entry in entries {

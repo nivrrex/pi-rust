@@ -5101,6 +5101,27 @@ pub fn run(
                                     writer.lock().ok().and_then(|handle| handle.header_id())
                                 })
                                 .unwrap_or_else(|| "(no-id)".to_string());
+                            // **真实统计**（ref `interactive-mode.ts:6432-6470` 的
+                            // `handleSessionCommand` 读 `session.getSessionStats()`）。
+                            // 此前这里全是硬编码 0：面板永远显示 `Total: 0 / User: 0 / …`
+                            // —— 用户打开它只会看到"会话是空的"，与真实状态无关。
+                            let stats = parts
+                                .as_ref()
+                                .map(|parts| crate::session_writer::session_message_stats(parts));
+                            let (total, user, assistant, tool_calls, tool_results) =
+                                stats.unwrap_or((0, 0, 0, 0, 0));
+                            let totals = parts
+                                .as_ref()
+                                .map(|parts| crate::session_writer::usage_totals_of_parts(parts));
+                            let (token_input, token_output, token_total) = totals
+                                .map(|totals| {
+                                    // ref `:6458-6461`：`Input` 是**完整提示量**
+                                    // （`input + cacheRead + cacheWrite`）。
+                                    let prompt =
+                                        totals.input + totals.cache_read + totals.cache_write;
+                                    (prompt, totals.output, prompt + totals.output)
+                                })
+                                .unwrap_or((0, 0, 0));
                             let panel = vec![
                                 " Session Info".to_string(),
                                 String::new(),
@@ -5108,15 +5129,15 @@ pub fn run(
                                 format!(" ID: {id}"),
                                 String::new(),
                                 " Messages".to_string(),
-                                " Total: 0".to_string(),
-                                " User: 0".to_string(),
-                                " Assistant: 0".to_string(),
-                                " Tools: 0 calls, 0 results".to_string(),
+                                format!(" Total: {total}"),
+                                format!(" User: {user}"),
+                                format!(" Assistant: {assistant}"),
+                                format!(" Tools: {tool_calls} calls, {tool_results} results"),
                                 String::new(),
                                 " Tokens".to_string(),
-                                " Input: 0".to_string(),
-                                " Output: 0".to_string(),
-                                " Total: 0".to_string(),
+                                format!(" Input: {token_input}"),
+                                format!(" Output: {token_output}"),
+                                format!(" Total: {token_total}"),
                                 String::new(),
                                 " Cache Warming".to_string(),
                                 " Mode: streaming".to_string(),
