@@ -1561,9 +1561,16 @@ fn build_tui_agent_parts(
     // 旧实现直接用 `file.entries` 的全部 message：一个压缩过 23 次、95 MB 的会话要渲染
     // 56k 条、50 万行、写出 50 MB（真机实测首帧 47 秒；TS 同会话只 1.8 MB、3 秒）。
     pi_cli::stages::mark("session_read");
+    // 用**投影**口径（`projected_messages`）而不是裸 message 列表：
+    // ref `sessionEntryToContextMessages`（`session-manager.ts:458-465`）会把
+    // `compaction` 与 `branch_summary` 条目各自转成一条
+    // `CompactionSummary` / `BranchSummary` 消息送进上下文。此前用
+    // `context_messages`（只取 message 条目）⇒ 恢复会话后的请求体里**缺压缩摘要与
+    // 分支摘要**，与 TS 实际发出的上下文不一致（F61 双向互通比对发现：
+    // 同一份会话 TS 的上下文 7 条、pi-rs 5 条，少了 `compaction:` 与 `branch_summary:` 两条）。
     let initial_messages: Vec<pi_ai::message::Message> = resumed_file
         .as_ref()
-        .map(pi_core::session_io::SessionFile::context_messages)
+        .map(pi_core::session_io::SessionFile::projected_messages)
         .unwrap_or_default();
     // F47/W2：恢复会话时扩展可见的 `ctx.getContextUsage()` 必须来自**会话历史**。
     // ref `core/agent-session.ts:3858-3895`：`getContextUsage()` 用

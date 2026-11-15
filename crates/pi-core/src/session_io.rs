@@ -85,10 +85,33 @@ impl SessionFile {
         context_entries(&self.entries)
     }
 
-    /// 同 [`Self::context_entries`]，但只取 message。
+    /// 同 [`Self::context_entries`]，但只取 **message 条目**。
+    ///
+    /// **注意**：这条路径会丢掉 `compaction` 与 `branch_summary` 条目——
+    /// 而 ref 的 `sessionEntryToContextMessages`（`session-manager.ts:458-465`）
+    /// 会把它们转成 `CompactionSummary` / `BranchSummary` 消息送进上下文。
+    /// 需要与 ref 一致的上下文时请用 [`Self::projected_messages`]。
     #[must_use]
     pub fn context_messages(&self) -> Vec<Message> {
         Self::messages_of(&self.entries)
+    }
+
+    /// 与 ref `buildContextEntries` + `sessionEntryToContextMessages` 一致的上下文消息。
+    ///
+    /// 走 `projection::build_session_projection`（它保留了 `compaction` 与
+    /// `branch_summary` 条目并各自投影成一条消息），因此与自己实际发出的请求体同源。
+    ///
+    /// 为什么单独加而不是改 `context_messages`：后者有几个**只需要裸消息**的调用方
+    /// （例如树导航后的屏幕重放，那里 `[branch]` / `[compaction]` 块由界面自己渲染，
+    /// 再塞一条摘要消息会重复显示）。切换调用点比改语义安全。
+    #[must_use]
+    pub fn projected_messages(&self) -> Vec<Message> {
+        crate::agent::projection::build_session_projection(
+            &self.entries,
+            crate::agent::projection::LeafSelector::Unspecified,
+        )
+        .map(|projection| projection.messages)
+        .unwrap_or_default()
     }
 
     /// 便捷入口：从条目切片算 `buildContextEntries` 的 message 子集。
