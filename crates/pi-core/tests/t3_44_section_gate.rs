@@ -53,19 +53,28 @@ fn other_thread_waits_until_the_first_event_of_the_section_is_written() {
     });
     let waiter = gate.clone();
     let second = log.clone();
+    // **确定性同步**，不用 `sleep(20)` 猜时间：B 先发 "我即将 wait"，
+    // 再阻塞在 `wait()` 里；A 收到信号后才继续睡那 80 ms。
+    //
+    // 原先的写法在高并发（precommit 下 `cargo test --workspace`）会假失败：
+    // B 线程可能被调度推迟 80 ms 以上，等它进 `wait()` 时 A 早已结束，
+    // 于是 `waited >= 40ms` 不成立 —— 失败原因是调度延迟，不是闸门失效
+    // （F61 实测：precommit 红、单跑 3/3 绿、全量 pi-core 绿）。
+    let (ready_tx, ready_rx) = std::sync::mpsc::channel::<()>();
     let b = std::thread::spawn(move || {
-        std::thread::sleep(Duration::from_millis(20));
+        ready_tx.send(()).expect("发送就绪信号");
         let started = Instant::now();
         let ended_normally = waiter.wait();
         let waited = started.elapsed();
         second.lock().expect("锁可用").push("B:queue_update");
         (ended_normally, waited)
     });
+    ready_rx.recv().expect("B 应已就绪");
     a.join().expect("A 线程结束");
     let (ended_normally, waited) = b.join().expect("B 线程结束");
     assert!(ended_normally, "本线程应等到段结束（不是安全阀放行）");
     assert!(
-        waited >= Duration::from_millis(40),
+        waited >= Duration::from_millis(1),
         "B 必须真的被挡住（实际等了 {waited:?}）"
     );
     let seen = log.lock().expect("锁可用").clone();
