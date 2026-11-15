@@ -787,6 +787,55 @@ impl SessionWriter {
         self.append_entry(&SessionEntry::Unknown(serde_json::Value::Object(object)))
     }
 
+    /// 写一条 `session_info`（会话显示名，ref `session-manager.ts:1302-1313` 的
+    /// `appendSessionInfo`）。
+    ///
+    /// 名字先**归一**：`[\r\n]+` → 空格、首尾 trim（ref `:1303` 同款）。
+    /// 条目类型是 `session_info`，pi-rs 没有专门变体 ⇒ 走 `Unknown` 原样往返
+    /// （读后写回不丢字段，符合互通约束）。
+    ///
+    /// 返回写出的名字（归一后的），供 `/name` 判断是否需要提示"被归一过"。
+    pub fn append_session_info(&mut self, name: &str) -> Result<String, String> {
+        let sanitized = name
+            .split(['\r', '\n'])
+            .collect::<Vec<_>>()
+            .join(" ")
+            .trim()
+            .to_string();
+        let (entry_id, parent_id) = self.take_id_and_parent();
+        let entry = serde_json::json!({
+            "type": "session_info",
+            "id": entry_id,
+            "parentId": parent_id,
+            "timestamp": timefmt::unix_millis_to_iso8601(timefmt::now_unix_millis()),
+            "name": sanitized,
+        });
+        self.append_entry(&SessionEntry::Unknown(entry))?;
+        Ok(sanitized)
+    }
+
+    /// 当前会话的显示名（最后一条 `session_info` 的 `name`，ref
+    /// `session-manager.ts:1316-1325` 的 `getSessionName`：**倒序**找最新一条）。
+    ///
+    /// 会话文件是**懒创建**的：还没落盘时读不到，回退到 `pending` 里的行
+    /// （`session_info` 可能在首次 flush 之前就写了）。
+    #[must_use]
+    pub fn session_name(&self) -> Option<String> {
+        let read_name = |line: &str| -> Option<String> {
+            let value: serde_json::Value = serde_json::from_str(line).ok()?;
+            if value.get("type")?.as_str()? != "session_info" {
+                return None;
+            }
+            value.get("name")?.as_str().map(str::to_string)
+        };
+        if let Ok(text) = std::fs::read_to_string(&self.path) {
+            if let Some(name) = text.lines().rev().find_map(read_name) {
+                return Some(name);
+            }
+        }
+        self.pending.iter().rev().find_map(|line| read_name(line))
+    }
+
     pub fn append_compaction(
         &mut self,
         summary: &str,

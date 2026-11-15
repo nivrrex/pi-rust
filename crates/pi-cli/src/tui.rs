@@ -5579,7 +5579,80 @@ pub fn run(
                             // `handleCopyCommand()`；与 `ctrl+x` 同一语义，共用实现。
                             copy_last_assistant_message(&mut state);
                         }
-                        "name" => push_unimplemented(&mut state, "name"),
+                        "name" => {
+                            // ref `interactive-mode.ts:6408-6430` 的 `handleNameCommand`：
+                            // `/name`（无参数）⇒ 有名字就显示 `Session name: X`（dim），
+                            // 没有则 `Warning: Usage: /name <name>`；
+                            // `/name <值>` ⇒ 写 `session_info` 条目并显示
+                            // `Session name set: X`；名字被归一过（换行/首尾空白）时
+                            // 额外给一条 `Warning: Session name was normalized from … to …`。
+                            let requested = name
+                                .strip_prefix("name")
+                                .map(str::trim)
+                                .unwrap_or_default()
+                                .to_string();
+                            let current = parts.as_ref().and_then(|parts| {
+                                parts.writer.as_ref().and_then(|writer| {
+                                    writer.lock().ok().and_then(|guard| guard.session_name())
+                                })
+                            });
+                            if requested.is_empty() {
+                                match current {
+                                    Some(value) => {
+                                        let _ = apply(
+                                            &mut state,
+                                            TuiEvent::Status(format!("Session name: {value}")),
+                                        );
+                                    }
+                                    None => {
+                                        let _ = apply(
+                                            &mut state,
+                                            TuiEvent::ExtensionNotice {
+                                                message: "Usage: /name <name>".to_string(),
+                                                kind: Some("warning".to_string()),
+                                            },
+                                        );
+                                    }
+                                }
+                            } else {
+                                let written = parts.as_ref().and_then(|parts| {
+                                    parts.writer.as_ref().and_then(|writer| {
+                                        writer.lock().ok().and_then(|mut guard| {
+                                            guard.append_session_info(&requested).ok()
+                                        })
+                                    })
+                                });
+                                match written {
+                                    Some(sanitized) => {
+                                        if sanitized != requested {
+                                            let _ = apply(
+                                                &mut state,
+                                                TuiEvent::ExtensionNotice {
+                                                    message: format!(
+                                                        "Session name was normalized from {requested:?} to {sanitized:?}"
+                                                    ),
+                                                    kind: Some("warning".to_string()),
+                                                },
+                                            );
+                                        }
+                                        let _ = apply(
+                                            &mut state,
+                                            TuiEvent::Status(format!(
+                                                "Session name set: {sanitized}"
+                                            )),
+                                        );
+                                    }
+                                    None => {
+                                        let _ = apply(
+                                            &mut state,
+                                            TuiEvent::Status(
+                                                "Cannot set session name in this mode.".to_string(),
+                                            ),
+                                        );
+                                    }
+                                }
+                            }
+                        }
                         "changelog" => push_unimplemented(&mut state, "changelog"),
                         "fork" => push_unimplemented(&mut state, "fork"),
                         "clone" => push_unimplemented(&mut state, "clone"),
