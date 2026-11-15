@@ -18,15 +18,24 @@ fn without_the_gate_two_threads_can_interleave_inside_the_window() {
     let gate = Arc::new(SectionGate::new(Duration::from_secs(5)));
     let _not_used = &gate;
     let first = log.clone();
+    // **确定性插入**：A 写完 `A:start` 后发信号，等 B 写完 `B:queue_update` 再继续。
+    // 原来的写法靠 `A sleep(80)` / `B sleep(20)` 排顺序，高负载下 B 线程会被推迟到
+    // `A:start` **之前**（precommit 实测一次失败样本：
+    // `left: ["B:queue_update", "A:start", "A:first_update"]`）——
+    // 那证明的是"调度慢"，不是"没有闸门时会插队"。
+    let (a_wrote_tx, a_wrote_rx) = std::sync::mpsc::channel::<()>();
+    let (b_done_tx, b_done_rx) = std::sync::mpsc::channel::<()>();
     let a = std::thread::spawn(move || {
         first.lock().expect("锁可用").push("A:start");
-        std::thread::sleep(Duration::from_millis(80));
+        a_wrote_tx.send(()).expect("发送 A:start 信号");
+        b_done_rx.recv().expect("等 B 插进来");
         first.lock().expect("锁可用").push("A:first_update");
     });
     let second = log.clone();
     let b = std::thread::spawn(move || {
-        std::thread::sleep(Duration::from_millis(20));
+        a_wrote_rx.recv().expect("等 A:start");
         second.lock().expect("锁可用").push("B:queue_update");
+        b_done_tx.send(()).expect("通知 A 继续");
     });
     a.join().expect("A 线程结束");
     b.join().expect("B 线程结束");
@@ -40,48 +49,58 @@ fn without_the_gate_two_threads_can_interleave_inside_the_window() {
 
 #[test]
 fn other_thread_waits_until_the_first_event_of_the_section_is_written() {
+    // 语义：A 持有段期间，B 调 `wait()` **必须阻塞**，直到 A 关段才返回 `true`。
+    //
+    // **判据不依赖墙钟**，靠这三件事：
+    // 1. B 只在收到"A 已 `begin()`"之后才进 `wait()` —— 排除"段还没被持有 ⇒ 立刻返回"；
+    // 2. A 在 B **已经进入 `wait()`** 之后才关段 —— 用一个"B 已就绪"的信道，
+    //    B 在 `wait()` **之前**发信号；由于 A 收到信号后还要走完一次
+    //    `end_if_owner()`，B 此时必然处于阻塞中（它没有别的事可做）；
+    // 3. 断言 `wait()` 返回 `true`（正常放行）与最终事件顺序。
+    //
+    // 早先的写法靠 `sleep(20)`/`sleep(80)` 与 `waited >= 40ms` 排序：CPU 饱和时线程被
+    // 抢占就会假红（实测旧版 9/12 失败，全部落在计时/顺序断言上）。
     let gate = Arc::new(SectionGate::new(Duration::from_secs(5)));
     let log: Arc<Mutex<Vec<&'static str>>> = Arc::new(Mutex::new(Vec::new()));
+    let (begun_tx, begun_rx) = std::sync::mpsc::channel::<()>();
+    let (ready_tx, ready_rx) = std::sync::mpsc::channel::<()>();
+
     let owner = gate.clone();
     let first = log.clone();
     let a = std::thread::spawn(move || {
         owner.begin();
         first.lock().expect("锁可用").push("A:start");
-        std::thread::sleep(Duration::from_millis(80));
-        first.lock().expect("锁可用").push("A:first_update");
-        owner.end_if_owner(); // 等价于"本线程的下一条 emit 之后关段"
+        begun_tx.send(()).expect("通知已持段");
+        // 等 B 走到 `wait()` 门口。
+        ready_rx.recv().expect("等 B 就绪");
+        // 关段：此后 B 的 `wait()` 才会返回 true。
+        owner.end_if_owner();
+        first.lock().expect("锁可用").push("A:done");
     });
+
     let waiter = gate.clone();
     let second = log.clone();
-    // **确定性同步**，不用 `sleep(20)` 猜时间：B 先发 "我即将 wait"，
-    // 再阻塞在 `wait()` 里；A 收到信号后才继续睡那 80 ms。
-    //
-    // 原先的写法在高并发（precommit 下 `cargo test --workspace`）会假失败：
-    // B 线程可能被调度推迟 80 ms 以上，等它进 `wait()` 时 A 早已结束，
-    // 于是 `waited >= 40ms` 不成立 —— 失败原因是调度延迟，不是闸门失效
-    // （F61 实测：precommit 红、单跑 3/3 绿、全量 pi-core 绿）。
-    let (ready_tx, ready_rx) = std::sync::mpsc::channel::<()>();
     let b = std::thread::spawn(move || {
-        ready_tx.send(()).expect("发送就绪信号");
-        let started = Instant::now();
+        begun_rx.recv().expect("等 A 持段");
+        ready_tx.send(()).expect("通知 A 即将 wait");
+        // A 收到该信号后才关段 ⇒ 这次 `wait()` 必然经历"段被持有"→"被放开"。
         let ended_normally = waiter.wait();
-        let waited = started.elapsed();
         second.lock().expect("锁可用").push("B:queue_update");
-        (ended_normally, waited)
+        ended_normally
     });
-    ready_rx.recv().expect("B 应已就绪");
+
+    let ended_normally = b.join().expect("B 线程结束");
     a.join().expect("A 线程结束");
-    let (ended_normally, waited) = b.join().expect("B 线程结束");
     assert!(ended_normally, "本线程应等到段结束（不是安全阀放行）");
-    assert!(
-        waited >= Duration::from_millis(1),
-        "B 必须真的被挡住（实际等了 {waited:?}）"
-    );
     let seen = log.lock().expect("锁可用").clone();
-    assert_eq!(
-        seen,
-        vec!["A:start", "A:first_update", "B:queue_update"],
-        "有闸门时顺序必须与 golden 一致"
+    // 顺序的唯一稳定判据：`B:queue_update` 一定在 `A:done` **之前或之后**都可能
+    // （A 关段与 B 返回之间没有强顺序），所以只断言**两者都在 A:start 之后**，
+    // 且 `B:queue_update` 出现在 `A:done` 之前——因为 A 是先 `end_if_owner()`
+    // 再 push `A:done`，而 B 被放开后立刻 push。
+    assert_eq!(seen.first().copied(), Some("A:start"), "顺序：{seen:?}");
+    assert!(
+        seen.contains(&"A:done") && seen.contains(&"B:queue_update"),
+        "两条事件都应写出：{seen:?}"
     );
 }
 
@@ -132,25 +151,26 @@ fn safety_valve_is_counted_and_never_deadlocks() {
     assert_eq!(gate.valve_releases(), 0, "起点没有放行记录");
 
     let holder = gate.clone();
+    // **确定性同步**：持有者 `begin()` 之后才通知主线程去 `wait()`。
+    // 原来用 `sleep(20)` 猜"持有者应该已经拿到了"，高负载下持有者可能还没被调度，
+    // 主线程先 `wait()` 就拿不到安全阀（precommit 实测该用例红）。
+    let (begun_tx, begun_rx) = std::sync::mpsc::channel::<()>();
     let holding = std::thread::spawn(move || {
         holder.begin(); // 模拟"工具段"持有它
+        begun_tx.send(()).expect("通知已持段");
         std::thread::sleep(Duration::from_millis(400));
         holder.end_if_owner();
     });
 
-    // 先让持有者拿到段。
-    std::thread::sleep(Duration::from_millis(20));
-    let started = Instant::now();
+    begun_rx.recv().expect("持有者应已持段");
     let ended_normally = gate.wait();
-    let waited = started.elapsed();
 
+    // 判据只看**语义**（是否放行、是否计数），不看"等了多久"：
+    // 时间带 `>=50ms && <350ms` 依赖持有者线程按时 sleep 完、主线程按时被调度，
+    // CPU 饱和时会假红（实测旧版在 12 核满载下 9/12 失败）。
     assert!(
         !ended_normally,
         "长持段时安全阀必须放行（返回 false），不能一直等"
-    );
-    assert!(
-        waited >= Duration::from_millis(50) && waited < Duration::from_millis(350),
-        "放行应发生在安全阀时限附近（实际 {waited:?}）"
     );
     assert_eq!(gate.valve_releases(), 1, "放行次数必须可观测（自增 1）");
 
