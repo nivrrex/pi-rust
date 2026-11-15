@@ -8,6 +8,7 @@ import fs from "node:fs";
 import net from "node:net";
 import path from "node:path";
 import { spawnSync } from "node:child_process";
+import { EventEmitter } from "node:events";
 import { register, createRequire } from "node:module";
 import { pathToFileURL } from "node:url";
 
@@ -990,6 +991,30 @@ function noteNotImplemented(name) {
 /// 扩展注册的 Markdown 变换器（按加载顺序；ref `runner.ts:725-727`）。
 const markdownTransformers = [];
 
+/// 扩展间共享事件总线（ref `event-bus.ts:12-31` 的 `createEventBus`）。
+///
+/// 用 Node 的 `EventEmitter`，并按 ref 的 `safeHandler` 包一层：
+/// 处理器抛错只记 `console.error`，**不打断其它订阅者**（ref 同款）。
+const eventBus = (() => {
+  const emitter = new EventEmitter();
+  return {
+    emit: (channel, data) => {
+      emitter.emit(channel, data);
+    },
+    on: (channel, handler) => {
+      const safeHandler = async (data) => {
+        try {
+          await handler(data);
+        } catch (err) {
+          console.error(`Event handler error (${channel}):`, err);
+        }
+      };
+      emitter.on(channel, safeHandler);
+      return () => emitter.off(channel, safeHandler);
+    },
+  };
+})();
+
 const pi = {
   on(event, handler) {
     if (!events.includes(event)) events.push(event);
@@ -1114,10 +1139,26 @@ const pi = {
     return "off";
   },
   setThinkingLevel() {},
+  // ref `event-bus.ts:3-31` 的 `EventBus`：扩展间**共享事件总线**。
+  //
+  // 接口是 `emit(channel, data)` / `on(channel, handler) -> unsubscribe`
+  // （此前这里只有空实现 `publish(){}` + `on(){return ()=>{}}`，
+  // 且方法名都不对 —— 扩展调用 `pi.events.emit(...)` 会直接 `TypeError`）。
+  //
+  // 真实使用方（已装扩展）：
+  // - `pi-handoff-gate`：`pi.events.on(RESILIENCE_PRESENT_CHANNEL, …)`、
+  //   `on(RESILIENCE_AUTO_RESUME_CHANNEL, …)`（`index.ts:235-240`）——与
+  //   `pi-agent-resilience` 协作，避免双方同时处理同一空响应边界；
+  // - `pi-agent-resilience`：`pi.events.emit(...)` 广播"我在"与"我要自动恢复"；
+  // - `pi-interact` ↔ `pi-remote-control`：用 `pi.remote-control.ui.probe.v1`
+  //   做同步握手（`ui-bridge.ts:4-6`、`adapter.ts:189`）。
+  // 总线是**空实现**时这些协作全部静默失效（扩展之间互相看不见）。
   events: {
-    publish() {},
-    on() {
-      return () => {};
+    emit(channel, data) {
+      eventBus.emit(String(channel), data);
+    },
+    on(channel, handler) {
+      return eventBus.on(String(channel), handler);
     },
   },
   ui: {
