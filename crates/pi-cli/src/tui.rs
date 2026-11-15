@@ -1116,6 +1116,7 @@ enum SelectorUi {
     Fork(crate::settings_selector::ForkSelector),
     /// `/scoped-models` 模型配置面板（ref `scoped-models-selector.ts:97-220`）。
     ScopedModels(crate::settings_selector::ScopedModelsSelector),
+    Trust(crate::settings_selector::TrustSelector),
     /// `/tree` 选中非叶子后的 `Summarize branch?` 提示（P7-7e e4a）。
     Summarize(crate::settings_selector::SummarizeSelector),
     /// `/tree` 的 `shift+l` 标签输入（P7-7e）；第二项是面板宽度（头部块用）。
@@ -1131,7 +1132,10 @@ impl SelectorUi {
             // 子菜单没有搜索框（`SelectSubmenu` 未开 searchable）⇒ 字符忽略。
             SelectorUi::Theme(_) | SelectorUi::Warnings(_) => {}
             SelectorUi::ModelThinking(sel) => sel.push(ch),
-            SelectorUi::Resume(_, _) | SelectorUi::Fork(_) | SelectorUi::ScopedModels(_) => {}
+            SelectorUi::Resume(_, _)
+            | SelectorUi::Fork(_)
+            | SelectorUi::ScopedModels(_)
+            | SelectorUi::Trust(_) => {}
             SelectorUi::Tree(_, _) | SelectorUi::Summarize(_) => {}
             SelectorUi::Label(sel, _) => sel.push(ch),
         }
@@ -1144,7 +1148,10 @@ impl SelectorUi {
             SelectorUi::Settings(sel, _) => sel.pop(),
             SelectorUi::Theme(_) | SelectorUi::Warnings(_) => {}
             SelectorUi::ModelThinking(sel) => sel.pop(),
-            SelectorUi::Resume(_, _) | SelectorUi::Fork(_) | SelectorUi::ScopedModels(_) => {}
+            SelectorUi::Resume(_, _)
+            | SelectorUi::Fork(_)
+            | SelectorUi::ScopedModels(_)
+            | SelectorUi::Trust(_) => {}
             SelectorUi::Tree(_, _) | SelectorUi::Summarize(_) => {}
             SelectorUi::Label(sel, _) => sel.pop(),
         }
@@ -1160,6 +1167,7 @@ impl SelectorUi {
             SelectorUi::Resume(sel, _) => sel.move_up(),
             SelectorUi::Fork(sel) => sel.move_up(),
             SelectorUi::ScopedModels(sel) => sel.move_up(),
+            SelectorUi::Trust(sel) => sel.move_up(),
             SelectorUi::Tree(sel, _) => sel.move_up(),
             SelectorUi::Summarize(sel) => sel.move_up(),
             SelectorUi::Label(_, _) => {}
@@ -1178,6 +1186,7 @@ impl SelectorUi {
             SelectorUi::Resume(sel, _) => sel.move_down(),
             SelectorUi::Fork(sel) => sel.move_down(),
             SelectorUi::ScopedModels(sel) => sel.move_down(),
+            SelectorUi::Trust(sel) => sel.move_down(),
             SelectorUi::Tree(sel, _) => sel.move_down(),
             SelectorUi::Summarize(sel) => sel.move_down(),
             SelectorUi::Label(_, _) => {}
@@ -1210,6 +1219,7 @@ impl SelectorUi {
             | SelectorUi::Resume(_, _)
             | SelectorUi::Fork(_)
             | SelectorUi::ScopedModels(_)
+            | SelectorUi::Trust(_)
             | SelectorUi::Tree(_, _)
             | SelectorUi::Summarize(_)
             | SelectorUi::Label(_, _)
@@ -1229,6 +1239,7 @@ impl SelectorUi {
             SelectorUi::Resume(sel, cols) => sel.lines(*cols),
             SelectorUi::Fork(sel) => sel.lines(),
             SelectorUi::ScopedModels(sel) => sel.lines(),
+            SelectorUi::Trust(sel) => sel.lines(),
             SelectorUi::Tree(sel, cols) => sel.lines(*cols),
             SelectorUi::Summarize(sel) => sel.lines(),
             SelectorUi::Label(sel, cols) => sel.lines(*cols),
@@ -2665,6 +2676,62 @@ pub fn run(
                                 }
                             }
                         }
+                        state
+                            .open_panel(pi_tui::PanelPlacement::BelowEditor, open_selector.lines());
+                        dirty = true;
+                        continue;
+                    }
+                }
+                // `/trust` 面板（ref `trust-selector.ts:110-135`）：↑↓/`k`/`j` 导航、
+                // Enter 保存、Esc 取消。**必须在通用 Enter/Esc 之前拦**：
+                // 通用 Enter 是"确认并提交编辑器内容"，这里要落盘信任决定。
+                if let SelectorUi::Trust(sel) = open_selector {
+                    use pi_tui::TuiEvent as E;
+                    let mut handled = true;
+                    match &event {
+                        E::Char('k') => sel.move_up(),
+                        E::Char('j') => sel.move_down(),
+                        // Enter 保存（ref `:124-129`）：把选项的 updates 写进 trust.json。
+                        E::Enter => {
+                            if let Some(option) = sel.selected_option() {
+                                let outcome = if option.updates.is_empty() {
+                                    // "this session only" 选项不落盘（ref `updates: []`）。
+                                    Ok(())
+                                } else {
+                                    let agent_dir = state.agent_dir.clone();
+                                    pi_core::trust::TrustStore::new(&agent_dir)
+                                        .set_many(&option.updates)
+                                };
+                                match outcome {
+                                    Ok(()) => {
+                                        // ref 的状态行原文（`interactive-mode.ts:5170`）：
+                                        // 明确说明"重启后生效"。
+                                        let _ = apply(
+                                            &mut state,
+                                            TuiEvent::Status(format!(
+                                                "Saved trust decision: {}. Restart pi for this to take effect.",
+                                                if option.trusted { "trusted" } else { "untrusted" }
+                                            )),
+                                        );
+                                        selector = None;
+                                        state.close_panel();
+                                        dirty = true;
+                                        continue;
+                                    }
+                                    Err(error) => {
+                                        let _ = apply(
+                                            &mut state,
+                                            TuiEvent::Status(format!(
+                                                "Failed to save the trust decision: {error}"
+                                            )),
+                                        );
+                                    }
+                                }
+                            }
+                        }
+                        _other => handled = false,
+                    }
+                    if handled {
                         state
                             .open_panel(pi_tui::PanelPlacement::BelowEditor, open_selector.lines());
                         dirty = true;
@@ -6178,7 +6245,41 @@ pub fn run(
                                 }
                             }
                         }
-                        "trust" => push_unimplemented(&mut state, "trust"),
+                        "trust" => {
+                            // ref `interactive-mode.ts:3166-3170` → `showTrustSelector()`
+                            // （`components/trust-selector.ts`）：把信任决定写进
+                            // `<agentDir>/trust.json`，**重启后生效**（ref 的状态行原文
+                            // 就带 "Restart ... for this to take effect"）。
+                            let cwd = std::path::PathBuf::from(&state.cwd);
+                            let agent_dir = state.agent_dir.clone();
+                            let store = pi_core::trust::TrustStore::new(&agent_dir);
+                            let saved = match store.get(&cwd) {
+                                Ok(Some(decision)) => Some((
+                                    pi_core::trust::normalize_path(&cwd),
+                                    matches!(decision, pi_core::trust::TrustDecision::Trusted),
+                                )),
+                                Ok(None) => None,
+                                Err(error) => {
+                                    // 损坏的 trust.json：明确告知，不进面板（进去也只能改坏值）。
+                                    let _ = apply(
+                                        &mut state,
+                                        TuiEvent::Status(format!(
+                                            "Cannot read the trust store: {error}"
+                                        )),
+                                    );
+                                    continue;
+                                }
+                            };
+                            let session_trusted =
+                                saved.as_ref().is_some_and(|(_, trusted)| *trusted);
+                            let sel = crate::settings_selector::TrustSelector::new(
+                                &cwd,
+                                saved,
+                                session_trusted,
+                            );
+                            state.open_panel(pi_tui::PanelPlacement::BelowEditor, sel.lines());
+                            selector = Some(SelectorUi::Trust(sel));
+                        }
                         "reload" => push_unimplemented(&mut state, "reload"),
                         other => {
                             // F60/3：**已识别但未实现**的内置命令不得静默丢弃。

@@ -280,10 +280,11 @@ function contextForExtension() {
     isIdle() {
       return hostCtx.isIdle === true;
     },
-    // - `isProjectTrusted`：pi-rs 没有 project trust 机制（无 `/trust` 状态机），
-    //   保守返回 false（= "未信任"），与 ref 在未保存信任决定时的取值一致。
+    // - `isProjectTrusted`：宿主在启动时按 `<agentDir>/trust.json` 算出当前 cwd 的
+    //   决定，经 `PI_EXT_CTX.isProjectTrusted` 传进来（F61/21 起有 `/trust` 状态机）。
+    //   缺字段时保守返回 false（= 未信任），与 ref 在没有信任决定时的取值一致。
     isProjectTrusted() {
-      return false;
+      return hostCtx.isProjectTrusted === true;
     },
     // - `hasPendingMessages`：队列在宿主侧，扩展看不到 ⇒ 无待发消息。
     hasPendingMessages() {

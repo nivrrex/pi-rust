@@ -644,7 +644,12 @@ ref 的对应实现见 `interactive-mode.ts:2541`/`:2543`（`showExtensionNotify
     而编辑器粘贴归一化用 **4 空格**（ref `editor.ts:1146` 的 `normalizeText`）。
     两处未合并成同一常量，避免改变括号粘贴的缩进与光标列。推翻条件：ref 后续版本
     把两处口径统一（届时合并）。
-24. **F61/17 起 5 条内置斜杠命令未移植**：`share`、`bug`、`changelog`、`trust`、`reload`
+24. **F61/21 起 4 条内置斜杠命令未移植**：`share`、`bug`、`changelog`、`reload`
+    （`trust` 在 F61/21 实现：`pi_core::trust`（`trust.json` 读写、最近祖先查询、
+    `project_trust_options`、`has_trust_requiring_project_resources`，ref
+    `core/trust-manager.ts` 逐项对照）+ `TrustSelector` 面板 + `/trust` 命令；
+    项目级 `skills`/`prompts` 与 `ctx.isProjectTrusted()` 都改为读真实决定，
+    ref `resource-loader.ts:1029/1043`、`extensions/types.ts:336-338`）
     （`scoped-models` 在 F61/16-F61/20 实现：纯逻辑 `crates/pi-tui/src/scoped_models.rs`
     + 模糊匹配 `crates/pi-tui/src/fuzzy.rs`（ref `packages/tui/src/fuzzy.ts` 逐行转写）
     + 面板 `ScopedModelsSelector`。**Enter 切换**（ref 用 `tui.select.confirm`，空格属于

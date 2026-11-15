@@ -3749,3 +3749,137 @@ mod p79_limits_tests {
         assert_eq!(other_year, "25/11/20 08:00", "跨年档应为 YY/M/D HH:MM");
     }
 }
+
+/// `/trust` 面板（ref `trust-selector.ts` 的简化转写）。
+///
+/// 与 ref 一致的：选项顺序来自 `pi_core::trust::project_trust_options`、标题 `Project trust`、
+/// 显示 cwd 与 `Saved decision:`/`Current session:`、选中项 `→ `、已保存项 `✓ `、
+/// `↑↓ navigate · Enter save · Esc cancel`、`k`/`j` 也能上下。
+///
+/// **不做**：ref 的 `formatDecision` 把 "inherited from" 细节写出，这里同样写
+/// （`Saved decision: trusted (inherited from /parent)`）。
+#[derive(Debug, Clone)]
+pub struct TrustSelector {
+    /// 工作目录（显示用原样）。
+    pub cwd: String,
+    /// 可选项（顺序即 ref 的顺序）。
+    pub options: Vec<pi_core::trust::TrustOption>,
+    /// 选中下标。
+    pub selected: usize,
+    /// 已保存决定（路径 + 取值），用于 `Saved decision:` 行与 `✓ ` 标记。
+    pub saved: Option<(String, bool)>,
+    /// 当前会话是否受信任（`Current session:` 行）。
+    pub session_trusted: bool,
+}
+
+impl TrustSelector {
+    /// 由 cwd / 已保存决定 / 会话状态构造。
+    ///
+    /// 默认选中"与已保存决定匹配"的那一项（ref `:45-48` 的 `findIndex(isSavedOption)`），
+    /// 没有则选第一项。
+    #[must_use]
+    pub fn new(
+        cwd: &std::path::Path,
+        saved: Option<(String, bool)>,
+        session_trusted: bool,
+    ) -> Self {
+        let options = pi_core::trust::project_trust_options(cwd, false);
+        let selected = saved
+            .as_ref()
+            .and_then(|(path, decision)| {
+                options.iter().position(|option| {
+                    option.trusted == *decision
+                        && option.updates.first().is_some_and(|update| {
+                            pi_core::trust::normalize_path(&update.path) == *path
+                        })
+                })
+            })
+            .unwrap_or(0);
+        Self {
+            cwd: cwd.to_string_lossy().to_string(),
+            options,
+            selected,
+            saved,
+            session_trusted,
+        }
+    }
+
+    /// 上移（`k` 也可，ref `:114`）。
+    pub fn move_up(&mut self) {
+        self.selected = self.selected.saturating_sub(1);
+    }
+
+    /// 下移（`j` 也可，ref `:117`）。
+    pub fn move_down(&mut self) {
+        if self.selected + 1 < self.options.len() {
+            self.selected += 1;
+        }
+    }
+
+    /// 当前选中项。
+    #[must_use]
+    pub fn selected_option(&self) -> Option<&pi_core::trust::TrustOption> {
+        self.options.get(self.selected)
+    }
+
+    /// `Saved decision:` 那一行的值（ref `formatDecision`，`:21-30`）。
+    #[must_use]
+    fn saved_text(&self) -> String {
+        let Some((path, decision)) = &self.saved else {
+            return "none".to_string();
+        };
+        let label = if *decision { "trusted" } else { "untrusted" };
+        // ref 用 `trustOptions[0].savedPath`（= cwd 本身）判断是否"从父目录继承"。
+        let own = self
+            .options
+            .first()
+            .and_then(|option| option.updates.first())
+            .map(|update| pi_core::trust::normalize_path(&update.path));
+        if own.as_deref() != Some(path.as_str()) {
+            format!("{label} (inherited from {path})")
+        } else {
+            format!("{label} ({path})")
+        }
+    }
+
+    /// 面板行。
+    #[must_use]
+    pub fn lines(&self) -> Vec<String> {
+        let mut out = vec![
+            " Project trust".to_string(),
+            format!(" {}", self.cwd),
+            String::new(),
+            format!(" Saved decision: {}", self.saved_text()),
+            format!(
+                " Current session: {}",
+                if self.session_trusted {
+                    "trusted"
+                } else {
+                    "untrusted"
+                }
+            ),
+            String::new(),
+        ];
+        for (index, option) in self.options.iter().enumerate() {
+            let prefix = if index == self.selected { "→ " } else { "  " };
+            let current = self.is_saved_option(option);
+            let marker = if current { "✓ " } else { "  " };
+            out.push(format!("{prefix}{marker}{}", option.label));
+        }
+        out.push(String::new());
+        out.push(" ↑↓ navigate · Enter save · Esc cancel".to_string());
+        out
+    }
+
+    /// 该选项是否与已保存决定一致（ref `isSavedOption`，`:98-105`）。
+    fn is_saved_option(&self, option: &pi_core::trust::TrustOption) -> bool {
+        let Some((path, decision)) = &self.saved else {
+            return false;
+        };
+        option.trusted == *decision
+            && option
+                .updates
+                .first()
+                .is_some_and(|update| pi_core::trust::normalize_path(&update.path) == *path)
+    }
+}

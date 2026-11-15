@@ -181,6 +181,22 @@ fn main() -> ExitCode {
             pi_cli::args::AppMode::PrintJson | pi_cli::args::AppMode::PrintText => ("print", false),
         };
         pi_cli::ext_tools::configure_ctx(&cwd, mode_name, has_ui);
+        // 项目信任决定（`<agentDir>/trust.json`）：宿主启动**之前**必须就位，
+        // 否则 `session_start` 里扩展读到的 `isProjectTrusted()` 是 false。
+        {
+            let agent_dir = pi_cli::runtime::resolve_paths(
+                &|key| std::env::var(key).ok(),
+                pi_cli::runtime::home_from(&|key| std::env::var(key).ok()).as_str(),
+                parsed.session_dir.as_deref(),
+                &cwd,
+            )
+            .agent_dir;
+            let trusted = pi_core::trust::TrustStore::new(&agent_dir)
+                .get(&cwd)
+                .map(|decision| matches!(decision, Some(pi_core::trust::TrustDecision::Trusted)))
+                .unwrap_or(false);
+            pi_cli::ext_tools::update_ctx_project_trusted(trusted);
+        }
         // 扩展的页脚/组件按 `render(width)` 排版（ref `footer.ts`），而 `session_start`
         // 在宿主启动时就派发 ⇒ 宽度必须在**建宿主之前**写进 ctx，否则扩展拿不到宽度。
         if let Ok((cols, _)) = crossterm::terminal::size() {
@@ -749,12 +765,31 @@ fn assemble_system_prompt(
             .map(|tool| tool.name().to_string())
             .collect::<Vec<String>>()
     };
+    // 项目信任决定（`<agent_dir>/trust.json`）：无条目或读取失败 ⇒ 不受信任。
+    // 读取失败只打一条警告，不让启动失败——与 ref 的"fail closed"一致。
+    let project_trusted = match pi_core::trust::TrustStore::new(agent_dir).get(cwd) {
+        Ok(decision) => matches!(decision, Some(pi_core::trust::TrustDecision::Trusted)),
+        Err(error) => {
+            eprintln!("Warning: project trust could not be read: {error}");
+            false
+        }
+    };
     // 技能：`--no-skills` 时跳过发现（ref `resource-loader.ts:468-470`）；诊断逐条打 stderr
     // （前缀照 `main.ts:98-104`），有 error 诊断则退出码 1（`main.ts:896-905`）。
     let loaded_skills_result = if parsed.no_skills {
         pi_core::skills::SkillsResult::default()
     } else {
-        pi_core::skills::load_skills(cwd, agent_dir, &parsed.skill_paths)
+        // 项目级技能目录 `<cwd>/.pi/skills` 需要项目受信任（ref `resource-loader.ts:1029/1043`）。
+        // 受信任时按"显式路径"追加在同名去重链末尾——`load_skills` 的 `add` 先到先得，
+        // 用户级 `<agentDir>/skills` 仍然优先（与 ref 的发现顺序一致）。
+        let mut paths = parsed.skill_paths.clone();
+        if project_trusted {
+            let project_skills = cwd.join(".pi/skills");
+            if project_skills.is_dir() {
+                paths.push(project_skills.to_string_lossy().to_string());
+            }
+        }
+        pi_core::skills::load_skills(cwd, agent_dir, &paths)
     };
     for diagnostic in &loaded_skills_result.diagnostics {
         eprintln!("Warning: {}", diagnostic.message);

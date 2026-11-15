@@ -14,8 +14,9 @@
 //!
 //! **已知限制（见 notes/decisions.md）**：① 本模块自带**最小 YAML 子集**解析（`key: value`、
 //! 布尔、去引号；多行/嵌套/列表等复杂 YAML 不支持），因为不允许新增依赖，而 ref 用 `yaml.parse`；
-//! ② 不含 `.gitignore`/`.ignore`/`.fdignore` 规则（ref 用 `ignore` 包）；③ 项目目录
-//! **一律视为未受信任**（ref `resource-loader.ts:1029/1043` 需 `isProjectTrusted()`，pi-rs 无该机制）。
+//! ② 不含 `.gitignore`/`.ignore`/`.fdignore` 规则（ref 用 `ignore` 包）。
+//! ③ 项目级技能是否加载由 `pi_core::trust` 的决定在调用方（`main.rs`）控制，
+//! 模块本身不读信任存储（保持纯 I/O + 转换）。
 //!
 //! 本模块只做 I/O 边界与纯转换，不写 stderr；诊断随结果返回，由调用方输出。
 
@@ -624,7 +625,9 @@ pub fn load_skills(cwd: &Path, agent_dir: &Path, skill_paths: &[String]) -> Skil
         &mut names,
         &mut collisions,
     );
-    // 项目目录：pi-rs 无信任机制 ⇒ 一律视为未受信任，不加载（模块文档限制③）。
+    // 项目目录：需要项目受信任（ref `resource-loader.ts:1029/1043`）。
+    // 项目级**技能目录** `<cwd>/.pi/skills` 的加载见调用方（`main.rs` 按信任决定是否
+    // 传显式路径）；这里只处理显式 `skill_paths`。
     for raw in skill_paths {
         let candidate = Path::new(raw);
         let resolved = if candidate.is_absolute() {

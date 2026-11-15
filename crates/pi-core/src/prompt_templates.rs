@@ -267,6 +267,17 @@ pub fn load_templates_from_dir(dir: &Path) -> TemplatesResult {
     result
 }
 
+/// `cwd` 是否受信任（读 `<agent_dir>/trust.json`，无条目 ⇒ 不受信任）。
+///
+/// 错误转成一条可读消息：调用方把它当诊断，不中断加载。
+fn project_is_trusted(cwd: &Path, agent_dir: &Path) -> Result<bool, String> {
+    let store = crate::trust::TrustStore::new(agent_dir);
+    store
+        .get(cwd)
+        .map(|decision| matches!(decision, Some(crate::trust::TrustDecision::Trusted)))
+        .map_err(|error| format!("project trust could not be read: {error}"))
+}
+
 /// 汇总来源（ref `:222-298`）：`<agentDir>/prompts` → `<cwd>/.pi/prompts`（项目不受信任 ⇒ 跳过）→ 显式路径。
 #[must_use]
 pub fn load_prompt_templates(
@@ -277,10 +288,24 @@ pub fn load_prompt_templates(
 ) -> TemplatesResult {
     let mut result = TemplatesResult::default();
     if include_defaults {
-        // 项目目录 `<cwd>/.pi/prompts` 需要项目受信任（ref `:1029/1043`）⇒ pi-rs 一律不加载。
         let global = load_templates_from_dir(&agent_dir.join("prompts"));
         result.templates.extend(global.templates);
         result.diagnostics.extend(global.diagnostics);
+        // 项目目录 `<cwd>/.pi/prompts` 需要项目受信任（ref `:1029/1043`）。
+        // 这里读 `pi_core::trust` 的决定；读取失败按**不受信任**处理并记一条诊断
+        // （损坏的 trust.json 不该让项目资源静默生效）。
+        match project_is_trusted(cwd, agent_dir) {
+            Ok(true) => {
+                let project = load_templates_from_dir(&cwd.join(".pi/prompts"));
+                result.templates.extend(project.templates);
+                result.diagnostics.extend(project.diagnostics);
+            }
+            Ok(false) => {}
+            Err(message) => result.diagnostics.push(Diagnostic {
+                message,
+                path: agent_dir.join("trust.json").to_string_lossy().to_string(),
+            }),
+        }
     }
     for raw in template_paths {
         let candidate = Path::new(raw);

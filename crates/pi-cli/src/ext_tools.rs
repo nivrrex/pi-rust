@@ -89,6 +89,11 @@ pub fn configure_ctx(cwd: &std::path::Path, mode: &str, has_ui: bool) {
             // ref `core/footer-data-provider.ts:239-248` 的 git 分支：扩展页脚用它拼
             // `cwd (branch)`。启动时算一次，`update_ctx_cwd` 在恢复会话后按会话 cwd 重算。
             "gitBranch": git_branch_for(cwd),
+            // ref `extensions/types.ts:336-338` 的 `isProjectTrusted()`（F61/21 起有真正的
+            // `/trust` 状态机）。此前宿主硬编码 `false`，会让 `pi-ai-summary` 的项目级
+            // settings 链**永久失效**（它用这个值决定是否读项目配置）。
+            // 无 `trust.json`/无条目 ⇒ false（ref 的 fail-closed）。
+            "isProjectTrusted": false,
         }))
     });
     // 二次调用（测试/多入口）只更新可变字段，不覆盖 model/thinkingLevel。
@@ -107,6 +112,21 @@ fn git_branch_for(cwd: &std::path::Path) -> serde_json::Value {
         Some(branch) => serde_json::Value::String(branch),
         None => serde_json::Value::Null,
     }
+}
+
+/// 把项目信任决定写进 ctx（`/trust` 保存后调用；启动时由 `main` 在 `configure_ctx`
+/// 之后立即调用一次）。
+///
+/// 单独一个入口而不是塞进 `configure_ctx`：`configure_ctx` 只拿 cwd、不拿 agentDir，
+/// 而信任决定存在 `<agentDir>/trust.json`。
+pub fn update_ctx_project_trusted(trusted: bool) {
+    let Some(slot) = CTX.get() else {
+        return;
+    };
+    if let Ok(mut guard) = slot.lock() {
+        guard["isProjectTrusted"] = serde_json::Value::Bool(trusted);
+    }
+    push_ctx();
 }
 
 /// 更新 ctx 里的工作目录与 git 分支。

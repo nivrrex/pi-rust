@@ -16,6 +16,7 @@ pub mod skills;
 pub mod system_prompt;
 pub mod timefmt;
 pub mod tools;
+pub mod trust;
 
 // `Message` 这类 provider 也要消费的类型现在住在 pi-ai（P3.0b 的分层要求），
 // 这里只做转出口，避免下游改 import。
