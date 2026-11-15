@@ -1940,6 +1940,18 @@ fn build_tui_agent_parts(
     // 摘要请求带的是**当前**档位）。`initial_thinking_level` 下面要移进 `AgentParts`，
     // 所以先在这里取一份。
     let compaction_thinking_level = initial_thinking_level.clone();
+    // 面板改动即时生效的共享槽；初始值由是否配置 `enabledModels` 决定
+    // （未配置 = `None` = 全部启用，ref `scoped-models-selector.ts:33-35`）。
+    let scoped_models = std::sync::Arc::new(std::sync::Mutex::new(if scoped_models_configured {
+        Some(
+            available_models
+                .iter()
+                .map(|choice| format!("{}/{}", choice.provider, choice.id))
+                .collect::<Vec<_>>(),
+        )
+    } else {
+        None
+    }));
     Ok(Some(std::sync::Arc::new(pi_cli::tui::AgentParts {
         skills: tui_skills.clone(),
         resumed_path,
@@ -2006,6 +2018,7 @@ fn build_tui_agent_parts(
         scoped_models_configured,
         initial_thinking_level,
         supports_thinking: resolved.reasoning,
+        scoped_models,
         model_state: std::sync::Arc::new(std::sync::Mutex::new(pi_cli::tui::CurrentModelState {
             model_id: resolved.model_id.clone(),
             provider_name: provider_name.to_string(),

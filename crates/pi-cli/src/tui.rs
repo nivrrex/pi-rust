@@ -1246,6 +1246,35 @@ pub struct ModelChoice {
     pub id: String,
 }
 
+/// 按 `/scoped-models` 的启用集合过滤 Ctrl+P 候选，并**按启用顺序**排列
+/// （ref `scoped-models-selector.ts:77-81` 的 `getSortedIds` + `:250-270` 的
+/// `setScopedModels`：循环顺序就是启用列表的顺序）。
+///
+/// `enabled == None`（全部启用）时保持 `available_models` 的原顺序。
+/// 显式列表里**不在可用集**的 id 会被丢掉（ref 的 `filter((id) => modelsById.has(id))`）。
+#[must_use]
+fn scoped_model_choices(
+    available: &[ModelChoice],
+    enabled: &std::sync::Arc<std::sync::Mutex<pi_tui::scoped_models::EnabledIds>>,
+) -> Vec<ModelChoice> {
+    let Ok(guard) = enabled.lock() else {
+        return available.to_vec();
+    };
+    let Some(list) = guard.as_ref() else {
+        return available.to_vec();
+    };
+    let mut out: Vec<ModelChoice> = Vec::with_capacity(list.len());
+    for id in list {
+        if let Some(choice) = available
+            .iter()
+            .find(|choice| format!("{}/{}", choice.provider, choice.id) == *id)
+        {
+            out.push(choice.clone());
+        }
+    }
+    out
+}
+
 /// `Ctrl+P` 的下一个候选（ref `interactive-mode.ts:4378-4394` 的循环语义）。
 ///
 /// 真机实测：`enabledModels` 里只要有一条解析不出来（如 models.json 里没有该 id），
@@ -1346,6 +1375,14 @@ pub struct AgentParts {
     pub startup_warnings: Vec<String>,
     /// 该 provider 下可切换的模型 id 列表（`models.json` 顺序；Ctrl+P 循环用）。
     pub available_models: Vec<ModelChoice>,
+    /// `/scoped-models` 面板改动的**本会话生效**范围（ref
+    /// `scoped-models-selector.ts:24-90` 的 `EnabledIds`：`None` = 全部启用）。
+    ///
+    /// 为什么单独一个共享槽而不是改 `available_models`：面板要能**即时**影响
+    /// Ctrl+P（ref 的 `onChange` 立刻调 `session.setScopedModels`），而
+    /// `available_models` 是装配期的只读快照（还被 `/model` 共用）。
+    /// 按 `ctrl+s` 才写 settings.json，两者是两个层次。
+    pub scoped_models: std::sync::Arc<std::sync::Mutex<pi_tui::scoped_models::EnabledIds>>,
     /// `settings.enabledModels` **是否显式配置**（ref 的 `scopedModels` 非空才是）。
     /// 没有配置时 `available_models` 会回落到 provider 下的全部模型，但那**不是** scope，
     /// 启动屏不应打印 `Model scope:` 行（T01 实测：多打一行会让整屏下移）。
@@ -4113,7 +4150,12 @@ pub fn run(
                         .lock()
                         .map(|state| state.model_id.clone())
                         .unwrap_or_default();
-                    let ids = parts_ref.available_models.clone();
+                    // **按 `/scoped-models` 的本会话范围过滤**（ref
+                    // `scoped-models-selector.ts:24-90` 的 `EnabledIds`）：
+                    // `None` = 全部启用；`Some(list)` = 只循环这些，且**按列表顺序**
+                    // （ref 的 `scopedModels` 是有序的，`getSortedIds` 决定顺序）。
+                    let ids =
+                        scoped_model_choices(&parts_ref.available_models, &parts_ref.scoped_models);
                     let current_provider = parts_ref
                         .model_state
                         .lock()
@@ -5771,14 +5813,13 @@ pub fn run(
                                         .iter()
                                         .map(|choice| format!("{}/{}", choice.provider, choice.id))
                                         .collect();
-                                    // 当前启用集合：settings 的 `enabledModels` 已解析成
-                                    // `available_models`（scoped）或回落到全部；
-                                    // `scoped_models_configured == false` ⇒ ref 的 `null`（全启用）。
-                                    let enabled = if parts.scoped_models_configured {
-                                        Some(all.clone())
-                                    } else {
-                                        None
-                                    };
+                                    // **以共享槽为准**（它保存着本会话里上次面板改动的
+                                    // 结果；首次打开时它来自 settings 的 `enabledModels`）。
+                                    let enabled = parts
+                                        .scoped_models
+                                        .lock()
+                                        .ok()
+                                        .and_then(|guard| guard.clone());
                                     (all, enabled)
                                 },
                             );
