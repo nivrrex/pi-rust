@@ -21,6 +21,8 @@
 pub mod diff;
 pub mod gitinfo;
 pub mod intraline;
+/// `/scoped-models` 的纯逻辑（ref `scoped-models-selector.ts:24-90`）。
+pub mod scoped_models;
 pub mod style;
 pub mod syntax;
 pub mod theme;
