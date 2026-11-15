@@ -1112,6 +1112,8 @@ enum SelectorUi {
     Resume(crate::settings_selector::ResumeSelector, usize),
     /// `/tree` 会话树（P7-7e1/e2）；第二项是面板宽度（头部边框用）。
     Tree(crate::settings_selector::TreeSelector, usize),
+    /// `/fork` 的用户消息选择器（ref `interactive-mode.ts:5351-5353`）。
+    Fork(crate::settings_selector::ForkSelector),
     /// `/tree` 选中非叶子后的 `Summarize branch?` 提示（P7-7e e4a）。
     Summarize(crate::settings_selector::SummarizeSelector),
     /// `/tree` 的 `shift+l` 标签输入（P7-7e）；第二项是面板宽度（头部块用）。
@@ -1127,7 +1129,7 @@ impl SelectorUi {
             // 子菜单没有搜索框（`SelectSubmenu` 未开 searchable）⇒ 字符忽略。
             SelectorUi::Theme(_) | SelectorUi::Warnings(_) => {}
             SelectorUi::ModelThinking(sel) => sel.push(ch),
-            SelectorUi::Resume(_, _) => {}
+            SelectorUi::Resume(_, _) | SelectorUi::Fork(_) => {}
             SelectorUi::Tree(_, _) | SelectorUi::Summarize(_) => {}
             SelectorUi::Label(sel, _) => sel.push(ch),
         }
@@ -1140,7 +1142,7 @@ impl SelectorUi {
             SelectorUi::Settings(sel, _) => sel.pop(),
             SelectorUi::Theme(_) | SelectorUi::Warnings(_) => {}
             SelectorUi::ModelThinking(sel) => sel.pop(),
-            SelectorUi::Resume(_, _) => {}
+            SelectorUi::Resume(_, _) | SelectorUi::Fork(_) => {}
             SelectorUi::Tree(_, _) | SelectorUi::Summarize(_) => {}
             SelectorUi::Label(sel, _) => sel.pop(),
         }
@@ -1154,6 +1156,7 @@ impl SelectorUi {
             SelectorUi::Warnings(_) => {}
             SelectorUi::ModelThinking(sel) => sel.move_up(),
             SelectorUi::Resume(sel, _) => sel.move_up(),
+            SelectorUi::Fork(sel) => sel.move_up(),
             SelectorUi::Tree(sel, _) => sel.move_up(),
             SelectorUi::Summarize(sel) => sel.move_up(),
             SelectorUi::Label(_, _) => {}
@@ -1170,6 +1173,7 @@ impl SelectorUi {
             SelectorUi::Warnings(_) => {}
             SelectorUi::ModelThinking(sel) => sel.move_down(),
             SelectorUi::Resume(sel, _) => sel.move_down(),
+            SelectorUi::Fork(sel) => sel.move_down(),
             SelectorUi::Tree(sel, _) => sel.move_down(),
             SelectorUi::Summarize(sel) => sel.move_down(),
             SelectorUi::Label(_, _) => {}
@@ -1200,6 +1204,7 @@ impl SelectorUi {
             | SelectorUi::Warnings(_)
             | SelectorUi::ModelThinking(_)
             | SelectorUi::Resume(_, _)
+            | SelectorUi::Fork(_)
             | SelectorUi::Tree(_, _)
             | SelectorUi::Summarize(_)
             | SelectorUi::Label(_, _)
@@ -1217,6 +1222,7 @@ impl SelectorUi {
             SelectorUi::Warnings(sel) => sel.lines(),
             SelectorUi::ModelThinking(sel) => sel.lines(),
             SelectorUi::Resume(sel, cols) => sel.lines(*cols),
+            SelectorUi::Fork(sel) => sel.lines(),
             SelectorUi::Tree(sel, cols) => sel.lines(*cols),
             SelectorUi::Summarize(sel) => sel.lines(),
             SelectorUi::Label(sel, cols) => sel.lines(*cols),
@@ -2975,6 +2981,60 @@ pub fn run(
                                     pi_tui::PanelPlacement::BelowEditor,
                                     sel.lines(*cols),
                                 );
+                                dirty = true;
+                                continue;
+                            }
+                        }
+                        // `/fork`：选中一条用户消息 ⇒ 以它**之前**为界分叉
+                        // （ref `:5354-5364`：`fork(entryId)` → 编辑器回填该消息 +
+                        // `Forked to new session`）。
+                        if let SelectorUi::Fork(sel) = open_selector {
+                            if let Some(entry_id) = sel.selected_id().map(str::to_string) {
+                                let outcome = parts.as_ref().and_then(|parts| {
+                                    parts.writer.as_ref().and_then(|writer| {
+                                        writer.lock().ok().and_then(|mut guard| {
+                                            guard.fork_from_user_message(&entry_id).ok()
+                                        })
+                                    })
+                                });
+                                selector = None;
+                                state.close_panel();
+                                match outcome {
+                                    Some(Some((path, text))) => {
+                                        crate::ext_tools::set_session_file(&path);
+                                        // 屏幕切到新会话：按投影重放（与 `/resume` 同一条路径）。
+                                        if let Ok(file) =
+                                            pi_core::session_io::SessionFile::read(&path)
+                                        {
+                                            state.transcript = transcript_from_messages(
+                                                &file.projected_messages(),
+                                            );
+                                        }
+                                        // ref `:5363`：被选中的消息正文回到编辑器。
+                                        state.input = text;
+                                        state.cursor = state.input.chars().count();
+                                        let _ = apply(
+                                            &mut state,
+                                            TuiEvent::Status("Forked to new session".to_string()),
+                                        );
+                                    }
+                                    Some(None) => {
+                                        let _ = apply(
+                                            &mut state,
+                                            TuiEvent::Status(
+                                                "No messages to fork from".to_string(),
+                                            ),
+                                        );
+                                    }
+                                    None => {
+                                        let _ = apply(
+                                            &mut state,
+                                            TuiEvent::Status(
+                                                "Cannot fork session in this mode.".to_string(),
+                                            ),
+                                        );
+                                    }
+                                }
                                 dirty = true;
                                 continue;
                             }
@@ -5705,7 +5765,28 @@ pub fn run(
                             }
                         }
                         "changelog" => push_unimplemented(&mut state, "changelog"),
-                        "fork" => push_unimplemented(&mut state, "fork"),
+                        "fork" => {
+                            // ref `interactive-mode.ts:5341-5348` 的 `showUserMessageSelector`：
+                            // 列出可分叉的用户消息；**没有**则 `No messages to fork from`。
+                            let rows = parts
+                                .as_ref()
+                                .and_then(|parts| {
+                                    parts.writer.as_ref().and_then(|writer| {
+                                        writer.lock().ok().map(|guard| fork_rows_of(guard.path()))
+                                    })
+                                })
+                                .unwrap_or_default();
+                            if rows.is_empty() {
+                                let _ = apply(
+                                    &mut state,
+                                    TuiEvent::Status("No messages to fork from".to_string()),
+                                );
+                            } else {
+                                let sel = crate::settings_selector::ForkSelector::new(rows);
+                                state.open_panel(pi_tui::PanelPlacement::BelowEditor, sel.lines());
+                                selector = Some(SelectorUi::Fork(sel));
+                            }
+                        }
                         "clone" => {
                             // ref `interactive-mode.ts:5379-5398` 的 `handleCloneCommand`：
                             // 取当前叶子 → `fork(leafId, {position:"at"})`
@@ -7962,6 +8043,58 @@ fn spawn_r3_input_thread(tx: std::sync::mpsc::Sender<TuiEvent>) {
             wake = next;
         }
     });
+}
+
+/// 列出可分叉的用户消息（ref `interactive-mode.ts:5342` 的
+/// `session.getUserMessagesForForking()`）。
+///
+/// 只收 `type == "message"` 且 `role == "user"` 的条目，按**文件顺序**
+/// （= 时间顺序）；正文取 `content` 里的文本块。
+fn fork_rows_of(path: &std::path::Path) -> Vec<crate::settings_selector::ForkRow> {
+    let Ok(text) = std::fs::read_to_string(path) else {
+        return Vec::new();
+    };
+    let mut rows = Vec::new();
+    for line in text.lines() {
+        let Ok(value) = serde_json::from_str::<serde_json::Value>(line) else {
+            continue;
+        };
+        if value.get("type").and_then(serde_json::Value::as_str) != Some("message") {
+            continue;
+        }
+        let Some(message) = value.get("message") else {
+            continue;
+        };
+        if message.get("role").and_then(serde_json::Value::as_str) != Some("user") {
+            continue;
+        }
+        let Some(id) = value.get("id").and_then(serde_json::Value::as_str) else {
+            continue;
+        };
+        let body = match message.get("content") {
+            Some(serde_json::Value::String(text)) => text.clone(),
+            Some(serde_json::Value::Array(blocks)) => blocks
+                .iter()
+                .filter(|block| {
+                    block.get("type").and_then(serde_json::Value::as_str) == Some("text")
+                })
+                .map(|block| {
+                    block
+                        .get("text")
+                        .and_then(serde_json::Value::as_str)
+                        .unwrap_or_default()
+                        .to_string()
+                })
+                .collect::<Vec<_>>()
+                .join(" "),
+            _other => String::new(),
+        };
+        rows.push(crate::settings_selector::ForkRow {
+            id: id.to_string(),
+            text: body,
+        });
+    }
+    rows
 }
 
 /// 把**最后一条助手消息**复制到剪贴板（ref `interactive-mode.ts:6377-6407`）。

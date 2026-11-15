@@ -1170,6 +1170,74 @@ pub fn shorten_path(path: &str, home: &str) -> String {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+/// `/fork` 的可分叉用户消息（ref `interactive-mode.ts:5342` 的
+/// `session.getUserMessagesForForking()`：`{entryId, text}` 列表，按**时间顺序**）。
+pub struct ForkRow {
+    /// 条目 id（`fork` 的目标）。
+    pub id: String,
+    /// 消息正文（列表里显示、选中后回填编辑器）。
+    pub text: String,
+}
+
+/// `/fork` 的用户消息选择器（ref `user-message-selector.ts:34-60` 的精简版）。
+///
+/// 版式：` Select a message to fork from` 标题 + 每条消息一行（`→ ` 标选中），
+/// 默认选中**最新**一条（ref `:5349` 的 `initialSelectedId = 最后一条`）。
+#[derive(Debug, Clone, Default)]
+pub struct ForkSelector {
+    /// 可选消息（时间顺序）。
+    pub rows: Vec<ForkRow>,
+    /// 选中下标。
+    pub selected: usize,
+}
+
+impl ForkSelector {
+    /// 由 `(id, text)` 列表构造；默认选中最后一条。
+    #[must_use]
+    pub fn new(rows: Vec<ForkRow>) -> Self {
+        let selected = rows.len().saturating_sub(1);
+        Self { rows, selected }
+    }
+
+    /// 面板行（标题 + 每条一行）。
+    ///
+    /// **不做截断**：面板渲染层（`TuiState::open_panel` → `render_all`）会按终端宽度
+    /// 统一裁剪，这里再截一次会与那边的口径打架（F58 的教训）。
+    #[must_use]
+    pub fn lines(&self) -> Vec<String> {
+        let mut out = vec![" Select a message to fork from".to_string(), String::new()];
+        if self.rows.is_empty() {
+            out.push("  No messages to fork from".to_string());
+            return out;
+        }
+        for (index, row) in self.rows.iter().enumerate() {
+            let marker = if index == self.selected { "→ " } else { "  " };
+            // 正文压成单行（换行/制表换成空格），再按宽度截断。
+            let flat = row.text.split_whitespace().collect::<Vec<_>>().join(" ");
+            out.push(format!("{marker}{flat}"));
+        }
+        out
+    }
+
+    /// 上移。
+    pub fn move_up(&mut self) {
+        self.selected = self.selected.saturating_sub(1);
+    }
+
+    /// 下移。
+    pub fn move_down(&mut self) {
+        if self.selected + 1 < self.rows.len() {
+            self.selected += 1;
+        }
+    }
+
+    /// 当前选中的条目 id。
+    #[must_use]
+    pub fn selected_id(&self) -> Option<&str> {
+        self.rows.get(self.selected).map(|row| row.id.as_str())
+    }
+}
+
 pub struct ResumeSelector {
     /// 是否 `All` 作用域（`Tab` 切换；false = `Current Folder`）。
     pub all_scopes: bool,

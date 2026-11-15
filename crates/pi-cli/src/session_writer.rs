@@ -859,10 +859,71 @@ impl SessionWriter {
         if path.is_empty() {
             return Ok(None);
         }
+        self.write_branch_session(&path, &cwd).map(Some)
+    }
+
+    /// `/fork`：以**某条用户消息之前**为界，把该分支复制成新会话
+    /// （ref `interactive-mode.ts:5352-5365` 的 `showUserMessageSelector` →
+    /// `runtimeHost.fork(entryId)`，position 默认 `"before"`）。
+    ///
+    /// 与 `/clone` 的区别只在**叶子选择**：clone 取当前叶子、fork 取该消息的 `parentId`。
+    /// 返回 `(新会话路径, 该消息的正文)`——正文供调用方回填编辑器（ref `:5363`）。
+    pub fn fork_from_user_message(
+        &mut self,
+        entry_id: &str,
+    ) -> Result<Option<(std::path::PathBuf, String)>, String> {
+        if !self.path.is_file() {
+            return Ok(None);
+        }
+        let file = pi_core::session_io::SessionFile::read(&self.path)
+            .map_err(|error| format!("Failed to read session: {error}"))?;
+        let cwd = file.header.cwd.clone().unwrap_or_default();
+        let entries: Vec<serde_json::Value> = file
+            .entries
+            .iter()
+            .map(|entry| serde_json::to_value(entry).unwrap_or(serde_json::Value::Null))
+            .collect();
+        let Some(target) = entries
+            .iter()
+            .find(|entry| entry.get("id").and_then(serde_json::Value::as_str) == Some(entry_id))
+        else {
+            return Err("Invalid entry ID for forking".to_string());
+        };
+        // ref `:512-517`：`fork` 的默认 position 是 `"before"`，要求目标是**用户消息**，
+        // 新叶子取它的 `parentId`（`None` = 分叉到根）。
+        let is_user_message = target.get("type").and_then(serde_json::Value::as_str)
+            == Some("message")
+            && target
+                .get("message")
+                .and_then(|message| message.get("role"))
+                .and_then(serde_json::Value::as_str)
+                == Some("user");
+        if !is_user_message {
+            return Err("Invalid entry ID for forking".to_string());
+        }
+        let leaf = target
+            .get("parentId")
+            .and_then(serde_json::Value::as_str)
+            .map(str::to_string);
+        let text = crate::rpc_session::message_text(target);
+        let path = crate::rpc_session::branch_path(&entries, leaf.as_deref());
+        let file = self.write_branch_session(&path, &cwd)?;
+        Ok(Some((file, text)))
+    }
+
+    /// 把一条**分支路径**写成新会话文件并切过去（`/clone` 与 `/fork` 共用）。
+    ///
+    /// ref `session-manager.ts:1663-1690` 的 `createBranchedSession` 主体：
+    /// 新 header（带 `parentSession`）+ 逐条复制路径条目。
+    fn write_branch_session(
+        &mut self,
+        path: &[serde_json::Value],
+        cwd: &str,
+    ) -> Result<std::path::PathBuf, String> {
         let dir = self
             .path
             .parent()
-            .ok_or_else(|| "Failed to clone session: no session dir".to_string())?
+            .ok_or_else(|| "Failed to create branched session: no session dir".to_string())?
             .to_path_buf();
         let new_id = uuid::Uuid::now_v7().to_string();
         let stamp = pi_core::timefmt::now_unix_millis();
@@ -877,17 +938,17 @@ impl SessionWriter {
             version: Some(pi_core::session::CURRENT_SESSION_VERSION),
             id: new_id,
             timestamp: pi_core::timefmt::unix_millis_to_iso8601(stamp),
-            cwd: Some(cwd),
+            cwd: Some(cwd.to_string()),
             extra,
         };
         let mut text = serde_json::to_string(&header)
             .map_err(|error| format!("Failed to serialize session header: {error}"))?;
-        for item in &path {
+        for item in path {
             text.push('\n');
             text.push_str(&item.to_string());
         }
         std::fs::write(&file, text)
-            .map_err(|error| format!("Failed to write cloned session: {error}"))?;
+            .map_err(|error| format!("Failed to write branched session: {error}"))?;
         // 切到新会话（写器 + 共享链 + 扩展可见的 sessionFile/sessionId）。
         let mut writer = Self::open(&file)?;
         writer.set_chain(std::sync::Arc::clone(
@@ -898,7 +959,7 @@ impl SessionWriter {
         crate::ext_tools::set_session_file(writer.path());
         crate::ext_tools::set_session_id(writer.session_id());
         *self = writer;
-        Ok(Some(file))
+        Ok(file)
     }
 
     /// 当前会话的显示名（最后一条 `session_info` 的 `name`，ref

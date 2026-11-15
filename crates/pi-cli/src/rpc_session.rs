@@ -728,7 +728,7 @@ fn session_entries_with_raw(shared: &RpcShared) -> Option<Vec<(serde_json::Value
 }
 
 /// 用户消息文本：`contentText(content, "")`（字符串原样；内容块只取 `text`，用 `""` 拼）。
-fn message_text(entry: &serde_json::Value) -> String {
+pub(crate) fn message_text(entry: &serde_json::Value) -> String {
     match entry
         .get("message")
         .and_then(|message| message.get("content"))
