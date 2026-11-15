@@ -57,6 +57,28 @@ pub struct Settings {
     /// （ref `settings-manager.ts:809-811` 的 `getModelThinkingLevel`）。
     #[serde(default, rename = "modelThinkingLevels")]
     pub model_thinking_levels: Option<std::collections::BTreeMap<String, String>>,
+    /// `cacheWarming`：上下文预热模式（ref `settings-manager.ts:955-958` 的
+    /// `getCacheWarmingMode()`；合法值 `"streaming"` / `"off"` / `"eager"`，
+    /// 非法或缺省一律回落 `"streaming"`）。
+    ///
+    /// `/session` 面板的 `Cache Warming: Mode:` 一行读它（ref
+    /// `interactive-mode.ts:6474`）。
+    #[serde(default, rename = "cacheWarming")]
+    pub cache_warming: Option<String>,
+}
+
+impl Settings {
+    /// `getCacheWarmingMode()`（ref `settings-manager.ts:955-958`）：
+    /// 只接受 `CACHE_WARMING_MODES` 的三个值（`off` / `streaming` / `idle`，
+    /// 见 ref `settings-manager.ts:77`），其余（含缺省）回落 `"streaming"`。
+    #[must_use]
+    pub fn cache_warming_mode(&self) -> &str {
+        const MODES: [&str; 3] = ["off", "streaming", "idle"];
+        self.cache_warming
+            .as_deref()
+            .filter(|mode| MODES.contains(mode))
+            .unwrap_or("streaming")
+    }
 }
 
 /// settings.json 的 `compaction` 段。**注意**：这里不拒绝未知键（与 TS 的宽松解析一致），

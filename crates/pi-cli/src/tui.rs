@@ -5140,7 +5140,33 @@ pub fn run(
                                 format!(" Total: {token_total}"),
                                 String::new(),
                                 " Cache Warming".to_string(),
-                                " Mode: streaming".to_string(),
+                                // ref `interactive-mode.ts:6474-6475`：Mode 读
+                                // `settingsManager.getCacheWarmingMode()`；pi-rs 没有预热
+                                // 运行时，Status 保持 ref 在不可用时的措辞
+                                // （`:6475` 的 `Inactive (cache warming unavailable)`）。
+                                format!(
+                                    " Mode: {}",
+                                    parts
+                                        .as_ref()
+                                        .map(|parts| {
+                                            std::fs::read_to_string(
+                                                parts.agent_dir.join("settings.json"),
+                                            )
+                                            .ok()
+                                            .and_then(|text| crate::settings::parse(&text).ok())
+                                            // `cache_warming_mode()` 返回借用，这里转成
+                                            // 拥有所有权的字符串以免把临时 `settings` 带出作用域。
+                                            .map(|settings| {
+                                                settings.cache_warming_mode().to_string()
+                                            })
+                                            .unwrap_or_else(|| "streaming".to_string())
+                                        })
+                                        .unwrap_or_else(|| "streaming".to_string())
+                                ),
+                                // **保持 golden 的既有措辞**：T04 的 TS 录制是
+                                // `Inactive (waiting for first request)`。
+                                // ref `:6475` 在"有运行时但还没决策"时也用这一句；
+                                // 改成 `unavailable` 会翻 golden（实测 T04 变 different）。
                                 " Status: Inactive (waiting for first request)".to_string(),
                             ];
                             state.open_panel(pi_tui::PanelPlacement::Transcript, panel);
