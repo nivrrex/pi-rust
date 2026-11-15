@@ -194,11 +194,38 @@ def main():
 
     t0 = exit_at if exit_at is not None else time.time()
     flags_at_exit = flags_of(slave)
-    # 宿主 node 子进程：按 cmdline 找 `runner.mjs`（比按 ppid 找更可靠——宿主是
-    # `setsid` 后的独立进程组，ppid 关系在退出瞬间可能已断）。
+    # 宿主 node 子进程：按 cmdline 找 `runner.mjs`，但**只认本用例进程树里的**。
+    #
+    # 为什么不能全局扫 `/proc`：`cargo test` 并行跑多个用例时，**别的用例**的
+    # runner.mjs 也会被扫进来 ⇒ 断言"退出后不应残留 runner.mjs"随机失败
+    # （F61 实测：全量并行时 `p9_f39_exit_timeline` 偶发红、单跑 3/3 绿，
+    # 失败样本里的 `child_pids` 指向一条与本用例无关的 runner）。
+    #
+    # 判据：cmdline 含 `runner.mjs` **且** 进程组 / 会话号等于本用例被测进程的
+    # （宿主经 `setsid` 自立进程组，同组的才是它的子进程）。用 `getpgid` 而不是
+    # ppid 链：退出瞬间 ppid 关系可能已断，而进程组在整棵树上稳定。
+    # 只认**本用例进程树**里的 runner：`cargo test` 并行跑多个用例时，
+    # 全局扫 `/proc` 会把**别的用例**的 runner.mjs 也算进来 ⇒ 断言
+    # "退出后不应残留 runner.mjs" 随机失败（F61 实测：全量并行偶发红、
+    # 单跑 3/3 绿，失败样本的 child_pids 指向无关的 runner；
+    # 造一个无关 `node … --runner.mjs` 进程时该用例 **100% 红**）。
+    #
+    # 判据：cmdline 含 `runner.mjs` **且**进程组等于被测进程的
+    # （宿主经 setsid 自立进程组）。用进程组而不是 ppid 链：退出瞬间
+    # ppid 关系可能已断，进程组在整棵树上稳定。
+    def _pgid(pid: int):
+        try:
+            return os.getpgid(pid)
+        except OSError:
+            return None
+
+    root_pgid = _pgid(root)
     kids = []
     for entry in os.listdir("/proc"):
         if not entry.isdigit():
+            continue
+        pid = int(entry)
+        if pid == root or _pgid(pid) != root_pgid:
             continue
         try:
             with open(f"/proc/{entry}/cmdline", "rb") as handle:
@@ -206,7 +233,7 @@ def main():
         except OSError:
             continue
         if "runner.mjs" in cmdline:
-            kids.append(int(entry))
+            kids.append(pid)
 
     # (A) 先**不改** termios：模拟"用户刚退出、shell 还没起 readline 就把按键打进来"，
     # 看这些字节是否被行规程**字面回显**（真机 `^[[A` 的判据）。
