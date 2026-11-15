@@ -3442,7 +3442,7 @@ pub fn run(
                                             .and_then(|file| {
                                                 file.entries.into_iter().find_map(|entry| match entry {
                                                     pi_core::session::SessionEntry::Message { message, .. } => {
-                                                        match message {
+                                                        match &message {
                                                             pi_ai::message::Message::System { .. } => Some(message),
                                                             other => {
                                                                 let _ = other;
@@ -6432,148 +6432,171 @@ impl pi_core::agent::EventSink for TuiEventSink {
     fn emit(&self, event: pi_core::agent::AgentEvent) {
         use pi_core::agent::AgentEvent;
         let mapped = match event {
-            AgentEvent::MessageEnd { message } => match message {
-                // 助手消息定稿 ⇒ 更新 footer 左段（照 footer.ts:132-135/150-155）。
-                pi_ai::message::Message::Assistant(assistant) => {
-                    // P7-6an/P（真机 5b「问话后无反馈」）：provider 失败在 ref 里是**一条
-                    // `stopReason:"error"` 的 assistant 消息**，由 `assistant-message.ts:182-199`
-                    // 渲染成 `Error: <errorMessage>`；`length` 渲染"Response was truncated…"；
-                    // `aborted` 渲染 errorMessage 或 "Operation aborted"。
-                    // 我们原来只渲染 `content`（错误消息 content 为空）⇒ 屏幕上一片空白。
-                    let notice = crate::tui::assistant_notice(
-                        &assistant.stop_reason,
-                        assistant.error_message.as_deref(),
-                    );
-                    let notice_delta = notice;
-                    // F30/S1：每轮结束把上下文用量同步给扩展 ctx（ref `agent-session.ts:3893-3895`）。
-                    if self.context_window > 0 {
-                        let used = pi_ai::calculate_context_tokens(&assistant.usage);
-                        let tokens = if used > 0 {
-                            used
+            AgentEvent::MessageEnd { message } => {
+                // ref `agent-session.ts:1093-1099`：`message_end` **必须派发给扩展**，
+                // 载荷是定稿消息 `{type, message}`。
+                //
+                // 已装扩展有 4 处订阅它：
+                // - `pi-agent-resilience`（`index.ts:234`）：每次响应结束复位看门狗/预算；
+                // - `pi-ai-summary`（`src/events.ts:186`）：累计 token 与费用；
+                // - `context-gateway`（`index.ts:97`）：`telemetry.response(event.message)`。
+                // 此前完全不派发 ⇒ 这些逻辑从未执行（清单里唯一漏掉的"最常用"事件）。
+                //
+                // 返回值语义（ref 允许处理器**替换消息**）：我们对 `emit_event` 用的是
+                // 通知语义，替换需要改 `run_loop` 的落盘路径（属于额外能力，当前无人使用），
+                // 因此这里只通知；已登记在 `notes/p9-f60/plan.md`。
+                crate::ext_tools::emit_event(
+                    "message_end",
+                    serde_json::json!({
+                        "type": "message_end",
+                        "message": serde_json::to_value(&message)
+                            .unwrap_or(serde_json::Value::Null),
+                    }),
+                );
+                match &message {
+                    // 助手消息定稿 ⇒ 更新 footer 左段（照 footer.ts:132-135/150-155）。
+                    pi_ai::message::Message::Assistant(assistant) => {
+                        // P7-6an/P（真机 5b「问话后无反馈」）：provider 失败在 ref 里是**一条
+                        // `stopReason:"error"` 的 assistant 消息**，由 `assistant-message.ts:182-199`
+                        // 渲染成 `Error: <errorMessage>`；`length` 渲染"Response was truncated…"；
+                        // `aborted` 渲染 errorMessage 或 "Operation aborted"。
+                        // 我们原来只渲染 `content`（错误消息 content 为空）⇒ 屏幕上一片空白。
+                        let notice = crate::tui::assistant_notice(
+                            &assistant.stop_reason,
+                            assistant.error_message.as_deref(),
+                        );
+                        let notice_delta = notice;
+                        // F30/S1：每轮结束把上下文用量同步给扩展 ctx（ref `agent-session.ts:3893-3895`）。
+                        if self.context_window > 0 {
+                            let used = pi_ai::calculate_context_tokens(&assistant.usage);
+                            let tokens = if used > 0 {
+                                used
+                            } else {
+                                let text_tokens = pi_core::agent::compaction::estimate_tokens(
+                                    &pi_ai::message::Message::Assistant(assistant.clone()),
+                                );
+                                let projected = self
+                                    .context_tokens
+                                    .load(std::sync::atomic::Ordering::Relaxed);
+                                if projected > 0 {
+                                    projected + text_tokens
+                                } else {
+                                    pi_core::agent::compaction::estimate_tokens(
+                                        &self.system_message,
+                                    ) + text_tokens
+                                }
+                            };
+                            let pct = tokens as f64 / self.context_window as f64 * 100.0;
+                            crate::ext_tools::update_ctx_usage(
+                                Some(tokens),
+                                self.context_window,
+                                Some(pct),
+                            );
+                        }
+                        let window = if self.context_window >= 1000 {
+                            format!("{}k", self.context_window / 1000)
                         } else {
+                            self.context_window.to_string()
+                        };
+                        let percent = if self.context_window == 0 {
+                            None
+                        } else if pi_ai::calculate_context_tokens(&assistant.usage) > 0 {
+                            // 有 usage（T01 的 `↑10 ↓2`）：用量口径 ⇒ 12/128000 = 0.0%。
+                            // 基数用 ref `utils/estimate.ts:18-20` 的 `calculateContextTokens`：
+                            // `totalTokens || input+output+cacheRead+cacheWrite`（**含 cache**）。
+                            Some(
+                                pi_ai::calculate_context_tokens(&assistant.usage) as f64
+                                    / self.context_window as f64
+                                    * 100.0,
+                            )
+                        } else {
+                            // 无 usage（T05 的 markdown 夹具）：系统提示 + 本条消息的估算口径
+                            // （`footer.ts:112-113` 的 `contextUsage.percent`；T05 golden 显示 1.1%）。
                             let text_tokens = pi_core::agent::compaction::estimate_tokens(
                                 &pi_ai::message::Message::Assistant(assistant.clone()),
                             );
+                            let system_tokens =
+                                pi_core::agent::compaction::estimate_tokens(&self.system_message);
+                            // 与 ref `compaction.ts:218-246 estimateContextTokens` 同口径：
+                            // 没有 usage 时百分比按**整个投影**（系统提示 + 会话里全部消息）估算，
+                            // 而不是只算最后一条 assistant（旧实现少算 user/toolResult ⇒ 1.1% 而 TS 1.2%）。
+                            // 投影在提交本轮输入时算好并放进 sink（`set_context_tokens`）。
                             let projected = self
                                 .context_tokens
                                 .load(std::sync::atomic::Ordering::Relaxed);
-                            if projected > 0 {
-                                projected + text_tokens
+                            let tokens = if projected > 0 {
+                                projected
                             } else {
-                                pi_core::agent::compaction::estimate_tokens(&self.system_message)
-                                    + text_tokens
+                                system_tokens + text_tokens
+                            };
+                            if projected == 0 {
+                                let _ = text_tokens;
                             }
+                            Some(tokens as f64 / self.context_window as f64 * 100.0)
                         };
-                        let pct = tokens as f64 / self.context_window as f64 * 100.0;
-                        crate::ext_tools::update_ctx_usage(
-                            Some(tokens),
-                            self.context_window,
-                            Some(pct),
-                        );
-                    }
-                    let window = if self.context_window >= 1000 {
-                        format!("{}k", self.context_window / 1000)
-                    } else {
-                        self.context_window.to_string()
-                    };
-                    let percent = if self.context_window == 0 {
-                        None
-                    } else if pi_ai::calculate_context_tokens(&assistant.usage) > 0 {
-                        // 有 usage（T01 的 `↑10 ↓2`）：用量口径 ⇒ 12/128000 = 0.0%。
-                        // 基数用 ref `utils/estimate.ts:18-20` 的 `calculateContextTokens`：
-                        // `totalTokens || input+output+cacheRead+cacheWrite`（**含 cache**）。
-                        Some(
-                            pi_ai::calculate_context_tokens(&assistant.usage) as f64
-                                / self.context_window as f64
-                                * 100.0,
-                        )
-                    } else {
-                        // 无 usage（T05 的 markdown 夹具）：系统提示 + 本条消息的估算口径
-                        // （`footer.ts:112-113` 的 `contextUsage.percent`；T05 golden 显示 1.1%）。
-                        let text_tokens = pi_core::agent::compaction::estimate_tokens(
-                            &pi_ai::message::Message::Assistant(assistant.clone()),
-                        );
-                        let system_tokens =
-                            pi_core::agent::compaction::estimate_tokens(&self.system_message);
-                        // 与 ref `compaction.ts:218-246 estimateContextTokens` 同口径：
-                        // 没有 usage 时百分比按**整个投影**（系统提示 + 会话里全部消息）估算，
-                        // 而不是只算最后一条 assistant（旧实现少算 user/toolResult ⇒ 1.1% 而 TS 1.2%）。
-                        // 投影在提交本轮输入时算好并放进 sink（`set_context_tokens`）。
-                        let projected = self
-                            .context_tokens
-                            .load(std::sync::atomic::Ordering::Relaxed);
-                        let tokens = if projected > 0 {
-                            projected
-                        } else {
-                            system_tokens + text_tokens
-                        };
-                        if projected == 0 {
-                            let _ = text_tokens;
+                        // 有错误/截断提示时优先把它送进会话区（否则用户看不到任何反馈）。
+                        if std::env::var_os("PI_TUI_DUMP_TRANSCRIPT").is_some() {
+                            if let Ok(mut file) = std::fs::OpenOptions::new()
+                                .create(true)
+                                .append(true)
+                                .open("/tmp/p78c-events.log")
+                            {
+                                use std::io::Write as _;
+                                let _ = writeln!(
+                                    file,
+                                    "MessageEnd stop={:?} notice={:?}",
+                                    assistant.stop_reason,
+                                    notice_delta.is_some()
+                                );
+                            }
                         }
-                        Some(tokens as f64 / self.context_window as f64 * 100.0)
-                    };
-                    // 有错误/截断提示时优先把它送进会话区（否则用户看不到任何反馈）。
-                    if std::env::var_os("PI_TUI_DUMP_TRANSCRIPT").is_some() {
-                        if let Ok(mut file) = std::fs::OpenOptions::new()
-                            .create(true)
-                            .append(true)
-                            .open("/tmp/p78c-events.log")
-                        {
-                            use std::io::Write as _;
-                            let _ = writeln!(
-                                file,
-                                "MessageEnd stop={:?} notice={:?}",
-                                assistant.stop_reason,
-                                notice_delta.is_some()
-                            );
+                        // F51：**每次失败的尝试都要渲染提示**，包括重试轮。
+                        // ref 的每一轮都是一条 `stopReason:"error"` 的 assistant 消息，
+                        // `assistant-message.ts:182-199` 各自渲染一条 `Error: …`；
+                        // 真机 100×30 实测 TS 出现 3 条（每次尝试一条）+ 1 条汇总。
+                        // 早先这里在 `attempt > 0` 时把提示吞掉了（当时是为了压掉
+                        // "每轮重新宣告历史导致 Error 累积"，而那个问题已由
+                        // `set_announce_from(history_size)` 从源头解决）。
+                        if let Some(delta) = notice_delta {
+                            // 提示是**独立**块（ref `assistant-message.ts:182-199`：`Spacer(1)` 之后
+                            // 的 `Text`）。早先走 `AssistantDelta` 会把它拼在正文同一行
+                            // （"Hello Error: …"），与 ref 的"空行 + 提示"不一致。
+                            let text = delta.trim_start_matches('\n').to_string();
+                            if self.tx.send(TuiEvent::AssistantNotice(text)).is_err() {
+                                return;
+                            }
                         }
-                    }
-                    // F51：**每次失败的尝试都要渲染提示**，包括重试轮。
-                    // ref 的每一轮都是一条 `stopReason:"error"` 的 assistant 消息，
-                    // `assistant-message.ts:182-199` 各自渲染一条 `Error: …`；
-                    // 真机 100×30 实测 TS 出现 3 条（每次尝试一条）+ 1 条汇总。
-                    // 早先这里在 `attempt > 0` 时把提示吞掉了（当时是为了压掉
-                    // "每轮重新宣告历史导致 Error 累积"，而那个问题已由
-                    // `set_announce_from(history_size)` 从源头解决）。
-                    if let Some(delta) = notice_delta {
-                        // 提示是**独立**块（ref `assistant-message.ts:182-199`：`Spacer(1)` 之后
-                        // 的 `Text`）。早先走 `AssistantDelta` 会把它拼在正文同一行
-                        // （"Hello Error: …"），与 ref 的"空行 + 提示"不一致。
-                        let text = delta.trim_start_matches('\n').to_string();
-                        if self.tx.send(TuiEvent::AssistantNotice(text)).is_err() {
-                            return;
-                        }
-                    }
-                    Some(TuiEvent::Usage {
-                        input: assistant.usage.input,
-                        output: assistant.usage.output,
-                        percent,
-                        window,
-                        auto: true,
-                        cost: None,
-                        cache_read: assistant.usage.cache_read,
-                        cache_write: assistant.usage.cache_write,
-                        cache_hit_rate: pi_ai::calculate_context_tokens(&assistant.usage)
-                            .checked_div(
-                                assistant.usage.input
-                                    + assistant.usage.cache_read
-                                    + assistant.usage.cache_write,
-                            )
-                            .map(|_| {
-                                assistant.usage.cache_read as f64
-                                    / (assistant.usage.input
+                        Some(TuiEvent::Usage {
+                            input: assistant.usage.input,
+                            output: assistant.usage.output,
+                            percent,
+                            window,
+                            auto: true,
+                            cost: None,
+                            cache_read: assistant.usage.cache_read,
+                            cache_write: assistant.usage.cache_write,
+                            cache_hit_rate: pi_ai::calculate_context_tokens(&assistant.usage)
+                                .checked_div(
+                                    assistant.usage.input
                                         + assistant.usage.cache_read
-                                        + assistant.usage.cache_write)
-                                        .max(1) as f64
-                                    * 100.0
-                            }),
-                    })
+                                        + assistant.usage.cache_write,
+                                )
+                                .map(|_| {
+                                    assistant.usage.cache_read as f64
+                                        / (assistant.usage.input
+                                            + assistant.usage.cache_read
+                                            + assistant.usage.cache_write)
+                                            .max(1) as f64
+                                        * 100.0
+                                }),
+                        })
+                    }
+                    other => {
+                        let _ = other;
+                        None
+                    }
                 }
-                other => {
-                    let _ = other;
-                    None
-                }
-            },
+            }
             AgentEvent::MessageUpdate {
                 message,
                 assistant_event,

@@ -981,6 +981,7 @@ impl EventSink for StdoutJsonSink {
     print_before_provider_request!();
 
     fn emit(&self, event: AgentEvent) {
+        emit_message_end_to_extensions(&event);
         use std::io::Write;
         let line = to_json_event_line(&event);
         let mut stdout = std::io::stdout();
@@ -1022,10 +1023,28 @@ impl EventSink for NoopEventSink {
     fn emit(&self, _event: AgentEvent) {}
 }
 
+/// print 路径的 `message_end` 派发（ref `agent-session.ts:1093-1099`）。
+///
+/// `--print` / `--json` 也会加载扩展；`pi-agent-resilience` 的看门狗复位、
+/// `pi-ai-summary` 的 token 累计都挂在 `message_end` 上。
+/// 三个 sink 共用（只用 `event` 借用，不改变各 sink 自己的输出）。
+fn emit_message_end_to_extensions(event: &AgentEvent) {
+    if let AgentEvent::MessageEnd { message } = event {
+        crate::ext_tools::emit_event(
+            "message_end",
+            serde_json::json!({
+                "type": "message_end",
+                "message": serde_json::to_value(message).unwrap_or(serde_json::Value::Null),
+            }),
+        );
+    }
+}
+
 impl EventSink for JsonLineSink {
     print_before_provider_request!();
 
     fn emit(&self, event: AgentEvent) {
+        emit_message_end_to_extensions(&event);
         // 投影失败**不静默吞掉**：写成一行带 `projectionError` 的记录，让问题可见
         // （TS 侧是直接抛错，见 `json-event.ts:23-30,52-54`）。
         let line = to_json_event_line(&event);
