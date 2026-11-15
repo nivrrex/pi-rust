@@ -154,15 +154,16 @@ fn ctrl_p_respects_the_disabled_scope() {
 /// 面板里把 m1 也启用后，Ctrl+P 能在 m1↔m2 之间循环（说明改动即时生效）。
 #[test]
 fn editing_the_scope_immediately_affects_ctrl_p() {
-    // 只启用 m2 → 打开面板 → 空格启用 m1 → Esc → Ctrl+P ×2
+    // 只启用 m2 → 打开面板 → ↓ 移到 m1 → **Enter** 启用它 → Esc → Ctrl+P ×2
     // 若改动未即时生效，候选仍只有 m2 ⇒ Ctrl+P 停在 m2，不会出现 m1。
-    // 按键序列（`PI_TEST_KEYS` 按顺序注入，每步前都等静止）：
-    // `/scoped-models` → **Esc 关补全菜单** → 回车提交 → 空格外加？
+    //
+    // 切换键是 **Enter**（ref `scoped-models-selector.ts:331` 的 `tui.select.confirm`）；
+    // 空格属于搜索框（`:406-408`）。上一版用 `space`，在 F61/20 对齐 ref 之后失效。
     //
     // 初始 scope 只含 m2 ⇒ 当前模型 m2、面板里 m2 已勾选、m1 未勾选。
-    // 面板默认选中第一项（m2，已勾选）⇒ 先按 ↓ 移到 m1 再空格启用它。
+    // 面板默认选中第一项（m2，已勾选）⇒ 先按 ↓ 移到 m1 再 Enter 启用它。
     let Some(models) = run(
-        "type:/scoped-models,escape,enter,down,space,escape,ctrl+p,ctrl+p",
+        "type:/scoped-models,escape,enter,down,enter,escape,ctrl+p,ctrl+p",
         r#"{"theme":"dark","defaultProvider":"p","defaultModel":"m1","enabledModels":["p/m2"]}"#,
     ) else {
         eprintln!("跳过：本机没有 node");
