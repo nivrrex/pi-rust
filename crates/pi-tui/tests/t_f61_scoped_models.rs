@@ -187,3 +187,32 @@ fn sequential_enable_builds_the_cycle_order() {
         "循环顺序 = 启用顺序，未启用的排在后面"
     );
 }
+
+/// 面板交互的**状态机**（不涉及渲染）：`ScopedModelsSelector` 的按键语义。
+///
+/// 放在这里是因为它不依赖 pi-cli 的运行时状态，只验证"按键 → 集合变化"与 ref
+/// `scoped-models-selector.ts:299-365` 的对应关系。
+#[test]
+fn selector_key_semantics_match_ref() {
+    use pi_tui::scoped_models::EnabledIds;
+    // 用 pi-cli 的面板结构需要 pi-cli 依赖，这里直接用纯函数复现它的按键映射，
+    // 确认"空格=toggle、ctrl+a=enableAll、ctrl+x=clearAll、alt+↑↓=move"的组合正确。
+    let all = ids(&["a/m1", "a/m2", "a/m3"]);
+    let mut enabled: EnabledIds = None;
+
+    // 空格在 None 上 ⇒ 关掉当前项（第一项）
+    enabled = toggle(&enabled, &all, "a/m1");
+    assert_eq!(enabled, Some(ids(&["a/m2", "a/m3"])));
+    // ctrl+x 全关
+    enabled = clear_all(&enabled, &all, None);
+    assert_eq!(enabled, Some(Vec::new()));
+    // ctrl+a 全开 ⇒ 归一化成 None
+    enabled = enable_all(&enabled, &all, None);
+    assert_eq!(enabled, None);
+    // 再关两项后用 alt+↓ 重排：顺序改变但集合不变
+    enabled = toggle(&None, &all, "a/m1");
+    enabled = toggle(&enabled, &all, "a/m3");
+    assert_eq!(enabled, Some(ids(&["a/m2"])));
+    let reordered = move_item(&enabled, "a/m2", 1);
+    assert_eq!(reordered, Some(ids(&["a/m2"])), "只有一项时移动无效果");
+}

@@ -1114,6 +1114,8 @@ enum SelectorUi {
     Tree(crate::settings_selector::TreeSelector, usize),
     /// `/fork` 的用户消息选择器（ref `interactive-mode.ts:5351-5353`）。
     Fork(crate::settings_selector::ForkSelector),
+    /// `/scoped-models` 模型配置面板（ref `scoped-models-selector.ts:97-220`）。
+    ScopedModels(crate::settings_selector::ScopedModelsSelector),
     /// `/tree` 选中非叶子后的 `Summarize branch?` 提示（P7-7e e4a）。
     Summarize(crate::settings_selector::SummarizeSelector),
     /// `/tree` 的 `shift+l` 标签输入（P7-7e）；第二项是面板宽度（头部块用）。
@@ -1129,7 +1131,7 @@ impl SelectorUi {
             // 子菜单没有搜索框（`SelectSubmenu` 未开 searchable）⇒ 字符忽略。
             SelectorUi::Theme(_) | SelectorUi::Warnings(_) => {}
             SelectorUi::ModelThinking(sel) => sel.push(ch),
-            SelectorUi::Resume(_, _) | SelectorUi::Fork(_) => {}
+            SelectorUi::Resume(_, _) | SelectorUi::Fork(_) | SelectorUi::ScopedModels(_) => {}
             SelectorUi::Tree(_, _) | SelectorUi::Summarize(_) => {}
             SelectorUi::Label(sel, _) => sel.push(ch),
         }
@@ -1142,7 +1144,7 @@ impl SelectorUi {
             SelectorUi::Settings(sel, _) => sel.pop(),
             SelectorUi::Theme(_) | SelectorUi::Warnings(_) => {}
             SelectorUi::ModelThinking(sel) => sel.pop(),
-            SelectorUi::Resume(_, _) | SelectorUi::Fork(_) => {}
+            SelectorUi::Resume(_, _) | SelectorUi::Fork(_) | SelectorUi::ScopedModels(_) => {}
             SelectorUi::Tree(_, _) | SelectorUi::Summarize(_) => {}
             SelectorUi::Label(sel, _) => sel.pop(),
         }
@@ -1157,6 +1159,7 @@ impl SelectorUi {
             SelectorUi::ModelThinking(sel) => sel.move_up(),
             SelectorUi::Resume(sel, _) => sel.move_up(),
             SelectorUi::Fork(sel) => sel.move_up(),
+            SelectorUi::ScopedModels(sel) => sel.move_up(),
             SelectorUi::Tree(sel, _) => sel.move_up(),
             SelectorUi::Summarize(sel) => sel.move_up(),
             SelectorUi::Label(_, _) => {}
@@ -1174,6 +1177,7 @@ impl SelectorUi {
             SelectorUi::ModelThinking(sel) => sel.move_down(),
             SelectorUi::Resume(sel, _) => sel.move_down(),
             SelectorUi::Fork(sel) => sel.move_down(),
+            SelectorUi::ScopedModels(sel) => sel.move_down(),
             SelectorUi::Tree(sel, _) => sel.move_down(),
             SelectorUi::Summarize(sel) => sel.move_down(),
             SelectorUi::Label(_, _) => {}
@@ -1205,6 +1209,7 @@ impl SelectorUi {
             | SelectorUi::ModelThinking(_)
             | SelectorUi::Resume(_, _)
             | SelectorUi::Fork(_)
+            | SelectorUi::ScopedModels(_)
             | SelectorUi::Tree(_, _)
             | SelectorUi::Summarize(_)
             | SelectorUi::Label(_, _)
@@ -1223,6 +1228,7 @@ impl SelectorUi {
             SelectorUi::ModelThinking(sel) => sel.lines(),
             SelectorUi::Resume(sel, cols) => sel.lines(*cols),
             SelectorUi::Fork(sel) => sel.lines(),
+            SelectorUi::ScopedModels(sel) => sel.lines(),
             SelectorUi::Tree(sel, cols) => sel.lines(*cols),
             SelectorUi::Summarize(sel) => sel.lines(),
             SelectorUi::Label(sel, cols) => sel.lines(*cols),
@@ -2499,6 +2505,80 @@ pub fn run(
             // P7-7a：`/model` 选择器打开时，按键先交给选择器（ref `model-selector.ts:370-405`
             // 的 `handleInput`：先 Tab/上下/Enter/Esc/Ctrl+S，其余**全部**进搜索框）。
             if let Some(open_selector) = selector.as_mut() {
+                // `/scoped-models` 面板的**专用按键**（ref `scoped-models-selector.ts:299-365`）：
+                // 空格切换、ctrl+a 全开、ctrl+x 全关、alt+↑/↓ 重排、ctrl+s 落盘。
+                //
+                // 必须在通用 `match &event` **之前**拦：`ctrl+a` 在别处是 `LineStart`、
+                // `ctrl+x` 是 `CtrlX`（复制最后一条助手消息）、`ctrl+s` 是选择器排序键。
+                if let SelectorUi::ScopedModels(sel) = open_selector {
+                    use pi_tui::TuiEvent as E;
+                    let handled = match &event {
+                        E::Char(' ') => {
+                            sel.toggle_selected();
+                            true
+                        }
+                        // `ctrl+a` → `app.models.enableAll`（ref `keybindings.ts:190-193`）；
+                        // 输入层把它当成 `LineStart`，这里按面板语义复用。
+                        E::LineStart => {
+                            sel.enable_all();
+                            true
+                        }
+                        // `ctrl+x` → `app.models.clearAll`（`:194-197`）。
+                        E::CtrlX => {
+                            sel.clear_all();
+                            true
+                        }
+                        // `alt+↑/↓` → `app.models.reorderUp/Down`（`:198-205`）。
+                        // 输入层目前把 alt+方向键映射为 `CtrlLeft/CtrlRight`（见 `input.rs`），
+                        // 这里按面板语义复用；若无映射则不会到达。
+                        E::CtrlLeft => {
+                            sel.reorder_selected(-1);
+                            true
+                        }
+                        E::CtrlRight => {
+                            sel.reorder_selected(1);
+                            true
+                        }
+                        // `ctrl+s` → `app.models.save`（`:186-189`）：**真的写进**
+                        // settings.json 的 `enabledModels`（ref `showModelsSelector` 的
+                        // `onPersist` 调 `settingsManager.setEnabledModels`）。
+                        // `None`（全启用）⇒ 删除该键（不写"列出全部"的显式列表，
+                        // 否则以后新增的模型不会自动进循环）。
+                        E::CtrlS => {
+                            if let Some(parts) = parts.as_ref() {
+                                let value = match &sel.enabled {
+                                    None => serde_json::Value::Null,
+                                    Some(list) => serde_json::Value::Array(
+                                        list.iter()
+                                            .map(|id| serde_json::Value::String(id.clone()))
+                                            .collect(),
+                                    ),
+                                };
+                                let outcome = if value.is_null() {
+                                    crate::settings::remove_setting(
+                                        &parts.agent_dir,
+                                        "enabledModels",
+                                    )
+                                } else {
+                                    crate::settings::persist_setting(
+                                        &parts.agent_dir,
+                                        "enabledModels",
+                                        value,
+                                    )
+                                };
+                                sel.persisted = outcome.is_ok();
+                            }
+                            true
+                        }
+                        _other => false,
+                    };
+                    if handled {
+                        state
+                            .open_panel(pi_tui::PanelPlacement::BelowEditor, open_selector.lines());
+                        dirty = true;
+                        continue;
+                    }
+                }
                 match &event {
                     // 选择器打开时也可能收到 provider 错误（后台回合还在跑）：
                     // 这类非按键事件**照常进会话区**，不参与选择器的按键分派。
@@ -5680,7 +5760,44 @@ pub fn run(
                                 }
                             });
                         }
-                        "scoped-models" => push_unimplemented(&mut state, "scoped-models"),
+                        "scoped-models" => {
+                            // ref `interactive-mode.ts:3088-3092` → `showModelsSelector()`
+                            // （`scoped-models-selector.ts:97-220`）：管理 Ctrl+P 的循环范围。
+                            let (all_ids, enabled) = parts.as_ref().map_or_else(
+                                || (Vec::new(), Some(Vec::new())),
+                                |parts| {
+                                    let all: Vec<String> = parts
+                                        .available_models
+                                        .iter()
+                                        .map(|choice| format!("{}/{}", choice.provider, choice.id))
+                                        .collect();
+                                    // 当前启用集合：settings 的 `enabledModels` 已解析成
+                                    // `available_models`（scoped）或回落到全部；
+                                    // `scoped_models_configured == false` ⇒ ref 的 `null`（全启用）。
+                                    let enabled = if parts.scoped_models_configured {
+                                        Some(all.clone())
+                                    } else {
+                                        None
+                                    };
+                                    (all, enabled)
+                                },
+                            );
+                            if all_ids.is_empty() {
+                                let _ = apply(
+                                    &mut state,
+                                    TuiEvent::Status(
+                                        "No models available. Check your installation or add models to models.json."
+                                            .to_string(),
+                                    ),
+                                );
+                            } else {
+                                let sel = crate::settings_selector::ScopedModelsSelector::new(
+                                    all_ids, enabled,
+                                );
+                                state.open_panel(pi_tui::PanelPlacement::BelowEditor, sel.lines());
+                                selector = Some(SelectorUi::ScopedModels(sel));
+                            }
+                        }
                         "export" => {
                             // ref `interactive-mode.ts:5593-5607` 的 `handleExportCommand`：
                             // 目标是 `.jsonl` ⇒ `exportToJsonl`（导出**当前分支**）；

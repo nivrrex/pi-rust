@@ -1170,8 +1170,137 @@ pub fn shorten_path(path: &str, home: &str) -> String {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+/// `/scoped-models` 的面板（ref `scoped-models-selector.ts:97-220` 的精简版）。
+///
+/// 全量语义在 `pi_tui::scoped_models`（纯函数，9 项表驱动用例）；这里只做**交互状态**
+/// 与渲染：`disabled` 是当前未启用的 id 集合（`None` 表示"正在全关"这种中间态不需要，
+/// 用 `enabled: EnabledIds` 直接存 ref 的表示）。
+///
+/// 按键（对齐 ref `:222-320`）：
+/// - `↑/↓` 移动选中项
+/// - `空格` 切换当前项启用
+/// - `ctrl+a` 全开、`ctrl+d` 全关（ref `:299-313` 的 enableAll/clearAll）
+/// - `ctrl+↑/ctrl+↓` 在启用列表内上移/下移（决定 Ctrl+P 顺序，ref `:314-320` 的 `move`）
+/// - `ctrl+s` 落盘到 settings（ref 的 `app.models.save`）
+pub struct ScopedModelsSelector {
+    /// 全部可用模型的 id（`provider/id`）。
+    pub all_ids: Vec<String>,
+    /// 启用集合（`None` = 全部启用）。
+    pub enabled: pi_tui::scoped_models::EnabledIds,
+    /// 选中下标（按 `sorted_ids` 的显示顺序）。
+    pub selected: usize,
+    /// 已落盘提示（`ctrl+s` 后置位）。
+    pub persisted: bool,
+}
+
+impl ScopedModelsSelector {
+    /// 由可用模型与当前启用集合构造。
+    #[must_use]
+    pub fn new(all_ids: Vec<String>, enabled: pi_tui::scoped_models::EnabledIds) -> Self {
+        Self {
+            all_ids,
+            enabled,
+            selected: 0,
+            persisted: false,
+        }
+    }
+
+    /// 显示顺序（已启用的按列表顺序在前）。
+    #[must_use]
+    pub fn order(&self) -> Vec<String> {
+        pi_tui::scoped_models::sorted_ids(&self.enabled, &self.all_ids)
+    }
+
+    /// 当前选中的 id。
+    #[must_use]
+    pub fn selected_id(&self) -> Option<String> {
+        self.order().get(self.selected).cloned()
+    }
+
+    /// 上移选中项。
+    pub fn move_up(&mut self) {
+        self.selected = self.selected.saturating_sub(1);
+    }
+
+    /// 下移选中项。
+    pub fn move_down(&mut self) {
+        if self.selected + 1 < self.all_ids.len() {
+            self.selected += 1;
+        }
+    }
+
+    /// 切换当前项（空格）。
+    pub fn toggle_selected(&mut self) {
+        if let Some(id) = self.selected_id() {
+            self.enabled = pi_tui::scoped_models::toggle(&self.enabled, &self.all_ids, &id);
+            self.persisted = false;
+        }
+    }
+
+    /// 全开（`ctrl+a`）。
+    pub fn enable_all(&mut self) {
+        self.enabled = pi_tui::scoped_models::enable_all(&self.enabled, &self.all_ids, None);
+        self.persisted = false;
+    }
+
+    /// 全关（`ctrl+d`）。
+    pub fn clear_all(&mut self) {
+        self.enabled = pi_tui::scoped_models::clear_all(&self.enabled, &self.all_ids, None);
+        self.persisted = false;
+    }
+
+    /// 在启用列表内移动当前项（`ctrl+↑/↓`，决定 Ctrl+P 顺序）。
+    pub fn reorder_selected(&mut self, delta: isize) {
+        if let Some(id) = self.selected_id() {
+            self.enabled = pi_tui::scoped_models::move_item(&self.enabled, &id, delta);
+            self.persisted = false;
+        }
+    }
+
+    /// 面板行（标题 + 每项一行 + 计数）。
+    ///
+    /// 版式照 ref `:132-137` 的头部与 `:194-220` 的底部计数；
+    /// 不做宽度截断（由渲染层统一裁剪）。
+    #[must_use]
+    pub fn lines(&self) -> Vec<String> {
+        let mut out = vec![
+            " Model Configuration".to_string(),
+            " Session-only. ctrl+s to save to settings.".to_string(),
+            String::new(),
+        ];
+        let order = self.order();
+        for (index, id) in order.iter().enumerate() {
+            let marker = if index == self.selected { "→ " } else { "  " };
+            let checked = if pi_tui::scoped_models::is_enabled(&self.enabled, id) {
+                "[x] "
+            } else {
+                "[ ] "
+            };
+            out.push(format!("{marker}{checked}{id}"));
+        }
+        out.push(String::new());
+        let (enabled, unavailable, all) =
+            pi_tui::scoped_models::footer_counts(&self.enabled, &self.all_ids);
+        let count_text = if all {
+            "all enabled".to_string()
+        } else {
+            format!("{enabled} enabled")
+        };
+        let mut footer = count_text;
+        if unavailable > 0 {
+            footer.push_str(&format!(" · {unavailable} unavailable"));
+        }
+        if self.persisted {
+            footer.push_str(" · saved");
+        }
+        out.push(format!(" {footer}"));
+        out
+    }
+}
+
 /// `/fork` 的可分叉用户消息（ref `interactive-mode.ts:5342` 的
 /// `session.getUserMessagesForForking()`：`{entryId, text}` 列表，按**时间顺序**）。
+#[derive(Debug, Clone)]
 pub struct ForkRow {
     /// 条目 id（`fork` 的目标）。
     pub id: String,

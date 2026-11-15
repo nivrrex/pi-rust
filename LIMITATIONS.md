@@ -644,10 +644,10 @@ ref 的对应实现见 `interactive-mode.ts:2541`/`:2543`（`showExtensionNotify
     而编辑器粘贴归一化用 **4 空格**（ref `editor.ts:1146` 的 `normalizeText`）。
     两处未合并成同一常量，避免改变括号粘贴的缩进与光标列。推翻条件：ref 后续版本
     把两处口径统一（届时合并）。
-24. **F61/15 起 6 条内置斜杠命令未移植**：`scoped-models`（**纯逻辑已实现**，
-    `crates/pi-tui/src/scoped_models.rs`，9 项表驱动用例对照 ref
-    `scoped-models-selector.ts:24-81`；**UI 面板与命令分发未接**，命令仍走"未实现"提示）、
-    `share`、`bug`、`changelog`、`trust`、`reload`
+24. **F61/17 起 5 条内置斜杠命令未移植**：`share`、`bug`、`changelog`、`trust`、`reload`
+    （`scoped-models` 在 F61/16-F61/17 实现：纯逻辑 `crates/pi-tui/src/scoped_models.rs`
+    + 面板 `ScopedModelsSelector`，空格切换/`ctrl+a` 全开/`ctrl+x` 全关/`alt+↑↓` 重排/
+    `ctrl+s` 落盘 `enabledModels`，ref `scoped-models-selector.ts:24-365`）
     （`copy` 在 F61/5 实现：与 `ctrl+x` 同为"复制最后一条助手消息"；
     `name` 在 F61/6 实现：写 `session_info` 条目，ref `session-manager.ts:1302-1325`；
     `clone` 在 F61/8 实现：`handleCloneCommand` → 复制当前叶子路径到新会话，

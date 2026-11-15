@@ -337,6 +337,32 @@ pub fn persist_setting(
         .map_err(|error| format!("写入 {} 失败：{error}", path.display()))
 }
 
+/// 从 `settings.json` **删除**一个键（其余字段原样保留）。
+///
+/// `/scoped-models` 的 `ctrl+s` 在"全部启用"时用它：`enabledModels` 缺省即"无过滤"，
+/// 而写成"列出全部模型"的显式列表会让**以后新增的模型**不再自动进入 Ctrl+P 循环
+/// （ref `scoped-models-selector.ts:38-40` 的 `normalizeEnabled` 正是为了避免这个）。
+///
+/// 键本来就不存在时是成功的空操作（幂等）。
+pub fn remove_setting(agent_dir: &std::path::Path, key: &str) -> Result<(), String> {
+    let path = agent_dir.join("settings.json");
+    let Ok(text) = std::fs::read_to_string(&path) else {
+        return Ok(());
+    };
+    let mut root = serde_json::from_str::<serde_json::Value>(&text)
+        .map_err(|error| format!("{} 不是合法 JSON：{error}", path.display()))?;
+    let Some(object) = root.as_object_mut() else {
+        return Err(format!("{} 顶层不是 JSON 对象", path.display()));
+    };
+    if object.remove(key).is_none() {
+        return Ok(());
+    }
+    let text = serde_json::to_string_pretty(&root)
+        .map_err(|error| format!("序列化 settings 失败：{error}"))?;
+    std::fs::write(&path, format!("{text}\n"))
+        .map_err(|error| format!("写入 {} 失败：{error}", path.display()))
+}
+
 /// 把一次界面改值落盘：`id` → `settings.json` 键名 + 类型，再读-改-写。
 ///
 /// 返回：
