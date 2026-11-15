@@ -222,6 +222,17 @@ function contextForExtension() {
         const file = hostCtx.sessionFile;
         return file ? path.dirname(file) : undefined;
       },
+      // ref `session-manager.ts:1140-1142`：`getCwd()` 返回**会话的工作目录**。
+      //
+      // 真实使用方 `pi-ai-summary`（用户已装）的页脚第一行：
+      // `ctx.sessionManager?.getCwd?.() ?? ctx.cwd ?? ""`（`src/footer-cny.ts:280`）。
+      // 此前没有这个成员 ⇒ 走 `??` 回退到 `ctx.cwd`，多数情况下等价，
+      // 但两者语义不同：`ctx.cwd` 是**进程 cwd**，而会话的 `cwd` 来自会话头
+      // （`--session <file>` / `-c` 恢复时可能不同于进程 cwd，ref 的页脚显示的是会话的）。
+      getCwd() {
+        if (typeof hostCtx.cwd === "string" && hostCtx.cwd.length > 0) return hostCtx.cwd;
+        return process.cwd();
+      },
       getEntries() {
         const file = hostCtx.sessionFile;
         if (!file) return [];
