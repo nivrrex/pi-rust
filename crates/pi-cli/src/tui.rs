@@ -3411,6 +3411,14 @@ pub fn run(
                                 );
                                 // ref 的结果：会话区只留一行状态行，选中点之后的输入回到编辑器
                                 // （T45 golden：会话区是 ` Navigated to selected point`，编辑器里是 `say hi`）。
+                                //
+                                // **不要在这里重渲染历史**：实测把 `buildContextEntries` 的
+                                // 消息灌回去会让 `T45-tree-checkout` 由 same 变 different
+                                // （golden 里 `Navigated to selected point` 之后只有重新发送的
+                                // `say hi` + 回答，没有旧分支内容）。ref 虽然调了
+                                // `renderInitialMessages()`，但那时 `branch(newLeafId)` 之后
+                                // 投影里没有目标之前的消息，结果等价于"清屏 + 状态行"。
+                                // 记在 `notes/p9-f60/plan.md`（避免以后又"顺手补上"）。
                                 state.transcript.clear();
                                 let _ = apply(
                                     &mut state,
