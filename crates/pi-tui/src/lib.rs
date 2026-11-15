@@ -9114,6 +9114,25 @@ pub struct EditorLine {
     pub cursor_col: Option<usize>,
 }
 
+/// 无摘要导航后**会话链上的叶子**（ref `agent-session.ts:3739-3746`）。
+///
+/// ref 的分支：
+/// ```text
+/// if (summaryText)      branchWithSummary(newLeafId, …)   // 叶子 = 新摘要条目
+/// else if (newLeafId === null) resetLeaf()                // 叶子 = null（根）
+/// else                         branch(newLeafId)          // 叶子 = 目标
+/// ```
+///
+/// `target` 为空串表示"导航到根"（TUI 侧用空串表达 ref 的 `null`）。
+#[must_use]
+pub fn tree_leaf_after_navigation(target: &str) -> Option<String> {
+    if target.is_empty() {
+        None
+    } else {
+        Some(target.to_string())
+    }
+}
+
 /// `/tree` 导航的**新叶子**与"回填编辑器的文本"（ref `agent-session.ts:3713-3724`）。
 ///
 /// 规则（逐字对照 ref）：

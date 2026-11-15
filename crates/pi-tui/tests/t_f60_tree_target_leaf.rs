@@ -45,3 +45,22 @@ fn non_user_targets_itself_without_editor_text() {
         "非用户条目不应把正文放回编辑器（ref 只给 user / custom_message 设 editorText）"
     );
 }
+
+/// **无摘要导航也必须切叶子**（ref `agent-session.ts:3739-3746`）：
+/// `newLeafId === null` ⇒ `resetLeaf()`（空串表达），否则 `branch(newLeafId)`。
+///
+/// 我们此前"No summary"路径只清屏 + 回填文本，**会话链仍指向旧分支** ⇒
+/// 下一条消息挂回旧分支，屏幕与实际会话不一致。
+#[test]
+fn leaf_moves_to_the_target_without_summary() {
+    assert_eq!(
+        pi_tui::tree_leaf_after_navigation("id-target").as_deref(),
+        Some("id-target"),
+        "无摘要导航应把叶子切到目标"
+    );
+    assert_eq!(
+        pi_tui::tree_leaf_after_navigation(""),
+        None,
+        "空串（导航到根）应把叶子置为 None（ref 的 resetLeaf）"
+    );
+}

@@ -3381,6 +3381,34 @@ pub fn run(
                                 }
                             }
                             if picked == "No summary" {
+                                // ref `agent-session.ts:3739-3746`：**无摘要时也要切叶子**——
+                                // `newLeafId === null` ⇒ `resetLeaf()`，否则 `branch(newLeafId)`。
+                                // 我们此前只清屏 + 回填文本，**会话链仍指向旧分支** ⇒
+                                // 下一条消息会挂回旧分支，屏幕与实际会话不一致
+                                // （`/tree` 选了别的分支，发消息却写进原来那一支）。
+                                let target = pending_tree_restore_id.take().unwrap_or_default();
+                                // 规则在 `pi_tui::tree_leaf_after_navigation` 里（纯函数，
+                                // `t_f60_tree_nav_leaf` 覆盖；ref `:3739-3746`）。
+                                let leaf = pi_tui::tree_leaf_after_navigation(&target);
+                                let chain = crate::ext_tools::session_chain();
+                                if let Ok(mut guard) = chain.lock() {
+                                    *guard = leaf;
+                                }
+                                // ref `:3762-3768`：导航完成同样要派发 `session_tree`
+                                // （`pi-handoff-gate` 从这里重建清单）。
+                                crate::ext_tools::emit_event(
+                                    "session_tree",
+                                    serde_json::json!({
+                                        "type": "session_tree",
+                                        "newLeafId": crate::ext_tools::session_chain()
+                                            .lock()
+                                            .ok()
+                                            .and_then(|guard| guard.clone()),
+                                        "oldLeafId": serde_json::Value::Null,
+                                        "summaryEntry": serde_json::Value::Null,
+                                        "fromExtension": false,
+                                    }),
+                                );
                                 // ref 的结果：会话区只留一行状态行，选中点之后的输入回到编辑器
                                 // （T45 golden：会话区是 ` Navigated to selected point`，编辑器里是 `say hi`）。
                                 state.transcript.clear();
