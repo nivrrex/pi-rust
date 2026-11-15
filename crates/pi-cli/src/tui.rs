@@ -3519,16 +3519,20 @@ pub fn run(
                         if let SelectorUi::Resume(sel, _) = open_selector {
                             if let Some(&index) = sel.visible_indices().get(sel.selected) {
                                 let path = sel.sessions[index].path.clone();
-                                match crate::settings_selector::replay_messages(&path) {
-                                    Ok(messages) => {
-                                        state.transcript.clear();
-                                        for (assistant, text) in messages {
-                                            state.transcript.push(if assistant {
-                                                pi_tui::TranscriptItem::Assistant(text)
-                                            } else {
-                                                pi_tui::TranscriptItem::User(text)
-                                            });
-                                        }
+                                // **按投影口径重放**（与树导航同一条路径）：
+                                // ref `handleResumeSession` → `runtimeHost.switchSession` 最终也是
+                                // `renderInitialMessages()`，读 `buildContextEntries`
+                                // （从最后一条 compaction 起）。
+                                // 此前用 `replay_messages`（**全文件顺序**的所有消息）⇒
+                                // resume 一个压缩过的会话时，屏幕上会重新出现**压缩前**的历史
+                                // ——与 F61/4 修的树导航问题同类。
+                                let replayed =
+                                    pi_core::session_io::SessionFile::read(&path).map(|file| {
+                                        transcript_from_messages(&file.projected_messages())
+                                    });
+                                match replayed {
+                                    Ok(items) => {
+                                        state.transcript = items;
                                         // 写器切换到该会话文件（追加模式）：后续消息写进被 resume 的文件。
                                         if let Some(parts) = parts.as_ref() {
                                             if let Some(writer) = parts.writer.as_ref() {
@@ -3609,7 +3613,7 @@ pub fn run(
                                         dirty = true;
                                         continue;
                                     }
-                                    Err(_) => {
+                                    Err(_error) => {
                                         // 读不了就保持选择器打开（不静默清屏）。
                                         continue;
                                     }
