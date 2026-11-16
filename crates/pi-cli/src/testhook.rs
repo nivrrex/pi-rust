@@ -243,6 +243,8 @@ pub fn key_bytes_for_name(name: &str) -> Option<&'static str> {
         "alt+enter" => "\u{1b}\r",
         // `app.message.dequeue` = `alt+up`（`:137-140`）；xterm 的 modifyOtherKeys 编码。
         "alt+up" => "\u{1b}[1;3A",
+        // F61/32：`app.session.deleteNoninvasive` = `ctrl+backspace`；kitty 编码。
+        "ctrl+backspace" => "\u{1b}[127;5u",
         "enter" => "\r",
         // F61/19：面板里空格是"切换启用"（ref `scoped-models-selector.ts:299-310`）。
         // 缺这一条时 `space` 会被当成 5 个字母的**文本**注入（实测：面板选中项不变）。

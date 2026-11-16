@@ -2967,6 +2967,7 @@ pub fn run(
                                 | TuiEvent::ToolsExpanded(_)
                                 | TuiEvent::FollowUp
                                 | TuiEvent::Dequeue
+                                | TuiEvent::CtrlBackspace
                                 | TuiEvent::ExtensionLabels(_)
                                 | TuiEvent::SkillLabels(_)
                                 | TuiEvent::ExtensionPaths(_)
@@ -3034,7 +3035,13 @@ pub fn run(
                         dirty = true;
                         continue;
                     }
-                    TuiEvent::CtrlD
+                    // `ctrl+d`（`app.session.delete`）与 `ctrl+backspace`
+                    // （`app.session.deleteNoninvasive`）在这里**同一条路径**：
+                    // ref `session-selector.ts:599-608` 的差别只在"搜索框非空时
+                    // deleteNoninvasive 转给输入框"，而 pi-rs 的 `/resume` 还没有搜索框
+                    // （ref 有 `searchInput`，`:292`），前置条件恒成立 ⇒ 行为相同。
+                    // 搜索框部分登记在 LIMITATIONS。
+                    TuiEvent::CtrlD | TuiEvent::CtrlBackspace
                         if matches!(
                             open_selector,
                             SelectorUi::Resume(sel, _) if !sel.confirming_delete
@@ -3116,6 +3123,14 @@ pub fn run(
                             }
                         }
                         state.open_panel(pi_tui::PanelPlacement::BelowEditor, sel.lines(*cols));
+                        dirty = true;
+                        continue;
+                    }
+                    // 无守卫的兜底：`CtrlBackspace`（`deleteNoninvasive`）在非 `/resume`
+                    // 面板里没有绑定，吞掉即可。**必须无守卫**——带守卫的分支不计入
+                    // 穷尽性检查（编译器提示原文："match arms with guards don't count
+                    // towards exhaustivity"），少了它这个 match 报不完备。
+                    TuiEvent::CtrlBackspace => {
                         dirty = true;
                         continue;
                     }
@@ -9309,6 +9324,9 @@ pub fn map_key_sequence(seq: &str) -> Option<TuiEvent> {
         "ctrl+s" => TuiEvent::CtrlS,
         "ctrl+n" => TuiEvent::CtrlN,
         "ctrl+r" => TuiEvent::CtrlR,
+        // ref `core/keybindings.ts:181-184`：`app.session.deleteNoninvasive` = `ctrl+backspace`
+        // （kitty 与 modifyOtherKeys 两种编码都解析成这个名字）。
+        "ctrl+backspace" => TuiEvent::CtrlBackspace,
         "ctrl+x" => TuiEvent::CtrlX,
         "ctrl+left" => TuiEvent::CtrlLeft,
         "ctrl+right" => TuiEvent::CtrlRight,

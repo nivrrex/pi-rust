@@ -297,3 +297,99 @@ fn resume_rename_ignores_an_empty_name() {
         "空名字不应写入 session_info（ref `:912` 的 `if (!next) return`）。文件：\n{text}"
     );
 }
+
+/// `ctrl+backspace`（`app.session.deleteNoninvasive`）在 `/resume` 面板里
+/// 应进入与 `ctrl+d` 相同的删除确认态（ref `session-selector.ts:599-608`）。
+///
+/// 改前：该键没有任何分派（`/resume` 面板内被当成无关按键吞掉），
+/// 用户按 ref 的提示按键得不到任何反应。
+#[test]
+fn resume_ctrl_backspace_enters_delete_confirmation() {
+    let Some(node) = node_path() else {
+        eprintln!("跳过：本机没有 node");
+        return;
+    };
+    let tmp = tempfile::tempdir().expect("临时目录");
+    let agent = tmp.path().join("agent");
+    let home = tmp.path().join("home");
+    let work = tmp.path().join("work");
+    let sessions = tmp.path().join("sessions");
+    for dir in [&agent, &home, &work, &sessions] {
+        std::fs::create_dir_all(dir).expect("建目录");
+    }
+    std::fs::write(
+        agent.join("settings.json"),
+        r#"{"theme":"dark","defaultProvider":"p","defaultModel":"m1"}"#,
+    )
+    .expect("写 settings");
+    std::fs::write(
+        agent.join("models.json"),
+        r#"{"providers":{"p":{"baseUrl":"http://127.0.0.1:1/v1","api":"openai-completions","apiKey":"DUMMY","models":[{"id":"m1","name":"m1","contextWindow":200000,"maxTokens":1024}]}}}"#,
+    )
+    .expect("写 models");
+    std::fs::write(
+        agent.join("auth.json"),
+        r#"{"p":{"type":"api_key","key":"DUMMY"}}"#,
+    )
+    .expect("写 auth");
+    let session_path = sessions.join("2026-01-01T00-00-00_r3.jsonl");
+    write_session(&session_path, &work);
+
+    let steps = serde_json::json!([
+        {"waitStable": {"quietMs": 2000, "timeoutMs": 90000}},
+        {"text": "/resume"},
+        {"delayMs": 700},
+        {"text": "\u{1b}"},
+        {"delayMs": 300},
+        {"text": "\r"},
+        {"delayMs": 2500},
+        {"mark": "list"},
+        {"text": "\u{1b}[127;5u"},
+        {"delayMs": 1200},
+        {"mark": "confirm"},
+        {"text": "\u{1b}"},
+        {"delayMs": 500},
+        {"text": "\u{4}"},
+        {"delayMs": 1200}
+    ]);
+    let keys = tmp.path().join("keys.json");
+    std::fs::write(&keys, serde_json::to_string(&steps).expect("序列化")).expect("写 keys");
+    let raw = tmp.path().join("raw.bin");
+    let output = Command::new("python3")
+        .arg(repo_root().join("tools/difftest/pty-helper.py"))
+        .arg("--cols")
+        .arg("110")
+        .arg("--rows")
+        .arg("32")
+        .arg("--exit-code-file")
+        .arg(tmp.path().join("code.txt"))
+        .arg("--out")
+        .arg(&raw)
+        .arg("--script")
+        .arg(&keys)
+        .arg("--")
+        .arg(env!("CARGO_BIN_EXE_pi-rs"))
+        .current_dir(&work)
+        .env("PI_CODING_AGENT_DIR", &agent)
+        .env("PI_CODING_AGENT_SESSION_DIR", &sessions)
+        .env("PI_JITI", std::env::var("PI_JITI").unwrap_or_default())
+        .env("PI_NODE", &node)
+        .env("HOME", &home)
+        .env("COLORTERM", "")
+        .env("LANG", "zh_CN.UTF-8")
+        .env("LC_ALL", "zh_CN.UTF-8")
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .output()
+        .expect("运行 pty-helper");
+    assert!(
+        output.status.success(),
+        "pty-helper 应成功（stderr：{}）",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let screen = screen_of(&raw);
+    assert!(
+        screen.contains("Delete session?"),
+        "`ctrl+backspace` 应进入删除确认态（ref `session-selector.ts:599-608`）。屏幕：\n{screen}"
+    );
+}

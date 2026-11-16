@@ -407,6 +407,12 @@ pub enum TuiEvent {
     Backspace,
     /// `ctrl+o`（ref 里既是 `/tree` 的"过滤循环"，也是主界面的"显示更多"）。
     CtrlO,
+    /// `app.session.deleteNoninvasive`（`ctrl+backspace`，ref `core/keybindings.ts:181-184`）：
+    /// "查询为空时才删除会话"的**非侵入式**删除别名。
+    ///
+    /// 与 `CtrlD` 的差异只有一条（`session-selector.ts:599-608`）：搜索框**非空**时
+    /// 这个键转给输入框（删一个词），而不是弹删除确认。
+    CtrlBackspace,
     /// `app.message.followUp`（`alt+enter`，ref `interactive-mode.ts:3011`）：
     /// 把编辑器内容作为**跟进消息**排队（等本轮结束再发）。
     ///
@@ -848,7 +854,7 @@ pub fn apply(state: &mut TuiState, event: TuiEvent) -> TuiAction {
         // `app.message.followUp` / `app.message.dequeue` 需要读写**队列与编辑器**，
         // 那两样都在主循环（`pi-cli`）手里，因此这里只当"无内部副作用"处理：
         // 主循环在调用 `apply` **之前**拦截这两个事件（见 `tui.rs` 的分派处）。
-        TuiEvent::FollowUp | TuiEvent::Dequeue => TuiAction::Redraw,
+        TuiEvent::FollowUp | TuiEvent::Dequeue | TuiEvent::CtrlBackspace => TuiAction::Redraw,
         TuiEvent::BranchSummary(message) => {
             state.transcript.push(TranscriptItem::BranchSummary {
                 summary: message,

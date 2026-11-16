@@ -61,7 +61,7 @@ api_key 流程已实现：provider 列表、`/login <provider>` 直达输入、
 上游 `keybindings.ts` 共 43 条 `app.*` 绑定。**F61/29 按实际代码重新核对**（此前这
 条清单严重过时，把 F16/F17-F20 已实现的项仍列为未实现）：
 
-- 已实现（38 条 = 31 条显式 + `tree.filter.*` 7 条）：`interrupt`、`clear`、`exit`、`suspend`、`thinking.cycle`、
+- 已实现（40 条 = 33 条显式 + `tree.filter.*` 7 条）：`interrupt`、`clear`、`exit`、`suspend`、`thinking.cycle`、
   `thinking.save`、`model.cycleForward`、`model.cycleBackward`、`model.select`、
   `tools.expand`、`thinking.toggle`、`editor.external`、`message.copy`、
   `session.new`（`/new`，F16）、`session.tree`（`/tree`）、`session.resume`（`/resume`）、
@@ -71,9 +71,12 @@ api_key 流程已实现：provider 列表、`/login <provider>` 直达输入、
   `models.reorderUp`、`models.reorderDown`（F61/17-F61/20，`/scoped-models` 面板内）、
   `tree.foldOrUp`、`tree.unfoldOrDown`（`/tree` 面板）、`tree.filter.*` 共 7 条
   （`TreeFilterMode`，`/tree` 面板内）。
-- 未实现（5 条，集中在会话树的细节操作）：`clipboard.pasteImage`、
-  `session.delete`、`session.deleteNoninvasive`、`tree.editLabel`、
-  `tree.toggleLabelTimestamp`。
+- 未实现（3 条）：`clipboard.pasteImage`、`session.delete`、
+  `session.deleteNoninvasive`（**部分**：`/resume` 面板内 `ctrl+backspace`
+  已接通并进入删除确认，F61/32；缺的是"搜索框非空时转给输入框"那一半，
+  因为 pi-rs 的 `/resume` **还没有搜索框**——ref 有 `searchInput`
+  （`session-selector.ts:292`）。补搜索框时一并完成该分支）。
+  （`tree.editLabel`/`tree.toggleLabelTimestamp` 已在面板内实现：`shift+l`/`shift+t`。）
   （`session.rename` 在 F61/31 实现：`/resume` 面板内 `ctrl+r` 进入 `Rename Session`，
   字符/Backspace/Enter/Esc 全链路接通，保存写 `session_info` 到**目标**会话文件
   （`session_writer::append_session_info_to`），空名不保存，成功后刷新列表。）
