@@ -1707,6 +1707,23 @@ pub fn run(
     // 输入读取：crossterm `event::read` 的**独立线程 + mpsc**（W0(a) 的 A/B 对照结论：
     // B 在 T02/T03、UTF-8 多字节、方向键四类用例下均正常 ⇒ 采用 B；此前'crossterm 收不到输入'
     // 的结论是 helper 写块被吞掉造成的假象，已在 notes/decisions.md 记更正）。
+    // 键位表（`<agent_dir>/keybindings.json` + 默认值）。**启动时读一次**；
+    // `/reload` 会重新读（ref `handleReloadCommand` 的 `keybindings.reload()`）。
+    //
+    // 读失败只打警告并回落默认值：配置写坏不该让整个 TUI 起不来
+    // （ref `loadRawConfig` 解析失败同样返回 `undefined` ⇒ 全默认）。
+    //
+    // 用 `Arc<Mutex<…>>` 共享给**输入线程**（它负责把字节翻译成 `TuiEvent`）；
+    // `/reload` 在主线程替换内容，输入线程下一次按键就读到新表。
+    let keymap = std::sync::Arc::new(std::sync::Mutex::new(
+        match pi_tui::keybindings::load(&state.agent_dir) {
+            Ok(keymap) => keymap,
+            Err(message) => {
+                eprintln!("Warning: {message}（使用默认键位）");
+                pi_tui::keybindings::Keymap::defaults()
+            }
+        },
+    ));
     let (tx, rx) = std::sync::mpsc::channel::<TuiEvent>();
     // 跨 Submit 存活的消息历史：第二轮请求体因此天然包含第一轮的 user+assistant（T08 的重点）。
     // 回合串行化状态（P7-7f/perf）：`busy` = 有回合在跑；`queued_inputs` = 等待提交的输入。
@@ -1915,7 +1932,7 @@ pub fn run(
     #[cfg(windows)]
     spawn_crossterm_input_thread(input_tx);
     #[cfg(not(windows))]
-    spawn_r3_input_thread(input_tx);
+    spawn_r3_input_thread(input_tx, std::sync::Arc::clone(&keymap));
 
     let mut cols = terminal::size().map(|(c, _)| c as usize).unwrap_or(80);
     // 把初始宽度告诉扩展宿主：页脚/组件按 `render(width)` 排版（ref `footer.ts`）。
@@ -2106,7 +2123,11 @@ pub fn run(
                         }
                         None => crate::testhook::key_bytes_for_name(&name).unwrap_or(name.as_str()),
                     };
-                    if let Some(event) = map_key_sequence(bytes) {
+                    let mapped = keymap
+                        .lock()
+                        .ok()
+                        .and_then(|guard| map_key_sequence_with(&guard, bytes));
+                    if let Some(event) = mapped {
                         let _ = tx.send(event);
                     }
                     hook.advance();
@@ -6308,6 +6329,25 @@ pub fn run(
                                         // `applyRuntimeSettings`）。
                                         state.hide_thinking_block =
                                             crate::settings::hide_thinking_block(&agent_dir);
+                                        // **重载键位**（ref `:6228` 的 `this.keybindings.reload()`）：
+                                        // 读 `<agent_dir>/keybindings.json` 并替换输入线程用的表。
+                                        // 少了这一步，状态行里那句 "Reloaded keybindings" 就是假的
+                                        // ——用户改完 keybindings.json 后必须重启才生效。
+                                        match pi_tui::keybindings::load(&agent_dir) {
+                                            Ok(fresh) => {
+                                                if let Ok(mut guard) = keymap.lock() {
+                                                    *guard = fresh;
+                                                }
+                                            }
+                                            Err(message) => {
+                                                let _ = apply(
+                                                    &mut state,
+                                                    TuiEvent::Status(format!(
+                                                        "Reload failed: {message}"
+                                                    )),
+                                                );
+                                            }
+                                        }
                                         let _ = apply(
                                             &mut state,
                                             TuiEvent::Status(
@@ -8457,7 +8497,10 @@ fn spawn_crossterm_input_thread(tx: std::sync::mpsc::Sender<TuiEvent>) {
 }
 
 #[cfg(not(windows))]
-fn spawn_r3_input_thread(tx: std::sync::mpsc::Sender<TuiEvent>) {
+fn spawn_r3_input_thread(
+    tx: std::sync::mpsc::Sender<TuiEvent>,
+    keymap: std::sync::Arc<std::sync::Mutex<pi_tui::keybindings::Keymap>>,
+) {
     use pi_tui::input::InputState;
     use std::io::Read;
 
@@ -8513,14 +8556,14 @@ fn spawn_r3_input_thread(tx: std::sync::mpsc::Sender<TuiEvent>) {
                 Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {
                     // 计时器到期：把残留缓冲交出来
                     for event in input.flush() {
-                        if !forward_event(event, &mut negotiate, &mut osc11, &tx) {
+                        if !forward_event(event, &mut negotiate, &mut osc11, &tx, &keymap) {
                             return;
                         }
                     }
                     // 协商层的 150 ms 前缀兜底（仅超时可达，保留）
                     for action in negotiate.on_timeout() {
                         if let pi_tui::term_negotiate::Action::Forward(seq) = action {
-                            if !forward_sequence(&seq, &mut negotiate, &mut osc11, &tx) {
+                            if !forward_sequence(&seq, &mut negotiate, &mut osc11, &tx, &keymap) {
                                 return;
                             }
                         }
@@ -8532,7 +8575,7 @@ fn spawn_r3_input_thread(tx: std::sync::mpsc::Sender<TuiEvent>) {
             };
             let (events, next) = input.process(&chunk, now_ms());
             for event in events {
-                if !forward_event(event, &mut negotiate, &mut osc11, &tx) {
+                if !forward_event(event, &mut negotiate, &mut osc11, &tx, &keymap) {
                     return;
                 }
             }
@@ -8766,11 +8809,12 @@ fn forward_event(
     negotiate: &mut pi_tui::term_negotiate::NegotiateState,
     osc11: &mut pi_tui::osc11::Osc11State,
     tx: &std::sync::mpsc::Sender<TuiEvent>,
+    keymap: &std::sync::Arc<std::sync::Mutex<pi_tui::keybindings::Keymap>>,
 ) -> bool {
     use pi_tui::input::InputEvent;
     match event {
         InputEvent::Paste(content) => tx.send(TuiEvent::Paste(content)).is_ok(),
-        InputEvent::Data(seq) => forward_sequence(&seq, negotiate, osc11, tx),
+        InputEvent::Data(seq) => forward_sequence(&seq, negotiate, osc11, tx, keymap),
     }
 }
 
@@ -8782,6 +8826,7 @@ fn forward_sequence(
     negotiate: &mut pi_tui::term_negotiate::NegotiateState,
     osc11: &mut pi_tui::osc11::Osc11State,
     tx: &std::sync::mpsc::Sender<TuiEvent>,
+    keymap: &std::sync::Arc<std::sync::Mutex<pi_tui::keybindings::Keymap>>,
 ) -> bool {
     // ref `tui.ts:1073-1076`：**release 事件一律丢弃**（除非组件显式 `wantsKeyRelease`，编辑器不 opt-in）。
     // 真实终端（如 Alacritty）在 kitty 协议下会给每个键发 press+release，不过滤就会**每键触发两次**
@@ -8818,7 +8863,11 @@ fn forward_sequence(
                 if pi_tui::dsr996::on_sequence(&seq).is_some() {
                     return true;
                 }
-                if let Some(mapped) = map_key_sequence(&seq) {
+                let mapped = keymap
+                    .lock()
+                    .ok()
+                    .and_then(|guard| map_key_sequence_with(&guard, &seq));
+                if let Some(mapped) = mapped {
                     return tx.send(mapped).is_ok();
                 }
                 return true;
@@ -8826,6 +8875,171 @@ fn forward_sequence(
         }
     }
     true
+}
+
+/// 动作 → 该动作**默认键**里的第一个键名（用来把"用户改后的键"反向解析成 `TuiEvent`）。
+///
+/// 为什么要这层间接：`TuiEvent` 是**语义**事件（`CtrlP` = "切下一个模型"），
+/// 而按键是物理的（`ctrl+n`）。用户把 `app.model.cycleForward` 改成 `ctrl+n` 后，
+/// 按 `ctrl+n` 必须产生 `CtrlP`（而不是 `CtrlN`）。这里用"该动作默认键 → 事件"
+/// 查一次 `map_key_sequence`，拿到的就是那个语义事件。
+fn action_event(action: &str) -> Option<TuiEvent> {
+    let definition = pi_tui::keybindings::DEFINITIONS
+        .iter()
+        .find(|definition| definition.action == action)?;
+    // **不能**把键名（`ctrl+p`）直接喂给 `map_key_sequence`：那函数收的是**终端序列**
+    // （`"\u{10}"`），键名会被当成逐字符文本（`"ctrl+p"` ⇒ `Char('c')`）。
+    // 这里按"键名 → 序列"反查后再映射。
+    definition
+        .default_keys
+        .iter()
+        .find_map(|key| key_name_to_event(key))
+}
+
+/// 键名（`ctrl+p`、`alt+up`、`enter`…）→ 该键的语义事件。
+///
+/// 做法是把键名反解成**终端序列**再走 [`map_key_sequence`]：这样"某动作的默认键"
+/// 与"它的语义事件"之间只有一处真源（既有的映射表），不另建一张对照表。
+fn key_name_to_event(name: &str) -> Option<TuiEvent> {
+    let seq = key_name_to_sequence(name)?;
+    map_key_sequence(&seq)
+}
+
+/// 键名 → 终端序列（只覆盖 [`pi_tui::keybindings::DEFINITIONS`] 里出现的键）。
+fn key_name_to_sequence(name: &str) -> Option<String> {
+    // 单字符与非控制键直接按原名交给 `parse_key` 的反向：命名键只有这一张表。
+    let named = match name {
+        "enter" => "\r",
+        "tab" => "\t",
+        "escape" => "\u{1b}",
+        "space" => " ",
+        "backspace" => "\u{7f}",
+        "delete" => "\u{1b}[3~",
+        "up" => "\u{1b}[A",
+        "down" => "\u{1b}[B",
+        "left" => "\u{1b}[D",
+        "right" => "\u{1b}[C",
+        "home" => "\u{1b}[H",
+        "end" => "\u{1b}[F",
+        "pageUp" => "\u{1b}[5~",
+        "pageDown" => "\u{1b}[6~",
+        "shift+tab" => "\u{1b}[Z",
+        _other => "",
+    };
+    if !named.is_empty() {
+        return Some(named.to_string());
+    }
+    // `ctrl+<字母>` ⇒ 0x01..=0x1a
+    if let Some(letter) = name.strip_prefix("ctrl+") {
+        let mut chars = letter.chars();
+        if let (Some(ch), None) = (chars.next(), chars.next()) {
+            let lower = ch.to_ascii_lowercase();
+            if lower.is_ascii_lowercase() {
+                let code = u32::from(lower) - u32::from('a') + 1;
+                return char::from_u32(code).map(String::from);
+            }
+        }
+        return None;
+    }
+    // `alt+<方向键>` ⇒ ESC + 方向键序列（`alt+up` = `\u{1b}\u{1b}[A` 在多数终端里
+    // 是 ctrl+alt，所以这里用 xterm 的 `\u{1b}` 前缀形式并由 `parse_key` 判定）。
+    if let Some(rest) = name.strip_prefix("alt+") {
+        let inner = key_name_to_sequence(rest)?;
+        return Some(format!("\u{1b}{inner}"));
+    }
+    // 其余单字符（`ctrl+-` 之类特殊键不在此列，返回 None 表示"无法反解"）。
+    let mut chars = name.chars();
+    if let (Some(ch), None) = (chars.next(), chars.next()) {
+        return Some(ch.to_string());
+    }
+    None
+}
+
+/// 按键序列 → `TuiEvent`，**应用用户 keybindings.json 的覆盖**。
+///
+/// 默认情形（没有任何覆盖）与 [`map_key_sequence`] 逐字节相同：先算出按键名，
+/// 若该键名被用户**新增**给某动作，则产生该动作的语义事件；否则走原映射。
+///
+/// 为什么"只看用户新增的键"：用户把动作的键**改走**之后，旧键不应继续触发该动作
+/// （ref 的 `keysById` 是"用户值整体替换默认值"，旧键真的失效）。因此这里：
+/// 1. 先按用户表查"这个键名属于哪个动作"；
+/// 2. 找到 ⇒ 用该动作的语义事件（若该动作语义与其他动作冲突，用户表本身就是冲突，
+///    由 `conflicts()` 报告）；
+/// 3. 找不到 ⇒ 走原映射（默认键仍在，除非它被用户从该动作里删掉）。
+fn map_key_sequence_with(keymap: &pi_tui::keybindings::Keymap, seq: &str) -> Option<TuiEvent> {
+    let key = pi_tui::input::parse_key(seq, false);
+    let name = key.as_deref().unwrap_or(seq);
+    // 1. 这个键名在生效表里属于哪些动作？
+    // **非默认键优先**：一个键可能是动作 A 的默认键、同时被用户显式指派给动作 B；
+    // 此时用户意图是 B（ref 的冲突检测会把这种情况报成 conflict，但按键仍应生效）。
+    //
+    // **面板专用动作**（`app.models.*` / `app.tree.filter.*`）不参与主界面：
+    // 它们的键在主界面本来就没有行为，若让它们"认领"按键，把
+    // `app.model.cycleForward` 改走之后 `ctrl+p` 仍会因为 `app.models.toggleProvider`
+    // 的默认绑定而被映射成 `CtrlP`（实测：改键位等于加别名）。
+    let main_screen = |action: &str| {
+        !action.starts_with("app.models.") && !action.starts_with("app.tree.filter.")
+    };
+    let mut claimed_by: Option<(&str, bool)> = None;
+    for definition in pi_tui::keybindings::DEFINITIONS {
+        if !main_screen(definition.action) {
+            continue;
+        }
+        if !keymap
+            .keys_for(definition.action)
+            .iter()
+            .any(|candidate| candidate == name)
+        {
+            continue;
+        }
+        let is_default = definition.default_keys.contains(&name);
+        if !is_default {
+            claimed_by = Some((definition.action, false));
+            break;
+        }
+        claimed_by.get_or_insert((definition.action, true));
+    }
+    if let Some((action, is_default)) = claimed_by {
+        if is_default {
+            // 默认键仍在 ⇒ 交给原映射，保证默认行为逐字节不变。
+            return map_key_sequence(seq);
+        }
+        if let Some(event) = action_event(action) {
+            return Some(event);
+        }
+        return map_key_sequence(seq);
+    }
+    // 2. **没有被任何动作认领**：若这个键名曾是某动作的默认键、而所有曾持有它的
+    //    动作现在都不再包含它，则此键应当**失效**——ref 的 `keysById` 是
+    //    "用户值整体替换默认值"，旧键真的不再触发该动作。
+    //
+    //    此前少了这一步：把 `app.model.cycleForward` 改成 `ctrl+n` 后 `ctrl+p`
+    //    仍然切模型（实测序列 `["m1","m2","m2"]`），等于"改键位只是加了个别名"。
+    //    注意同一默认键可能被多个动作共享（`ctrl+p` 同时是 `app.model.cycleForward`
+    //    与 `app.models.toggleProvider`），只要还有任一持有者保留它就不能屏蔽。
+    let owners: Vec<&str> = pi_tui::keybindings::DEFINITIONS
+        .iter()
+        .filter(|definition| definition.default_keys.contains(&name))
+        .map(|definition| definition.action)
+        // 只在**面板内**生效的动作不参与主界面的键活性判断：
+        // `app.models.*`（`/scoped-models` 面板）与 `app.tree.filter.*`（`/tree`）的键
+        // 在主界面本来就不该有行为，若让它们维持活性，把 `app.model.cycleForward`
+        // 改走后 `ctrl+p` 仍会切模型（实测：序列 `["m1","m2"]`），与 ref 的
+        // `defaultEditor.onAction("app.model.cycleForward", …)` 语义不符
+        // （ref 按**动作名**注册，动作改键后旧键真的不再触发它）。
+        .filter(|action| main_screen(action))
+        .collect();
+    if !owners.is_empty()
+        && owners.iter().all(|action| {
+            !keymap
+                .keys_for(action)
+                .iter()
+                .any(|candidate| candidate == name)
+        })
+    {
+        return None;
+    }
+    map_key_sequence(seq)
 }
 
 /// 键名/序列 → `TuiEvent`（P7-6ab S1.4 的映射表）。
@@ -10501,5 +10715,62 @@ mod summary_tests {
         assert_eq!(tool_summary_for("bash", &args), "echo hi");
         let args = serde_json::json!({"query": "hello"});
         assert_eq!(tool_summary_for("web_search", &args), "hello");
+    }
+}
+
+#[cfg(test)]
+mod keybindings_probe {
+    use super::*;
+
+    fn map_with(pairs: &[(&str, &[&str])], seq: &str) -> Option<TuiEvent> {
+        let overrides: std::collections::BTreeMap<String, Vec<String>> = pairs
+            .iter()
+            .map(|(action, keys)| {
+                (
+                    (*action).to_string(),
+                    keys.iter().map(|key| (*key).to_string()).collect(),
+                )
+            })
+            .collect();
+        let keymap = pi_tui::keybindings::Keymap::with_overrides(&overrides);
+        map_key_sequence_with(&keymap, seq)
+    }
+
+    #[test]
+    fn no_override_keeps_default_mapping() {
+        assert_eq!(map_with(&[], "\u{10}"), Some(TuiEvent::CtrlP));
+        assert_eq!(map_with(&[], "\u{0e}"), Some(TuiEvent::CtrlN));
+        assert_eq!(map_with(&[], "\r"), Some(TuiEvent::Enter));
+    }
+
+    #[test]
+    fn remapped_key_produces_the_actions_event() {
+        assert_eq!(
+            map_with(&[("app.model.cycleForward", &["ctrl+n"])], "\u{0e}"),
+            Some(TuiEvent::CtrlP),
+            "ctrl+n 被指派给 cycleForward 后应产生 CtrlP"
+        );
+    }
+
+    /// 把 `app.model.cycleForward` 改走之后，`ctrl+p` 在**主界面**应失效。
+    ///
+    /// `ctrl+p` 同时是 `app.models.toggleProvider`（`/scoped-models` 面板内）的默认键，
+    /// 但面板专用动作不参与主界面的键活性判断——否则"改键位"退化成"加别名"，
+    /// 与 ref 的 `defaultEditor.onAction("app.model.cycleForward", …)`（按**动作名**
+    /// 注册，动作改键后旧键不再触发）不符。
+    #[test]
+    fn releasing_a_default_key_disables_it_on_the_main_screen() {
+        assert_eq!(
+            map_with(&[("app.model.cycleForward", &["ctrl+n"])], "\u{10}"),
+            None,
+            "cycleForward 改到 ctrl+n 后，ctrl+p 在主界面应失效"
+        );
+        // 未被任何人改动的默认键仍正常。
+        assert_eq!(map_with(&[], "\u{10}"), Some(TuiEvent::CtrlP));
+        // 把 cycleForward 改回来 ⇒ 恢复。
+        assert_eq!(
+            map_with(&[("app.model.cycleForward", &["ctrl+p"])], "\u{10}"),
+            Some(TuiEvent::CtrlP)
+        );
     }
 }

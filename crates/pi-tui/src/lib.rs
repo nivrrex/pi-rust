@@ -22,6 +22,7 @@ pub mod diff;
 pub mod fuzzy;
 pub mod gitinfo;
 pub mod intraline;
+pub mod keybindings;
 /// `/scoped-models` 的纯逻辑（ref `scoped-models-selector.ts:24-90`）。
 pub mod scoped_models;
 pub mod style;
