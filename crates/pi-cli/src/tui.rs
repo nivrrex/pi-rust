@@ -2814,6 +2814,8 @@ pub fn run(
                     TuiEvent::ExtensionNotice { .. }
                     | TuiEvent::ExtensionStatus { .. }
                     | TuiEvent::ToolsExpanded(_)
+                    | TuiEvent::FollowUp
+                    | TuiEvent::Dequeue
                     | TuiEvent::ExtensionLabels(_)
                     | TuiEvent::SkillLabels(_)
                     | TuiEvent::ExtensionPaths(_)
@@ -2963,6 +2965,8 @@ pub fn run(
                                 | TuiEvent::ExtensionNotice { .. }
                                 | TuiEvent::ExtensionStatus { .. }
                                 | TuiEvent::ToolsExpanded(_)
+                                | TuiEvent::FollowUp
+                                | TuiEvent::Dequeue
                                 | TuiEvent::ExtensionLabels(_)
                                 | TuiEvent::SkillLabels(_)
                                 | TuiEvent::ExtensionPaths(_)
@@ -4315,6 +4319,64 @@ pub fn run(
                             let _ = apply(&mut state, TuiEvent::Status(error));
                         }
                     }
+                }
+                dirty = true;
+                continue;
+            }
+            // `app.message.followUp`（`alt+enter`，ref `interactive-mode.ts:3011` →
+            // `handleFollowUp` `:4315-4344`）：
+            // - **空闲**（没有回合在跑）⇒ 等同 `Enter`（ref `:4340-4343` 的
+            //   "If not streaming, Alt+Enter acts like regular Enter"）；
+            // - **忙碌**⇒ 作为跟进消息排队（等本轮结束再发）。
+            //
+            // 此前 `alt+enter` 被映射成**换行**，用户按 ref 提示按键没有效果。
+            if matches!(event, TuiEvent::FollowUp) && selector.is_none() {
+                let text = state.input.trim().to_string();
+                if text.is_empty() {
+                    continue;
+                }
+                if busy {
+                    // 忙碌 ⇒ 排队跟进（ref `:4331-4334`：`prompt(text, {streamingBehavior:"followUp"})`）。
+                    state.input.clear();
+                    state.cursor = 0;
+                    queued_inputs.push_back(text);
+                } else {
+                    // 空闲 ⇒ **等同 `Enter`**（ref `:4340-4343`）。这里**不清空 input**：
+                    // `Enter` 分支自己从编辑器取文本并清空；此前我先清空再发 `Enter`，
+                    // 结果提交的是空内容、原文留在编辑器里（实测 `h`/`hi` 都在编辑器区）。
+                    let _ = tx.send(TuiEvent::Enter);
+                }
+                dirty = true;
+                continue;
+            }
+            // `app.message.dequeue`（`alt+up`，ref `:3012` → `handleDequeue` `:4347-4354`）：
+            // 把已排队的消息**取回编辑器**并给一行状态。
+            if matches!(event, TuiEvent::Dequeue) && selector.is_none() {
+                let restored = queued_inputs.len();
+                if restored == 0 {
+                    let _ = apply(
+                        &mut state,
+                        TuiEvent::Status("No queued messages to restore".to_string()),
+                    );
+                } else {
+                    // ref `:4587-4590`：排队文本与当前编辑器内容以空行连接。
+                    let queued: Vec<String> = queued_inputs.drain(..).collect();
+                    let queued_text = queued.join("\n\n");
+                    let current = state.input.clone();
+                    let combined = [queued_text, current]
+                        .into_iter()
+                        .filter(|part| !part.trim().is_empty())
+                        .collect::<Vec<String>>()
+                        .join("\n\n");
+                    state.input = combined;
+                    state.cursor = state.input.chars().count();
+                    let _ = apply(
+                        &mut state,
+                        TuiEvent::Status(format!(
+                            "Restored {restored} queued message{} to editor",
+                            if restored > 1 { "s" } else { "" }
+                        )),
+                    );
                 }
                 dirty = true;
                 continue;
@@ -9197,7 +9259,12 @@ pub fn map_key_sequence(seq: &str) -> Option<TuiEvent> {
         // 另 ref 的**编辑器**在 `components/editor.ts:889-894` 还直接认 `\x1b\r`（legacy alt+enter）
         // 与"含 ESC 且含 \r 的多字节序列"为换行 —— 由键位 oracle（`fixtures-editkeys.json`）实测确认：
         // `\x1b\r` 会插入换行而非提交。
-        "ctrl+j" | "shift+enter" | "alt+enter" => TuiEvent::Newline,
+        // ref `core/keybindings.ts:132-135`：`tui.input.newLine` = ["shift+enter", "ctrl+j"]；
+        // `alt+enter` 是 **`app.message.followUp`**（`:136-139`），不是换行。
+        "ctrl+j" | "shift+enter" => TuiEvent::Newline,
+        "alt+enter" => TuiEvent::FollowUp,
+        // ref `:137-139`：`app.message.dequeue` = `alt+up`（非 Windows）。
+        "alt+up" => TuiEvent::Dequeue,
         "left" | "ctrl+b" => TuiEvent::CursorLeft,
         "right" | "ctrl+f" => TuiEvent::CursorRight,
         "up" => TuiEvent::HistoryPrev,
@@ -9329,11 +9396,17 @@ mod p76al_tests {
             super::map_key_sequence("\u{1b}[127;3u"),
             Some(TuiEvent::DeleteWordBackward)
         );
-        // alt+enter：ref 的**编辑器**在 `editor.ts:889-894` 直接认 `\x1b\r` 为换行（键位 oracle 实测），
-        // 所以 kitty 形态 `\x1b[13;3u` 也必须是换行，而不是"无动作"。
+        // alt+enter：ref 把 `alt+enter` 绑定给 **`app.message.followUp`**
+        // （`core/keybindings.ts:133-136`，非 Windows 的默认键），
+        // 而 `interactive-mode.ts:3011` 用 `defaultEditor.onAction(...)` 注册它——
+        // 动作在编辑器处理链**之前**，所以实际是"排队跟进消息"而不是换行。
+        //
+        // 编辑器内部那段 `data === "\x1b\r"` 判换行（`editor.ts:889-894`）只在
+        // 没有动作认领该键时才轮到，这里按 ref 的动作绑定为准。
+        // 此前的断言写 `Newline`，把 `alt+enter` 变成了换行（用户按 ref 提示按键无效果）。
         assert_eq!(
             super::map_key_sequence("\u{1b}[13;3u"),
-            Some(TuiEvent::Newline)
+            Some(TuiEvent::FollowUp)
         );
     }
 }

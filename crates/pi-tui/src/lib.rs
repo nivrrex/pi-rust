@@ -407,6 +407,17 @@ pub enum TuiEvent {
     Backspace,
     /// `ctrl+o`（ref 里既是 `/tree` 的"过滤循环"，也是主界面的"显示更多"）。
     CtrlO,
+    /// `app.message.followUp`（`alt+enter`，ref `interactive-mode.ts:3011`）：
+    /// 把编辑器内容作为**跟进消息**排队（等本轮结束再发）。
+    ///
+    /// 与 `Enter` 的区别在"流式期间"才显现：`Enter` 排队的是 steering（尽快插进
+    /// 当前回合），`followUp` 是等回合结束。pi-rs 只有一个队列，两者都进同一队列，
+    /// 但**入口分开**——否则 `alt+enter` 会退化成换行（此前就是），
+    /// 用户按 ref 的提示按键得不到任何效果。
+    FollowUp,
+    /// `app.message.dequeue`（`alt+up`，ref `:3012` → `handleDequeue`）：
+    /// 把已排队的消息**取回编辑器**并给一行状态（`:4347-4354`）。
+    Dequeue,
     /// 设置工具输出展开态（`ctx.ui.setToolsExpanded`，ref `types.ts:2586`）。
     ///
     /// 与 [`TuiEvent::CtrlO`] 的区别：那个是**取反**（用户按键），这个是**设置**
@@ -834,6 +845,10 @@ pub fn apply(state: &mut TuiState, event: TuiEvent) -> TuiAction {
         return TuiAction::Exit;
     }
     match event {
+        // `app.message.followUp` / `app.message.dequeue` 需要读写**队列与编辑器**，
+        // 那两样都在主循环（`pi-cli`）手里，因此这里只当"无内部副作用"处理：
+        // 主循环在调用 `apply` **之前**拦截这两个事件（见 `tui.rs` 的分派处）。
+        TuiEvent::FollowUp | TuiEvent::Dequeue => TuiAction::Redraw,
         TuiEvent::BranchSummary(message) => {
             state.transcript.push(TranscriptItem::BranchSummary {
                 summary: message,

@@ -61,7 +61,7 @@ api_key 流程已实现：provider 列表、`/login <provider>` 直达输入、
 上游 `keybindings.ts` 共 43 条 `app.*` 绑定。**F61/29 按实际代码重新核对**（此前这
 条清单严重过时，把 F16/F17-F20 已实现的项仍列为未实现）：
 
-- 已实现（35 条 = 28 条显式 + `tree.filter.*` 7 条）：`interrupt`、`clear`、`exit`、`suspend`、`thinking.cycle`、
+- 已实现（37 条 = 30 条显式 + `tree.filter.*` 7 条）：`interrupt`、`clear`、`exit`、`suspend`、`thinking.cycle`、
   `thinking.save`、`model.cycleForward`、`model.cycleBackward`、`model.select`、
   `tools.expand`、`thinking.toggle`、`editor.external`、`message.copy`、
   `session.new`（`/new`，F16）、`session.tree`（`/tree`）、`session.resume`（`/resume`）、
@@ -71,9 +71,11 @@ api_key 流程已实现：provider 列表、`/login <provider>` 直达输入、
   `models.reorderUp`、`models.reorderDown`（F61/17-F61/20，`/scoped-models` 面板内）、
   `tree.foldOrUp`、`tree.unfoldOrDown`（`/tree` 面板）、`tree.filter.*` 共 7 条
   （`TreeFilterMode`，`/tree` 面板内）。
-- 未实现（8 条，全部集中在会话树/编辑器的细节操作）：`message.followUp`、
-  `message.dequeue`、`clipboard.pasteImage`、`session.rename`、`session.delete`、
-  `session.deleteNoninvasive`、`tree.editLabel`、`tree.toggleLabelTimestamp`。
+- 未实现（6 条，集中在会话树的细节操作）：`clipboard.pasteImage`、`session.rename`、
+  `session.delete`、`session.deleteNoninvasive`、`tree.editLabel`、
+  `tree.toggleLabelTimestamp`。
+  （`message.followUp`/`message.dequeue` 在 F61/30 实现：`alt+enter` 空闲时等同
+  `Enter`、忙碌时排队；`alt+up` 把排队消息取回编辑器并给 ref 的状态行。）
   **否决依据**：用户已装扩展无一依赖这些按键（逐个 grep 为 0），且它们都有等价的
   命令路径（如删除会话走 `/resume` 的 `ctrl+d`，已实现）。
 

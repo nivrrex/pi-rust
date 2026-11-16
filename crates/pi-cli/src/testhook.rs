@@ -239,6 +239,10 @@ pub fn key_bytes_for_name(name: &str) -> Option<&'static str> {
         "ctrl+x" => "\u{18}",
         "shift+tab" => "\u{1b}[Z",
         "escape" => "\u{1b}",
+        // F61/30：`app.message.followUp` = `alt+enter`（ref `core/keybindings.ts:133-136`）。
+        "alt+enter" => "\u{1b}\r",
+        // `app.message.dequeue` = `alt+up`（`:137-140`）；xterm 的 modifyOtherKeys 编码。
+        "alt+up" => "\u{1b}[1;3A",
         "enter" => "\r",
         // F61/19：面板里空格是"切换启用"（ref `scoped-models-selector.ts:299-310`）。
         // 缺这一条时 `space` 会被当成 5 个字母的**文本**注入（实测：面板选中项不变）。
