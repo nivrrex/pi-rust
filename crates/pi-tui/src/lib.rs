@@ -1314,15 +1314,19 @@ pub fn apply(state: &mut TuiState, event: TuiEvent) -> TuiAction {
                 }
             }
             // 照 `footer.ts:132-135/150-155`：`↑n ↓n x%/Nk (auto)`；无用量时只有百分比段。
+            // ref `footer.ts:150-156`：`percent` 为 `null` 时显示 **`?/<window>`（无 `%`）**，
+            // 否则 `<pct>%/<window>`。这不是排版细节：`null` 表示"上下文用量未知"
+            // （压缩后、下次助手响应之前，见 `agent-session.ts:3865-3868`），
+            // 写成 `?%` 会被读成"百分比未知但确实是百分比"。
             let percent_text = match percent {
-                Some(value) => format!("{value:.1}"),
+                Some(value) => format!("{value:.1}%"),
                 None => "?".to_string(),
             };
             let auto_text = if auto { " (auto)" } else { "" };
             if let Some(cost_text) = parts_for_cost {
                 parts.push(cost_text);
             }
-            parts.push(format!("{percent_text}%/{window}{auto_text}"));
+            parts.push(format!("{percent_text}/{window}{auto_text}"));
             state.status = parts.join(" ");
             TuiAction::Redraw
         }
@@ -1343,7 +1347,7 @@ pub fn apply(state: &mut TuiState, event: TuiEvent) -> TuiAction {
             state.usage_cache_hit_rate = cache_hit_rate;
             state.usage_cost = cost;
             let percent_text = match percent {
-                Some(value) => format!("{value:.1}"),
+                Some(value) => format!("{value:.1}%"),
                 None => "?".to_string(),
             };
             let mut parts: Vec<String> = Vec::new();
@@ -1368,7 +1372,7 @@ pub fn apply(state: &mut TuiState, event: TuiEvent) -> TuiAction {
             if state.usage_cost != 0.0 {
                 parts.push(format!("${:.3}", state.usage_cost));
             }
-            parts.push(format!("{percent_text}%/{window} (auto)"));
+            parts.push(format!("{percent_text}/{window} (auto)"));
             state.status = parts.join(" ");
             TuiAction::Redraw
         }
@@ -6319,9 +6323,14 @@ mod markdown_tests {
             },
         );
         // 随后一条 usage=0 的消息（`-c` 后新起一轮失败）**不得**把已有用量清零。
+        //
+        // `percent: None` 时 ref 输出 **`?/<window>`（无 `%`）**：`null` 表示
+        // "上下文用量未知"（压缩后、下次助手响应之前，`agent-session.ts:3865-3868`），
+        // 写成 `?%` 会被读成"百分比未知但确实是百分比"（ref `footer.ts:150-156`）。
+        // 此处旧断言写的是 `?%/128k`，把错误固化了。
         assert_eq!(
-            state.status, "↑10 ↓2 ?%/128k",
-            "usage=0 不应清零已有用量；auto 关闭时不带 (auto)"
+            state.status, "↑10 ↓2 ?/128k",
+            "usage=0 不应清零已有用量；无用量时是 `?/<window>`（无 %）；auto 关闭时不带 (auto)"
         );
         assert_eq!((state.usage_input, state.usage_output), (10, 2));
         super::apply(&mut state, super::TuiEvent::Working(true));
@@ -9424,5 +9433,48 @@ mod hotkeys_panel_tests {
             !lines.contains("Ctrl+P / ") || lines.contains("Shift+Ctrl+P"),
             "Ctrl+P 不应再作为前进键出现（它仍可能作为后退的第二个键）：\n{lines}"
         );
+    }
+}
+
+#[cfg(test)]
+mod footer_unknown_percent_tests {
+    use super::*;
+
+    fn usage(percent: Option<f64>, auto: bool) -> TuiEvent {
+        TuiEvent::Usage {
+            input: 100,
+            output: 20,
+            percent,
+            window: "128k".to_string(),
+            auto,
+            cost: None,
+            cache_read: 0,
+            cache_write: 0,
+            cache_hit_rate: None,
+        }
+    }
+
+    /// `percent: None` ⇒ `?/<window>`（**无 `%`**），ref `footer.ts:150-156`。
+    ///
+    /// 语义：`null` 表示"上下文用量未知"（压缩后、下次助手响应之前，
+    /// `agent-session.ts:3865-3868`）。写成 `?%` 会误导成"百分比未知但仍是百分比"。
+    #[test]
+    fn unknown_percent_omits_the_percent_sign() {
+        let mut state = TuiState::new("/tmp", "idle", "idle");
+        super::apply(&mut state, usage(None, true));
+        assert_eq!(state.status, "↑100 ↓20 ?/128k (auto)");
+        assert!(
+            !state.status.contains("?%"),
+            "未知用量不应带 %：{}",
+            state.status
+        );
+    }
+
+    /// 已知百分比仍带 `%`（不能为了修 `?` 把正常情形改坏）。
+    #[test]
+    fn known_percent_keeps_the_percent_sign() {
+        let mut state = TuiState::new("/tmp", "idle", "idle");
+        super::apply(&mut state, usage(Some(42.5), true));
+        assert_eq!(state.status, "↑100 ↓20 42.5%/128k (auto)");
     }
 }

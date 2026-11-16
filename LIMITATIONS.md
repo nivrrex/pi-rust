@@ -457,7 +457,17 @@ ref 的对应实现见 `interactive-mode.ts:2541`/`:2543`（`showExtensionNotify
   推翻条件：用户要求扩展能程序化展开工具输出。
 - `[Extension issues]` 已按宽度折行（ref `interactive-mode.ts:1874-1894` 的 `Text` 语义），
   但 80/120 列的 pty 截图对照未做（只有单测）。
-- 底栏 `?/0 (auto)`（真机 ②）：未取证、未修，留待下一批；ref 语义见 `getContextUsage`（`types.ts:294-300`）。
+- ~~底栏 `?/0 (auto)`（真机 ②）：未取证、未修~~ **F61/26 部分修复（已验证）**：
+  真实配置副本并排对比（100×24，`--no-session`）pi-rs 与 TS 的底栏**逐字一致**
+  （`0.0%/1.0M (auto)`），`?/0` 当前代码**无法复现**。但取证过程发现一处**真实的
+  逐字差异**并已修：`percent` 为 `null`（压缩后、下次助手响应之前的"用量未知"，
+  ref `agent-session.ts:3865-3868`）时，ref `footer.ts:150-156` 输出
+  **`?/<window>`（无 `%`）**，我们输出 `?%/128k`——而被当作预期的单测
+  （`usage=0 不应清零已有用量`）把这个错误**固化**成了断言。已改输出并逆转该断言，
+  新增 2 项用例（未知不带 `%`、已知仍带 `%`），改前必失败。
+  **仍未做**：`main.rs:1717-1721` 的恢复分支在 `resumed_context_tokens` 为 `None`
+  时写 `Some(0.0)`（显示 `0.0%`），而 ref 该情形应是 `null`（显示 `?`）。
+  推翻条件：按 ref 的 `getContextUsage` 在恢复路径区分"确实 0 用量"与"用量未知"。
 
 ## F30 收尾
 - `golden/_rejected/S19-attempt-3/`（TS 拒绝录制记录）在恢复时随 `.gitignore` 的 `golden/_rejected/` 规则丢失，
