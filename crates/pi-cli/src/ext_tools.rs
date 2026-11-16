@@ -1214,6 +1214,11 @@ fn start_host(agent_dir: &Path, cwd: &Path) -> Option<pi_ext_host::HostHandle> {
                     pi_ext_host::client::UiFrame::SetStatus { key, text } => {
                         pi_tui::TuiEvent::ExtensionStatus { key, text }
                     }
+                    // ref `types.ts:2586` 的 `ctx.ui.setToolsExpanded(boolean)`：
+                    // 扩展真的改变 TUI 的工具展开态（此前只记状态、渲染不动）。
+                    pi_ext_host::client::UiFrame::SetToolsExpanded { expanded } => {
+                        pi_tui::TuiEvent::ToolsExpanded(expanded)
+                    }
                     pi_ext_host::client::UiFrame::CustomOpen { lines, overlay } => {
                         if overlay {
                             pi_tui::TuiEvent::OverlayOpen(Some(lines))

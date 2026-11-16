@@ -407,6 +407,11 @@ pub enum TuiEvent {
     Backspace,
     /// `ctrl+o`（ref 里既是 `/tree` 的"过滤循环"，也是主界面的"显示更多"）。
     CtrlO,
+    /// 设置工具输出展开态（`ctx.ui.setToolsExpanded`，ref `types.ts:2586`）。
+    ///
+    /// 与 [`TuiEvent::CtrlO`] 的区别：那个是**取反**（用户按键），这个是**设置**
+    /// （扩展声明期望值），重复调用幂等。
+    ToolsExpanded(bool),
     /// `ctrl+t`（`/tree` 的过滤切换；主界面无绑定）。
     CtrlT,
     /// `ctrl+p`（主界面：循环到下一个模型；`/tree` 里无绑定）。
@@ -1147,6 +1152,24 @@ pub fn apply(state: &mut TuiState, event: TuiEvent) -> TuiAction {
                 // 保留旧行直到新行到达：digest 里含 `isPartial/output`，结果回填必然
                 // 触发新请求，新行会覆盖它。
             }
+            TuiAction::Redraw
+        }
+        // 扩展设置工具展开态（`ctx.ui.setToolsExpanded`，ref `types.ts:2586`）。
+        // 与 `CtrlO` 共用同一条状态与状态行文案，但**是设置而不是取反**：
+        // 扩展说"展开"就展开，重复调用不会来回翻（`pi-remote-control` 的远程切换靠它）。
+        TuiEvent::ToolsExpanded(expanded) => {
+            if state.tools_expanded == expanded {
+                // 幂等：值没变就不重绘、不重复刷状态行。
+                return TuiAction::Redraw;
+            }
+            state.tools_expanded = expanded;
+            push_status(
+                state,
+                &format!(
+                    "Tool output: {}",
+                    if expanded { "expanded" } else { "collapsed" }
+                ),
+            );
             TuiAction::Redraw
         }
         TuiEvent::CtrlO => {

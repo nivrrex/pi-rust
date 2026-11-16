@@ -2813,6 +2813,7 @@ pub fn run(
                     }
                     TuiEvent::ExtensionNotice { .. }
                     | TuiEvent::ExtensionStatus { .. }
+                    | TuiEvent::ToolsExpanded(_)
                     | TuiEvent::ExtensionLabels(_)
                     | TuiEvent::SkillLabels(_)
                     | TuiEvent::ExtensionPaths(_)
@@ -2961,6 +2962,7 @@ pub fn run(
                                 | TuiEvent::PageDown
                                 | TuiEvent::ExtensionNotice { .. }
                                 | TuiEvent::ExtensionStatus { .. }
+                                | TuiEvent::ToolsExpanded(_)
                                 | TuiEvent::ExtensionLabels(_)
                                 | TuiEvent::SkillLabels(_)
                                 | TuiEvent::ExtensionPaths(_)

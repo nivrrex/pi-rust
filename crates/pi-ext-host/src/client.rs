@@ -58,6 +58,16 @@ pub enum UiFrame {
         /// 新标题。
         title: String,
     },
+    /// `host.ui.setToolsExpanded`：扩展要求设置工具输出展开态
+    /// （ref `types.ts:2586`，`ctx.ui.setToolsExpanded(boolean)`）。
+    ///
+    /// 为什么要单独一帧：`pi-remote-control` 用它在远程端切换展开态
+    /// （`adapter.ts:463`）。此前宿主只把这个值记进自己的状态并回执，
+    /// TUI 完全不知道 ⇒ **远程切换没有任何效果**（真机可复现）。
+    SetToolsExpanded {
+        /// 是否展开。
+        expanded: bool,
+    },
     /// `host.ui.setStatus`：`text` 为 `None` 表示清除该 key。
     SetStatus {
         /// 状态键。
@@ -1173,9 +1183,14 @@ impl ExtHost {
                     .get("expanded")
                     .and_then(Value::as_bool)
                     .unwrap_or(false);
-                if let Ok(mut state) = state.lock() {
-                    state.tools_expanded = expanded;
-                }
+                // 通知 TUI：只记状态不驱动渲染时，扩展的 `setToolsExpanded` 是空操作
+                // （LIMITATIONS F28 的这条限制由此解除）。
+                let _ = state.lock().ok().map(|mut guard| {
+                    guard.tools_expanded = expanded;
+                    if let Some(sink) = guard.ui_sink.clone() {
+                        let _ = sink.send(UiFrame::SetToolsExpanded { expanded });
+                    }
+                });
                 encode_response(incoming.id, Ok(Value::Null))
             }
             "host.ui.setStatus" => {

@@ -453,8 +453,13 @@ ref 的对应实现见 `interactive-mode.ts:2541`/`:2543`（`showExtensionNotify
   **推翻条件**：把 pty 驱动改成按会话 id 直接选中 / 用虚拟终端（vt100 直接驱动状态机）后可恢复为常规用例。
 
 ## F28
-- `ctx.ui.setToolsExpanded` 只记录状态并回执，**不驱动** pi-tui 的工具行展开（`/expand` 仍是唯一开关）；
-  推翻条件：用户要求扩展能程序化展开工具输出。
+- ~~`ctx.ui.setToolsExpanded` 只记录状态并回执，**不驱动** pi-tui 的工具行展开~~
+  **F61/28 已实现（已验证）**：新增 `UiFrame::SetToolsExpanded` → `TuiEvent::ToolsExpanded(bool)`
+  → `pi-tui` 设置 `tools_expanded` 并刷 `Tool output: expanded|collapsed` 状态行
+  （与 `Ctrl+O` 同一句文案，ref `interactive-mode.ts:4419`）。与 `Ctrl+O` 的区别是
+  **设置而非取反**，重复调用幂等。
+  推翻条件原先写的是"用户要求扩展能程序化展开工具输出"——该条件**已成立**：
+  已装扩展 `pi-remote-control` 用它在远程端切换（`adapter.ts:463`），此前远程切换无效。
 - `[Extension issues]` 已按宽度折行（ref `interactive-mode.ts:1874-1894` 的 `Text` 语义），
   但 80/120 列的 pty 截图对照未做（只有单测）。
 - ~~底栏 `?/0 (auto)`（真机 ②）：未取证、未修~~ **F61/26 部分修复（已验证）**：
