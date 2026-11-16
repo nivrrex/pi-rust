@@ -1846,15 +1846,6 @@ impl ResumeSelector {
                     if self.show_path { "on" } else { "off" }
                 )
             },
-            // **搜索框**（ref `session-selector.ts:292/333` 的 `searchInput`）：
-            // 与 `/scoped-models` 面板同样的 `> <text>` 形态。
-            if self.confirming_delete {
-                String::new()
-            } else if self.search.is_empty() {
-                "> ".to_string()
-            } else {
-                format!("> {}", self.search)
-            },
             String::new(),
         ];
         lines.push(">".to_string());

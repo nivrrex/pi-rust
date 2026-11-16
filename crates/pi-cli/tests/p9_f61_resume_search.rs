@@ -199,17 +199,17 @@ fn run_search(query: &str) -> Option<String> {
     Some(screen_of(&raw))
 }
 
-/// 面板应显示搜索框（`> ` 开头），且没查询时两个会话都在。
+/// 无查询时两个会话都在（过滤只在有查询时生效，不误伤空查询）。
+///
+/// **注意**：ref 的 `searchInput` **不渲染**——`buildBaseLayout`
+/// （`session-selector.ts:745-754`）只加 header 与列表，没有把 searchInput 加进去，
+/// T36 golden 的首屏里也没有输入行。它只负责接收按键。因此这里不断言"有输入框行"。
 #[test]
-fn resume_panel_shows_a_search_box() {
+fn resume_panel_lists_every_session_without_a_query() {
     let Some(screen) = run_search("") else {
         eprintln!("跳过：本机没有 node");
         return;
     };
-    assert!(
-        screen.lines().any(|line| line.trim_end() == ">"),
-        "面板应有一行空搜索框（`>`）。屏幕：\n{screen}"
-    );
     assert!(screen.contains("alpine-notes"), "屏幕：\n{screen}");
     assert!(screen.contains("banana-report"), "屏幕：\n{screen}");
 }
@@ -225,9 +225,11 @@ fn resume_search_filters_the_list() {
         eprintln!("跳过：本机没有 node");
         return;
     };
+    // 搜索框**不可见**（ref `buildBaseLayout` 不渲染 `searchInput`），
+    // 用"过滤是否发生"作为输入已达的间接证据。
     assert!(
-        screen.contains("> banana"),
-        "搜索框应显示已输入的内容。屏幕：\n{screen}"
+        screen.contains("banana-report"),
+        "匹配项应出现。屏幕：\n{screen}"
     );
     // 判据取**最后一次渲染出的列表区**：`> banana` 之后、退出前的那个面板。
     // 前面每敲一个字符都会重绘一帧（那时另一个会话还在），那是逐字符输入的
@@ -239,8 +241,10 @@ fn resume_search_filters_the_list() {
     // **过滤逻辑本身**由单元测试覆盖：
     //   `resume_search_tests`（查询解析/匹配，10 项）
     //   + `resume_visible_search_tests`（`visible_indices` 真的按搜索收窄，2 项）。
+    // 搜索框**不可见**（ref 不渲染它），因此用"过滤是否发生"作为输入已达的间接证据：
+    // 输入 `banana` 之后，屏幕上出现了只含 banana-report 的帧。
     assert!(
-        screen.contains("> banana"),
-        "搜索框应收到输入内容。屏幕：\n{screen}"
+        screen.contains("banana-report"),
+        "匹配项应出现。屏幕：\n{screen}"
     );
 }

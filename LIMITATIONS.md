@@ -93,7 +93,11 @@ api_key 流程已实现：provider 列表、`/login <provider>` 直达输入、
   根因是 `scan_sessions` 只统计消息条数、不累积全文（累积全文要读整份文件，
   116 MB 的会话会有明显开销）。推翻条件：让 `scan_sessions` 顺带累积文本，
   或按需对"已缩小到少量候选"的会话再读全文匹配。
-- 端到端用例只断言"搜索框收到输入"，过滤结果由单元测试覆盖
+- **搜索框不在屏幕上**（ref 同样如此）：`searchInput` 不参与渲染——
+  `buildBaseLayout`（`session-selector.ts:745-754`）只加 header 与列表，
+  T36 golden 首屏里也没有输入行。我第一版给它加了一行可见的 `> `，被
+  `resume_tests::lines_match_t36_first_screen` 直接判红（那 9 行是逐字节对齐的）。
+- 端到端用例只断言"过滤发生了"，过滤逻辑本身由单元测试覆盖
   （`resume_search_tests` 10 项 + `resume_visible_search_tests` 2 项）：
   逐字符输入产生大量中间帧、退出时边界框重画会把最终帧变成收尾画面，
   从原始 pty 流里切"过滤后的那一帧"不可靠（试过三种切法均被干扰）。
