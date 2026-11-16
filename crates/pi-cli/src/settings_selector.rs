@@ -1117,6 +1117,8 @@ mod model_thinking_tests {
 pub struct SessionRow {
     /// 会话文件路径（`/resume` 选中后要用它重放并接管写入）。
     pub path: std::path::PathBuf,
+    /// 会话 id（header 的 `id`；搜索文本的第一段，ref `session-selector-search.ts:29-31`）。
+    pub id: String,
     /// 会话名（`session_info` 条目的 `name`；有名字时列表显示名字而不是首条消息）。
     pub name: Option<String>,
     /// 摘要：第一条**用户**消息的文本；没有则 `None`（渲染成 `(no messages)`）。
@@ -1579,6 +1581,10 @@ impl ForkSelector {
 }
 
 pub struct ResumeSelector {
+    /// 搜索框内容（ref `session-selector.ts:292` 的 `searchInput`）。
+    ///
+    /// 语义见 `parse_query`：空 = 全部、`re:<pattern>` = 正则、引号 = 短语精确匹配。
+    pub search: String,
     /// 是否 `All` 作用域（`Tab` 切换；false = `Current Folder`）。
     pub all_scopes: bool,
     /// 排序模式（ref `session-selector.ts` 的 `Sort: Threaded | Recent`，`ctrl+s` 切换）。
@@ -1610,6 +1616,7 @@ impl ResumeSelector {
     #[must_use]
     pub fn new() -> Self {
         Self {
+            search: String::new(),
             all_scopes: false,
             sort_recent: false,
             show_path: false,
@@ -1629,13 +1636,52 @@ impl ResumeSelector {
     pub fn visible_indices(&self) -> Vec<usize> {
         // ref `session-selector.ts:459-470`：作用域（Current Folder / All）+ `ctrl+n`
         // 的 `Name: Named` 过滤要**叠加**（此前只做了标签、没做过滤）。
-        self.sessions
+        let base: Vec<usize> = self
+            .sessions
             .iter()
             .enumerate()
             .filter(|(_, row)| self.all_scopes || !self.filter_cwd || row.cwd == self.current_cwd)
             .filter(|(_, row)| !self.named_only || row.name.is_some())
             .map(|(i, _)| i)
-            .collect()
+            .collect();
+        if self.search.trim().is_empty() {
+            return base;
+        }
+        filter_sessions_by_query(&self.sessions, &base, &self.search, self.sort_recent)
+    }
+
+    /// 搜索框追加字符（ref 把未识别的按键交给 `searchInput`）。
+    pub fn push_search(&mut self, ch: char) {
+        self.search.push(ch);
+        self.selected = 0;
+    }
+
+    /// 搜索框退格。
+    pub fn pop_search(&mut self) -> bool {
+        if self.search.pop().is_some() {
+            self.selected = 0;
+            true
+        } else {
+            false
+        }
+    }
+
+    /// 搜索框删掉末尾一个"词"（`ctrl+backspace`，ref `:601-604` 把它转给
+    /// `searchInput.handleInput` ⇒ 输入框的删词行为）。
+    pub fn pop_search_word(&mut self) -> bool {
+        if self.search.pop().is_none() {
+            return false;
+        }
+        while self
+            .search
+            .chars()
+            .last()
+            .is_some_and(|ch| !ch.is_whitespace())
+        {
+            self.search.pop();
+        }
+        self.selected = 0;
+        true
     }
 
     /// 可见窗口上限（ref `session-selector.ts:311`：`maxVisible = 10`）。
@@ -1799,6 +1845,15 @@ impl ResumeSelector {
                     "ctrl+s sort · ctrl+n named · ctrl+d delete · ctrl+p path ({}) · ctrl+r rename",
                     if self.show_path { "on" } else { "off" }
                 )
+            },
+            // **搜索框**（ref `session-selector.ts:292/333` 的 `searchInput`）：
+            // 与 `/scoped-models` 面板同样的 `> <text>` 形态。
+            if self.confirming_delete {
+                String::new()
+            } else if self.search.is_empty() {
+                "> ".to_string()
+            } else {
+                format!("> {}", self.search)
             },
             String::new(),
         ];
@@ -1967,6 +2022,7 @@ pub fn scan_sessions(dir: &std::path::Path) -> Vec<SessionRow> {
             continue;
         };
         let mut cwd = String::new();
+        let mut session_id = String::new();
         let mut header_ms: Option<u128> = None;
         let mut last_activity_ms: Option<u128> = None;
         let mut message_count = 0usize;
@@ -1986,6 +2042,11 @@ pub fn scan_sessions(dir: &std::path::Path) -> Vec<SessionRow> {
                 header_seen = true;
                 cwd = record
                     .get("cwd")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or_default()
+                    .to_string();
+                session_id = record
+                    .get("id")
                     .and_then(|v| v.as_str())
                     .unwrap_or_default()
                     .to_string();
@@ -2038,6 +2099,7 @@ pub fn scan_sessions(dir: &std::path::Path) -> Vec<SessionRow> {
             .unwrap_or(0);
         rows.push(SessionRow {
             path: path.clone(),
+            id: session_id,
             name,
             summary,
             cwd,
@@ -2160,6 +2222,7 @@ mod resume_list_tests {
     fn row_normalizes_newlines_in_summary() {
         let mut selector = ResumeSelector::new();
         selector.sessions = vec![SessionRow {
+            id: "sess".to_string(),
             path: std::path::PathBuf::from("/a.jsonl"),
             name: None,
             summary: Some("第一行\n第二行".to_string()),
@@ -2183,6 +2246,7 @@ mod resume_list_tests {
         selector.all_scopes = true;
         selector.home = "/root".to_string();
         selector.sessions = vec![SessionRow {
+            id: "sess".to_string(),
             path: std::path::PathBuf::from("/tmp/s.jsonl"),
             name: None,
             summary: None,
@@ -2236,6 +2300,7 @@ mod resume_list_tests {
         selector.filter_cwd = true;
         selector.sessions = vec![
             SessionRow {
+                id: "sess".to_string(),
                 path: std::path::PathBuf::from("/a.jsonl"),
                 name: None,
                 summary: Some("a".into()),
@@ -2244,6 +2309,7 @@ mod resume_list_tests {
                 modified_ms: 2,
             },
             SessionRow {
+                id: "sess".to_string(),
                 path: std::path::PathBuf::from("/b.jsonl"),
                 name: None,
                 summary: Some("b".into()),
@@ -2265,6 +2331,7 @@ mod resume_list_tests {
         selector.filter_cwd = false;
         selector.sessions = (0..3)
             .map(|i| SessionRow {
+                id: "sess".to_string(),
                 path: std::path::PathBuf::from(format!("/s{i}.jsonl")),
                 name: None,
                 summary: Some(format!("会话 {i}")),
@@ -2323,6 +2390,7 @@ mod resume_list_tests {
         selector.current_cwd = "/work/colibri".to_string();
         selector.filter_cwd = false;
         selector.sessions = vec![SessionRow {
+            id: "sess".to_string(),
             path: std::path::PathBuf::from("/a.jsonl"),
             name: None,
             summary: Some("old".into()),
@@ -3697,6 +3765,7 @@ mod p79_limits_tests {
 
     fn row(name: Option<&str>, index: usize) -> SessionRow {
         SessionRow {
+            id: "sess".to_string(),
             path: std::path::PathBuf::from(format!("/tmp/s{index}.jsonl")),
             name: name.map(str::to_string),
             summary: Some(format!("摘要 {index}")),
@@ -3881,5 +3950,396 @@ impl TrustSelector {
                 .updates
                 .first()
                 .is_some_and(|update| pi_core::trust::normalize_path(&update.path) == *path)
+    }
+}
+
+// ---------------------------------------------------------------------------
+// `/resume` 搜索（ref `components/session-selector-search.ts`）
+// ---------------------------------------------------------------------------
+
+/// 一条搜索 token（ref `ParsedSearchQuery.tokens`）。
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum SearchToken {
+    /// 模糊匹配（`fuzzyMatch`，字符可跳跃）。
+    Fuzzy(String),
+    /// 短语精确匹配（引号内，空白归一后做子串匹配）。
+    Phrase(String),
+}
+
+/// 解析后的查询。
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ParsedQuery {
+    /// 普通分词模式。空 tokens = 匹配全部。
+    Tokens(Vec<SearchToken>),
+    /// `re:<pattern>` 正则模式（已按 ref 的 `new RegExp(pattern, "i")` 语义做大小写不敏感）。
+    Regex(String),
+    /// 解析失败（空正则 / 非法正则）⇒ **不匹配任何会话**（ref `:22-24` 的 `error`）。
+    Invalid,
+}
+
+/// 解析查询串（ref `parseSearchQuery`，`session-selector-search.ts:48-116`）。
+///
+/// 规则：
+/// - 空 ⇒ `Tokens([])`（匹配全部）；
+/// - `re:` 前缀 ⇒ 正则模式；空模式或非法模式 ⇒ `Invalid`；
+/// - 引号包裹的片段是 `Phrase`，其余按空白切分为 `Fuzzy`；
+/// - **引号不配对**时整体退化为按空白切分的 `Fuzzy`（ref `:97-108`）。
+#[must_use]
+pub fn parse_query(query: &str) -> ParsedQuery {
+    let trimmed = query.trim();
+    if trimmed.is_empty() {
+        return ParsedQuery::Tokens(Vec::new());
+    }
+    if let Some(rest) = trimmed.strip_prefix("re:") {
+        let pattern = rest.trim();
+        if pattern.is_empty() {
+            return ParsedQuery::Invalid;
+        }
+        // 合法性由调用方在匹配时用 `regex` 判定；这里只做"能否编译"的预检
+        // （ref 在 parse 阶段就 try/catch，非法正则直接算 error）。
+        return match regex_is_valid(pattern) {
+            true => ParsedQuery::Regex(pattern.to_string()),
+            false => ParsedQuery::Invalid,
+        };
+    }
+    let mut tokens: Vec<SearchToken> = Vec::new();
+    let mut buf = String::new();
+    let mut in_quote = false;
+    // 把当前 buf 按指定 kind 推入 tokens（空内容忽略）。
+    // 之前这里写成"取出 kind 里的空串做判空"，结果**内容永远丢失**、
+    // token 全被丢弃（6 项用例里 4 项因此失败）。
+    let flush = |tokens: &mut Vec<SearchToken>, buf: &mut String, phrase: bool| {
+        let text = buf.trim().to_string();
+        buf.clear();
+        if text.is_empty() {
+            return;
+        }
+        tokens.push(if phrase {
+            SearchToken::Phrase(text)
+        } else {
+            SearchToken::Fuzzy(text)
+        });
+    };
+    for ch in trimmed.chars() {
+        if ch == '"' {
+            if in_quote {
+                flush(&mut tokens, &mut buf, true);
+                in_quote = false;
+            } else {
+                flush(&mut tokens, &mut buf, false);
+                in_quote = true;
+            }
+            continue;
+        }
+        if !in_quote && ch.is_whitespace() {
+            flush(&mut tokens, &mut buf, false);
+            continue;
+        }
+        buf.push(ch);
+    }
+    if in_quote {
+        // 引号不配对 ⇒ 退化为按空白切分（ref `:97-108`）。
+        return ParsedQuery::Tokens(
+            trimmed
+                .split_whitespace()
+                .map(|part| SearchToken::Fuzzy(part.to_string()))
+                .collect(),
+        );
+    }
+    flush(&mut tokens, &mut buf, false);
+    ParsedQuery::Tokens(tokens)
+}
+
+/// 正则是否可编译（ref 在 parse 阶段 `new RegExp(...)` 失败即 error）。
+fn regex_is_valid(pattern: &str) -> bool {
+    // 只用 `regex` crate 的语法检查；实际匹配见 `match_text`。
+    regex::RegexBuilder::new(pattern)
+        .case_insensitive(true)
+        .build()
+        .is_ok()
+}
+
+/// 一条会话的**搜索文本**（ref `getSessionSearchText`，`session-selector-search.ts:29-31`）：
+/// `id name allMessagesText cwd`。
+///
+/// **与 ref 的差异**：pi-rs 的 `SessionRow` 不保存全部消息文本（那要读整份会话文件，
+/// 而 `scan_sessions` 只统计条数），因此这里用 `summary`（首条用户消息）代替
+/// `allMessagesText`。后果：只能搜到会话名与首条消息，搜不到中间内容。
+/// 登记在 LIMITATIONS；补全文需要让 `scan_sessions` 顺带累积文本。
+#[must_use]
+pub fn session_search_text(row: &SessionRow) -> String {
+    format!(
+        "{} {} {} {}",
+        row.id,
+        row.name.as_deref().unwrap_or_default(),
+        row.summary.as_deref().unwrap_or_default(),
+        row.cwd
+    )
+}
+
+/// 空白归一 + 小写（ref `normalizeWhitespaceLower`，`:26-28`）。
+fn normalize_whitespace_lower(text: &str) -> String {
+    text.split_whitespace()
+        .collect::<Vec<&str>>()
+        .join(" ")
+        .to_lowercase()
+}
+
+/// 匹配一条会话（ref `matchSession`，`:118-152`）。返回 `Some(score)` 表示命中（越小越好）。
+#[must_use]
+pub fn match_session_text(text: &str, parsed: &ParsedQuery) -> Option<f64> {
+    match parsed {
+        ParsedQuery::Invalid => None,
+        ParsedQuery::Regex(pattern) => {
+            let regex = regex::RegexBuilder::new(pattern)
+                .case_insensitive(true)
+                .build()
+                .ok()?;
+            let found = regex.find(text)?;
+            // 命中位置越靠前越好（ref `:126` 的 `idx * 0.1`）。
+            #[allow(clippy::cast_precision_loss)]
+            Some(found.start() as f64 * 0.1)
+        }
+        ParsedQuery::Tokens(tokens) => {
+            if tokens.is_empty() {
+                return Some(0.0);
+            }
+            let mut total = 0.0_f64;
+            let mut normalized: Option<String> = None;
+            for token in tokens {
+                match token {
+                    SearchToken::Phrase(phrase) => {
+                        let haystack = normalized
+                            .get_or_insert_with(|| normalize_whitespace_lower(text))
+                            .clone();
+                        let needle = normalize_whitespace_lower(phrase);
+                        if needle.is_empty() {
+                            continue;
+                        }
+                        let index = haystack.find(&needle)?;
+                        #[allow(clippy::cast_precision_loss)]
+                        {
+                            total += index as f64 * 0.1;
+                        }
+                    }
+                    SearchToken::Fuzzy(value) => {
+                        let result = pi_tui::fuzzy::fuzzy_match(value, text);
+                        if !result.matches {
+                            return None;
+                        }
+                        total += result.score;
+                    }
+                }
+            }
+            Some(total)
+        }
+    }
+}
+
+/// 按查询过滤并排序（ref `filterAndSortSessions`，`:156-200`）。
+///
+/// `recent` 模式只过滤、保持原序；`threaded`（默认）按分数升序、同分保持原序。
+/// **`relevance` 模式**（ref 的第三种）在 pi-rs 没有单独入口，按 `threaded` 处理。
+#[must_use]
+pub fn filter_sessions_by_query(
+    rows: &[SessionRow],
+    indices: &[usize],
+    query: &str,
+    sort_recent: bool,
+) -> Vec<usize> {
+    let parsed = parse_query(query);
+    let mut scored: Vec<(f64, usize, usize)> = Vec::new();
+    for (order, index) in indices.iter().enumerate() {
+        let Some(row) = rows.get(*index) else {
+            continue;
+        };
+        let text = session_search_text(row);
+        if let Some(score) = match_session_text(&text, &parsed) {
+            scored.push((score, order, *index));
+        }
+    }
+    if sort_recent {
+        // 保持原序（ref `:171-178`）。
+        scored.sort_by_key(|(_, order, _)| *order);
+    } else {
+        scored.sort_by(|a, b| {
+            a.0.partial_cmp(&b.0)
+                .unwrap_or(std::cmp::Ordering::Equal)
+                .then(a.1.cmp(&b.1))
+        });
+    }
+    scored.into_iter().map(|(_, _, index)| index).collect()
+}
+
+#[cfg(test)]
+mod resume_search_tests {
+    use super::*;
+
+    fn row(id: &str, name: Option<&str>, summary: Option<&str>, cwd: &str) -> SessionRow {
+        SessionRow {
+            path: std::path::PathBuf::from("/tmp/x.jsonl"),
+            id: id.to_string(),
+            name: name.map(str::to_string),
+            summary: summary.map(str::to_string),
+            cwd: cwd.to_string(),
+            message_count: 1,
+            modified_ms: 0,
+        }
+    }
+
+    #[test]
+    fn empty_query_matches_everything() {
+        assert_eq!(parse_query(""), ParsedQuery::Tokens(Vec::new()));
+        assert_eq!(parse_query("   "), ParsedQuery::Tokens(Vec::new()));
+    }
+
+    #[test]
+    fn quotes_make_phrases() {
+        let parsed = parse_query(r#"foo "node cve" bar"#);
+        assert_eq!(
+            parsed,
+            ParsedQuery::Tokens(vec![
+                SearchToken::Fuzzy("foo".to_string()),
+                SearchToken::Phrase("node cve".to_string()),
+                SearchToken::Fuzzy("bar".to_string()),
+            ])
+        );
+    }
+
+    #[test]
+    fn unbalanced_quotes_fall_back_to_plain_tokens() {
+        let parsed = parse_query(r#"foo "bar baz"#);
+        assert_eq!(
+            parsed,
+            ParsedQuery::Tokens(vec![
+                SearchToken::Fuzzy("foo".to_string()),
+                SearchToken::Fuzzy("\"bar".to_string()),
+                SearchToken::Fuzzy("baz".to_string()),
+            ]),
+            "ref `:97-108`：引号不配对时按空白切分"
+        );
+    }
+
+    #[test]
+    fn regex_mode_rejects_empty_and_invalid_patterns() {
+        assert_eq!(parse_query("re:"), ParsedQuery::Invalid);
+        assert_eq!(parse_query("re:   "), ParsedQuery::Invalid);
+        assert_eq!(parse_query("re:["), ParsedQuery::Invalid);
+        assert_eq!(
+            parse_query("re:foo.*bar"),
+            ParsedQuery::Regex("foo.*bar".to_string())
+        );
+    }
+
+    #[test]
+    fn phrase_matching_is_whitespace_and_case_insensitive() {
+        let parsed = parse_query(r#""node   CVE""#);
+        assert!(
+            match_session_text("x node cve y", &parsed).is_some(),
+            "短语应做空白归一 + 大小写不敏感（ref `:26-28`）"
+        );
+        assert!(match_session_text("x node z cve", &parsed).is_none());
+    }
+
+    #[test]
+    fn fuzzy_tokens_require_all_to_match() {
+        let parsed = parse_query("abc xyz");
+        assert!(match_session_text("abc xyz", &parsed).is_some());
+        assert!(
+            match_session_text("abc only", &parsed).is_none(),
+            "所有 token 都要命中（ref `:135-151`）"
+        );
+    }
+
+    #[test]
+    fn invalid_query_matches_nothing() {
+        assert!(match_session_text("anything", &ParsedQuery::Invalid).is_none());
+    }
+
+    #[test]
+    fn search_text_includes_id_name_summary_and_cwd() {
+        let r = row("01a1", Some("my session"), Some("hello"), "/work/proj");
+        let text = session_search_text(&r);
+        for needle in ["01a1", "my session", "hello", "/work/proj"] {
+            assert!(text.contains(needle), "搜索文本应含 {needle}：{text}");
+        }
+    }
+
+    #[test]
+    fn filtering_keeps_order_in_recent_mode() {
+        let rows = vec![
+            row("a", Some("alpha"), None, "/x"),
+            row("b", Some("beta"), None, "/x"),
+            row("c", Some("alpha too"), None, "/x"),
+        ];
+        let indices: Vec<usize> = (0..rows.len()).collect();
+        let out = filter_sessions_by_query(&rows, &indices, "alpha", true);
+        assert_eq!(out, vec![0, 2], "recent 模式只过滤、保持原序");
+    }
+
+    #[test]
+    fn empty_query_keeps_every_row() {
+        let rows = vec![row("a", None, None, "/x"), row("b", None, None, "/y")];
+        let indices: Vec<usize> = (0..rows.len()).collect();
+        assert_eq!(
+            filter_sessions_by_query(&rows, &indices, "", false).len(),
+            2
+        );
+    }
+}
+
+#[cfg(test)]
+mod resume_visible_search_tests {
+    use super::*;
+
+    fn row(name: &str, cwd: &str) -> SessionRow {
+        SessionRow {
+            path: std::path::PathBuf::from(format!("/tmp/{name}.jsonl")),
+            id: "01a1a9a8-0000-7000-8000-0000000000f1".to_string(),
+            name: Some(name.to_string()),
+            summary: Some("hello".to_string()),
+            cwd: cwd.to_string(),
+            message_count: 1,
+            modified_ms: 0,
+        }
+    }
+
+    /// `visible_indices` 必须应用搜索过滤（否则搜索框形同虚设）。
+    #[test]
+    fn search_narrows_visible_indices() {
+        let mut sel = ResumeSelector::new();
+        sel.current_cwd = "/work".to_string();
+        sel.filter_cwd = true;
+        sel.sessions = vec![row("alpine-notes", "/work"), row("banana-report", "/work")];
+        assert_eq!(sel.visible_indices().len(), 2, "无查询时两条都可见");
+        // 注意：**模糊匹配允许跨字段跳跃**（ref 的 `fuzzyMatch` 语义），
+        // 查询 `al` 会在 `banana-report` 的 `01a...` 与 `hello`/`/work` 里按顺序
+        // 找到 `a`、`l` 而同样命中。因此用更长的、只属于一方的词。
+        for ch in "alpine".chars() {
+            sel.push_search(ch);
+        }
+        let visible = sel.visible_indices();
+        assert_eq!(
+            visible.len(),
+            1,
+            "`alpine` 只应命中 alpine-notes：{visible:?}"
+        );
+        assert_eq!(visible[0], 0);
+        assert_eq!(sel.search, "alpine");
+    }
+
+    /// 退格后恢复。
+    #[test]
+    fn backspace_widens_the_result_set() {
+        let mut sel = ResumeSelector::new();
+        sel.current_cwd = "/work".to_string();
+        sel.filter_cwd = true;
+        sel.sessions = vec![row("alpine-notes", "/work"), row("banana-report", "/work")];
+        for ch in "alpine".chars() {
+            sel.push_search(ch);
+        }
+        assert_eq!(sel.visible_indices().len(), 1);
+        while sel.pop_search() {}
+        assert_eq!(sel.visible_indices().len(), 2, "清空搜索后应恢复两条");
     }
 }

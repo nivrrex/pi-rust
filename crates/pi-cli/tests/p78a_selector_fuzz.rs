@@ -124,6 +124,7 @@ fn resume_selector_fuzz_no_panic() {
     let mut rng = Rng(0x5eed_7002);
     let rows: Vec<SessionRow> = (0..30)
         .map(|index| SessionRow {
+            id: "sess".to_string(),
             path: std::path::PathBuf::from(format!(
                 "/tmp/{}-{index}.jsonl",
                 random_text(&mut rng, 5)

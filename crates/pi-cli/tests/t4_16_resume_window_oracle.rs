@@ -85,6 +85,7 @@ fn rows() -> Vec<SessionRow> {
     let long_ago = now_ms.saturating_sub(400 * 86_400_000);
     (0..COUNT)
         .map(|index| SessionRow {
+            id: "sess".to_string(),
             path: PathBuf::from(format!("/sessions/s{index:02}.jsonl")),
             name: None,
             summary: Some(format!("会话 {}：分页夹具", index + 1)),

@@ -3035,6 +3035,29 @@ pub fn run(
                         dirty = true;
                         continue;
                     }
+                    // `/resume` 的**搜索框输入**（ref `session-selector.ts:292/333` 的
+                    // `searchInput`，未识别的按键全部转给它）：字符追加、
+                    // Backspace 删字符；`ctrl+backspace` 的删词见下面的删除分支。
+                    TuiEvent::Char(ch)
+                        if matches!(open_selector, SelectorUi::Resume(sel, _) if sel.rename.is_none() && !sel.confirming_delete)
+                            && !ch.is_ascii_control() =>
+                    {
+                        if let SelectorUi::Resume(sel, cols) = open_selector {
+                            sel.push_search(*ch);
+                            state.open_panel(pi_tui::PanelPlacement::BelowEditor, sel.lines(*cols));
+                            dirty = true;
+                        }
+                        continue;
+                    }
+                    TuiEvent::Backspace if matches!(open_selector, SelectorUi::Resume(sel, _) if sel.rename.is_none() && !sel.confirming_delete) =>
+                    {
+                        if let SelectorUi::Resume(sel, cols) = open_selector {
+                            sel.pop_search();
+                            state.open_panel(pi_tui::PanelPlacement::BelowEditor, sel.lines(*cols));
+                            dirty = true;
+                        }
+                        continue;
+                    }
                     // `ctrl+d`（`app.session.delete`）与 `ctrl+backspace`
                     // （`app.session.deleteNoninvasive`）在这里**同一条路径**：
                     // ref `session-selector.ts:599-608` 的差别只在"搜索框非空时
@@ -3049,6 +3072,17 @@ pub fn run(
                     {
                         // ref `:543-557`：`ctrl+d` 先进入**确认态**（确认态里其它键一律忽略）。
                         if let SelectorUi::Resume(sel, cols) = open_selector {
+                            // `ctrl+backspace` 在**搜索框非空**时转给输入框删一个词，
+                            // 不进入删除确认（ref `session-selector.ts:599-608`）。
+                            if matches!(event, TuiEvent::CtrlBackspace) && !sel.search.is_empty() {
+                                sel.pop_search_word();
+                                state.open_panel(
+                                    pi_tui::PanelPlacement::BelowEditor,
+                                    sel.lines(*cols),
+                                );
+                                dirty = true;
+                                continue;
+                            }
                             sel.enter_delete_confirm();
                             state.open_panel(pi_tui::PanelPlacement::BelowEditor, sel.lines(*cols));
                             dirty = true;

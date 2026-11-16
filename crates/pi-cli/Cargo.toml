@@ -6,6 +6,9 @@ license.workspace = true
 publish.workspace = true
 
 [dependencies]
+# `/resume` 搜索的 `re:<pattern>` 模式（ref `session-selector-search.ts:57-70`）。
+# workspace 已有该依赖（`pi-ai` 在用），不引入新包。
+regex.workspace = true
 pi-ai = { path = "../pi-ai" }
 pi-core = { path = "../pi-core" }
 pi-ext-host = { path = "../pi-ext-host" }

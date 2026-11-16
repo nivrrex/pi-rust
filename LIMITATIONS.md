@@ -61,7 +61,7 @@ api_key 流程已实现：provider 列表、`/login <provider>` 直达输入、
 上游 `keybindings.ts` 共 43 条 `app.*` 绑定。**F61/29 按实际代码重新核对**（此前这
 条清单严重过时，把 F16/F17-F20 已实现的项仍列为未实现）：
 
-- 已实现（40 条 = 33 条显式 + `tree.filter.*` 7 条）：`interrupt`、`clear`、`exit`、`suspend`、`thinking.cycle`、
+- 已实现（41 条 = 34 条显式 + `tree.filter.*` 7 条）：`interrupt`、`clear`、`exit`、`suspend`、`thinking.cycle`、
   `thinking.save`、`model.cycleForward`、`model.cycleBackward`、`model.select`、
   `tools.expand`、`thinking.toggle`、`editor.external`、`message.copy`、
   `session.new`（`/new`，F16）、`session.tree`（`/tree`）、`session.resume`（`/resume`）、
@@ -71,11 +71,11 @@ api_key 流程已实现：provider 列表、`/login <provider>` 直达输入、
   `models.reorderUp`、`models.reorderDown`（F61/17-F61/20，`/scoped-models` 面板内）、
   `tree.foldOrUp`、`tree.unfoldOrDown`（`/tree` 面板）、`tree.filter.*` 共 7 条
   （`TreeFilterMode`，`/tree` 面板内）。
-- 未实现（3 条）：`clipboard.pasteImage`、`session.delete`、
-  `session.deleteNoninvasive`（**部分**：`/resume` 面板内 `ctrl+backspace`
-  已接通并进入删除确认，F61/32；缺的是"搜索框非空时转给输入框"那一半，
-  因为 pi-rs 的 `/resume` **还没有搜索框**——ref 有 `searchInput`
-  （`session-selector.ts:292`）。补搜索框时一并完成该分支）。
+- 未实现（2 条）：`clipboard.pasteImage`、`session.delete`（面板内 `ctrl+d`
+  已实现，见 F61/31-33；这里指主界面无该绑定，ref 同样只在面板内）。
+  （`session.deleteNoninvasive` 在 F61/32-33 完整：`/resume` 面板内
+  `ctrl+backspace` 搜索框非空时删一个词、为空时进入删除确认，
+  ref `session-selector.ts:599-608`。）
   （`tree.editLabel`/`tree.toggleLabelTimestamp` 已在面板内实现：`shift+l`/`shift+t`。）
   （`session.rename` 在 F61/31 实现：`/resume` 面板内 `ctrl+r` 进入 `Rename Session`，
   字符/Backspace/Enter/Esc 全链路接通，保存写 `session_info` 到**目标**会话文件
@@ -84,6 +84,19 @@ api_key 流程已实现：provider 列表、`/login <provider>` 直达输入、
   `Enter`、忙碌时排队；`alt+up` 把排队消息取回编辑器并给 ref 的状态行。）
   **否决依据**：用户已装扩展无一依赖这些按键（逐个 grep 为 0），且它们都有等价的
   命令路径（如删除会话走 `/resume` 的 `ctrl+d`，已实现）。
+
+### `/resume` 搜索的已知限制（F61/33）
+
+- 搜索文本用 `id + name + summary(首条用户消息) + cwd`，而 ref 用
+  `id + name + allMessagesText + cwd`（`session-selector-search.ts:29-31`）。
+  后果：**搜不到会话中间的内容**，只能搜到名字与首条消息。
+  根因是 `scan_sessions` 只统计消息条数、不累积全文（累积全文要读整份文件，
+  116 MB 的会话会有明显开销）。推翻条件：让 `scan_sessions` 顺带累积文本，
+  或按需对"已缩小到少量候选"的会话再读全文匹配。
+- 端到端用例只断言"搜索框收到输入"，过滤结果由单元测试覆盖
+  （`resume_search_tests` 10 项 + `resume_visible_search_tests` 2 项）：
+  逐字符输入产生大量中间帧、退出时边界框重画会把最终帧变成收尾画面，
+  从原始 pty 流里切"过滤后的那一帧"不可靠（试过三种切法均被干扰）。
 
 ### `/bug` 提示行
 
