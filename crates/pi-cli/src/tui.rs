@@ -2816,6 +2816,7 @@ pub fn run(
                     | TuiEvent::ToolsExpanded(_)
                     | TuiEvent::FollowUp
                     | TuiEvent::Dequeue
+                    | TuiEvent::PasteImage
                     | TuiEvent::ExtensionLabels(_)
                     | TuiEvent::SkillLabels(_)
                     | TuiEvent::ExtensionPaths(_)
@@ -2967,6 +2968,7 @@ pub fn run(
                                 | TuiEvent::ToolsExpanded(_)
                                 | TuiEvent::FollowUp
                                 | TuiEvent::Dequeue
+                                | TuiEvent::PasteImage
                                 | TuiEvent::CtrlBackspace
                                 | TuiEvent::ExtensionLabels(_)
                                 | TuiEvent::SkillLabels(_)
@@ -4439,6 +4441,24 @@ pub fn run(
                             let _ = apply(&mut state, TuiEvent::Status(error));
                         }
                     }
+                }
+                dirty = true;
+                continue;
+            }
+            // `app.clipboard.pasteImage`（`ctrl+v`，ref `interactive-mode.ts:3047-3068`）：
+            // 图片优先（写临时文件、插入路径），没有图片则插入剪贴板文本；
+            // 两者都没有时**什么都不做**（ref 的 `catch {}` 同样静默）。
+            if matches!(event, TuiEvent::PasteImage) && selector.is_none() {
+                let env = |name: &str| std::env::var(name).ok();
+                if let Some(text) = crate::clipboard::clipboard_paste_text(&env) {
+                    // 插到光标处（ref `editor.insertTextAtCursor`）。
+                    let mut chars: Vec<char> = state.input.chars().collect();
+                    let at = state.cursor.min(chars.len());
+                    for (offset, ch) in text.chars().enumerate() {
+                        chars.insert(at + offset, ch);
+                    }
+                    state.cursor = at + text.chars().count();
+                    state.input = chars.into_iter().collect();
                 }
                 dirty = true;
                 continue;
@@ -9361,6 +9381,8 @@ pub fn map_key_sequence(seq: &str) -> Option<TuiEvent> {
         // ref `core/keybindings.ts:181-184`：`app.session.deleteNoninvasive` = `ctrl+backspace`
         // （kitty 与 modifyOtherKeys 两种编码都解析成这个名字）。
         "ctrl+backspace" => TuiEvent::CtrlBackspace,
+        // ref `core/keybindings.ts:141-144`：`app.clipboard.pasteImage` = `ctrl+v`。
+        "ctrl+v" => TuiEvent::PasteImage,
         "ctrl+x" => TuiEvent::CtrlX,
         "ctrl+left" => TuiEvent::CtrlLeft,
         "ctrl+right" => TuiEvent::CtrlRight,

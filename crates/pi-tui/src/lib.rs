@@ -407,6 +407,11 @@ pub enum TuiEvent {
     Backspace,
     /// `ctrl+o`（ref 里既是 `/tree` 的"过滤循环"，也是主界面的"显示更多"）。
     CtrlO,
+    /// `app.clipboard.pasteImage`（`ctrl+v`，ref `core/keybindings.ts:141-144`）：
+    /// 粘贴剪贴板里的图片（写临时文件、插入路径），没有图片则插入文本。
+    ///
+    /// 由主循环处理（要跑剪贴板命令并写临时文件），`apply` 只当无副作用。
+    PasteImage,
     /// `app.session.deleteNoninvasive`（`ctrl+backspace`，ref `core/keybindings.ts:181-184`）：
     /// "查询为空时才删除会话"的**非侵入式**删除别名。
     ///
@@ -854,7 +859,9 @@ pub fn apply(state: &mut TuiState, event: TuiEvent) -> TuiAction {
         // `app.message.followUp` / `app.message.dequeue` 需要读写**队列与编辑器**，
         // 那两样都在主循环（`pi-cli`）手里，因此这里只当"无内部副作用"处理：
         // 主循环在调用 `apply` **之前**拦截这两个事件（见 `tui.rs` 的分派处）。
-        TuiEvent::FollowUp | TuiEvent::Dequeue | TuiEvent::CtrlBackspace => TuiAction::Redraw,
+        TuiEvent::FollowUp | TuiEvent::Dequeue | TuiEvent::CtrlBackspace | TuiEvent::PasteImage => {
+            TuiAction::Redraw
+        }
         TuiEvent::BranchSummary(message) => {
             state.transcript.push(TranscriptItem::BranchSummary {
                 summary: message,

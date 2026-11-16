@@ -61,7 +61,7 @@ api_key 流程已实现：provider 列表、`/login <provider>` 直达输入、
 上游 `keybindings.ts` 共 43 条 `app.*` 绑定。**F61/29 按实际代码重新核对**（此前这
 条清单严重过时，把 F16/F17-F20 已实现的项仍列为未实现）：
 
-- 已实现（41 条 = 34 条显式 + `tree.filter.*` 7 条）：`interrupt`、`clear`、`exit`、`suspend`、`thinking.cycle`、
+- 已实现（42 条 = 35 条显式 + `tree.filter.*` 7 条）：`interrupt`、`clear`、`exit`、`suspend`、`thinking.cycle`、
   `thinking.save`、`model.cycleForward`、`model.cycleBackward`、`model.select`、
   `tools.expand`、`thinking.toggle`、`editor.external`、`message.copy`、
   `session.new`（`/new`，F16）、`session.tree`（`/tree`）、`session.resume`（`/resume`）、
@@ -71,8 +71,11 @@ api_key 流程已实现：provider 列表、`/login <provider>` 直达输入、
   `models.reorderUp`、`models.reorderDown`（F61/17-F61/20，`/scoped-models` 面板内）、
   `tree.foldOrUp`、`tree.unfoldOrDown`（`/tree` 面板）、`tree.filter.*` 共 7 条
   （`TreeFilterMode`，`/tree` 面板内）。
-- 未实现（2 条）：`clipboard.pasteImage`、`session.delete`（面板内 `ctrl+d`
-  已实现，见 F61/31-33；这里指主界面无该绑定，ref 同样只在面板内）。
+- 未实现（1 条）：`session.delete`（面板内 `ctrl+d` 已实现，见 F61/31-33；
+  这里指主界面无该绑定，ref 同样只在面板内）。
+  （`clipboard.pasteImage` 在 F61/35 实现：`ctrl+v` 图片优先——写临时文件并把路径
+  插入光标处，无图片则回退插入剪贴板文本，两者皆无则静默；
+  ref `interactive-mode.ts:3047-3068`、`utils/clipboard-image.ts`。）
   （`session.deleteNoninvasive` 在 F61/32-33 完整：`/resume` 面板内
   `ctrl+backspace` 搜索框非空时删一个词、为空时进入删除确认，
   ref `session-selector.ts:599-608`。）
