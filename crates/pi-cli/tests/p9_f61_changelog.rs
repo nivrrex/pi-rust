@@ -153,7 +153,16 @@ fn run(package_dir: Option<&std::path::Path>) -> Option<String> {
 /// 有 CHANGELOG 时：显示 `What's New` 与条目内容（不是"未实现"）。
 #[test]
 fn changelog_shows_entries_from_the_package() {
-    let Some(screen) = run(Some(std::path::Path::new("/root/Desktop/pi-ts-0.87.1"))) else {
+    // **不硬编码本机路径**（`scripts/precommit.sh` 的"仓库约定"检查会拒绝
+    // 用户 home 下的绝对路径进仓库）。用临时目录造一份最小 CHANGELOG，
+    // 这样用例自包含、任何机器都能跑。
+    let tmp = tempfile::tempdir().expect("临时目录");
+    std::fs::write(
+        tmp.path().join("CHANGELOG.md"),
+        "# Changelog\n\n## [0.87.1] - 2026-09-22\n\n### New Features\n\n- Something new\n\n## [0.87.0] - 2026-09-01\n\n- Older thing\n",
+    )
+    .expect("写 CHANGELOG");
+    let Some(screen) = run(Some(tmp.path())) else {
         eprintln!("跳过：本机没有 node");
         return;
     };
@@ -165,9 +174,8 @@ fn changelog_shows_entries_from_the_package() {
         screen.contains("What's New"),
         "应显示 ref 的标题（interactive-mode.ts:6519）。屏幕：\n{screen}"
     );
-    // 该包的 CHANGELOG 里必有 0.87.x 的条目。
     assert!(
-        screen.contains("0.87") || screen.contains("New Features"),
+        screen.contains("0.87.1") && screen.contains("Something new"),
         "应渲染出 changelog 内容。屏幕：\n{screen}"
     );
 }
