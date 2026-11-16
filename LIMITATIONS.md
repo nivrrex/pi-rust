@@ -465,9 +465,13 @@ ref 的对应实现见 `interactive-mode.ts:2541`/`:2543`（`showExtensionNotify
   **`?/<window>`（无 `%`）**，我们输出 `?%/128k`——而被当作预期的单测
   （`usage=0 不应清零已有用量`）把这个错误**固化**成了断言。已改输出并逆转该断言，
   新增 2 项用例（未知不带 `%`、已知仍带 `%`），改前必失败。
-  **仍未做**：`main.rs:1717-1721` 的恢复分支在 `resumed_context_tokens` 为 `None`
-  时写 `Some(0.0)`（显示 `0.0%`），而 ref 该情形应是 `null`（显示 `?`）。
-  推翻条件：按 ref 的 `getContextUsage` 在恢复路径区分"确实 0 用量"与"用量未知"。
+  **F61/27 已补齐恢复路径（已验证）**：`pi_core::context_usage`（`has_post_compaction_usage`/
+  `usage`，ref `agent-session.ts:3858-3902` 的 `getContextUsage` 判定，6 项单元用例）
+  + 两处接入（`main.rs` 的 `resumed_context_tokens` 与 `tui.rs` 的 `resumed_usage` 估算）。
+  判据是"最近一次压缩之后有没有可用助手 usage"——没有就是**未知**（页脚 `?/<window>`，
+  扩展侧 `ctx.usage.tokens === null`），不是 0。
+  改前实测：同一会话恢复后页脚 `0.7%/200k`（把**压缩前**的 usage 当成压缩后），
+  或 `0.0%/200k`（未知被写成 0）；改后 `?/200k (auto)`。
 
 ## F30 收尾
 - `golden/_rejected/S19-attempt-3/`（TS 拒绝录制记录）在恢复时随 `.gitignore` 的 `golden/_rejected/` 规则丢失，

@@ -2022,7 +2022,40 @@ pub fn run(
             // 直接用 `calculateContextTokens(usage)`（≈ input，不含 output）当基数；
             // 只有在没有可用 usage 时才退化为逐条估算。
             let window_tokens = context_window_of(parts_ref);
-            let percent = if window_tokens == 0 {
+            // **压缩之后没有新的助手 usage ⇒ 用量未知**（ref `agent-session.ts:3887-3889`，
+            // 页脚显示 `?/<window>`）。判据用恢复的会话条目，而不是"估算出来是多少"：
+            // 压缩前的 assistant usage 反映的是压缩前的上下文，压缩后必须等新的响应。
+            let post_compaction_unknown =
+                parts_ref.resumed_entries.as_deref().is_some_and(|entries| {
+                    let Ok(projection) = pi_core::agent::projection::build_session_projection(
+                        entries,
+                        pi_core::agent::projection::LeafSelector::Unspecified,
+                    ) else {
+                        return false;
+                    };
+                    let usable_ids: std::collections::HashSet<String> = projection
+                        .entries
+                        .iter()
+                        .filter(|entry| {
+                            entry.messages.iter().any(|message| match message {
+                                pi_ai::message::Message::Assistant(assistant) => {
+                                    !matches!(
+                                        assistant.stop_reason,
+                                        pi_ai::StopReason::Aborted | pi_ai::StopReason::Error
+                                    ) && pi_ai::calculate_context_tokens(&assistant.usage) > 0
+                                }
+                                _other => false,
+                            })
+                        })
+                        .filter_map(|entry| entry.source_entry.id().map(str::to_string))
+                        .collect();
+                    let branch = pi_core::agent::projection::build_session_path(
+                        entries,
+                        pi_core::agent::projection::LeafSelector::Unspecified,
+                    );
+                    !pi_core::context_usage::has_post_compaction_usage(&branch, &usable_ids)
+                });
+            let percent = if window_tokens == 0 || post_compaction_unknown {
                 None
             } else {
                 let mut estimate_messages = vec![parts_ref.system_message.clone()];
@@ -2036,15 +2069,20 @@ pub fn run(
             let _ = last_assistant_input;
             // 把用量同步进扩展 ctx（`ctx.getContextUsage()`，ref `types.ts:294-300`）：
             // `tokens` 用百分比 × 窗口的估算（ref 在没有新响应时也是估算值）。
-            if let (Some(percent_value), Ok(window_tokens)) =
-                (percent, window.trim_end_matches('k').parse::<f64>())
-            {
-                let tokens = (percent_value / 100.0 * window_tokens * 1000.0).round() as u64;
-                crate::ext_tools::update_ctx_usage(
-                    Some(tokens),
-                    (window_tokens * 1000.0) as u64,
-                    percent,
-                );
+            match (percent, window.trim_end_matches('k').parse::<f64>()) {
+                (Some(percent_value), Ok(window_tokens)) => {
+                    let tokens = (percent_value / 100.0 * window_tokens * 1000.0).round() as u64;
+                    crate::ext_tools::update_ctx_usage(
+                        Some(tokens),
+                        (window_tokens * 1000.0) as u64,
+                        Some(percent_value),
+                    );
+                }
+                // 未知 ⇒ 扩展侧也读到 `null`（与页脚 `?` 一致）。
+                (_other, Ok(window_tokens)) => {
+                    crate::ext_tools::update_ctx_usage(None, (window_tokens * 1000.0) as u64, None);
+                }
+                (_other, Err(_error)) => {}
             }
             let _ = apply(
                 &mut state,

@@ -8,6 +8,7 @@
 
 pub mod agent;
 pub mod changelog;
+pub mod context_usage;
 pub mod project_context;
 pub mod prompt_templates;
 pub mod session;

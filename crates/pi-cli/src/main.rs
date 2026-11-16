@@ -1614,25 +1614,69 @@ fn build_tui_agent_parts(
     // （F46），`ctx.usage` 停在启动占位 `{tokens:0, percent:0.0}` ⇒ 扩展页脚 `0.0%`（真机）。
     // 口径与原生页脚/压缩判定同一处：最后一条**未中止/未失败** assistant 的
     // `calculateContextTokens(usage)`（`compaction.ts:170-183`）。
-    let resumed_context_tokens: Option<u64> = resumed_file.as_ref().and_then(|file| {
-        file.entries.iter().rev().find_map(|entry| match entry {
-            pi_core::session::SessionEntry::Message {
-                message: pi_ai::message::Message::Assistant(assistant),
-                ..
-            } => {
-                let usable = !matches!(
-                    assistant.stop_reason,
-                    pi_ai::StopReason::Aborted | pi_ai::StopReason::Error
-                );
-                let tokens = pi_ai::calculate_context_tokens(&assistant.usage);
-                (usable && tokens > 0).then_some(tokens)
-            }
-            other => {
-                let _ = other;
-                None
-            }
-        })
+    // **压缩之后没有新的助手 usage ⇒ 用量"未知"**（ref `agent-session.ts:3887-3889`）。
+    //
+    // 此前这里取"全文件最后一条可用 assistant 的 usage"，不区分它在最近一次压缩的
+    // 之前还是之后——压缩前的 usage 反映的是**压缩前**的上下文大小，用它估算会
+    // 报出一个远大于实际的百分比。改为：
+    // 1. 若最近一次压缩之后没有任何"可用助手消息"（未中止/未失败且 usage > 0）
+    //    ⇒ `resumed_context_tokens = None`，调用方据此写"未知"（页脚 `?`）；
+    // 2. 否则沿用原逻辑（最后一条可用 assistant 的 usage）。
+    let post_compaction_has_usage = resumed_file.as_ref().is_none_or(|file| {
+        let projection = pi_core::agent::projection::build_session_projection(
+            &file.entries,
+            pi_core::agent::projection::LeafSelector::Unspecified,
+        );
+        let Ok(projection) = projection else {
+            // 投影失败（会话损坏）：不因此判成"未知"，交给下面的原逻辑。
+            return true;
+        };
+        let usable_ids: std::collections::HashSet<String> = projection
+            .entries
+            .iter()
+            .filter(|entry| {
+                entry.messages.iter().any(|message| match message {
+                    pi_ai::message::Message::Assistant(assistant) => {
+                        !matches!(
+                            assistant.stop_reason,
+                            pi_ai::StopReason::Aborted | pi_ai::StopReason::Error
+                        ) && pi_ai::calculate_context_tokens(&assistant.usage) > 0
+                    }
+                    _other => false,
+                })
+            })
+            .filter_map(|entry| entry.source_entry.id().map(str::to_string))
+            .collect();
+        // 分支 = 叶子路径；用 `projected_messages` 同源的路径构造。
+        let branch = pi_core::agent::projection::build_session_path(
+            &file.entries,
+            pi_core::agent::projection::LeafSelector::Unspecified,
+        );
+        pi_core::context_usage::has_post_compaction_usage(&branch, &usable_ids)
     });
+    let resumed_context_tokens: Option<u64> = if !post_compaction_has_usage {
+        None
+    } else {
+        resumed_file.as_ref().and_then(|file| {
+            file.entries.iter().rev().find_map(|entry| match entry {
+                pi_core::session::SessionEntry::Message {
+                    message: pi_ai::message::Message::Assistant(assistant),
+                    ..
+                } => {
+                    let usable = !matches!(
+                        assistant.stop_reason,
+                        pi_ai::StopReason::Aborted | pi_ai::StopReason::Error
+                    );
+                    let tokens = pi_ai::calculate_context_tokens(&assistant.usage);
+                    (usable && tokens > 0).then_some(tokens)
+                }
+                other => {
+                    let _ = other;
+                    None
+                }
+            })
+        })
+    };
     // 取档位必须走 ref 的**叶子分支路径**（`session-manager.ts:390-433`）：
     // `buildSessionPath` 沿 `parentId` 上溯 → `getSessionContextSettings` 只在该路径上找。
     // 此前是"全文件倒序扫描最后一条 `thinking_level_change`"——分支切换后（旧分支上还有
@@ -1716,11 +1760,13 @@ fn build_tui_agent_parts(
                                 Some(percent),
                             );
                         }
-                        None => pi_cli::ext_tools::update_ctx_usage(
-                            Some(0),
-                            resolved.context_window,
-                            Some(0.0),
-                        ),
+                        // 用量**未知**（压缩后还没等到新的助手响应，ref
+                        // `agent-session.ts:3887-3889`）⇒ 传 `None` 而不是 `Some(0)`：
+                        // 页脚显示 `?/<window>`，扩展读到 `ctx.usage.tokens === null`。
+                        // 写 0 会让用户以为上下文被清空了。
+                        None => {
+                            pi_cli::ext_tools::update_ctx_usage(None, resolved.context_window, None)
+                        }
                     }
                 }
                 // F56/G2：**恢复分支也要把 `ctx.thinkingLevel` 写进 ctx**。
