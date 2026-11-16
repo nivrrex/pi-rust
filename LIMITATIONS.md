@@ -644,7 +644,12 @@ ref 的对应实现见 `interactive-mode.ts:2541`/`:2543`（`showExtensionNotify
     而编辑器粘贴归一化用 **4 空格**（ref `editor.ts:1146` 的 `normalizeText`）。
     两处未合并成同一常量，避免改变括号粘贴的缩进与光标列。推翻条件：ref 后续版本
     把两处口径统一（届时合并）。
-24. **F61/21 起 4 条内置斜杠命令未移植**：`share`、`bug`、`changelog`、`reload`
+24. **F61/22 起 3 条内置斜杠命令未移植**：`share`、`bug`、`changelog`
+    （`reload` 在 F61/22 实现：`reload_host()` 换掉扩展宿主进程并重新派发
+    `session_start`；前置检查照 ref `interactive-mode.ts:6171-6178`（流式/压缩中拒绝），
+    状态行原文照 `:6243-6246`。为此把 `HOST`/`SPECS` 从 `OnceLock<…>` 改为
+    `OnceLock<Mutex<…>>`——**ESM 模块缓存决定"重新 import 不会重新求值"，
+    只能换进程**，这也正是 `/reload` 长期未能实现的原因）
     （`trust` 在 F61/21 实现：`pi_core::trust`（`trust.json` 读写、最近祖先查询、
     `project_trust_options`、`has_trust_requiring_project_resources`，ref
     `core/trust-manager.ts` 逐项对照）+ `TrustSelector` 面板 + `/trust` 命令；

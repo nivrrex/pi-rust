@@ -6280,7 +6280,51 @@ pub fn run(
                             state.open_panel(pi_tui::PanelPlacement::BelowEditor, sel.lines());
                             selector = Some(SelectorUi::Trust(sel));
                         }
-                        "reload" => push_unimplemented(&mut state, "reload"),
+                        "reload" => {
+                            // ref `interactive-mode.ts:3193-3197` → `handleReloadCommand()`
+                            // （`:6170-6250`）：重载 keybindings/extensions/skills/prompts/
+                            // themes/context files，然后给一行状态。
+                            //
+                            // **前置检查照 ref**（`:6171-6178`）：流式回答中、压缩中都拒绝，
+                            // 否则重载会与正在跑的回合抢扩展宿主。
+                            let streaming = state.working;
+                            if streaming {
+                                let _ = apply(
+                                    &mut state,
+                                    TuiEvent::Status(
+                                        "Wait for the current response to finish before reloading."
+                                            .to_string(),
+                                    ),
+                                );
+                            } else {
+                                let cwd = std::path::PathBuf::from(&state.cwd);
+                                let agent_dir = state.agent_dir.clone();
+                                // 换掉扩展宿主（ESM 模块缓存决定了只能换进程）。
+                                match crate::ext_tools::reload_host(&agent_dir, &cwd) {
+                                    Ok(()) => {
+                                        // 重新派发 `session_start`（与首次启动同一路径）。
+                                        crate::ext_tools::dispatch_startup_without_session();
+                                        // 重载主题/隐藏思考等运行期设置（ref `:6232` 的
+                                        // `applyRuntimeSettings`）。
+                                        state.hide_thinking_block =
+                                            crate::settings::hide_thinking_block(&agent_dir);
+                                        let _ = apply(
+                                            &mut state,
+                                            TuiEvent::Status(
+                                                "Reloaded keybindings, extensions, skills, prompts, themes, and context files"
+                                                    .to_string(),
+                                            ),
+                                        );
+                                    }
+                                    Err(error) => {
+                                        let _ = apply(
+                                            &mut state,
+                                            TuiEvent::Status(format!("Reload failed: {error}")),
+                                        );
+                                    }
+                                }
+                            }
+                        }
                         other => {
                             // F60/3：**已识别但未实现**的内置命令不得静默丢弃。
                             //

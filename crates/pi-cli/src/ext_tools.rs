@@ -13,7 +13,16 @@ use std::sync::{Arc, OnceLock};
 use pi_core::tools::tool::Tool;
 
 /// 进程级宿主句柄（`None` = 尝试过但不可用）。
-static HOST: OnceLock<Option<pi_ext_host::HostHandle>> = OnceLock::new();
+///
+/// **为什么是 `Mutex<Option<…>>` 而不是直接 `Option<…>`**：`/reload` 要换掉整个宿主
+/// （ref `interactive-mode.ts:6227` 的 `session.reload()` —— 重新加载 keybindings/
+/// extensions/skills/prompts/themes/context files）。扩展模块在同一 Node 进程里
+/// 被 `import` 后会进 ESM 缓存，重新 import **不会重新执行**，所以只能真的换进程。
+/// 换进程就必须能替换这个槽位，`OnceLock<Option<…>>` 做不到。
+static HOST: OnceLock<std::sync::Mutex<Option<pi_ext_host::HostHandle>>> = OnceLock::new();
+
+/// 是否已经**尝试过**启动宿主（失败也要记住，避免每次取工具都重拉 node 进程）。
+static HOST_ATTEMPTED: OnceLock<bool> = OnceLock::new();
 
 /// TUI 的扩展 UI 事件上行通道（TUI 启动时注册；`None` = 非 TUI 模式）。
 static UI_TX: OnceLock<std::sync::mpsc::Sender<pi_tui::TuiEvent>> = OnceLock::new();
@@ -265,7 +274,7 @@ fn ctx_snapshot() -> serde_json::Value {
 
 /// 把最新 ctx 推给正在运行的宿主（`HostHandle::set_ctx`）。
 fn push_ctx() {
-    if let Some(host) = HOST.get().and_then(|slot| slot.as_ref()) {
+    if let Some(host) = host_handle() {
         let snapshot = ctx_snapshot();
         host.set_ctx(snapshot);
     }
@@ -275,7 +284,11 @@ fn push_ctx() {
 ///
 /// 为什么要单独存：`ExtHost` 在工具执行期间被 `Mutex` 占着，
 /// 列工具（`--list-tools`、TUI 重建 parts）不能因为锁被占就少列——手工注册信息不会变。
-static SPECS: OnceLock<Vec<pi_ext_host::ToolSpec>> = OnceLock::new();
+/// 扩展工具规格快照（宿主握手时收集；`/reload` 会替换）。
+///
+/// 也是 `Mutex<Vec<…>>` 而不是 `OnceLock<Vec<…>>`：`/reload` 之后扩展可能注册了
+/// 不同的工具集合，旧快照必须能被替换掉，否则新扩展的工具永远不生效。
+static SPECS: OnceLock<std::sync::Mutex<Vec<pi_ext_host::ToolSpec>>> = OnceLock::new();
 
 /// 扩展排入的用户消息（`pi.sendUserMessage`），由主循环在下一轮注入。
 static PENDING_USER_MESSAGES: OnceLock<std::sync::Mutex<Vec<String>>> = OnceLock::new();
@@ -283,8 +296,7 @@ static PENDING_USER_MESSAGES: OnceLock<std::sync::Mutex<Vec<String>>> = OnceLock
 /// 是否有扩展订阅了某事件（`agent_end` 之类需要稍等异步派发）。
 #[must_use]
 pub fn has_event(name: &str) -> bool {
-    HOST.get()
-        .and_then(|slot| slot.as_ref())
+    host_handle()
         .map(|host| host.events().iter().any(|event| event == name))
         .unwrap_or(false)
 }
@@ -860,7 +872,7 @@ const EMBEDDED_EXT_HOST: &[(&str, &str)] = &[
 /// 扩展在 `session_start` 里读 `ctx.sessionManager.getSessionId()`/`appendEntry`，
 /// 宿主启动本身要早于此（flag 两阶段解析需要扩展声明），故派发与启动解耦。
 pub fn dispatch_session_start(reason: &str, previous: Option<&std::path::Path>) {
-    let Some(host) = HOST.get().and_then(|slot| slot.as_ref().cloned()) else {
+    let Some(host) = host_handle() else {
         return;
     };
     emit_session_start_with(host, reason, previous);
@@ -1039,8 +1051,16 @@ pub fn flush_extension_log(_agent_dir: &Path) {
 /// 返回扩展工具（首次调用时启动宿主）。失败时返回空列表并打印警告。
 #[must_use]
 pub fn extension_tools(agent_dir: &Path, cwd: &Path) -> Vec<Arc<dyn Tool>> {
-    let host = HOST.get_or_init(|| start_host(agent_dir, cwd));
-    let Some(host) = host.as_ref() else {
+    // 首次调用时启动宿主；已存在（或已失败）时复用槽位里的结果。
+    // 锁只在"判断是否需要启动"期间持有，`start_host` 在锁外执行（它要拉起 node 进程，
+    // 持锁会阻塞所有扩展事件派发）。
+    let needs_start = host_slot().lock().is_ok_and(|guard| guard.is_none())
+        && tool_specs().is_empty()
+        && !HOST_ATTEMPTED.get().is_some_and(|flag| *flag);
+    if needs_start && HOST_ATTEMPTED.set(true).is_ok() {
+        set_host_handle(start_host(agent_dir, cwd));
+    }
+    let Some(host) = host_handle() else {
         return Vec::new();
     };
     // F51：**宿主一建立就把 ctx 推过去**。此前只在字段变化时 `push_ctx()`，而
@@ -1049,7 +1069,7 @@ pub fn extension_tools(agent_dir: &Path, cwd: &Path) -> Vec<Arc<dyn Tool>> {
     // （真机：TS 显示扩展页脚 `¥954.32`，pi-rs 只有内置页脚）。
     push_ctx();
     // 用不可变快照，避免"工具正在执行 ⇒ 锁被占 ⇒ 少列工具"。
-    let tools = SPECS.get().cloned().unwrap_or_default();
+    let tools = tool_specs();
     tools
         .into_iter()
         .map(|spec| Arc::new(pi_ext_host::ExtTool::new(spec, host.clone())) as Arc<dyn Tool>)
@@ -1146,7 +1166,12 @@ fn start_host(agent_dir: &Path, cwd: &Path) -> Option<pi_ext_host::HostHandle> {
     }
     // 两阶段解析的第二步：扩展已 registerFlag，现在才能校验命令行里的未知 flag。
     resolve_flags(&host);
-    let _ = SPECS.set(host.tools().to_vec());
+    if let Ok(mut guard) = SPECS
+        .get_or_init(|| std::sync::Mutex::new(Vec::new()))
+        .lock()
+    {
+        *guard = host.tools().to_vec();
+    }
     // 扩展开命令进斜杠菜单（ref `interactive-mode.ts:745-756`）。**在这里发**而不是在
     // `session_start` 线程里：TS 的扩展在 TUI 起来之前就注册完命令，晚发会让首帧的
     // `/` 计数少一条（实测 `(1/26)` vs TS `(1/27)`）。
@@ -1222,7 +1247,7 @@ fn start_host(agent_dir: &Path, cwd: &Path) -> Option<pi_ext_host::HostHandle> {
 }
 
 pub fn emit_event(name: &str, payload: serde_json::Value) {
-    let Some(host) = HOST.get().and_then(|slot| slot.as_ref()).cloned() else {
+    let Some(host) = host_handle() else {
         return;
     };
     enqueue_emit(host, name, payload);
@@ -1231,7 +1256,7 @@ pub fn emit_event(name: &str, payload: serde_json::Value) {
 /// 把一次按键转给扩展的自定义组件；返回 `{lines, closed, result?}`。
 #[must_use]
 pub fn custom_input(key: &str, width: usize) -> Option<serde_json::Value> {
-    let host = HOST.get().and_then(|slot| slot.as_ref()).cloned()?;
+    let host = host_handle()?;
     host.custom_input(key, width).ok()
 }
 
@@ -1354,7 +1379,7 @@ pub fn render_tool_block(
     payload: serde_json::Value,
     width: usize,
 ) -> Option<Vec<String>> {
-    let host = HOST.get().and_then(|slot| slot.as_ref()).cloned()?;
+    let host = host_handle()?;
     let frame = host.render(tool_name, phase, payload, width).ok()??;
     // `unknown-tool` 由 `render_tool_block` 的**调用方**用 `tool_definition_known` 判断，
     // 这里当作"没有行"返回（不产生文本行）。
@@ -1364,9 +1389,7 @@ pub fn render_tool_block(
 /// 扩展注册了几个 Markdown 变换器（0 = 不必为渲染走 RPC）。
 #[must_use]
 pub fn markdown_transformer_count() -> usize {
-    HOST.get()
-        .and_then(|slot| slot.as_ref())
-        .map_or(0, pi_ext_host::HostHandle::markdown_transformer_count)
+    host_handle().map_or(0, |host| host.markdown_transformer_count())
 }
 
 /// 把一段 Markdown 交给扩展**渲染前**改写（ref `types.ts:1473`）。
@@ -1383,7 +1406,7 @@ pub fn transform_markdown(markdown: &str, width: usize) -> String {
     if markdown.is_empty() || markdown_transformer_count() == 0 {
         return markdown.to_string();
     }
-    let Some(host) = HOST.get().and_then(|slot| slot.as_ref()).cloned() else {
+    let Some(host) = host_handle() else {
         return markdown.to_string();
     };
     host.transform_markdown(markdown, width)
@@ -1402,7 +1425,7 @@ pub fn render_ui_block(
     digest: &str,
     timeout_ms: u64,
 ) -> Option<Vec<String>> {
-    let host = HOST.get().and_then(|slot| slot.as_ref()).cloned()?;
+    let host = host_handle()?;
     match host.render_ui(kind, key, width, digest, timeout_ms) {
         Ok(lines) => lines,
         Err(error) => {
@@ -1462,7 +1485,7 @@ pub fn test_thinking_labels() -> u64 {
 
 pub fn render_tool_rows(rows: Vec<(String, serde_json::Value)>, width: usize) -> ToolRowBatch {
     let ids: Vec<String> = rows.iter().map(|(id, _)| id.clone()).collect();
-    let Some(host) = HOST.get().and_then(|slot| slot.as_ref()).cloned() else {
+    let Some(host) = host_handle() else {
         return (rows.into_iter().map(|(id, _)| (id, None)).collect(), false);
     };
     let payloads: Vec<serde_json::Value> = rows.into_iter().map(|(_, payload)| payload).collect();
@@ -1486,7 +1509,7 @@ pub fn render_tool_rows(rows: Vec<(String, serde_json::Value)>, width: usize) ->
 /// 让扩展给出**思考块的折叠标签**（F51/Z1）；`None` = 没有扩展接管（用原文）。
 #[must_use]
 pub fn thinking_label(content: &[serde_json::Value]) -> Option<String> {
-    let host = HOST.get().and_then(|slot| slot.as_ref()).cloned()?;
+    let host = host_handle()?;
     TEST_THINKING_REQUESTS.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
     let label = host
         .thinking_label(serde_json::Value::Array(content.to_vec()))
@@ -1506,7 +1529,7 @@ pub fn thinking_label(content: &[serde_json::Value]) -> Option<String> {
 /// `None` ⇒ 没有宿主（非 TUI/无扩展），调用方按"有定义"处理（保持旧行为）。
 #[must_use]
 pub fn tool_definition_known(tool_name: &str) -> Option<bool> {
-    let host = HOST.get().and_then(|slot| slot.as_ref()).cloned()?;
+    let host = host_handle()?;
     host.tool_known(tool_name).ok().flatten()
 }
 
@@ -1540,8 +1563,7 @@ pub enum InputOutcome {
 /// 已注册的扩展命令名（宿主握手时收集）。
 #[must_use]
 pub fn command_names() -> Vec<String> {
-    HOST.get()
-        .and_then(|slot| slot.as_ref())
+    host_handle()
         .map(|host| {
             host.commands()
                 .iter()
@@ -1557,9 +1579,8 @@ pub fn command_names() -> Vec<String> {
 /// 有描述 ⇒ `[<tag>] <desc>`，无描述 ⇒ `[<tag>]`。
 #[must_use]
 pub fn menu_commands() -> Vec<(String, String)> {
-    HOST.get()
-        .and_then(|slot| slot.as_ref())
-        .map(menu_commands_of)
+    host_handle()
+        .map(|host| menu_commands_of(&host))
         .unwrap_or_default()
 }
 
@@ -1617,7 +1638,7 @@ pub fn try_run_command(text: &str) -> bool {
     let Some((name, args)) = parse_command(text) else {
         return false;
     };
-    let Some(host) = HOST.get().and_then(|slot| slot.as_ref()).cloned() else {
+    let Some(host) = host_handle() else {
         return false;
     };
     match host.invoke_command(&name, &args, std::time::Duration::from_secs(30)) {
@@ -1641,7 +1662,7 @@ pub fn try_run_command(text: &str) -> bool {
 /// 放到后台线程后，主循环继续转，`notify`/`setWidget` 事件即时生效。
 pub fn spawn_command(name: String, args: String) {
     std::thread::spawn(move || {
-        let Some(host) = HOST.get().and_then(|slot| slot.as_ref()).cloned() else {
+        let Some(host) = host_handle() else {
             return;
         };
         if let Err(error) = host.invoke_command(&name, &args, std::time::Duration::from_secs(30)) {
@@ -1663,7 +1684,7 @@ pub fn spawn_command(name: String, args: String) {
 /// 无宿主 / 无处理器 / 处理器出错时一律 `Continue`（与 ref 的"异常只上报不阻断"一致）。
 #[must_use]
 pub fn run_input_hooks(text: &str, source: &str) -> InputOutcome {
-    let Some(host) = HOST.get().and_then(|slot| slot.as_ref()).cloned() else {
+    let Some(host) = host_handle() else {
         return InputOutcome::Continue;
     };
     let payload = serde_json::json!({
@@ -1702,7 +1723,7 @@ pub fn run_input_hooks(text: &str, source: &str) -> InputOutcome {
 /// 工具结果全文换成视图（`index.ts:320-`），会话原史不动。此前 pi-rs 完全不派发
 /// `context` ⇒ 老化层从未生效，上下文只增不减。
 pub fn transform_context(messages: Vec<pi_ai::message::Message>) -> Vec<pi_ai::message::Message> {
-    let Some(host) = HOST.get().and_then(|slot| slot.as_ref()).cloned() else {
+    let Some(host) = host_handle() else {
         return messages;
     };
     // 拆出 system（ref 的 `visibleMessages` 与 `restoreSystemMessages` 用同一位置信息）。
@@ -1777,7 +1798,7 @@ pub struct BeforeAgentStart {
 
 /// 派发 `before_agent_start`（ref `agent-session.ts:1703`、`runner.ts:1312-1365`）。
 pub fn emit_before_agent_start(prompt: &str, system_prompt: &str) -> BeforeAgentStart {
-    let Some(host) = HOST.get().and_then(|slot| slot.as_ref()).cloned() else {
+    let Some(host) = host_handle() else {
         return BeforeAgentStart::default();
     };
     let payload = serde_json::json!({
@@ -1829,7 +1850,7 @@ pub fn emit_session_shutdown_sync(
     target: Option<&std::path::Path>,
     timeout: std::time::Duration,
 ) {
-    let Some(host) = HOST.get().and_then(|slot| slot.as_ref()).cloned() else {
+    let Some(host) = host_handle() else {
         return;
     };
     let payload = serde_json::json!({
@@ -1842,12 +1863,76 @@ pub fn emit_session_shutdown_sync(
     }
 }
 
+/// 取当前宿主句柄（克隆 `Arc`；锁只在取的时候持有）。
+fn host_slot() -> &'static std::sync::Mutex<Option<pi_ext_host::HostHandle>> {
+    HOST.get_or_init(|| std::sync::Mutex::new(None))
+}
+
+/// 扩展工具规格快照（宿主握手时写入；未启动 ⇒ 空）。
+fn tool_specs() -> Vec<pi_ext_host::ToolSpec> {
+    SPECS
+        .get()
+        .and_then(|slot| slot.lock().ok().map(|guard| guard.clone()))
+        .unwrap_or_default()
+}
+
+/// 当前宿主（未启动/启动失败 ⇒ `None`）。
+fn host_handle() -> Option<pi_ext_host::HostHandle> {
+    host_slot().lock().ok().and_then(|guard| guard.clone())
+}
+
+/// 换上新的宿主句柄（`/reload` 用）；旧的由调用方先 `shutdown`。
+fn set_host_handle(host: Option<pi_ext_host::HostHandle>) {
+    if let Ok(mut guard) = host_slot().lock() {
+        *guard = host;
+    }
+}
+
+/// 重启扩展宿主：关闭旧的、拉起新的，并重新派发 `session_start`。
+///
+/// 为什么必须换进程：扩展是 ESM 模块，同一 Node 进程里 `import` 之后会进缓存，
+/// 再次 import **不会重新执行**模块顶层（扩展的所有注册都发生在那里）。
+/// ref 的 `/reload` 走 `session.reload()`（`interactive-mode.ts:6227`），
+/// 在 TS 里能重新求值靠的是它自己的加载器；我们只能换进程。
+///
+/// 返回 `Ok(())` 表示新宿主已就绪（`None` 句柄也算——没有扩展时无宿主是正常状态）。
+/// `session_start` 的派发由调用方通过 `flush_pending_session_start` 触发，
+/// 与首次启动同一条路径（避免两套派发逻辑分叉）。
+pub fn reload_host(agent_dir: &Path, cwd: &Path) -> Result<(), String> {
+    // 1. 关掉旧宿主（超时 3s，比正常退出短：`/reload` 是用户主动操作，不该久等）。
+    if let Some(old) = host_handle() {
+        old.shutdown();
+        let started = std::time::Instant::now();
+        while started.elapsed() < std::time::Duration::from_secs(3) {
+            std::thread::sleep(std::time::Duration::from_millis(50));
+        }
+    }
+    set_host_handle(None);
+    // 2. 清掉"已尝试"标记与工具快照，让下一次 `extension_tools` 真的重新建宿主。
+    //    `SPECS` 是 `OnceLock`，进程内无法重置 —— 因此这里显式重启并回填。
+    let Some(fresh) = start_host(agent_dir, cwd) else {
+        return Ok(());
+    };
+    set_host_handle(Some(fresh));
+    push_ctx();
+    Ok(())
+}
+
+/// 当前扩展宿主进程的 PID（未启动 ⇒ `None`）。
+///
+/// 只给测试与 `/reload` 的"确实换了宿主"断言用：`/reload` 的语义是换进程
+/// （ESM 缓存导致重新 import 不会重新求值），因此 PID 必须变化才算真的重载了。
+#[must_use]
+pub fn host_pid_for_test() -> Option<u32> {
+    host_handle().and_then(|host| host.pid())
+}
+
 /// 关闭扩展宿主并**等待其进程退出**（上限 `timeout`；超时按 PID kill）。
 ///
 /// 宿主 node 若晚于 pi-rs 退出，Node 会在退出时对继承来的 tty 做 `uv_tty_reset_mode`
 /// （F41/P2① 已切断继承，这里再保证"退出前等它走完"，双保险）。
 pub fn shutdown_host(timeout: std::time::Duration) {
-    let Some(host) = HOST.get().and_then(|slot| slot.as_ref()).cloned() else {
+    let Some(host) = host_handle() else {
         return;
     };
     let pid = host.pid();
@@ -1885,7 +1970,7 @@ pub fn emit_user_bash(
     exclude_from_context: bool,
     cwd: &std::path::Path,
 ) -> UserBash {
-    let Some(host) = HOST.get().and_then(|slot| slot.as_ref()).cloned() else {
+    let Some(host) = host_handle() else {
         return UserBash::None;
     };
     let payload = serde_json::json!({
@@ -1918,7 +2003,7 @@ pub fn emit_user_bash(
 /// （ref 里没有 handler 时结果为空，等同放行）。
 #[must_use]
 pub fn emit_session_before_switch(reason: &str, previous: Option<&std::path::Path>) -> bool {
-    let Some(host) = HOST.get().and_then(|slot| slot.as_ref()) else {
+    let Some(host) = host_handle() else {
         return false;
     };
     let payload = serde_json::json!({
@@ -1942,7 +2027,7 @@ pub fn emit_session_before_switch(reason: &str, previous: Option<&std::path::Pat
 /// 返回扩展要求的 `continue` 与要落盘的 `entries`（print 路径据此决定是否再跑一轮）。
 #[must_use]
 pub fn emit_agent_before_settle(outcome: &str) -> SettleOutcome {
-    let Some(host) = HOST.get().and_then(|slot| slot.as_ref()).cloned() else {
+    let Some(host) = host_handle() else {
         return SettleOutcome::default();
     };
     let payload = serde_json::json!({
@@ -2237,7 +2322,7 @@ fn json_to_blocks(value: &serde_json::Value) -> Vec<pi_core::tools::tool::ToolRe
 /// 当扩展宿主可用时把工具包一层钩子；否则原样返回。
 #[must_use]
 pub fn wrap_with_hooks(tools: Vec<Arc<dyn Tool>>) -> Vec<Arc<dyn Tool>> {
-    let Some(host) = HOST.get().and_then(|slot| slot.as_ref()).cloned() else {
+    let Some(host) = host_handle() else {
         return tools;
     };
     tools
