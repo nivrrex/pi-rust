@@ -751,6 +751,7 @@ dependencies = [
  "pi-core",
  "pi-ext-host",
  "pi-tui",
+ "regex",
  "serde",
  "serde_json",
  "tempfile",
