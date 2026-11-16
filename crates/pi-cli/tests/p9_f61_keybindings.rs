@@ -182,3 +182,138 @@ fn legacy_action_names_are_migrated() {
         "旧名 cycleModelForward 应迁移成 app.model.cycleForward。序列：{models:?}"
     );
 }
+
+fn screen_of(raw: &std::path::Path) -> String {
+    let bytes = std::fs::read(raw).unwrap_or_default();
+    let text = String::from_utf8_lossy(&bytes);
+    let mut out = String::new();
+    let mut rest = text.as_ref();
+    while let Some(index) = rest.find('\u{1b}') {
+        out.push_str(&rest[..index]);
+        let after = &rest[index..];
+        let mut chars = after.chars();
+        let _ = chars.next();
+        match chars.next() {
+            Some('[') => {
+                let mut consumed = 2;
+                for ch in after.chars().skip(2) {
+                    consumed += ch.len_utf8();
+                    if ch.is_ascii_alphabetic() {
+                        break;
+                    }
+                }
+                rest = &after[consumed.min(after.len())..];
+            }
+            Some(']') => {
+                if let Some(bell) = after.find('\u{7}') {
+                    rest = &after[bell + 1..];
+                } else {
+                    rest = "";
+                }
+            }
+            _other => {
+                rest = &after[1.min(after.len())..];
+            }
+        }
+    }
+    out.push_str(rest);
+    out
+}
+
+/// 跑 `/hotkeys`，返回屏幕文本。
+fn hotkeys_screen(keybindings: Option<&str>) -> Option<String> {
+    let node = node_path()?;
+    let tmp = tempfile::tempdir().expect("临时目录");
+    let agent = tmp.path().join("agent");
+    let home = tmp.path().join("home");
+    let work = tmp.path().join("work");
+    let sessions = tmp.path().join("sessions");
+    for dir in [&agent, &home, &work, &sessions] {
+        std::fs::create_dir_all(dir).expect("建目录");
+    }
+    std::fs::write(
+        agent.join("settings.json"),
+        r#"{"theme":"dark","defaultProvider":"p","defaultModel":"m1"}"#,
+    )
+    .expect("写 settings");
+    std::fs::write(
+        agent.join("models.json"),
+        r#"{"providers":{"p":{"baseUrl":"http://127.0.0.1:1/v1","api":"openai-completions","apiKey":"DUMMY","models":[{"id":"m1","name":"m1","contextWindow":200000,"maxTokens":1024}]}}}"#,
+    )
+    .expect("写 models");
+    std::fs::write(
+        agent.join("auth.json"),
+        r#"{"p":{"type":"api_key","key":"DUMMY"}}"#,
+    )
+    .expect("写 auth");
+    if let Some(text) = keybindings {
+        std::fs::write(agent.join("keybindings.json"), text).expect("写 keybindings");
+    }
+    let steps = serde_json::json!([
+        {"waitStable": {"quietMs": 2000, "timeoutMs": 90000}},
+        {"text": "/hotkeys"},
+        {"delayMs": 800},
+        {"text": "\u{1b}"},
+        {"delayMs": 300},
+        {"text": "\r"},
+        {"delayMs": 2500},
+        {"mark": "panel"},
+        {"text": "\u{4}"},
+        {"delayMs": 1500}
+    ]);
+    let keys = tmp.path().join("keys.json");
+    std::fs::write(&keys, serde_json::to_string(&steps).expect("序列化")).expect("写 keys");
+    let raw = tmp.path().join("raw.bin");
+    let output = Command::new("python3")
+        .arg(repo_root().join("tools/difftest/pty-helper.py"))
+        .arg("--cols")
+        .arg("120")
+        .arg("--rows")
+        .arg("40")
+        .arg("--exit-code-file")
+        .arg(tmp.path().join("code.txt"))
+        .arg("--out")
+        .arg(&raw)
+        .arg("--script")
+        .arg(&keys)
+        .arg("--")
+        .arg(env!("CARGO_BIN_EXE_pi-rs"))
+        .current_dir(&work)
+        .env("PI_CODING_AGENT_DIR", &agent)
+        .env("PI_CODING_AGENT_SESSION_DIR", &sessions)
+        .env("PI_JITI", std::env::var("PI_JITI").unwrap_or_default())
+        .env("PI_NODE", &node)
+        .env("HOME", &home)
+        .env("COLORTERM", "")
+        .env("LANG", "zh_CN.UTF-8")
+        .env("LC_ALL", "zh_CN.UTF-8")
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .output()
+        .expect("运行 pty-helper");
+    assert!(
+        output.status.success(),
+        "pty-helper 应成功（stderr：{}）",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    Some(screen_of(&raw))
+}
+
+/// `/hotkeys` 面板必须反映 `keybindings.json` 里的键位。
+///
+/// 改前：面板是编译期常量，改配置后仍显示 `Ctrl+P`。
+#[test]
+fn hotkeys_panel_reflects_the_keybindings_file() {
+    let Some(screen) = hotkeys_screen(Some(r#"{"app.model.cycleForward":"ctrl+n"}"#)) else {
+        eprintln!("跳过：本机没有 node");
+        return;
+    };
+    assert!(
+        screen.contains("Keyboard Shortcuts"),
+        "应打开 /hotkeys 面板。屏幕：\n{screen}"
+    );
+    assert!(
+        screen.contains("Ctrl+N"),
+        "面板应显示改后的 cycleForward 键 Ctrl+N（改前是编译期常量）。屏幕：\n{screen}"
+    );
+}

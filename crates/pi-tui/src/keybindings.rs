@@ -70,6 +70,16 @@ pub const DEFINITIONS: &[Definition] = &[
         description: "Move to line end",
     },
     Definition {
+        action: "tui.editor.jumpForward",
+        default_keys: &["ctrl+]"],
+        description: "Jump forward to character",
+    },
+    Definition {
+        action: "tui.editor.jumpBackward",
+        default_keys: &["ctrl+alt+]"],
+        description: "Jump backward to character",
+    },
+    Definition {
         action: "tui.editor.pageUp",
         default_keys: &["pageUp", "ctrl+pageUp"],
         description: "Page up",
@@ -114,6 +124,11 @@ pub const DEFINITIONS: &[Definition] = &[
         action: "tui.editor.yank",
         default_keys: &["ctrl+y"],
         description: "Yank",
+    },
+    Definition {
+        action: "tui.editor.yankPop",
+        default_keys: &["alt+y"],
+        description: "Yank pop",
     },
     Definition {
         action: "tui.editor.undo",
@@ -181,8 +196,10 @@ pub const DEFINITIONS: &[Definition] = &[
     },
     Definition {
         action: "app.clear",
-        default_keys: &["ctrl+l"],
-        description: "Clear the screen",
+        // ref `core/keybindings.ts:94`：`app.clear` 是 **ctrl+c**（不是 ctrl+l；
+        // ctrl+l 是 `app.model.select`）。
+        default_keys: &["ctrl+c"],
+        description: "Clear editor",
     },
     Definition {
         action: "app.exit",
@@ -211,8 +228,31 @@ pub const DEFINITIONS: &[Definition] = &[
     },
     Definition {
         action: "app.model.select",
-        default_keys: &["ctrl+shift+p"],
-        description: "Select model",
+        // ref `:116`：`app.model.select` = **ctrl+l**。
+        default_keys: &["ctrl+l"],
+        description: "Open model selector",
+    },
+    Definition {
+        action: "app.editor.external",
+        default_keys: &["ctrl+g"],
+        description: "Open external editor",
+    },
+    Definition {
+        action: "app.message.followUp",
+        default_keys: &["alt+enter"],
+        description: "Queue follow-up message",
+    },
+    Definition {
+        action: "app.message.dequeue",
+        // ref `:137-139`：非 Windows 是 `alt+up`。
+        default_keys: &["alt+up"],
+        description: "Restore queued messages",
+    },
+    Definition {
+        action: "app.clipboard.pasteImage",
+        // ref `:141-143`：非 Windows 是 `ctrl+v`。
+        default_keys: &["ctrl+v"],
+        description: "Paste image or text from clipboard",
     },
     Definition {
         action: "app.tools.expand",
@@ -231,13 +271,15 @@ pub const DEFINITIONS: &[Definition] = &[
     },
     Definition {
         action: "app.session.new",
-        default_keys: &["ctrl+n"],
+        // ref `:144`：`defaultKeys: []`（无默认键）。
+        default_keys: &[],
         description: "Start a new session",
     },
     Definition {
         action: "app.session.tree",
-        default_keys: &["ctrl+r"],
-        description: "Navigate the session tree",
+        // ref `:145`：`defaultKeys: []`。
+        default_keys: &[],
+        description: "Open session tree",
     },
     Definition {
         action: "app.models.save",
@@ -382,6 +424,20 @@ impl Keymap {
         Self { keys, conflicts }
     }
 
+    /// 生效键表是否与**纯默认值**完全相同（用于"默认情形走 golden 常量"的分叉）。
+    #[must_use]
+    pub fn is_all_defaults(&self) -> bool {
+        DEFINITIONS.iter().all(|definition| {
+            let keys = self.keys_for(definition.action);
+            keys.len() == definition.default_keys.len()
+                && definition
+                    .default_keys
+                    .iter()
+                    .zip(keys.iter())
+                    .all(|(default, actual)| default == actual)
+        })
+    }
+
     /// 某动作的生效键列表（未知动作 ⇒ 空）。
     #[must_use]
     pub fn keys_for(&self, action: &str) -> &[String] {
@@ -497,6 +553,104 @@ pub fn load(agent_dir: &std::path::Path) -> Result<Keymap, String> {
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(Keymap::defaults()),
         Err(error) => Err(format!("{} 读取失败：{error}", path.display())),
     }
+}
+
+/// `/hotkeys` 面板的 Markdown 源（ref `interactive-mode.ts:6566-6640` 的模板逐行转写）。
+///
+/// 与 ref 一致的：三段（Navigation / Editing / Other）、每段一张 GFM 表、
+/// 键显示来自**当前生效键位**（`Keymap::display`），而不是编译期常量。
+/// `***bold***` 之外的行内代码与表格排版交给 `render_markdown_styled_with_width`。
+///
+/// **不收**：ref 末尾的 `Extensions` 段（扩展注册的快捷键）与 Windows 专属后缀
+/// —— 前者需要扩展注册表接入（未实现，见 LIMITATIONS），后者在 linux 上不出现。
+#[must_use]
+pub fn hotkeys_markdown(keymap: &Keymap) -> String {
+    let editor = |action: &str| keymap.display(action);
+    format!(
+        "**Navigation**
+| Key | Action |
+|-----|--------|
+| `{cursor_up}` / `{cursor_down}` / `{cursor_left}` / `{cursor_right}` | Move cursor / browse history |
+| `{word_left}` / `{word_right}` | Move by word |
+| `{line_start}` | Start of line |
+| `{line_end}` | End of line |
+| `{jump_fwd}` | Jump forward to character |
+| `{jump_back}` | Jump backward to character |
+| `{page_up}` / `{page_down}` | Scroll by page |
+
+**Editing**
+| Key | Action |
+|-----|--------|
+| `{submit}` | Send message |
+| `{new_line}` | New line |
+| `{del_word_back}` | Delete word backwards |
+| `{del_word_fwd}` | Delete word forwards |
+| `{del_line_start}` | Delete to start of line |
+| `{del_line_end}` | Delete to end of line |
+| `{yank}` | Paste the most-recently-deleted text |
+| `{yank_pop}` | Cycle through the deleted text after pasting |
+| `{undo}` | Undo |
+| `{tab}` | Path completion / accept autocomplete |
+
+**Other**
+| Key | Action |
+|-----|--------|
+| `{interrupt}` | Cancel autocomplete / abort streaming |
+| `{clear}` | Clear editor (first) / exit (second) |
+| `{exit}` | Exit (when editor is empty) |
+| `{suspend}` | Suspend to background |
+| `{cycle_thinking}` | Cycle thinking level |
+| `{cycle_fwd}` / `{cycle_back}` | Cycle models |
+| `{select_model}` | Open model selector |
+| `{expand_tools}` | Toggle tool output expansion |
+| `{toggle_thinking}` | Toggle thinking block visibility |
+| `{external_editor}` | Edit message in external editor |
+| `{copy_message}` | Copy selection or last assistant message |
+| `{follow_up}` | Queue follow-up message |
+| `{dequeue}` | Restore queued messages |
+| `{paste_image}` | Paste image or text from clipboard |
+| `/` | Slash commands |
+| `!` | Run bash command |
+| `!!` | Run bash command (excluded from context) |
+",
+        cursor_up = editor("tui.editor.cursorUp"),
+        cursor_down = editor("tui.editor.cursorDown"),
+        cursor_left = editor("tui.editor.cursorLeft"),
+        cursor_right = editor("tui.editor.cursorRight"),
+        word_left = editor("tui.editor.cursorWordLeft"),
+        word_right = editor("tui.editor.cursorWordRight"),
+        line_start = editor("tui.editor.cursorLineStart"),
+        line_end = editor("tui.editor.cursorLineEnd"),
+        jump_fwd = editor("tui.editor.jumpForward"),
+        jump_back = editor("tui.editor.jumpBackward"),
+        page_up = editor("tui.editor.pageUp"),
+        page_down = editor("tui.editor.pageDown"),
+        submit = editor("tui.input.submit"),
+        new_line = editor("tui.input.newLine"),
+        del_word_back = editor("tui.editor.deleteWordBackward"),
+        del_word_fwd = editor("tui.editor.deleteWordForward"),
+        del_line_start = editor("tui.editor.deleteToLineStart"),
+        del_line_end = editor("tui.editor.deleteToLineEnd"),
+        yank = editor("tui.editor.yank"),
+        yank_pop = editor("tui.editor.yankPop"),
+        undo = editor("tui.editor.undo"),
+        tab = editor("tui.input.tab"),
+        interrupt = editor("app.interrupt"),
+        clear = editor("app.clear"),
+        exit = editor("app.exit"),
+        suspend = editor("app.suspend"),
+        cycle_thinking = editor("app.thinking.cycle"),
+        cycle_fwd = editor("app.model.cycleForward"),
+        cycle_back = editor("app.model.cycleBackward"),
+        select_model = editor("app.model.select"),
+        expand_tools = editor("app.tools.expand"),
+        toggle_thinking = editor("app.thinking.toggle"),
+        external_editor = editor("app.editor.external"),
+        copy_message = editor("app.message.copy"),
+        follow_up = editor("app.message.followUp"),
+        dequeue = editor("app.message.dequeue"),
+        paste_image = editor("app.clipboard.pasteImage"),
+    )
 }
 
 #[cfg(test)]

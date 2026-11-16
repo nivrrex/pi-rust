@@ -1724,6 +1724,10 @@ pub fn run(
             }
         },
     ));
+    // 渲染层也要能读到（`/hotkeys` 面板按生效键位生成）。
+    if let Ok(guard) = keymap.lock() {
+        state.keymap = guard.clone();
+    }
     let (tx, rx) = std::sync::mpsc::channel::<TuiEvent>();
     // 跨 Submit 存活的消息历史：第二轮请求体因此天然包含第一轮的 user+assistant（T08 的重点）。
     // 回合串行化状态（P7-7f/perf）：`busy` = 有回合在跑；`queued_inputs` = 等待提交的输入。
@@ -6335,6 +6339,7 @@ pub fn run(
                                         // ——用户改完 keybindings.json 后必须重启才生效。
                                         match pi_tui::keybindings::load(&agent_dir) {
                                             Ok(fresh) => {
+                                                state.keymap = fresh.clone();
                                                 if let Ok(mut guard) = keymap.lock() {
                                                     *guard = fresh;
                                                 }

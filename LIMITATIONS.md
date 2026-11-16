@@ -644,18 +644,15 @@ ref 的对应实现见 `interactive-mode.ts:2541`/`:2543`（`showExtensionNotify
     而编辑器粘贴归一化用 **4 空格**（ref `editor.ts:1146` 的 `normalizeText`）。
     两处未合并成同一常量，避免改变括号粘贴的缩进与光标列。推翻条件：ref 后续版本
     把两处口径统一（届时合并）。
-25a. **F61/23 起 `keybindings.json` 生效，但 `/hotkeys` 面板仍是编译期常量**：
-    `crates/pi-tui/src/keybindings.rs` 转写了 ref 的定义表（`TUI_KEYBINDINGS` +
-    `KEYBINDINGS` 中 pi-rs 实际分派/展示的动作）、旧名迁移（`KEYBINDING_NAME_MIGRATIONS`）、
-    用户覆盖（"用户值整体替换默认值"、空数组=禁用）、冲突检测（只统计用户认领）、
-    `keyDisplayText`（首字母大写、多键 `/` 连接）。`tui.rs` 的 `map_key_sequence_with`
-    在映射层应用覆盖：非默认键 ⇒ 产生该动作的语义事件；默认键被用户从**所有**
-    主界面持有者移走 ⇒ 该键失效。面板专用动作（`app.models.*`/`app.tree.filter.*`）
-    不参与主界面键活性判断。
-    **未做**：`/hotkeys` 面板内容仍是 `HOTKEYS_PANEL_BY_WIDTH` 的逐字转录，
-    不随 `keybindings.json` 变化（ref 的 `handleHotkeysCommand` 用
-    `getEditorKeyDisplay(action)` 现场取值）。推翻条件：把面板改为按
-    `Keymap::display(action)` 生成并重新录制各宽度档的 golden。
+25a. **F61/24 起 `/hotkeys` 面板跟随 `keybindings.json`；默认键位仍走 golden 常量**：
+    `hotkeys_panel(&keymap, cols)` 在 `keymap.is_all_defaults()` 时返回
+    `hotkeys_panel_for_width`（既有 golden 逐字转录，保证屏幕输出不变），
+    否则按 `keybindings::hotkeys_markdown` 现场生成并渲染。
+    **已知差异**（这也是默认走常量的原因，不是可以忽略的小事）：动态生成的表格在
+    60 列下 Editing 段列宽为 34（golden 是 33），且 `Tab` 行在 golden 里归入
+    Other 段首位、ref 模板里归入 Editing 段末——**两者内容都对**，但与 golden
+    不逐字节一致。推翻条件：把 ref 模板的分段与列宽算法对齐到逐字节，
+    然后删掉这个分叉、统一走动态生成（届时需重录各宽度档 golden）。
 24. **F61/22 起 3 条内置斜杠命令未移植**：`share`、`bug`、`changelog`
     （`reload` 在 F61/22 实现：`reload_host()` 换掉扩展宿主进程并重新派发
     `session_start`；前置检查照 ref `interactive-mode.ts:6171-6178`（流式/压缩中拒绝），

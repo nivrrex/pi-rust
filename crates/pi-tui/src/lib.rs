@@ -92,6 +92,11 @@ pub struct TuiState {
     /// 当前主题（`dark`/`light`，来自 `settings.json` 的 `theme` 键）。
     /// ref `theme/theme.ts` 的 `theme` 单例 + `settings-manager.ts:782-791`。
     pub theme_name: String,
+    /// 生效键位表（`/hotkeys` 面板按它现场渲染；`/reload` 后更新）。
+    ///
+    /// 放在状态里而不是渲染参数里：`/hotkeys` 面板的宽度档在**渲染时**才确定
+    /// （用户改终端大小要跟着变），所以渲染层必须能读到当前键位。
+    pub keymap: keybindings::Keymap,
     /// 版本号（用于 `pi v<version>`）。
     pub version: String,
     /// 当前工作目录（状态行左侧）。
@@ -321,6 +326,8 @@ impl TuiState {
         status: impl Into<String>,
     ) -> Self {
         Self {
+            // 默认键位；`pi-cli` 在 `run` 里按 `keybindings.json` 覆盖。
+            keymap: keybindings::Keymap::defaults(),
             startup_warnings: Vec::new(),
             extension_commands: Vec::new(),
             extension_status: std::collections::BTreeMap::new(),
@@ -4329,7 +4336,7 @@ fn render_all_cached_styled_inner(
                     .first()
                     .is_some_and(|l| l.trim() == "Keyboard Shortcuts")
             })
-            .map(|_| hotkeys_panel_for_width(cols))
+            .map(|_| hotkeys_panel(&state.keymap, cols))
     };
     if let Some((PanelPlacement::Transcript, panel_lines)) = &state.panel {
         let panel_lines: &Vec<String> = dynamic_hotkeys.as_ref().unwrap_or(panel_lines);
@@ -6651,7 +6658,45 @@ mod panel_tests {
 /// 来源：golden 场景 `T15`（录制 cols=100），由 `tools/difftest/transcribe-panels.mjs` 转录。
 /// 逐行含空行与结构行；空行游程与 golden 区间完全一致（脚本断言）。
 /// 其它终端宽度下的换行/裁剪**未覆盖**（登记为已知限制）。
-/// `/hotkeys` 面板在给定列宽下的行（**动态渲染**，#15 部分收口）。
+/// `/hotkeys` 面板（**按当前生效键位**生成，ref `handleHotkeysCommand` 的等价物）。
+///
+/// 与 [`hotkeys_panel_for_width`]（编译期常量、逐字转录 golden）的关系：
+/// 那个函数是"默认键位下的既有渲染结果"参照；本函数按 `keymap` 现场生成，
+/// 因此用户改了 `keybindings.json` 之后面板内容会跟着变。
+///
+/// 输出结构照 ref：`[header, ""] + Markdown 块`（与旧常量同形状），
+/// 面板首行仍是 ` Keyboard Shortcuts`（识别标记依赖它）。
+#[must_use]
+pub fn hotkeys_panel_with(keymap: &keybindings::Keymap, cols: usize) -> Vec<String> {
+    let markdown = keybindings::hotkeys_markdown(keymap);
+    let palette = theme::Palette::of(&theme::Theme::builtin(theme::DEFAULT_NAME));
+    let (lines, _styles, _spans) =
+        render_markdown_styled_with_width(&markdown, &palette, Some(cols));
+    let mut out = vec![" Keyboard Shortcuts".to_string(), String::new()];
+    out.extend(lines);
+    out
+}
+
+/// `/hotkeys` 面板：**默认键位用 golden 常量，用户改过键位才动态生成**。
+///
+/// 为什么这样分叉而不是一律动态生成：默认键位下的面板内容已被
+/// `HOTKEYS_PANEL_BY_WIDTH`（golden 逐字转录）钉住，动态生成在**表格列宽**
+/// 与**分段顺序**上与之有差异（实测 60 列：Editing 段 33 vs 34 列宽、Tab 行
+/// 在 Editing/Other 段的归属不同）。两者都能显示正确的键位，但对拍 golden 的
+/// 那批用例要求逐字节一致 ⇒ 默认情形保持常量，只有"用户真的改了键位"
+/// （面板内容必然与 golden 不同）时才走动态生成。
+///
+/// 判据用 `Keymap::is_all_defaults()`：只要用户配置没有实际改变任何动作的键表，
+/// 就走常量。
+#[must_use]
+pub fn hotkeys_panel(keymap: &keybindings::Keymap, cols: usize) -> Vec<String> {
+    if keymap.is_all_defaults() {
+        return hotkeys_panel_for_width(cols);
+    }
+    hotkeys_panel_with(keymap, cols)
+}
+
+/// `/hotkeys` 面板在给定列宽下的行（**编译期常量**，逐字转录 golden）。
 ///
 /// 行构成与旧常量 [`HOTKEYS_LINES`] 一致：`[header, ""] + Markdown 块`（无尾部 paddingY 空行）。
 ///
@@ -9341,4 +9386,43 @@ pub fn editor_scroll_border(direction: char, hidden: usize, cols: usize) -> Stri
     }
     let truncated = clamp_to_width(&indicator, cols.saturating_sub(3).max(1));
     format!("{truncated}...")
+}
+
+#[cfg(test)]
+mod hotkeys_panel_tests {
+    use super::*;
+
+    /// 默认键位：面板必须与既有 golden 常量**逐行相同**（不改变既有屏幕输出）。
+    #[test]
+    fn default_keymap_uses_the_golden_constant() {
+        let keymap = keybindings::Keymap::defaults();
+        for cols in [60, 80, 100, 120] {
+            assert_eq!(
+                hotkeys_panel(&keymap, cols),
+                hotkeys_panel_for_width(cols),
+                "宽度 {cols}：默认键位应走 golden 常量"
+            );
+        }
+    }
+
+    /// 用户改了键位：面板内容必须跟着变（否则 `/hotkeys` 与实际按键脱节）。
+    #[test]
+    fn remapped_keymap_changes_the_panel() {
+        let mut overrides = std::collections::BTreeMap::new();
+        overrides.insert(
+            "app.model.cycleForward".to_string(),
+            vec!["ctrl+n".to_string()],
+        );
+        let keymap = keybindings::Keymap::with_overrides(&overrides);
+        assert!(!keymap.is_all_defaults(), "有覆盖时不应判为全默认");
+        let lines = hotkeys_panel(&keymap, 100).join("\n");
+        assert!(
+            lines.contains("Ctrl+N"),
+            "面板应显示新的 cycleForward 键（Ctrl+N）：\n{lines}"
+        );
+        assert!(
+            !lines.contains("Ctrl+P / ") || lines.contains("Shift+Ctrl+P"),
+            "Ctrl+P 不应再作为前进键出现（它仍可能作为后退的第二个键）：\n{lines}"
+        );
+    }
 }
