@@ -21,8 +21,14 @@ use pi_core::tools::tool::Tool;
 /// 换进程就必须能替换这个槽位，`OnceLock<Option<…>>` 做不到。
 static HOST: OnceLock<std::sync::Mutex<Option<pi_ext_host::HostHandle>>> = OnceLock::new();
 
-/// 是否已经**尝试过**启动宿主（失败也要记住，避免每次取工具都重拉 node 进程）。
-static HOST_ATTEMPTED: OnceLock<bool> = OnceLock::new();
+/// 启动宿主是否已**失败过**（失败才记住：启动成功后靠 `HOST` 槽位判断，
+/// 未启动过则每次都允许再试一次）。
+///
+/// 为什么不能记"尝试过"：测试与多入口会在同一进程里用**不同的 agentDir** 调
+/// `extension_tools`（`p9_f1_tool_call_input` 的两个 `#[tokio::test]` 各建一个
+/// tmpdir）。记"尝试过"会让第二次调用既拿不到宿主、也不再启动，
+/// 直接返回空工具表（实测：两个用例都红，报"应有扩展工具"）。
+static HOST_START_FAILED: OnceLock<bool> = OnceLock::new();
 
 /// TUI 的扩展 UI 事件上行通道（TUI 启动时注册；`None` = 非 TUI 模式）。
 static UI_TX: OnceLock<std::sync::mpsc::Sender<pi_tui::TuiEvent>> = OnceLock::new();
@@ -1056,9 +1062,14 @@ pub fn extension_tools(agent_dir: &Path, cwd: &Path) -> Vec<Arc<dyn Tool>> {
     // 持锁会阻塞所有扩展事件派发）。
     let needs_start = host_slot().lock().is_ok_and(|guard| guard.is_none())
         && tool_specs().is_empty()
-        && !HOST_ATTEMPTED.get().is_some_and(|flag| *flag);
-    if needs_start && HOST_ATTEMPTED.set(true).is_ok() {
-        set_host_handle(start_host(agent_dir, cwd));
+        // 只在**已经失败过**时不再重试（成功由槽位非空体现）。
+        && !HOST_START_FAILED.get().is_some_and(|failed| *failed);
+    if needs_start {
+        let started = start_host(agent_dir, cwd);
+        if started.is_none() {
+            let _ = HOST_START_FAILED.set(true);
+        }
+        set_host_handle(started);
     }
     let Some(host) = host_handle() else {
         return Vec::new();
