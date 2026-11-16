@@ -82,8 +82,25 @@ fn load() -> Vec<Case> {
 fn edit_keys_match_ref_oracle() {
     let cases = load();
     assert!(cases.len() >= 24, "夹具应 ≥24 例，实际 {}", cases.len());
+    // **跳过应用层已认领的按键**：本夹具由 ref 的**纯 `Editor`** 产出
+    // （`fixtures-editkeys.lines.txt`），只覆盖编辑器内部行为。
+    // 但真实 TUI 里 `alt+enter` 在**到达编辑器之前**就被动作层接走了：
+    //   `custom-editor.ts:138-145` 先遍历 `actionHandlers`，
+    //   命中 `app.message.followUp`（默认 `alt+enter`，`core/keybindings.ts:133-136`）
+    //   就执行并 `return`，不会落到 `super.handleInput` 的换行判断
+    //   （`editor.ts:887-895` 那段只在没有动作认领时才轮到）。
+    //
+    // 因此这 5 条 `alt+enter-*` 期望值测的是"纯编辑器"层，与本应用的按键语义
+    // 不在同一层；把它们当成本项目的期望值会让 `alt+enter` 退化为换行
+    // （用户按 `/hotkeys` 里写的键没有效果）。应用层的期望值由
+    // `p9_f61_follow_up.rs` 覆盖。
+    // 序列形式：`alt+enter` 在多数终端里是 ESC + CR。
+    const APP_CLAIMED_SEQUENCES: &[&str] = &["\u{1b}\r"];
     let mut failures = Vec::new();
     for case in &cases {
+        if APP_CLAIMED_SEQUENCES.contains(&case.seq.as_str()) {
+            continue;
+        }
         let mut state = TuiState::new("0.0.0", "work", "0.0%/128k (auto)");
         state.input = case.text.clone();
         state.cursor = case.text.chars().count();
