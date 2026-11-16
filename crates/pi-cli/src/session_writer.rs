@@ -1155,3 +1155,39 @@ pub fn session_usage_totals_of(entries: &[pi_core::session::SessionEntry]) -> Us
     }
     totals
 }
+
+/// 往**任意**会话文件追加一条 `session_info`（`/resume` 的重命名用，ref
+/// `session-selector.ts:933-937` 的 `renameSession(target, next)`）。
+///
+/// 与 [`Self::append_session_info`] 的区别：那个写**当前**会话（要维护 writer 自己的
+/// `pending`/`flushed`/叶子 id），这里的目标是**别的**文件，只需要"接在该文件最后
+/// 一条条目的 `id` 之后"，因此走 `SessionFile::append` 而不碰 writer 状态。
+///
+/// # Errors
+/// 文件读不出或写不进时返回可读错误（调用方据此给状态行，不静默失败）。
+pub fn append_session_info_to(path: &std::path::Path, name: &str) -> Result<String, String> {
+    let sanitized = name
+        .split(['\r', '\n'])
+        .collect::<Vec<_>>()
+        .join(" ")
+        .trim()
+        .to_string();
+    // 父 id = 该文件最后一条条目的 id（与 `append_session_info` 同语义）。
+    let parent_id = pi_core::session_io::SessionFile::read(path)
+        .ok()
+        .and_then(|file| {
+            file.entries
+                .last()
+                .and_then(|entry| entry.id().map(str::to_string))
+        });
+    let entry = serde_json::json!({
+        "type": "session_info",
+        "id": uuid::Uuid::now_v7().to_string(),
+        "parentId": parent_id,
+        "timestamp": timefmt::unix_millis_to_iso8601(timefmt::now_unix_millis()),
+        "name": sanitized,
+    });
+    pi_core::session_io::SessionFile::append(path, &SessionEntry::Unknown(entry))
+        .map_err(|error| error.to_string())?;
+    Ok(sanitized)
+}

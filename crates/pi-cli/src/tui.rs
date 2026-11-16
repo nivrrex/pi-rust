@@ -3048,6 +3048,77 @@ pub fn run(
                         }
                         continue;
                     }
+                    // **重命名模式优先**（ref `session-selector.ts:885-900`）：进入后整块
+                    // 替换成 `Rename Session` 面板，所有按键只服务输入框——
+                    // 字符追加、Backspace 删除、Enter 保存、Esc 取消。
+                    //
+                    // 此前只实现了"进入模式"，没有输入/保存/取消：`ctrl+r` 之后敲字不进输入框、
+                    // 回车也不落盘，等于一个死状态（渲染出来像个可用的输入框）。
+                    TuiEvent::Char(_)
+                    | TuiEvent::Backspace
+                    | TuiEvent::Enter
+                    | TuiEvent::Escape
+                        if matches!(&open_selector, SelectorUi::Resume(sel, _) if sel.rename.is_some()) =>
+                    {
+                        let SelectorUi::Resume(sel, cols) = open_selector else {
+                            dirty = true;
+                            continue;
+                        };
+                        let mut saved: Option<(std::path::PathBuf, String)> = None;
+                        match &event {
+                            TuiEvent::Char(ch) => sel.rename_push(*ch),
+                            TuiEvent::Backspace => sel.rename_pop(),
+                            TuiEvent::Escape => sel.exit_rename(),
+                            TuiEvent::Enter => {
+                                // ref `:910-916`：`value.trim()`；空值**不保存**（直接返回，
+                                // 留在重命名模式里——ref 的 `if (!next) return`）。
+                                let next =
+                                    sel.rename.clone().unwrap_or_default().trim().to_string();
+                                if next.is_empty() {
+                                    dirty = true;
+                                    continue;
+                                }
+                                if let Some(path) = sel.selected_path() {
+                                    saved = Some((path, next));
+                                }
+                            }
+                            _other => {}
+                        }
+                        // 落盘：往目标会话文件追加一条 `session_info`（与 `/name` 同一机制）。
+                        if let Some((path, requested)) = saved {
+                            let outcome =
+                                crate::session_writer::append_session_info_to(&path, &requested);
+                            match outcome {
+                                Ok(saved_name) => {
+                                    let sessions_dir =
+                                        parts.as_ref().map(|parts| parts.session_dir.clone());
+                                    if let Some(dir) = sessions_dir {
+                                        sel.sessions =
+                                            crate::settings_selector::scan_sessions(&dir);
+                                        sel.clamp_selection();
+                                    }
+                                    sel.exit_rename();
+                                    let _ = apply(
+                                        &mut state,
+                                        TuiEvent::Status(format!(
+                                            "Renamed session to: {saved_name}"
+                                        )),
+                                    );
+                                }
+                                Err(error) => {
+                                    let _ = apply(
+                                        &mut state,
+                                        TuiEvent::Status(format!(
+                                            "Failed to rename session: {error}"
+                                        )),
+                                    );
+                                }
+                            }
+                        }
+                        state.open_panel(pi_tui::PanelPlacement::BelowEditor, sel.lines(*cols));
+                        dirty = true;
+                        continue;
+                    }
                     TuiEvent::CtrlR if matches!(open_selector, SelectorUi::Resume(_, _)) => {
                         // ref `session-selector.ts:885-896`：`ctrl+r` 进入重命名模式。
                         if let SelectorUi::Resume(sel, cols) = open_selector {

@@ -1642,7 +1642,7 @@ impl ResumeSelector {
     pub const MAX_VISIBLE: usize = 10;
 
     /// 可见条数变化后把选中项夹回合法范围（ref `session-selector.ts:394`）。
-    fn clamp_selection(&mut self) {
+    pub fn clamp_selection(&mut self) {
         let len = self.visible_indices().len();
         self.selected = self.selected.min(len.saturating_sub(1));
     }
