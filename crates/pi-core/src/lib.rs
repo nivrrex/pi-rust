@@ -7,6 +7,7 @@
 #![forbid(unsafe_code)]
 
 pub mod agent;
+pub mod changelog;
 pub mod project_context;
 pub mod prompt_templates;
 pub mod session;

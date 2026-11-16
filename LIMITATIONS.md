@@ -653,7 +653,16 @@ ref 的对应实现见 `interactive-mode.ts:2541`/`:2543`（`showExtensionNotify
     Other 段首位、ref 模板里归入 Editing 段末——**两者内容都对**，但与 golden
     不逐字节一致。推翻条件：把 ref 模板的分段与列宽算法对齐到逐字节，
     然后删掉这个分叉、统一走动态生成（届时需重录各宽度档 golden）。
-24. **F61/22 起 3 条内置斜杠命令未移植**：`share`、`bug`、`changelog`
+24. **F61/25 起 2 条内置斜杠命令未移植**：`share`、`bug`
+    （`changelog` 在 F61/25 实现：`pi_core::changelog`（`parse`/`render_all`/
+    `normalize_links`/`parse_file`，ref `utils/changelog.ts` 逐项对照，
+    11 项单元用例）+ `/changelog` 命令。数据来源与 ref 同源
+    `<packageDir>/CHANGELOG.md`（`config.ts:455-457`），按 `PI_PACKAGE_DIR` 解析；
+    **pi-rs 自身不带这份文件**（它属于 TS 包），缺失时按 ref 语义显示
+    `No changelog entries found.`（`interactive-mode.ts:6515`）。
+    已知限制：ref 末尾的 `Extensions` 快捷键段未实现（需要扩展注册表里的快捷键，
+    pi-rs 无该接口）；面板宽度在**打开时**取一次终端宽度，之后改窗口大小不重排
+    （ref 由 TUI 布局每帧重排））
     （`reload` 在 F61/22 实现：`reload_host()` 换掉扩展宿主进程并重新派发
     `session_start`；前置检查照 ref `interactive-mode.ts:6171-6178`（流式/压缩中拒绝），
     状态行原文照 `:6243-6246`。为此把 `HOST`/`SPECS` 从 `OnceLock<…>` 改为

@@ -6207,7 +6207,53 @@ pub fn run(
                                 }
                             }
                         }
-                        "changelog" => push_unimplemented(&mut state, "changelog"),
+                        "changelog" => {
+                            // ref `interactive-mode.ts:3193-3197` → `handleChangelogCommand()`
+                            // （`:6505-6524`）：读**随包** `CHANGELOG.md`，把全部条目
+                            // 按旧→新拼起来（相对链接改写成固定 tag 的 GitHub URL），
+                            // 画在会话区，标题 `What's New`；没有条目时显示
+                            // `No changelog entries found.`（不是报错）。
+                            //
+                            // 数据来源与 ref 同源：`<packageDir>/CHANGELOG.md`
+                            // （`config.ts:455-457`）。pi-rs 自身不带这份文件——
+                            // 它属于 TS 包，所以按 `PI_PACKAGE_DIR` 找；找不到就
+                            // 走 ref 的"没有条目"分支。
+                            let package_dir = std::env::var("PI_PACKAGE_DIR").unwrap_or_default();
+                            let path = if package_dir.is_empty() {
+                                None
+                            } else {
+                                Some(std::path::Path::new(&package_dir).join("CHANGELOG.md"))
+                            };
+                            let entries = path
+                                .as_deref()
+                                .map(pi_core::changelog::parse_file)
+                                .unwrap_or_default();
+                            let markdown = if entries.is_empty() {
+                                "No changelog entries found.".to_string()
+                            } else {
+                                pi_core::changelog::render_all(&entries)
+                            };
+                            let palette = pi_tui::theme::Palette::of(
+                                &pi_tui::theme::Theme::builtin(&state.theme_name),
+                            );
+                            // 面板宽度用**当前终端宽度**（ref 的 `Markdown(..., 1, 1, ...)`
+                            // 由 TUI 布局按宽度重排；我们的面板行在打开时就固定，
+                            // 所以取一次实时宽度，取不到按 80 兜底）。
+                            let width = crossterm::terminal::size()
+                                .map(|(cols, _)| usize::from(cols))
+                                .unwrap_or(80)
+                                .max(20);
+                            let (rendered, _styles, _spans) =
+                                pi_tui::render_markdown_styled_with_width(
+                                    &markdown,
+                                    &palette,
+                                    Some(width),
+                                );
+                            let mut lines =
+                                vec![String::new(), " What's New".to_string(), String::new()];
+                            lines.extend(rendered);
+                            state.open_panel(pi_tui::PanelPlacement::Transcript, lines);
+                        }
                         "fork" => {
                             // ref `interactive-mode.ts:5341-5348` 的 `showUserMessageSelector`：
                             // 列出可分叉的用户消息；**没有**则 `No messages to fork from`。
