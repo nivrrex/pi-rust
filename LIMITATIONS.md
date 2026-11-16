@@ -58,19 +58,24 @@ api_key 流程已实现：provider 列表、`/login <provider>` 直达输入、
 
 ### 键位
 
-上游 `keybindings.ts` 共 43 条 `app.*` 绑定，当前覆盖 16 条：
+上游 `keybindings.ts` 共 43 条 `app.*` 绑定。**F61/29 按实际代码重新核对**（此前这
+条清单严重过时，把 F16/F17-F20 已实现的项仍列为未实现）：
 
-- 已实现：`interrupt`(escape)、`clear`(ctrl+c)、`exit`(ctrl+d)、`thinking.cycle`(shift+tab)、
-  `thinking.save`(ctrl+s)、`model.cycleForward`(ctrl+p)、`model.cycleBackward`(ctrl+n)、
-  `model.select`(ctrl+l)、`tools.expand`(ctrl+o)、`thinking.toggle`(ctrl+t)、`suspend`(ctrl+z)、
-  `editor.external`(ctrl+x)，以及命令路径 `session.tree`(/tree)、`session.resume`(/resume)、
-  `session.fork`(/fork)、`message.copy`(/copy)。
-- 未实现（27 条，主要在选择器/会话树内部）：`session.toggleNamedFilter`、`message.followUp`、
-  `message.dequeue`、`clipboard.pasteImage`、`session.new`、`session.togglePath`、
-  `session.toggleSort`、`session.rename`、`session.delete`、`session.deleteNoninvasive`、
-  `tree.foldOrUp`、`tree.unfoldOrDown`、`tree.editLabel`、`tree.toggleLabelTimestamp`、
-  `tree.filter.*`（7 条）、`models.save`、`models.enableAll`、`models.clearAll`、
-  `models.toggleProvider`、`models.reorderUp`、`models.reorderDown`。
+- 已实现（35 条 = 28 条显式 + `tree.filter.*` 7 条）：`interrupt`、`clear`、`exit`、`suspend`、`thinking.cycle`、
+  `thinking.save`、`model.cycleForward`、`model.cycleBackward`、`model.select`、
+  `tools.expand`、`thinking.toggle`、`editor.external`、`message.copy`、
+  `session.new`（`/new`，F16）、`session.tree`（`/tree`）、`session.resume`（`/resume`）、
+  `session.fork`（`/fork`）、`session.toggleNamedFilter`、`session.togglePath`、
+  `session.toggleSort`（均在 `/resume` 面板内，`tui.rs:3057-3080`）、
+  `models.save`、`models.enableAll`、`models.clearAll`、`models.toggleProvider`、
+  `models.reorderUp`、`models.reorderDown`（F61/17-F61/20，`/scoped-models` 面板内）、
+  `tree.foldOrUp`、`tree.unfoldOrDown`（`/tree` 面板）、`tree.filter.*` 共 7 条
+  （`TreeFilterMode`，`/tree` 面板内）。
+- 未实现（8 条，全部集中在会话树/编辑器的细节操作）：`message.followUp`、
+  `message.dequeue`、`clipboard.pasteImage`、`session.rename`、`session.delete`、
+  `session.deleteNoninvasive`、`tree.editLabel`、`tree.toggleLabelTimestamp`。
+  **否决依据**：用户已装扩展无一依赖这些按键（逐个 grep 为 0），且它们都有等价的
+  命令路径（如删除会话走 `/resume` 的 `ctrl+d`，已实现）。
 
 ### `/bug` 提示行
 
@@ -409,13 +414,15 @@ ref 的对应实现见 `interactive-mode.ts:2541`/`:2543`（`showExtensionNotify
   （`crates/pi-cli/tests/p9_f11_entry_paths.rs::tui_entry_writes_append_entry`）。
   **用途说明**：appendEntry 只对"用 appendEntry 存状态的扩展"有效（如 `pi-handoff-gate` 的
   `/todo clear`）；`todo` 工具本身走 toolResult.details，不受此影响。
-  **rpc 入口仍未覆盖**：rpc 的会话文件是懒创建的（首次 `prompt` 才建），而 `session_start` 在启动时
-  就派发，此时路径未知 ⇒ 该入口的 `appendEntry` 仍会落空；修法需在 rpc 会话生命周期里提前确定路径
-  （对应测试已写好但标 `#[ignore]`）。sink 超时不再静默丢弃，会打印 `customType`/`data` 告警。
+  ~~**rpc 入口仍未覆盖**：rpc 的会话文件是懒创建的……对应测试已写好但标 `#[ignore]`~~
+  **F61/29 核实为过时记录**：rpc 路径在建会话时就 `set_session_file`
+  （`main.rs` 的 rpc 装配处），`p9_f11_entry_paths::rpc_entry_writes_append_entry`
+  一直正常执行并**通过**（实测 2/2），注释里说的 `#[ignore]` 从未真正加上。
+  已改写该注释与本文。sink 超时不再静默丢弃，会打印 `customType`/`data` 告警。
 
-- **`/new` 未实现**（F12 复核）：ref 有 `/new`（`interactive-mode.ts:3182`），pi-rs 没有该命令，因此
-  "`/new` 之后 appendEntry 落到新会话文件"的用例不适用；`/resume` 切换路径已补登记
-  （`tui.rs` 的 writer 切换处），但**尚无 pty 级用例**。
+- ~~**`/new` 未实现**（F12 复核）~~ **F61/29 核实为过时记录**：`/new` 在 F16 已实现
+  （`tui.rs` 的命令分支 + `p9_f16_new_session.rs` 的 pty 用例），与本文后面
+  "**`/new`（F16 已实现）**"那条重复。保留此行只为说明曾被误记。
 
 - **扩展加载问题的可见性（F14 已修）**：缺 `PI_JITI`、缺 runner、宿主握手失败现在既写 stderr，
   也进启动屏 `[Extension issues]` 段（ref `interactive-mode.ts:1874-1894`）。此前的 `--list-tools`
@@ -446,11 +453,11 @@ ref 的对应实现见 `interactive-mode.ts:2541`/`:2543`（`showExtensionNotify
 - **缺 jiti 时的提示合并（F24，偏离 ref）**：ref 没有"jiti 缺失"这个场景；我们把 stderr 与启动屏
   `[Extension issues]` 各合并成一条汇总（受影响扩展数 + 名单），避免 10 个扩展刷 30 行。
 
-- **两个 pty 生命周期用例改为 `#[ignore]`（F24）**：`p9_f16_new_session`（`/new` 后 appendEntry 落新会话）与
-  `p9_f18_reason_events`（startup/new/quit 的 reason 顺序）在**全量 `cargo test --workspace` 并行**时会被
-  同机进程挤到超时（实测 300s 不退出），单跑稳定（约 4–6s）。按"同一假设链三次失败换方法"停止调延时，
-  改为显式单跑：`cargo test -p pi-cli --test p9_f16_new_session -- --ignored`（`p9_f18_reason_events` 同）。
-  **推翻条件**：把 pty 驱动改成按会话 id 直接选中 / 用虚拟终端（vt100 直接驱动状态机）后可恢复为常规用例。
+- ~~**两个 pty 生命周期用例改为 `#[ignore]`（F24）**：`p9_f16_new_session` 与
+  `p9_f18_reason_events` 在全量并行时被挤到超时，改为显式单跑~~
+  **F61/29 核实为过时记录**：这两个文件里**没有任何 `#[ignore]`**（全仓仅 1 处 `#[ignore]`，
+  在 `t3_45_compaction_oracle.rs`，与本条无关），它们一直在 test-gate 的全量并行里正常执行：
+  实测各约 2s 通过，近若干轮 test-gate 全绿即为证据。本条按记录规范删除过程性叙述。
 
 ## F28
 - ~~`ctx.ui.setToolsExpanded` 只记录状态并回执，**不驱动** pi-tui 的工具行展开~~

@@ -153,10 +153,13 @@ fn tui_entry_writes_append_entry() {
     );
 }
 
-/// rpc 入口**已知未覆盖**：会话文件是懒创建的（首次 `prompt` 才建），而 `session_start`
-/// 在启动时就派发，此时 `set_session_file` 还没拿到路径 ⇒ appendEntry 落空。
-/// 修法需要"先决定路径再建 writer"（ref 的 `SessionManager` 就持有路径），
-/// 属于 rpc 会话生命周期改动，留作后续批次；本测试在未修前**预期失败**，用 `#[ignore]` 标记。
+/// rpc 入口的 `appendEntry` 必须落到会话文件。
+///
+/// 这里曾写着"已知未覆盖：会话文件懒创建、`session_start` 先于 `set_session_file`
+/// ⇒ appendEntry 落空，本测试预期失败，用 `#[ignore]` 标记"。**那两句话都已过时**：
+/// rpc 路径现在在建会话时就 `set_session_file`（`main.rs` 的 rpc 装配处），
+/// 用例一直正常执行并通过；而注释里说的 `#[ignore]` 从未真正加上。
+/// 保留注释是为了记下"这个坑曾经存在"，但结论是**已验证可用**，不是待修。
 #[test]
 fn rpc_entry_writes_append_entry() {
     let Some(node) = node_path() else {
