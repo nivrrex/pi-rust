@@ -1123,6 +1123,12 @@ pub struct SessionRow {
     pub name: Option<String>,
     /// 摘要：第一条**用户**消息的文本；没有则 `None`（渲染成 `(no messages)`）。
     pub summary: Option<String>,
+    /// 全部 user/assistant 消息文本（空格连接），仅供搜索用
+    /// （ref `session-manager.ts:876` 的 `allMessagesText`）。
+    ///
+    /// 扫描时顺带累积——`scan_sessions` 本来就要逐行解析每份会话，
+    /// 多存一份文本的额外开销只是内存（ref 同样这么做）。
+    pub all_messages_text: String,
     /// 会话所属工作目录（`All` 作用域下显示，经 `shorten_path`）。
     pub cwd: String,
     /// 消息条数（`"type":"message"` 的行数）。
@@ -2019,6 +2025,8 @@ pub fn scan_sessions(dir: &std::path::Path) -> Vec<SessionRow> {
         let mut message_count = 0usize;
         let mut summary: Option<String> = None;
         let mut name: Option<String> = None;
+        // ref `session-manager.ts:845`：`allMessages.push(textContent)`，最后空格连接。
+        let mut all_messages: Vec<String> = Vec::new();
         let mut header_seen = false;
         for line in text.lines() {
             let Ok(record) = serde_json::from_str::<serde_json::Value>(line) else {
@@ -2065,12 +2073,18 @@ pub fn scan_sessions(dir: &std::path::Path) -> Vec<SessionRow> {
                         last_activity_ms = Some(last_activity_ms.map_or(ms, |prev| prev.max(ms)));
                     }
                 }
-                if summary.is_none() {
-                    let message = record.get("message");
-                    if message.and_then(|m| m.get("role")).and_then(|r| r.as_str()) == Some("user")
-                    {
-                        summary = message.and_then(message_text).filter(|s| !s.is_empty());
+                let message = record.get("message");
+                let role = message.and_then(|m| m.get("role")).and_then(|r| r.as_str());
+                // ref `:836-838`：只收 user/assistant（tool 结果、system 不进搜索文本）。
+                if matches!(role, Some("user") | Some("assistant")) {
+                    if let Some(text) = message.and_then(message_text) {
+                        if !text.is_empty() {
+                            all_messages.push(text);
+                        }
                     }
+                }
+                if summary.is_none() && role == Some("user") {
+                    summary = message.and_then(message_text).filter(|s| !s.is_empty());
                 }
             }
         }
@@ -2093,6 +2107,7 @@ pub fn scan_sessions(dir: &std::path::Path) -> Vec<SessionRow> {
             id: session_id,
             name,
             summary,
+            all_messages_text: all_messages.join(" "),
             cwd,
             message_count,
             modified_ms,
@@ -2217,6 +2232,7 @@ mod resume_list_tests {
             path: std::path::PathBuf::from("/a.jsonl"),
             name: None,
             summary: Some("第一行\n第二行".to_string()),
+            all_messages_text: String::new(),
             cwd: String::new(),
             message_count: 1,
             modified_ms: now_millis_for_test(),
@@ -2241,6 +2257,7 @@ mod resume_list_tests {
             path: std::path::PathBuf::from("/tmp/s.jsonl"),
             name: None,
             summary: None,
+            all_messages_text: String::new(),
             cwd: "/tmp/tui-T38-resume-list-abc/work".to_string(),
             message_count: 1,
             // 时间戳用**相对现在**的固定偏移：绝对日期会让"9mo"这类断言随时间失效
@@ -2295,6 +2312,7 @@ mod resume_list_tests {
                 path: std::path::PathBuf::from("/a.jsonl"),
                 name: None,
                 summary: Some("a".into()),
+                all_messages_text: String::new(),
                 cwd: "/w1".into(),
                 message_count: 2,
                 modified_ms: 2,
@@ -2304,6 +2322,7 @@ mod resume_list_tests {
                 path: std::path::PathBuf::from("/b.jsonl"),
                 name: None,
                 summary: Some("b".into()),
+                all_messages_text: String::new(),
                 cwd: "/w2".into(),
                 message_count: 3,
                 modified_ms: 1,
@@ -2327,6 +2346,7 @@ mod resume_list_tests {
                 name: None,
                 summary: Some(format!("会话 {i}")),
                 cwd: "/w".into(),
+                all_messages_text: String::new(),
                 message_count: 1,
                 modified_ms: 10 - i as u128,
             })
@@ -2385,6 +2405,7 @@ mod resume_list_tests {
             path: std::path::PathBuf::from("/a.jsonl"),
             name: None,
             summary: Some("old".into()),
+            all_messages_text: String::new(),
             cwd: "/work/Colibrì".into(),
             message_count: 7,
             modified_ms: 2,
@@ -3761,6 +3782,7 @@ mod p79_limits_tests {
             name: name.map(str::to_string),
             summary: Some(format!("摘要 {index}")),
             cwd: "/tmp/work".to_string(),
+            all_messages_text: String::new(),
             message_count: index,
             modified_ms: 1_700_000_000_000 + index as u128,
         }
@@ -4053,17 +4075,14 @@ fn regex_is_valid(pattern: &str) -> bool {
 /// 一条会话的**搜索文本**（ref `getSessionSearchText`，`session-selector-search.ts:29-31`）：
 /// `id name allMessagesText cwd`。
 ///
-/// **与 ref 的差异**：pi-rs 的 `SessionRow` 不保存全部消息文本（那要读整份会话文件，
-/// 而 `scan_sessions` 只统计条数），因此这里用 `summary`（首条用户消息）代替
-/// `allMessagesText`。后果：只能搜到会话名与首条消息，搜不到中间内容。
-/// 登记在 LIMITATIONS；补全文需要让 `scan_sessions` 顺带累积文本。
+/// 与 ref 一致：`id name allMessagesText cwd`（`session-selector-search.ts:29-31`）。
 #[must_use]
 pub fn session_search_text(row: &SessionRow) -> String {
     format!(
         "{} {} {} {}",
         row.id,
         row.name.as_deref().unwrap_or_default(),
-        row.summary.as_deref().unwrap_or_default(),
+        row.all_messages_text,
         row.cwd
     )
 }
@@ -4172,6 +4191,7 @@ mod resume_search_tests {
             id: id.to_string(),
             name: name.map(str::to_string),
             summary: summary.map(str::to_string),
+            all_messages_text: String::new(),
             cwd: cwd.to_string(),
             message_count: 1,
             modified_ms: 0,
@@ -4247,11 +4267,16 @@ mod resume_search_tests {
         assert!(match_session_text("anything", &ParsedQuery::Invalid).is_none());
     }
 
+    /// 搜索文本 = `id name allMessagesText cwd`（ref `session-selector-search.ts:29-31`）。
+    ///
+    /// **注意**它用的是**全部消息文本**而不是首条摘要：只看 `summary` 会搜不到
+    /// 会话中间的内容（此前 pi-rs 就是那样，F61/34 补齐）。
     #[test]
-    fn search_text_includes_id_name_summary_and_cwd() {
-        let r = row("01a1", Some("my session"), Some("hello"), "/work/proj");
+    fn search_text_includes_id_name_all_messages_and_cwd() {
+        let mut r = row("01a1", Some("my session"), Some("hello"), "/work/proj");
+        r.all_messages_text = "hello middle-content".to_string();
         let text = session_search_text(&r);
-        for needle in ["01a1", "my session", "hello", "/work/proj"] {
+        for needle in ["01a1", "my session", "middle-content", "/work/proj"] {
             assert!(text.contains(needle), "搜索文本应含 {needle}：{text}");
         }
     }
@@ -4290,6 +4315,7 @@ mod resume_visible_search_tests {
             name: Some(name.to_string()),
             summary: Some("hello".to_string()),
             cwd: cwd.to_string(),
+            all_messages_text: String::new(),
             message_count: 1,
             modified_ms: 0,
         }
@@ -4332,5 +4358,61 @@ mod resume_visible_search_tests {
         assert_eq!(sel.visible_indices().len(), 1);
         while sel.pop_search() {}
         assert_eq!(sel.visible_indices().len(), 2, "清空搜索后应恢复两条");
+    }
+}
+
+#[cfg(test)]
+mod resume_all_messages_tests {
+    use super::*;
+
+    /// `scan_sessions` 必须累积**全部** user/assistant 消息文本（ref
+    /// `session-manager.ts:876` 的 `allMessagesText`），否则 `/resume` 搜索
+    /// 只能命中首条消息与名字、搜不到会话中间的内容。
+    #[test]
+    fn scan_accumulates_all_message_text_for_search() {
+        let tmp = tempfile::tempdir().expect("临时目录");
+        let path = tmp.path().join("s.jsonl");
+        let lines = [
+            serde_json::json!({
+                "type": "session", "version": 3, "id": "01a1",
+                "timestamp": "2026-01-01T00:00:00.000Z", "cwd": "/work"
+            }),
+            serde_json::json!({
+                "type": "message", "id": "u1", "parentId": null,
+                "timestamp": "2026-01-01T00:00:01.000Z",
+                "message": {"role": "user",
+                            "content": [{"type": "text", "text": "first-question"}],
+                            "timestamp": "2026-01-01T00:00:01.000Z"}
+            }),
+            serde_json::json!({
+                "type": "message", "id": "a1", "parentId": "u1",
+                "timestamp": "2026-01-01T00:00:02.000Z",
+                "message": {"role": "assistant",
+                            "content": [{"type": "text", "text": "middle-answer"}],
+                            "api": "openai-completions", "provider": "p", "model": "m",
+                            "usage": {"input": 1, "output": 1, "cacheRead": 0, "cacheWrite": 0,
+                                      "cost": {"input": 0.0, "output": 0.0, "cacheRead": 0.0,
+                                               "cacheWrite": 0.0, "total": 0.0}},
+                            "stopReason": "stop"}
+            }),
+        ];
+        let text = lines
+            .iter()
+            .map(|line| serde_json::to_string(line).expect("序列化"))
+            .collect::<Vec<String>>()
+            .join("\n");
+        std::fs::write(&path, format!("{text}\n")).expect("写会话");
+
+        let rows = scan_sessions(tmp.path());
+        assert_eq!(rows.len(), 1, "应扫出一份会话：{rows:?}");
+        let all = &rows[0].all_messages_text;
+        assert!(
+            all.contains("first-question"),
+            "累加文本应含首条用户消息：{all:?}"
+        );
+        assert!(
+            all.contains("middle-answer"),
+            "累加文本应含**后续**助手消息（这正是 summary 覆盖不到的部分）：{all:?}"
+        );
     }
 }

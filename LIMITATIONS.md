@@ -85,14 +85,13 @@ api_key 流程已实现：provider 列表、`/login <provider>` 直达输入、
   **否决依据**：用户已装扩展无一依赖这些按键（逐个 grep 为 0），且它们都有等价的
   命令路径（如删除会话走 `/resume` 的 `ctrl+d`，已实现）。
 
-### `/resume` 搜索的已知限制（F61/33）
+### `/resume` 搜索（F61/33，全文匹配 F61/34 已补齐）
 
-- 搜索文本用 `id + name + summary(首条用户消息) + cwd`，而 ref 用
-  `id + name + allMessagesText + cwd`（`session-selector-search.ts:29-31`）。
-  后果：**搜不到会话中间的内容**，只能搜到名字与首条消息。
-  根因是 `scan_sessions` 只统计消息条数、不累积全文（累积全文要读整份文件，
-  116 MB 的会话会有明显开销）。推翻条件：让 `scan_sessions` 顺带累积文本，
-  或按需对"已缩小到少量候选"的会话再读全文匹配。
+- 搜索文本 = `id + name + allMessagesText + cwd`，与 ref
+  `session-selector-search.ts:29-31` 一致。`scan_sessions` 在**已有的逐行解析**里
+  顺带累积每条 user/assistant 消息文本（`session-manager.ts:836-876` 的
+  `allMessagesText`），因此能搜到会话中间的内容；额外开销只有内存
+  （ref 同样如此）。
 - **搜索框不在屏幕上**（ref 同样如此）：`searchInput` 不参与渲染——
   `buildBaseLayout`（`session-selector.ts:745-754`）只加 header 与列表，
   T36 golden 首屏里也没有输入行。我第一版给它加了一行可见的 `> `，被

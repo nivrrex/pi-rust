@@ -90,6 +90,7 @@ fn rows() -> Vec<SessionRow> {
             name: None,
             summary: Some(format!("会话 {}：分页夹具", index + 1)),
             cwd: "/work/project".to_string(),
+            all_messages_text: String::new(),
             message_count: 1 + index,
             modified_ms: long_ago,
         })

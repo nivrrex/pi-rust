@@ -136,6 +136,7 @@ fn resume_selector_fuzz_no_panic() {
             },
             summary: Some(format!("{} 会话 {index}", random_text(&mut rng, 8))),
             cwd: format!("/home/{}", random_text(&mut rng, 5)),
+            all_messages_text: String::new(),
             message_count: index,
             modified_ms: u128::try_from(index).unwrap_or(0),
         })
