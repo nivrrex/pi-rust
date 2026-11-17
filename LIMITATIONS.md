@@ -428,6 +428,10 @@ ref 的对应实现见 `interactive-mode.ts:2541`/`:2543`（`showExtensionNotify
   ⇒ 只在 `session_shutdown` 里 `appendEntry` 的扩展，print 模式下条目**必然丢失**
   （单次即复现，无需并发）。已补上（顺序：先派发事件再关宿主，各带 1s 上限）。
   用例 `p9_f61_print_shutdown_append.rs`；改前必失败。
+  **F61/37**：`rpc` 入口有同一缺口（也没有派发 `session_shutdown`/关宿主），已一并补上，
+  三个入口（print / TUI / rpc）现在一致。用例
+  `p9_f61_rpc_shutdown_append.rs`（关 stdin 触发**正常退出**路径，等 10s 条件轮询）；
+  改前必失败（实测 50s 超时后失败）。
   **仍未做**：8 路并行档的可重复复现手段（当前无法稳定复现 ⇒ 按纪律不改那部分代码）。
 
 - **单文件发行包的扩展宿主（已修）**：此前 `runner.mjs` 只从 `<exe 目录>/ext-host/` 或源码树查找，

@@ -718,6 +718,17 @@ fn run_rpc(parsed: &Args) -> ExitCode {
         }
         session.handle(&line);
     }
+    // **退出前派发 `session_shutdown` 并把扩展动作帧处理完**（F61/37）。
+    //
+    // 与 `--print`（F61/36）和 TUI 同一约束：三个入口必须一致。
+    // 只在 `session_shutdown` 里 `appendEntry` 的扩展，缺了这一步条目**必然丢失**。
+    // 顺序：先派发事件（宿主还活着、能收动作帧），再关宿主；各带 1s 上限防扩展卡死。
+    pi_cli::ext_tools::emit_session_shutdown_sync(
+        "rpc_exit",
+        None,
+        std::time::Duration::from_secs(1),
+    );
+    pi_cli::ext_tools::shutdown_host(std::time::Duration::from_secs(1));
     ExitCode::SUCCESS
 }
 
