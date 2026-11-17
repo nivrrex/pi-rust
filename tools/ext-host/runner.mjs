@@ -817,7 +817,7 @@ async function dispatch(frame) {
               merged = result;
               if (result.block) break;
             }
-          } else if (result) {
+          } else if (name === "tool_result") {
             if (result.content !== undefined) current.content = result.content;
             if (result.details !== undefined) current.details = result.details;
             if (result.isError !== undefined) current.isError = result.isError;
@@ -828,6 +828,15 @@ async function dispatch(frame) {
               isError: current.isError,
               ...(current.usage !== undefined ? { usage: current.usage } : {}),
             };
+          } else if (result) {
+            // **有返回值的其它事件**（ref `extensionRunner.emit` 直接把 handler 的
+            // 返回值交给调用方）：目前是 `session_before_switch`（`{cancelled}`）与
+            // `session_before_tree`（`{cancel, summary}`）。
+            //
+            // 此前这里只处理 `tool_call`/`tool_result`，其余事件的返回值被**丢弃**
+            // ⇒ 宿主永远收到 `result: null`，扩展的"取消导航/提供摘要"完全无效
+            // （实测：handler 返回 `{cancel:true}`，宿主读到 `cancel:false`）。
+            merged = result;
           }
         } catch (error) {
           const message = String(error && error.message ? error.message : error);
@@ -948,9 +957,21 @@ async function dispatch(frame) {
       respond(id, { handled: list.length, errors, result: { entries, continue: shouldContinue } });
       return;
     }
+    // **有返回值语义的其余事件**：`session_before_switch`（`{cancelled}`）与
+    // `session_before_tree`（`{cancel, summary}`）。ref 的 `extensionRunner.emit`
+    // 直接把 handler 的返回值交给调用方。
+    //
+    // 此前这里 `await handler(...)` **丢弃返回值** ⇒ 宿主永远收到 `result: null`，
+    // 扩展的"取消导航/给摘要/取消切换"全部无效（实测：handler 返回 `{cancel:true}`，
+    // 宿主读到 `cancel:false`）。多个 handler 时**后者的非空字段覆盖前者**，
+    // 与 ref 遍历所有 handler 的语义一致。
+    let merged;
     for (const handler of list) {
       try {
-        await handler(params?.payload ?? {}, contextForExtension());
+        const result = await handler(params?.payload ?? {}, contextForExtension());
+        if (result && typeof result === "object") {
+          merged = { ...(merged ?? {}), ...result };
+        }
       } catch (error) {
         errors.push(String(error && error.message ? error.message : error));
       }
@@ -958,7 +979,7 @@ async function dispatch(frame) {
     if (errors.length > 0) {
       process.stderr.write(`[ext-host] event ${name}: ${errors.length} handler(s) failed: ${errors.join("; ")}\n`);
     }
-    respond(id, { handled: list.length, errors });
+    respond(id, { handled: list.length, errors, result: merged ?? null });
     return;
   }
   if (method === "ext.flags.values") {

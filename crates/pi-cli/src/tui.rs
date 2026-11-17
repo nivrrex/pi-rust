@@ -3611,6 +3611,31 @@ pub fn run(
                                         })
                                         .ok();
                                     if let Some((provider, model_id)) = provider_now {
+                                        // ref `agent-session.ts:3641-3656`：导航与摘要**之前**
+                                        // 派发 `session_before_tree`。扩展可以：
+                                        // - `{cancel:true}` ⇒ 放弃本次导航；
+                                        // - `{summary}` ⇒ 直接给出摘要，省掉模型调用。
+                                        let from_id_now = crate::ext_tools::session_chain()
+                                            .lock()
+                                            .ok()
+                                            .and_then(|guard| guard.clone());
+                                        let before_tree =
+                                            crate::ext_tools::emit_session_before_tree(
+                                                pending_tree_restore_id.as_deref(),
+                                                from_id_now.as_deref(),
+                                            );
+                                        if before_tree.cancel {
+                                            let _ = apply(
+                                                &mut state,
+                                                TuiEvent::Status(
+                                                    "Branch navigation cancelled by extension"
+                                                        .to_string(),
+                                                ),
+                                            );
+                                            dirty = true;
+                                            continue;
+                                        }
+                                        let extension_summary = before_tree.summary;
                                         let tx2 = tx.clone();
                                         let system = parts_ref.config.system.clone();
                                         let max_tokens = parts_ref.config.max_completion_tokens;
@@ -3637,6 +3662,63 @@ pub fn run(
                                                     .ok()
                                                     .map(|guard| guard.path().to_path_buf())
                                             });
+                                        // **扩展给了摘要 ⇒ 不调模型**（ref `:3653-3656`：
+                                        // `if (result?.summary && options.summarize)`）。
+                                        // 摘要条目要挂在导航目标下、`fromId` 是旧叶子，
+                                        // 与模型生成那条路径的字段完全一致。
+                                        // 扩展给了摘要 ⇒ 只写条目、**不启动模型线程**
+                                        // （ref `:3653-3656`：`fromExtension = true` 时跳过总结）。
+                                        if let Some(summary) = extension_summary.clone() {
+                                            if let (Some(writer), Some(from_id)) = (
+                                                writer_for_summary.as_ref(),
+                                                from_id_for_summary.as_deref(),
+                                            ) {
+                                                if let Ok(mut guard) = writer.lock() {
+                                                    let target_parent = target_id
+                                                        .as_deref()
+                                                        .filter(|id| !id.is_empty());
+                                                    let _ = guard.append_branch_summary(
+                                                        target_parent,
+                                                        from_id,
+                                                        &summary,
+                                                        0,
+                                                        0,
+                                                    );
+                                                }
+                                            }
+                                            // 摘要已就位：屏幕切到导航目标、通知会话树。
+                                            let _ = apply(
+                                                &mut state,
+                                                TuiEvent::BranchSummary(
+                                                    extension_summary.clone().unwrap_or_default(),
+                                                ),
+                                            );
+                                            // 与模型摘要那条路径同一形状：按**投影**重建会话区
+                                            // （叶子路径），并把摘要正文交给 `[branch]` 块。
+                                            let rebuilt = session_path
+                                                .as_ref()
+                                                .and_then(|path| {
+                                                    pi_core::session_io::SessionFile::read(path)
+                                                        .ok()
+                                                })
+                                                .map(|file| {
+                                                    transcript_from_messages(
+                                                        &file.projected_messages(),
+                                                    )
+                                                })
+                                                .unwrap_or_default();
+                                            let _ = tx2.send(TuiEvent::TreeNavigated {
+                                                transcript: rebuilt,
+                                                summary: Some(
+                                                    extension_summary.clone().unwrap_or_default(),
+                                                ),
+                                            });
+                                            let _ = tx2.send(TuiEvent::Status(
+                                                "Navigated to selected point".to_string(),
+                                            ));
+                                            dirty = true;
+                                            continue;
+                                        }
                                         std::thread::spawn(move || {
                                             let request = pi_ai::provider::ProviderRequest {
                                                 model: model_id,

@@ -2038,6 +2038,63 @@ pub fn emit_session_before_switch(reason: &str, previous: Option<&std::path::Pat
     .unwrap_or(false)
 }
 
+/// `session_before_tree` 的结果（ref `agent-session.ts:3641-3656`）。
+///
+/// 字段语义照 ref：`cancel` 取消本次导航；`summary` 若给出，**替代**模型生成的
+/// 分支摘要（ref 里还要 `options.summarize` 为真才采用，`fromExtension = true`）。
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct BeforeTree {
+    pub cancel: bool,
+    pub summary: Option<String>,
+}
+
+/// 派发 `session_before_tree`（ref `agent-session.ts:3641-3656`）。
+///
+/// 在 `/tree` 导航**之前**、摘要生成之前派发：扩展可以选择取消导航，
+/// 或直接给出一份摘要（省掉一次模型调用）。
+///
+/// 没有扩展/超时/结果不合法 ⇒ 全部按"不介入"处理（`cancel=false`、无摘要），
+/// 与 ref 在无 handler 时行为一致。
+///
+/// 线程安全：内部只读全局宿主句柄并做一次跨进程 RPC，可在任意线程调用。
+#[must_use]
+pub fn emit_session_before_tree(target_id: Option<&str>, from_id: Option<&str>) -> BeforeTree {
+    let Some(host) = host_handle() else {
+        return BeforeTree::default();
+    };
+    let payload = serde_json::json!({
+        "type": "session_before_tree",
+        "preparation": {
+            "targetId": target_id,
+            "fromId": from_id,
+        },
+    });
+    let result = host
+        .emit_value(
+            "session_before_tree",
+            payload,
+            std::time::Duration::from_secs(10),
+        )
+        .ok()
+        .flatten();
+    let Some(value) = result else {
+        return BeforeTree::default();
+    };
+    BeforeTree {
+        cancel: value
+            .get("cancel")
+            .and_then(serde_json::Value::as_bool)
+            .unwrap_or(false),
+        // 空串与缺失等价（ref 用 `if (result?.summary)` 的真值判断）。
+        summary: value
+            .get("summary")
+            .and_then(serde_json::Value::as_str)
+            .map(str::trim)
+            .filter(|text| !text.is_empty())
+            .map(str::to_string),
+    }
+}
+
 /// 派发 `agent_before_settle`（ref `agent-session.ts:1532-1550`、`runner.ts:928-975`）。
 ///
 /// 返回扩展要求的 `continue` 与要落盘的 `entries`（print 路径据此决定是否再跑一轮）。
