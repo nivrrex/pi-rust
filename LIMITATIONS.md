@@ -320,28 +320,23 @@ ref 的对应实现见 `interactive-mode.ts:2541`/`:2543`（`showExtensionNotify
 - **UI 帧**：`notify` 三档已按 ref 渲染（info 状态行 / `Warning: ` / `Error: `），
   `setStatus` 在 footer 下单独一行（按 key 排序、清洗、截断）。本批 TS 录制逐帧 `same`
   （`scenarios-tui/T88-ui-notify` 与 `scenarios-tui-light/L-T88-ui-notify`）。
-  **未验证：颜色逐字节、空行计数（F61/43 取证，仍未修）**。
-  F61/43 用 `compare-style.mjs`（逐单元格比样式）对 T88 两侧实测：
-  文本层 `compare-tui` 报 **same**，但样式层 **819 格不同**
-  （`char` 378 / `fg` 436 / `bg` 0 / `dim` 3 / `inverse` 2）。
-  逐行对比定位到**唯一**的布局差异：TS 的非空行是 `11,13,15,17`，
-  pi-rs 是 `11,14,16,17`——`Status`（info 通知 `plugin ready`）之后多 1 行。
-  根因：pi-rs 的 `Status` 补**尾随**空行、`Notice` 补**前导**空行，相邻时叠成 2 行；
-  而 ref 的 `showStatus`/`showWarning`/`showError` 各自只是
-  `chatContainer.addChild(new Spacer(1))` + `Text`（`interactive-mode.ts:3709-3712`、
-  `:4469-4473`），相邻两条之间只有 **1** 行。
-  **已尝试但均使情况变差的四组改法**（都已回滚，工作区干净）：
-  ① 去掉 `Notice` 的尾随空行：样式差异 819→**177**（有改善），
-     但 `compare-tui` 从 same 变成 **different**（末条目之后少了那行），**属回归，未采用**；
-  ② 只抑制 `Status → Notice` 的前导空行：变成 500+566 格（更差），
-     且缓存路径与直绘路径行数不一致；
-  ③ 去掉 `Status` 的尾随空行：536+606 格（更差）——`Status` 的尾随空行被
-     `/todo` 多行清单一类场景依赖；
-  ④ 组合改法：同上更差。
-  **为什么停下**：同一问题已 4 次修改未解决，按"三次失败换方法"停止猜测。
-  **建议的下一步**：把 `Status`/`Notice`/`Warning` 的空白统一成"只有前导空行、
-  末尾由渲染循环在**最后一个条目之后**补 1 行"这一条不变式，然后一次性迁移所有
-  使用者的期望（含 `/todo` 多行清单的既有用例），而不是逐个条目打补丁。
+  **F61/44 已修复（已验证）**：T88 的样式层差异从 **819 格降到 6 格**，且那 6 格
+  全是临时目录随机后缀（`/tmp/tui-T88-ui-notify-<rand>/work` 里的字符），
+  与样式无关 ⇒ **颜色与空行现已逐单元格一致**。
+  根因（F61/43 定位）：`Status` 补**尾随**空行、`Notice` 补**前导**空行，相邻时叠成 2 行；
+  ref 的 `showStatus`/`showWarning`/`showError` 各自只是 `Spacer(1)` + `Text`
+  （`interactive-mode.ts:3709-3712`、`:4469-4473`），相邻两条之间只有 1 行。
+  修法：`paragraph_blank` 增加 `previous_notice_like` 参数——上一条是
+  `Status`/`Notice`/`Warning` 时，本条 `Notice`/`Warning` **不再补前导空行**
+  （前一条的尾随空行已充当）。
+  **关键**：`Notice` 的**尾随**空行必须保留——F61/43 曾试图去掉它（样式差异降到 177），
+  但那会让**末条目**少一行，`compare-tui` 从 same 变 different（回归）。
+  只抑制前导、保留尾随，两个指标才同时成立（样式 6 格、文本 same）。
+  单元用例 `crates/pi-tui/tests/t_f61_notify_spacing.rs`；改前必失败。
+  **取证方法**（后续同类问题沿用）：`compare-tui` 会**丢弃 SGR 并折叠连续空行**，
+  文本层 same 不代表样式一致；必须用 `compare-style.mjs` 逐单元格比对
+  （`{ch,fg,bg,bold,italic,dim,inverse}`）。
+
 - **工具执行帧**：扩展若用 ref 的 `createBashToolDefinition` 等"由宿主执行"的构造器，
   当前 shim 直接抛"未实现"（`notes/p9-1e1c/s3-matrix.md` 的 `bash` 行）——需要宿主动作帧。
 - **Ctrl+O 只覆盖 `renderResult`**：扩展自定义组件（`ui.custom` 面板、工厂式 widget 里的

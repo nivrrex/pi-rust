@@ -3046,7 +3046,11 @@ fn render_all_cached_inner(
 /// 慢路径（重新渲染）与快路径（命中每条目缓存）必须用**同一判定**：快路径此前无条件
 /// 补一行 ⇒ 缓存命中后 `Status`、折叠工具行、连续助手、思考块前面各多出 1 行空白
 /// （真实会话 `ctrl+o` 两次后的 step-2 每处多 1 行就是这个）。
-fn paragraph_blank(item: &TranscriptItem, previous_assistant: bool) -> bool {
+fn paragraph_blank(
+    item: &TranscriptItem,
+    previous_assistant: bool,
+    previous_notice_like: bool,
+) -> bool {
     let collapsed_tool_row = matches!(
         item,
         TranscriptItem::ToolCall {
@@ -3059,6 +3063,14 @@ fn paragraph_blank(item: &TranscriptItem, previous_assistant: bool) -> bool {
     // （充当 ref 的 `Spacer(1)`）⇒ 不再补；上一条是工具块时，工具块的尾随空行对应
     // ref 的 `Box` 底 padding，**不能**顶替 `Spacer(1)` ⇒ 这里仍要补。
     let status_row = matches!(item, TranscriptItem::Status(_)) && previous_assistant;
+    // `Notice`/`Warning`（ref `showWarning`/`showError` = `Spacer(1)` + `Text`，
+    // `interactive-mode.ts:4469-4473`）**自带前导空行**。上一条是 `Status`/`Notice`/
+    // `Warning` 时，它的**尾随空行**已经充当了这一行 ⇒ 不再补，否则叠成 2 行。
+    //
+    // 实测（T88）：TS 非空行 `11,13,15,17`、我们曾是 `11,14,16,17`——`Status`
+    // 之后多一行。`compare-tui` 折叠连续空行所以看不见。
+    let notice_row = matches!(item, TranscriptItem::Notice(_) | TranscriptItem::Warning(_))
+        && previous_notice_like;
     let extension_block = matches!(
         item,
         TranscriptItem::ToolCall {
@@ -3071,7 +3083,7 @@ fn paragraph_blank(item: &TranscriptItem, previous_assistant: bool) -> bool {
     );
     let follows_assistant = matches!(item, TranscriptItem::Thinking { .. }) && previous_assistant
         || matches!(item, TranscriptItem::Assistant(_)) && previous_assistant;
-    !collapsed_tool_row && !status_row && !extension_block && !follows_assistant
+    !collapsed_tool_row && !status_row && !notice_row && !extension_block && !follows_assistant
 }
 
 fn render_all_cached_styled_inner(
@@ -3354,6 +3366,8 @@ fn render_all_cached_styled_inner(
     }
     // 上一条是不是助手正文（用于"连续助手消息只留 1 行空行"，见下面的 `follows_assistant`）。
     let mut previous_item_was_assistant = false;
+    // 上一条是不是自带尾随空行的短提示（`Status`/`Notice`/`Warning`）。
+    let mut previous_item_was_notice_like = false;
 
     for (item_index, item) in state.transcript.iter().enumerate() {
         let cache_key = match item {
@@ -3435,10 +3449,20 @@ fn render_all_cached_styled_inner(
                     let rendered = &entry.rendered;
                     let cached_md_styles = &entry.md_styles;
                     // 命中缓存也要补样式：样式不参与缓存（每帧重算）。
-                    if paragraph_blank(item, previous_item_was_assistant) {
+                    if paragraph_blank(
+                        item,
+                        previous_item_was_assistant,
+                        previous_item_was_notice_like,
+                    ) {
                         lines.push(String::new());
                     }
                     previous_item_was_assistant = matches!(item, TranscriptItem::Assistant(_));
+                    previous_item_was_notice_like = matches!(
+                        item,
+                        TranscriptItem::Status(_)
+                            | TranscriptItem::Notice(_)
+                            | TranscriptItem::Warning(_)
+                    );
                     let first_content = lines.len();
                     lines.extend(rendered.iter().cloned());
                     styles.resize(lines.len(), None);
@@ -3480,7 +3504,11 @@ fn render_all_cached_styled_inner(
         // F48/X3：折叠工具行**没有**自己的前导空行（TS 侧补丁把整块含原 `Spacer(1)`
         // 一起替换掉了；`T116` golden：段落之后下一行就是第一个工具行）。
         // 判定见 `paragraph_blank`（快路径共用同一份；注释细节也在那里）。
-        if paragraph_blank(item, previous_item_was_assistant) {
+        if paragraph_blank(
+            item,
+            previous_item_was_assistant,
+            previous_item_was_notice_like,
+        ) {
             lines.push(String::new());
         }
         // 本条目**内容**的起始行。通常等于 `before + 1`（`before` 那行是段落空行），
@@ -3488,6 +3516,10 @@ fn render_all_cached_styled_inner(
         // 否则首行会被漏掉（实测：状态行第一帧有、第二帧消失）。
         let content_start = lines.len();
         previous_item_was_assistant = matches!(item, TranscriptItem::Assistant(_));
+        previous_item_was_notice_like = matches!(
+            item,
+            TranscriptItem::Status(_) | TranscriptItem::Notice(_) | TranscriptItem::Warning(_)
+        );
         // 下一条是不是助手正文：工具块的**尾随空行**在那种情况下不该补 ——
         // ref 里工具块与下一条之间的那一行来自助手组件自己的 `Spacer(1)`，
         // 工具块本身没有底部空行（`tool-execution.ts:421-432` 的 `Text`）。
