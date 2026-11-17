@@ -1385,6 +1385,21 @@ fn run_print(parsed: &Args, json: bool) -> ExitCode {
     for line in stderr {
         eprintln!("{line}");
     }
+    // **退出前派发 `session_shutdown` 并把扩展动作帧处理完**（F61/36）。
+    //
+    // TUI 路径早已如此（`tui.rs` 的 `emit_session_shutdown_sync("quit")` →
+    // `shutdown_host`），print 路径此前**两条都没做** ⇒ 只在 `session_shutdown` 里
+    // `appendEntry` 的扩展，条目**必然丢失**（单次即可复现，不需要并发条件；
+    // LIMITATIONS 里那条"8 路并行偶发丢条目"的同类现象也指向这里）。
+    //
+    // 顺序不能反：先派发事件（此时宿主还活着、能收动作帧），再关宿主。
+    // 两者各带 1s 上限，避免扩展卡死拖住退出（与 TUI 路径同量级）。
+    pi_cli::ext_tools::emit_session_shutdown_sync(
+        "print_exit",
+        None,
+        std::time::Duration::from_secs(1),
+    );
+    pi_cli::ext_tools::shutdown_host(std::time::Duration::from_secs(1));
     ExitCode::from(code)
 }
 

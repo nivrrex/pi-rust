@@ -417,12 +417,18 @@ ref 的对应实现见 `interactive-mode.ts:2541`/`:2543`（`showExtensionNotify
   **未完成**：TUI 的 `!`/`!!` 输入与 `BashExecutionComponent` 渲染、`/tree` 的命令摘要文本、
   `user_bash` 事件派发（F8/F9）。因此 `pi-secrets` 对 `!` 命令的脱敏路径仍不会触发。
 
-- **`p9_e3b_append` 偶发（F10 已复现，未修）**：单跑 30/30、4 路并行 12/12 通过；仅在 workspace
-  全量并行时观测到 1 次失败，失败形态是**整条 `custom` 条目丢失**（assistant 已落盘 ⇒ 不是
-  `pending` 缓冲问题，而是 append 请求没到达 writer）。假设是退出时宿主动作帧未排空。
-  详见 `notes/p9-f7c/append-flaky.md`。**F10 追加**：8 路并行压力脚本下 **80/80、240/240 稳定丢**；
-  失败时 node 扩展进程报 `ECONNRESET` ⇒ 根因是**主进程先退出、扩展动作帧没处理完**（不是文件截断）。
-  两处试修（等落盘标志、落盘时并入已有行）均无效且已回滚。
+- **`p9_e3b_append` 偶发（F10 记录，F61/36 复核）**：F10 时 8 路并行 80/80、240/240 丢条目，
+  报 `ECONNRESET`，根因是**主进程先退出、扩展动作帧没处理完**；两处试修（等落盘标志、
+  落盘时并入已有行）无效并回滚。
+  **F61/36 复核结果**：在 8 路 / 16 路并行下各压 80、120、240 次**都没复现**（含把运行时
+  退回 current-thread 的对照），说明该偶发在当前代码上已不可见（`c966b99` 改成
+  1-worker 多线程运行时后，actor 空转时派生任务也会被轮询，退出窗口被大幅收窄）。
+  但复核过程中找到了**同一根因下的确定性缺口**并已修：TUI 退出路径会
+  `emit_session_shutdown_sync` → `shutdown_host`，而 **`--print` 路径两条都没做**
+  ⇒ 只在 `session_shutdown` 里 `appendEntry` 的扩展，print 模式下条目**必然丢失**
+  （单次即复现，无需并发）。已补上（顺序：先派发事件再关宿主，各带 1s 上限）。
+  用例 `p9_f61_print_shutdown_append.rs`；改前必失败。
+  **仍未做**：8 路并行档的可重复复现手段（当前无法稳定复现 ⇒ 按纪律不改那部分代码）。
 
 - **单文件发行包的扩展宿主（已修）**：此前 `runner.mjs` 只从 `<exe 目录>/ext-host/` 或源码树查找，
   只下载单个二进制的用户会看到 `pi-rs: 扩展未加载：找不到 ext-host/runner.mjs`（Armbian 真机实测）。
