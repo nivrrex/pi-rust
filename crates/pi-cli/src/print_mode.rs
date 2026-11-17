@@ -86,10 +86,18 @@ pub fn default_tools(parsed: &crate::args::Args) -> Vec<Arc<dyn pi_core::tools::
         return tools;
     }
     let cwd = std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("."));
-    tools.extend(crate::ext_tools::extension_tools(
-        &default_agent_dir(),
-        &cwd,
-    ));
+    // **按名去重**（内置优先）：ref 的工具注册表以名字为键，同名只能有一个。
+    // 扩展可以注册与内置同名的工具（例如 `pi-toolkit` 的 `bash`），
+    // 此前两边的同名工具会同时进入列表 ⇒ 系统提示的 `<tools>` 段重复列出
+    // `bash`（实测 `defaultTools:["read","bash"]` 时出现两行 `- bash: …`）。
+    let existing: std::collections::HashSet<String> =
+        tools.iter().map(|tool| tool.name().to_string()).collect();
+    for tool in crate::ext_tools::extension_tools(&default_agent_dir(), &cwd) {
+        if existing.contains(tool.name()) {
+            continue;
+        }
+        tools.push(tool);
+    }
     crate::ext_tools::wrap_with_hooks(tools)
 }
 
@@ -141,8 +149,17 @@ fn default_tools_without_extensions(
             .collect();
     }
     if let Some(names) = configured {
-        // 设置里的名字既可能命中"默认激活集"（`read`/`bash`/`edit`/`write`），
-        // 也可能命中可选工具（`ls`/`grep`/`find`/`powershell`）——两者都要能选中。
+        // 设置里的名字可能命中三类：
+        // ① 默认激活集（`read`/`bash`/`edit`/`write`）；
+        // ② 可选内置工具（`ls`/`grep`/`find`/`powershell`）；
+        // ③ **扩展注册的工具**（如 `web_search`）——它们不在上面两个列表里，
+        //    但 `default_tools()` 会把扩展工具**追加在返回值的尾部**
+        //    （见本函数末尾的 `extension_tools`），因此不能在这里过滤掉。
+        //
+        // 此前只按 ①② 过滤，设置里写扩展工具名会导致工具集**变空**
+        // （实测 `defaultTools:["web_search"]` 时系统提示的工具段是 `(none)`）。
+        // 现在：内置工具按名字过滤，**扩展工具原样保留**（它们是否激活由扩展自身
+        // 注册决定，`defaultTools` 无法把它们"关掉"——那需要扩展级开关，ref 也没有）。
         let mut selected: Vec<Arc<dyn pi_core::tools::tool::Tool>> = all
             .into_iter()
             .filter(|tool| names.iter().any(|name| name == tool.name()))
@@ -152,7 +169,8 @@ fn default_tools_without_extensions(
                 selected.push(tool);
             }
         }
-        // `defaultTools` 里的顺序即用户期望的顺序（与 `--tools` 一致）。
+        // `defaultTools` 里的顺序即用户期望的顺序（与 `--tools` 一致）；
+        // 内置工具按该顺序排列，扩展工具追加在末尾（随后由 `default_tools` 追加）。
         selected.sort_by_key(|tool| {
             names
                 .iter()
