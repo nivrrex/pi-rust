@@ -28,6 +28,11 @@ pub struct Settings {
     /// 三个键都可缺省，缺省项由 `compaction_settings()` 用默认值补。
     #[serde(default)]
     pub compaction: Option<CompactionSettingsJson>,
+    /// `defaultTools`：**初始激活的内置工具名**（ref `settings-manager.ts:144` 的
+    /// `getDefaultTools()`，`sdk.ts:259-265`）。缺省时用内置默认集
+    /// `["read","bash","edit","write"]`；`--tools` 命令行始终优先。
+    #[serde(default, rename = "defaultTools")]
+    pub default_tools: Option<Vec<String>>,
     /// `defaultProjectTrust`（ref `settings-manager.ts` 的同名字段，
     /// `project-trust.ts:77` 读它）：`always` / `never` / `ask`。缺省按 `ask`。
     #[serde(default, rename = "defaultProjectTrust")]
@@ -166,6 +171,17 @@ pub fn hide_thinking_block(agent_dir: &std::path::Path) -> bool {
 }
 
 /// 解析 settings.json 的文本；空文本或缺失文件按"没有设置"处理。
+/// 读 `settings.json` 里的 `defaultTools`（文件缺失/解析失败 ⇒ `None`）。
+///
+/// 单列一个函数而不是让调用方构造整个 `Settings`：工具装配发生在 `print_mode`
+/// 深处，那里只有 `agent_dir`（ref `sdk.ts:259` 同样只持有 settingsManager）。
+#[must_use]
+pub fn default_tools(agent_dir: &std::path::Path) -> Option<Vec<String>> {
+    let text = std::fs::read_to_string(agent_dir.join("settings.json")).ok()?;
+    parse(&text).ok()?.default_tools
+}
+
+/// 解析 `settings.json`。
 pub fn parse(text: &str) -> Result<Settings, String> {
     if text.trim().is_empty() {
         return Ok(Settings::default());

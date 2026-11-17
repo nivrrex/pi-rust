@@ -123,12 +123,43 @@ fn default_tools_without_extensions(
         Arc::new(pi_core::tools::grep::GrepTool),
         Arc::new(pi_core::tools::find::FindTool),
     ];
+    // 优先级照 ref `sdk.ts:263-265`：
+    // `--tools` > （`--no-tools` ⇒ 空）> **设置的 `defaultTools`** > 内置默认集。
+    //
+    // 此前只有 `--tools`，`settings.json` 的 `defaultTools` 被完全忽略——
+    // 用户在设置里配了工具集，启动后却还是四个默认工具。
+    let configured = if parsed.tools.is_empty() {
+        crate::settings::default_tools(&default_agent_dir())
+    } else {
+        None
+    };
     if !parsed.tools.is_empty() {
         return all
             .into_iter()
             .chain(optional)
             .filter(|tool| parsed.tools.iter().any(|name| name == tool.name()))
             .collect();
+    }
+    if let Some(names) = configured {
+        // 设置里的名字既可能命中"默认激活集"（`read`/`bash`/`edit`/`write`），
+        // 也可能命中可选工具（`ls`/`grep`/`find`/`powershell`）——两者都要能选中。
+        let mut selected: Vec<Arc<dyn pi_core::tools::tool::Tool>> = all
+            .into_iter()
+            .filter(|tool| names.iter().any(|name| name == tool.name()))
+            .collect();
+        for tool in optional {
+            if names.iter().any(|name| name == tool.name()) {
+                selected.push(tool);
+            }
+        }
+        // `defaultTools` 里的顺序即用户期望的顺序（与 `--tools` 一致）。
+        selected.sort_by_key(|tool| {
+            names
+                .iter()
+                .position(|name| name == tool.name())
+                .unwrap_or(usize::MAX)
+        });
+        return selected;
     }
     if parsed.exclude_tools.is_empty() {
         return all;
