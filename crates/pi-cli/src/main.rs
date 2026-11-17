@@ -776,15 +776,65 @@ fn assemble_system_prompt(
             .map(|tool| tool.name().to_string())
             .collect::<Vec<String>>()
     };
-    // 项目信任决定（`<agent_dir>/trust.json`）：无条目或读取失败 ⇒ 不受信任。
-    // 读取失败只打一条警告，不让启动失败——与 ref 的"fail closed"一致。
-    let project_trusted = match pi_core::trust::TrustStore::new(agent_dir).get(cwd) {
-        Ok(decision) => matches!(decision, Some(pi_core::trust::TrustDecision::Trusted)),
+    // **项目信任决定**：按 ref `resolveProjectTrusted`（`project-trust.ts:46-96`）的顺序，
+    // 而不是只看 `trust.json`：
+    //   ① 显式覆盖（`--trust`/`--no-trust` 未实现，传 `None`）；
+    //   ② 没有需要信任才能生效的项目资源 ⇒ 直接可信（不打扰）；
+    //   ③ **扩展的 `project_trust` 裁决**（第一个给 yes/no 的胜出）；
+    //   ④ `trust.json` 已保存的决定；
+    //   ⑤ `defaultProjectTrust`（always/never/ask）；
+    //   ⑥ ask + 有 UI ⇒ 询问；ask + 无 UI ⇒ 不可信（fail closed）。
+    //
+    // 此前只做了 ④，缺 ②③⑤⑥：于是空目录也会去读 trust.json、扩展完全无法参与
+    // 信任决策、`defaultProjectTrust` 设置被忽略。
+    let trust_store = pi_core::trust::TrustStore::new(agent_dir);
+    let saved_decision = match trust_store.get(cwd) {
+        Ok(decision) => decision,
         Err(error) => {
+            // 读取失败只打警告，不让启动失败——与 ref 的 fail closed 一致。
             eprintln!("Warning: project trust could not be read: {error}");
-            false
+            None
         }
     };
+    // ③ 需要宿主在跑：先按需启动（`default_tools` 会幂等地复用同一个宿主）。
+    let extension_verdict = if pi_core::trust::has_trust_requiring_project_resources(cwd) {
+        let _ = pi_cli::print_mode::default_tools(parsed);
+        pi_cli::ext_tools::emit_project_trust(cwd)
+    } else {
+        None
+    };
+    // 扩展要求 `remember` ⇒ 把裁决写进 trust.json（ref `:62-65`）。
+    if let Some(verdict) = extension_verdict.as_ref() {
+        if verdict.remember {
+            let _ = trust_store.set_many(&[pi_core::trust::TrustUpdate {
+                path: cwd.to_path_buf(),
+                decision: Some(if verdict.trusted {
+                    pi_core::trust::TrustDecision::Trusted
+                } else {
+                    pi_core::trust::TrustDecision::Untrusted
+                }),
+            }]);
+        }
+    }
+    let project_trusted = pi_core::trust::resolve_project_trusted(
+        None,
+        pi_core::trust::has_trust_requiring_project_resources(cwd),
+        extension_verdict,
+        saved_decision,
+        pi_core::trust::DefaultProjectTrust::parse(
+            // 这里没有 `Settings` 实例（装配阶段只拿到了 agent_dir）⇒ 直接读文件。
+            // 解析失败按未设置处理（与 ref 的 `?? "ask"` 一致，不让坏配置阻断启动）。
+            std::fs::read_to_string(agent_dir.join("settings.json"))
+                .ok()
+                .and_then(|text| pi_cli::settings::parse(&text).ok())
+                .and_then(|settings| settings.default_project_trust)
+                .as_deref(),
+        ),
+        // 这里问不了用户（装配阶段、且 print 模式无 UI）：有 UI 的询问留待后续批次。
+        false,
+        || None,
+    )
+    .trusted;
     // 技能：`--no-skills` 时跳过发现（ref `resource-loader.ts:468-470`）；诊断逐条打 stderr
     // （前缀照 `main.ts:98-104`），有 error 诊断则退出码 1（`main.ts:896-905`）。
     let loaded_skills_result = if parsed.no_skills {

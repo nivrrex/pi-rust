@@ -28,6 +28,10 @@ pub struct Settings {
     /// 三个键都可缺省，缺省项由 `compaction_settings()` 用默认值补。
     #[serde(default)]
     pub compaction: Option<CompactionSettingsJson>,
+    /// `defaultProjectTrust`（ref `settings-manager.ts` 的同名字段，
+    /// `project-trust.ts:77` 读它）：`always` / `never` / `ask`。缺省按 `ask`。
+    #[serde(default, rename = "defaultProjectTrust")]
+    pub default_project_trust: Option<String>,
     /// `showHardwareCursor`（ref `core/settings-manager.ts` 的同名设置；默认 `false`，
     /// 由 `cli/startup-ui.ts:89` 传给 `TuiMainScreen` ⇒ `tui.ts:478` 的 `showHardwareCursor`）。
     #[serde(default, rename = "showHardwareCursor")]

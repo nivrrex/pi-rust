@@ -5,6 +5,7 @@ use pi_cli::settings::{parse, resolve_model, Settings};
 #[test]
 fn cli_flags_win_over_settings() {
     let settings = Settings {
+        default_project_trust: None,
         shell_path: None,
         default_thinking_level: None,
         theme: None,
@@ -25,6 +26,7 @@ fn cli_flags_win_over_settings() {
 #[test]
 fn settings_are_used_when_the_cli_is_silent() {
     let settings = Settings {
+        default_project_trust: None,
         shell_path: None,
         default_thinking_level: None,
         theme: None,
@@ -47,6 +49,7 @@ fn settings_are_used_when_the_cli_is_silent() {
 #[test]
 fn a_lone_provider_borrows_the_settings_model_and_vice_versa() {
     let settings = Settings {
+        default_project_trust: None,
         shell_path: None,
         default_thinking_level: None,
         theme: None,
@@ -83,6 +86,7 @@ fn half_a_pair_is_an_error_naming_what_is_missing() {
 #[test]
 fn settings_must_give_both_fields() {
     let only_provider = Settings {
+        default_project_trust: None,
         shell_path: None,
         default_thinking_level: None,
         theme: None,
@@ -100,6 +104,7 @@ fn settings_must_give_both_fields() {
     assert!(error.contains("缺 defaultModel"), "实际：{error}");
 
     let only_model = Settings {
+        default_project_trust: None,
         shell_path: None,
         default_thinking_level: None,
         theme: None,

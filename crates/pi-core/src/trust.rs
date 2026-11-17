@@ -536,3 +536,252 @@ mod tests {
         assert!(has_trust_requiring_project_resources(&nested));
     }
 }
+
+/// `defaultProjectTrust` 的设置值（ref `settings.json` 的同名字段）。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum DefaultProjectTrust {
+    Always,
+    Never,
+    Ask,
+}
+
+impl DefaultProjectTrust {
+    /// 从字符串解析（未知值按 `ask`，与 ref 的 `?? "ask"` 一致）。
+    #[must_use]
+    pub fn parse(value: Option<&str>) -> Self {
+        match value {
+            Some("always") => Self::Always,
+            Some("never") => Self::Never,
+            _other => Self::Ask,
+        }
+    }
+}
+
+/// 扩展对项目信任的裁决（ref `ProjectTrustEventResult`）。
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TrustVerdict {
+    /// `true` = 信任，`false` = 不信任（`undecided` 在派发层就已过滤掉）。
+    pub trusted: bool,
+    /// 是否把该决定**写进** `trust.json`（ref `remember === true`）。
+    pub remember: bool,
+}
+
+/// 项目信任的最终裁决结果。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ResolvedTrust {
+    pub trusted: bool,
+    /// `true` 表示这个决定来自扩展（调用方据此决定是否 `remember`）。
+    pub from_extension: bool,
+}
+
+/// 按 ref `resolveProjectTrusted`（`project-trust.ts:46-96`）的**顺序**裁决。
+///
+/// 顺序（与 ref 逐条对应，**不可调换**——扩展的裁决优先于已保存的决定）：
+/// 1. `trust_override`（命令行显式指定）⇒ 直接返回；
+/// 2. **没有需要信任才能生效的项目资源** ⇒ `true`（不打扰用户）；
+/// 3. 扩展经 `project_trust` 给出的裁决 ⇒ 采用；
+/// 4. `trust.json` 里已保存的决定 ⇒ 采用；
+/// 5. `defaultProjectTrust` 为 `always`/`never` ⇒ 采用；`ask` ⇒ 落到 6；
+/// 6. 有 UI 时询问用户；**无 UI ⇒ `false`**（fail closed）。
+///
+/// 第 3 步的 `remember` 由调用方处理（本函数只裁决）。
+#[must_use]
+pub fn resolve_project_trusted(
+    trust_override: Option<bool>,
+    has_trust_requiring_resources: bool,
+    from_extension: Option<TrustVerdict>,
+    saved: Option<TrustDecision>,
+    default_setting: DefaultProjectTrust,
+    has_ui: bool,
+    ask_user: impl FnOnce() -> Option<bool>,
+) -> ResolvedTrust {
+    if let Some(value) = trust_override {
+        return ResolvedTrust {
+            trusted: value,
+            from_extension: false,
+        };
+    }
+    if !has_trust_requiring_resources {
+        // ref `:51-53`：没有需要信任的资源时**一律视为可信**，
+        // 连扩展都不会问——否则每个空目录都要弹一次信任询问。
+        return ResolvedTrust {
+            trusted: true,
+            from_extension: false,
+        };
+    }
+    if let Some(verdict) = from_extension {
+        return ResolvedTrust {
+            trusted: verdict.trusted,
+            from_extension: true,
+        };
+    }
+    if let Some(decision) = saved {
+        return ResolvedTrust {
+            trusted: matches!(decision, TrustDecision::Trusted),
+            from_extension: false,
+        };
+    }
+    match default_setting {
+        DefaultProjectTrust::Always => ResolvedTrust {
+            trusted: true,
+            from_extension: false,
+        },
+        DefaultProjectTrust::Never => ResolvedTrust {
+            trusted: false,
+            from_extension: false,
+        },
+        DefaultProjectTrust::Ask => {
+            if !has_ui {
+                // ref `:88-90`：`ask` 且无 UI ⇒ 不信任（fail closed）。
+                return ResolvedTrust {
+                    trusted: false,
+                    from_extension: false,
+                };
+            }
+            ResolvedTrust {
+                trusted: ask_user().unwrap_or(false),
+                from_extension: false,
+            }
+        }
+    }
+}
+
+#[cfg(test)]
+mod resolve_tests {
+    use super::*;
+
+    #[test]
+    fn override_wins_over_everything() {
+        let resolved = resolve_project_trusted(
+            Some(true),
+            true,
+            Some(TrustVerdict {
+                trusted: false,
+                remember: false,
+            }),
+            Some(TrustDecision::Untrusted),
+            DefaultProjectTrust::Never,
+            false,
+            || None,
+        );
+        assert!(resolved.trusted, "命令行显式覆盖优先");
+        assert!(!resolved.from_extension);
+    }
+
+    #[test]
+    fn no_gated_resources_means_trusted_without_asking() {
+        let resolved = resolve_project_trusted(
+            None,
+            false,
+            None,
+            Some(TrustDecision::Untrusted),
+            DefaultProjectTrust::Never,
+            false,
+            || panic!("不应询问"),
+        );
+        assert!(resolved.trusted, "没有受控资源时一律可信");
+    }
+
+    #[test]
+    fn extension_verdict_beats_the_saved_decision() {
+        let resolved = resolve_project_trusted(
+            None,
+            true,
+            Some(TrustVerdict {
+                trusted: true,
+                remember: true,
+            }),
+            Some(TrustDecision::Untrusted),
+            DefaultProjectTrust::Never,
+            true,
+            || None,
+        );
+        assert!(resolved.trusted, "扩展的裁决优先于 trust.json");
+        assert!(resolved.from_extension);
+    }
+
+    #[test]
+    fn saved_decision_beats_the_default_setting() {
+        let resolved = resolve_project_trusted(
+            None,
+            true,
+            None,
+            Some(TrustDecision::Trusted),
+            DefaultProjectTrust::Never,
+            true,
+            || None,
+        );
+        assert!(resolved.trusted, "trust.json 优先于 defaultProjectTrust");
+    }
+
+    #[test]
+    fn default_setting_is_used_when_nothing_else_decides() {
+        for (setting, expected) in [
+            (DefaultProjectTrust::Always, true),
+            (DefaultProjectTrust::Never, false),
+        ] {
+            let resolved = resolve_project_trusted(None, true, None, None, setting, false, || None);
+            assert_eq!(resolved.trusted, expected, "{setting:?}");
+        }
+    }
+
+    #[test]
+    fn ask_without_ui_fails_closed() {
+        let resolved = resolve_project_trusted(
+            None,
+            true,
+            None,
+            None,
+            DefaultProjectTrust::Ask,
+            false,
+            || panic!("无 UI 不应询问"),
+        );
+        assert!(!resolved.trusted, "ask 且无 UI ⇒ 不信任");
+    }
+
+    #[test]
+    fn ask_with_ui_uses_the_answer() {
+        let yes = resolve_project_trusted(
+            None,
+            true,
+            None,
+            None,
+            DefaultProjectTrust::Ask,
+            true,
+            || Some(true),
+        );
+        assert!(yes.trusted);
+        // 用户取消询问 ⇒ 不信任。
+        let cancelled = resolve_project_trusted(
+            None,
+            true,
+            None,
+            None,
+            DefaultProjectTrust::Ask,
+            true,
+            || None,
+        );
+        assert!(!cancelled.trusted);
+    }
+
+    #[test]
+    fn default_setting_parsing_falls_back_to_ask() {
+        assert_eq!(
+            DefaultProjectTrust::parse(Some("always")),
+            DefaultProjectTrust::Always
+        );
+        assert_eq!(
+            DefaultProjectTrust::parse(Some("never")),
+            DefaultProjectTrust::Never
+        );
+        assert_eq!(
+            DefaultProjectTrust::parse(Some("ask")),
+            DefaultProjectTrust::Ask
+        );
+        assert_eq!(
+            DefaultProjectTrust::parse(Some("garbage")),
+            DefaultProjectTrust::Ask
+        );
+        assert_eq!(DefaultProjectTrust::parse(None), DefaultProjectTrust::Ask);
+    }
+}

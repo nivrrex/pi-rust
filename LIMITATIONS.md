@@ -1,3 +1,16 @@
+27b. **F60/19 未派发的扩展事件（10 个）**：ref `extensions/types.ts` 的 `ExtensionAPI.on`
+     重载共 **30 个**事件名，pi-rs 已派发 20 个。以下 **10 个未派发**，且用户已装扩展中
+     **无一订阅**（逐个 grep 确认）：
+     `after_provider_response`(`:357-362` sdk 层)、`before_provider_headers`(`:1391`)、
+     `context_with_system`(`:1382`)、`model_select`(`:1414`)、
+     `session_compact`(`:1373`)、`session_compact_failed`(`:1374`)、
+     `session_info_changed`(`:1360`)、`thinking_level_select`(`:1415`)、
+     `ui_prompt_start`(`:1404`)、`ui_prompt_end`(`:1405`)。
+     （`project_trust`(`:1354`) 在 F61/39 实现：`emit_project_trust` +
+     `pi_core::trust::resolve_project_trusted` 补齐 ref 的六步裁决顺序，
+     runner 侧按"第一个 yes/no 胜出、undecided 继续"短路。）
+     推翻条件：某个已装扩展开始订阅其中任一项时，按 ref 对应行号实现并补对拍用例。
+
 # 已知限制与已知差异
 
 本文件列出 `pi-rs` 与上游 pi **0.87.1** 之间尚未对齐、或尚未验证的部分。

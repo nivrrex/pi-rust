@@ -2038,6 +2038,45 @@ pub fn emit_session_before_switch(reason: &str, previous: Option<&std::path::Pat
     .unwrap_or(false)
 }
 
+/// 派发 `project_trust`（ref `runner.ts:292-322` 的 `emitProjectTrustEvent`）。
+///
+/// 语义与其它事件**不同**：**第一个**给出 `trusted: "yes"|"no"` 的处理器胜出并
+/// 立即返回；`"undecided"`（或缺省）继续问下一个。ref 刻意这样设计——
+/// 信任决策需要**确定性**，不能像 `context` 那样链式叠加。
+///
+/// 返回 `None` 表示没有扩展愿意裁决（调用方继续走 `trust.json` /
+/// `defaultProjectTrust` / 交互询问）。
+///
+/// 线程安全：只读全局宿主句柄 + 一次跨进程 RPC。
+#[must_use]
+pub fn emit_project_trust(cwd: &std::path::Path) -> Option<pi_core::trust::TrustVerdict> {
+    let host = host_handle()?;
+    let payload = serde_json::json!({
+        "type": "project_trust",
+        "cwd": cwd.display().to_string(),
+    });
+    let value = host
+        .emit_value("project_trust", payload, std::time::Duration::from_secs(10))
+        .ok()
+        .flatten()?;
+    // ref 判别的是 `trusted === "yes"`（其余一律不信任），因此这里必须区分
+    // "明确的 no" 与 "undecided/缺失"：后者要继续问下一个扩展 / 走后续规则。
+    let decision = value.get("trusted").and_then(serde_json::Value::as_str)?;
+    let trusted = match decision {
+        "yes" => true,
+        "no" => false,
+        // `undecided` 或未知值 ⇒ 不裁决。
+        _other => return None,
+    };
+    Some(pi_core::trust::TrustVerdict {
+        trusted,
+        remember: value
+            .get("remember")
+            .and_then(serde_json::Value::as_bool)
+            .unwrap_or(false),
+    })
+}
+
 /// `session_before_tree` 的结果（ref `agent-session.ts:3641-3656`）。
 ///
 /// 字段语义照 ref：`cancel` 取消本次导航；`summary` 若给出，**替代**模型生成的

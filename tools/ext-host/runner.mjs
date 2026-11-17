@@ -918,6 +918,30 @@ async function dispatch(frame) {
       respond(id, { handled: list.length, errors, result: null });
       return;
     }
+    // `project_trust`：**第一个**给出 `yes`/`no` 的处理器胜出并立即返回；
+    // `undecided`（或缺省）继续问下一个（ref `runner.ts:292-322` 的
+    // `emitProjectTrustEvent`）。与 `context` 的链式叠加刻意不同——
+    // 信任决策要确定性，不能把多个扩展的意见拼在一起。
+    if (name === "project_trust") {
+      for (const handler of list) {
+        try {
+          const result = await handler(params?.payload ?? {}, contextForExtension());
+          const trusted = result && result.trusted;
+          if (trusted === "yes" || trusted === "no") {
+            respond(id, {
+              handled: list.length,
+              errors,
+              result: { trusted, remember: result.remember === true },
+            });
+            return;
+          }
+        } catch (error) {
+          errors.push(String(error && error.message ? error.message : error));
+        }
+      }
+      respond(id, { handled: list.length, errors, result: null });
+      return;
+    }
     // `before_agent_start`：收集 `message`，`systemPrompt` 覆盖后者胜（ref `runner.ts:1312-1365`）。
     if (name === "before_agent_start") {
       const messages = [];
