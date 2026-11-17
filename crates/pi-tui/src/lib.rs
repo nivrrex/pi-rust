@@ -97,6 +97,13 @@ pub struct TuiState {
     /// 放在状态里而不是渲染参数里：`/hotkeys` 面板的宽度档在**渲染时**才确定
     /// （用户改终端大小要跟着变），所以渲染层必须能读到当前键位。
     pub keymap: keybindings::Keymap,
+    /// 项目**不受信任**且存在需要信任的资源时，会话区顶部要显示一条警告
+    /// （ref `interactive-mode.ts:4070-4094` 的 `renderProjectTrustWarningIfNeeded`）。
+    ///
+    /// 两个条件缺一不可：没有受控资源的项目不必警告（用户什么也没损失），
+    /// 已受信任的项目更不必。ref 用 `warning` 颜色、无 `Warning:` 前缀，
+    /// 位置在会话区（不是 `console.log` 那批启动告警）。
+    pub project_trust_warning: bool,
     /// 版本号（用于 `pi v<version>`）。
     pub version: String,
     /// 当前工作目录（状态行左侧）。
@@ -264,6 +271,12 @@ pub enum TranscriptItem {
     /// 助手消息尾部的状态提示（`Error: …` / 截断提示 / 中止文案）。
     /// ref `assistant-message.ts:185-198` 用 `theme.fg("error", …)` 渲染。
     Notice(String),
+    /// **警告级**的会话区文字（`theme.fg("warning", …)`）。
+    ///
+    /// 目前唯一用途是项目信任警告（ref `interactive-mode.ts:4070-4094`）。
+    /// 单独一个变体而不是复用 `Notice`：`Notice` 是 `error` 色且常带
+    /// `Error:` 前缀，信任警告是 `warning` 色、无前缀（ref 原文如此）。
+    Warning(String),
     /// 工具调用块（golden/T06 实测：只显示调用行，如 ` read input.txt`；结果正文默认不显示）。
     ToolCall {
         /// 工具调用的 id（`AgentEvent::ToolExecutionStart.tool_call_id`）——
@@ -328,6 +341,7 @@ impl TuiState {
         Self {
             // 默认键位；`pi-cli` 在 `run` 里按 `keybindings.json` 覆盖。
             keymap: keybindings::Keymap::defaults(),
+            project_trust_warning: false,
             startup_warnings: Vec::new(),
             extension_commands: Vec::new(),
             extension_status: std::collections::BTreeMap::new(),
@@ -1096,6 +1110,7 @@ pub fn apply(state: &mut TuiState, event: TuiEvent) -> TuiAction {
                 | Some(TranscriptItem::CompactionSummary { .. })
                 | Some(TranscriptItem::Status(_))
                 | Some(TranscriptItem::Notice(_))
+                | Some(TranscriptItem::Warning(_))
                 | Some(TranscriptItem::ToolCall { .. })
                 | Some(TranscriptItem::BashExecution { .. })
                 | None => state.transcript.push(TranscriptItem::Thinking {
@@ -1277,6 +1292,7 @@ pub fn apply(state: &mut TuiState, event: TuiEvent) -> TuiAction {
                 | Some(TranscriptItem::Status(_))
                 | Some(TranscriptItem::Thinking { .. })
                 | Some(TranscriptItem::Notice(_))
+                | Some(TranscriptItem::Warning(_))
                 | Some(TranscriptItem::ToolCall { .. })
                 | Some(TranscriptItem::BashExecution { .. })
                 | None => state.transcript.push(TranscriptItem::Assistant(delta)),
@@ -2843,6 +2859,8 @@ fn item_style(
             Some(LineStyle::fg(palette.warning))
         }
         TranscriptItem::Notice(_) => Some(LineStyle::fg(palette.error)),
+        // 项目信任警告：ref 用 `theme.fg("warning", …)`、无前缀（`:4070-4094`）。
+        TranscriptItem::Warning(_) => Some(LineStyle::fg(palette.warning)),
         // 助手正文：TS 实测是**终端默认色**（fg=null），不要强加 text 色。
         TranscriptItem::Assistant(_) => None,
         // 状态行（`Thinking level: …`）在 TS 里是 **dim**（#666666 → 256 色 241），
@@ -3385,6 +3403,7 @@ fn render_all_cached_styled_inner(
                 label.is_some()
             ),
             TranscriptItem::Notice(text) => format!("n\u{1}{text}"),
+            TranscriptItem::Warning(text) => format!("w\u{1}{text}"),
             TranscriptItem::ToolCall {
                 name,
                 summary,
@@ -3672,7 +3691,9 @@ fn render_all_cached_styled_inner(
                 }
                 lines.push(String::new());
             }
-            TranscriptItem::Notice(text) => {
+            // `Notice`（error 色）与 `Warning`（warning 色）版式相同：
+            // 前导 1 空格 + 按宽度折行 + 尾随空行。颜色差异在样式层（`line_style_for`）。
+            TranscriptItem::Notice(text) | TranscriptItem::Warning(text) => {
                 for line in text.lines() {
                     for wrapped in wrap_to_width(&format!(" {line}"), cols) {
                         lines.push(wrapped);

@@ -257,6 +257,22 @@ fn main() -> ExitCode {
                 cwd.to_string_lossy().to_string(),
                 "0.0%/0 (auto)",
             );
+            // **项目信任警告**（ref `interactive-mode.ts:4070-4094` 的
+            // `renderProjectTrustWarningIfNeeded`）：不受信任**且**存在需要信任的
+            // 项目资源时，在会话区显示一条 warning 色提示，告诉用户资源被忽略、
+            // 以及怎么改（`/trust`）。
+            //
+            // 此前完全没有这条提示：用户在项目里放了 `.pi/settings.json` 或
+            // `.pi/skills`，却看不到任何"它们没生效"的说明——只能自己发现行为异常。
+            state.project_trust_warning = {
+                let trusted = pi_core::trust::TrustStore::new(&paths.agent_dir)
+                    .get(&cwd)
+                    .map(|decision| {
+                        matches!(decision, Some(pi_core::trust::TrustDecision::Trusted))
+                    })
+                    .unwrap_or(false);
+                !trusted && pi_core::trust::has_trust_requiring_project_resources(&cwd)
+            };
             // F44/S4：页脚 cwd 的家目录缩写要用到它（ref `footer.ts:115-121` 的
             // `formatDisplayPath`）。此前 `home` 被解析出来却**从未写进 state** ⇒
             // 页脚永远显示完整路径（真机：TS `~\Desktop\OA-Mails`、我们显示全路径）。

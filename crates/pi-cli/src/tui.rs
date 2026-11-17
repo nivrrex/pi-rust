@@ -1700,6 +1700,26 @@ pub fn run(
     ui_asks: Option<std::sync::mpsc::Receiver<pi_ext_host::UiAsk>>,
 ) -> std::io::Result<i32> {
     install_panic_hook();
+    // 项目信任警告作为**会话区首条内容**（ref `interactive-mode.ts:4070-4094`：
+    // 它加在 `chatContainer` 的第一个子节点位置，且有其它内容时先补一个空行）。
+    //
+    // 放在这里而不是渲染层特判：它是一次性内容，进入转录后随会话区滚动、
+    // 不再重复计算；渲染层只需按 `Warning` 的样式上色。
+    if state.project_trust_warning {
+        let already = state
+            .transcript
+            .iter()
+            .any(|item| matches!(item, pi_tui::TranscriptItem::Warning(_)));
+        if !already {
+            state.transcript.insert(
+                0,
+                pi_tui::TranscriptItem::Warning(
+                    "This project is not trusted. Project .pi resources and packages are ignored. Use /trust to save a trust decision, then restart pi."
+                        .to_string(),
+                ),
+            );
+        }
+    }
     let mut guard = TerminalGuard::new()?;
     let sig_flag = Arc::new(AtomicBool::new(false));
     watch_signals(Arc::clone(&sig_flag));
@@ -9121,6 +9141,7 @@ fn copy_last_assistant_message(state: &mut TuiState) {
         | pi_tui::TranscriptItem::SkillInvocation { .. }
         | pi_tui::TranscriptItem::Thinking { .. }
         | pi_tui::TranscriptItem::Notice(_)
+        | pi_tui::TranscriptItem::Warning(_)
         | pi_tui::TranscriptItem::Status(_)
         | pi_tui::TranscriptItem::BranchSummary { .. }
         | pi_tui::TranscriptItem::CompactionSummary { .. }

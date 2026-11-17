@@ -375,6 +375,7 @@ fn item_kind(item: &pi_tui::TranscriptItem) -> &'static str {
         Item::ToolCall { .. } => "tool",
         Item::BashExecution { .. } => "bash",
         Item::Notice(_) => "notice",
+        Item::Warning(_) => "warning",
         Item::Status(_) => "status",
         Item::SkillInvocation { .. } => "skill",
         Item::BranchSummary { .. } => "branch",
