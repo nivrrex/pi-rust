@@ -5,7 +5,8 @@
 与原版的 **session 文件、`settings.json`、`models.json`、`auth.json` 互通**
 （可以拿原版的会话与配置直接继续用）。
 
-不依赖 Node/Bun，不需要 OpenSSL（TLS 走 rustls，根证书内置，不读系统 `/etc/ssl`）。
+主体不依赖 Node/Bun；仅**扩展**功能需要本机有 `node`（不装也能用其余全部功能）。
+不需要 OpenSSL（TLS 走 rustls，根证书内置，不读系统 `/etc/ssl`）。
 
 ## 当前状态
 
@@ -18,7 +19,8 @@
 
 Linux 侧的验证方式是与上游 `pi` 0.87.1 做**逐字节差分**：同一批场景分别喂给两侧
 （provider 为本地 mock，全程不联网、不动真实凭据），比对原始输出流、
-终端终态与请求内容。当前 93 个 CLI 场景、72+12 个 TUI 场景全部一致。
+终端终态与请求内容。当前覆盖 94 个 CLI 场景、125 个 dark TUI 场景（另有 27 个 light、
+7 个 truecolor 场景），已跑过的场景全部一致；未覆盖的部分见 `LIMITATIONS.md`。
 
 未实现的部分、与上游的行为差异、Windows 侧的已知问题见 [`LIMITATIONS.md`](LIMITATIONS.md)。
 
