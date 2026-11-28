@@ -1,0 +1,17 @@
+{
+  "id": "T33-theme-submenu",
+  "cols": 100,
+  "rows": 30,
+  "helperExit": 0,
+  "exitCode": 0,
+  "stderr": "",
+  "mockStderr": "",
+  "requestLog": "/tmp/rr/T33-theme-submenu/run-2/requests.jsonl",
+  "snapshotOffsets": [
+    {
+      "name": "theme-submenu",
+      "offset": 36162
+    }
+  ],
+  "sessionDir": "/tmp/rr/T33-theme-submenu/run-2/session"
+}

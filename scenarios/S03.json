@@ -1,0 +1,13 @@
+{
+  "id": "S03",
+  "description": "write 新建文件后回复",
+  "provider": "openai-completions",
+  "model": "mock-model",
+  "mode": "print",
+  "prompt": "write out.txt",
+  "files": {},
+  "responses": [
+    { "file": "fixtures/sse/openai/tool-write.sse" },
+    { "file": "fixtures/sse/openai/text-basic.sse" }
+  ]
+}

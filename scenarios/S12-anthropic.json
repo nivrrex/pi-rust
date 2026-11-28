@@ -1,0 +1,19 @@
+{
+  "id": "S12-anthropic",
+  "description": "thinking 回放（thinking + signature 回放）",
+  "provider": "anthropic-messages",
+  "model": "mock-model",
+  "mode": "print",
+  "prompt": "think then answer",
+  "responses": [
+    {
+      "file": "fixtures/sse/anthropic/thinking-toolcall.sse"
+    },
+    {
+      "file": "fixtures/sse/anthropic/basic.sse"
+    }
+  ],
+  "files": {
+    "input.txt": "alpha\n"
+  }
+}

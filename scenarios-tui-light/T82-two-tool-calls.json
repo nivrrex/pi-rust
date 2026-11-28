@@ -1,0 +1,74 @@
+{
+  "id": "L-T82-two-tool-calls",
+  "provider": "openai-completions",
+  "model": "mock-model",
+  "mode": "tui",
+  "prompt": "",
+  "files": {
+    "AGENTS.md": "# 项目规则\n",
+    "aardvark.txt": "a\n",
+    "src/alpha.txt": "x\n"
+  },
+  "globalFiles": {},
+  "cliArgs": [],
+  "responses": [
+    {
+      "file": "fixtures/sse/openai/tool-two-calls.sse",
+      "chunkByEvent": true
+    },
+    {
+      "file": "fixtures/sse/openai/text-basic.sse"
+    }
+  ],
+  "description": "P8e-10/K：同一回合两个工具调用（参数分片），验证工具块不重复、各自有正文与 Took",
+  "tui": {
+    "cols": 100,
+    "rows": 30,
+    "snapshots": [
+      "two"
+    ],
+    "steps": [
+      {
+        "action": "waitScreen",
+        "contains": "Pi can explain",
+        "timeoutMs": 25000
+      },
+      {
+        "action": "type",
+        "text": "two calls"
+      },
+      {
+        "action": "waitStable",
+        "quietMs": 600,
+        "timeoutMs": 15000
+      },
+      {
+        "action": "type",
+        "text": "\r"
+      },
+      {
+        "action": "delay",
+        "ms": 7000
+      },
+      {
+        "action": "waitStable",
+        "quietMs": 1200,
+        "timeoutMs": 15000
+      },
+      {
+        "action": "snapshot",
+        "name": "two"
+      },
+      {
+        "action": "type",
+        "text": "\u0004"
+      },
+      {
+        "action": "waitStable",
+        "quietMs": 600,
+        "timeoutMs": 15000
+      }
+    ]
+  },
+  "theme": "light"
+}

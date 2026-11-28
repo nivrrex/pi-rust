@@ -1,0 +1,18 @@
+{
+  "id": "T95-overlay",
+  "cols": 100,
+  "rows": 30,
+  "helperExit": 0,
+  "exitCode": 0,
+  "stderr": "",
+  "mockStderr": "",
+  "requestLog": "/tmp/record-T95-overlay/requests.jsonl",
+  "snapshotOffsets": [
+    {
+      "name": "overlay",
+      "offset": 3568,
+      "t": 15254.836786299
+    }
+  ],
+  "sessionDir": "/tmp/record-T95-overlay/session"
+}

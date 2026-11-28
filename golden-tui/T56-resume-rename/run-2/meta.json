@@ -1,0 +1,17 @@
+{
+  "id": "T56-resume-rename",
+  "cols": 100,
+  "rows": 30,
+  "helperExit": 0,
+  "exitCode": 0,
+  "stderr": "",
+  "mockStderr": "",
+  "requestLog": "/tmp/n56b-2/requests.jsonl",
+  "snapshotOffsets": [
+    {
+      "name": "rename-input",
+      "offset": 9801
+    }
+  ],
+  "sessionDir": "/tmp/n56b-2/session"
+}

@@ -1,0 +1,28 @@
+{
+  "id": "Z3b-wrap-nowrap",
+  "cols": 100,
+  "rows": 30,
+  "helperExit": 0,
+  "exitCode": 0,
+  "stderr": "",
+  "mockStderr": "",
+  "requestLog": "/tmp/record-Z3b-wrap-nowrap/requests.jsonl",
+  "snapshotOffsets": [
+    {
+      "name": "force-break",
+      "offset": 3504,
+      "t": 15276.417228929
+    },
+    {
+      "name": "after-backspace",
+      "offset": 3654,
+      "t": 15277.419623458
+    },
+    {
+      "name": "final",
+      "offset": 3860,
+      "t": 15279.202187843
+    }
+  ],
+  "sessionDir": "/tmp/record-Z3b-wrap-nowrap/session"
+}

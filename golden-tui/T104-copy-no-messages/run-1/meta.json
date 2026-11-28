@@ -1,0 +1,18 @@
+{
+  "id": "T104-copy-no-messages",
+  "cols": 100,
+  "rows": 30,
+  "helperExit": 0,
+  "exitCode": 0,
+  "stderr": "",
+  "mockStderr": "",
+  "requestLog": "/tmp/r2-pi-ts/requests.jsonl",
+  "snapshotOffsets": [
+    {
+      "name": "after",
+      "offset": 4273,
+      "t": 84245.319941474
+    }
+  ],
+  "sessionDir": "/tmp/r2-pi-ts/session"
+}

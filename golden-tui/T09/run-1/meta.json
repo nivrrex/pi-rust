@@ -1,0 +1,21 @@
+{
+  "id": "T09",
+  "cols": 100,
+  "rows": 30,
+  "helperExit": 0,
+  "exitCode": 0,
+  "stderr": "",
+  "mockStderr": "",
+  "requestLog": "/tmp/rr/T09/run-1/requests.jsonl",
+  "snapshotOffsets": [
+    {
+      "name": "before-submit",
+      "offset": 4427
+    },
+    {
+      "name": "after-submit",
+      "offset": 9189
+    }
+  ],
+  "sessionDir": "/tmp/rr/T09/run-1/session"
+}

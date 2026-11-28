@@ -1,0 +1,404 @@
+data: {"id": "chatcmpl-mock", "object": "chat.completion.chunk", "created": 1700000000, "model": "mock-model", "choices": [{"index": 0, "delta": {"content": "line 000 of the long reply for perf measurement\n"}, "finish_reason": null}]}
+
+data: {"id": "chatcmpl-mock", "object": "chat.completion.chunk", "created": 1700000000, "model": "mock-model", "choices": [{"index": 0, "delta": {"content": "line 001 of the long reply for perf measurement\n"}, "finish_reason": null}]}
+
+data: {"id": "chatcmpl-mock", "object": "chat.completion.chunk", "created": 1700000000, "model": "mock-model", "choices": [{"index": 0, "delta": {"content": "line 002 of the long reply for perf measurement\n"}, "finish_reason": null}]}
+
+data: {"id": "chatcmpl-mock", "object": "chat.completion.chunk", "created": 1700000000, "model": "mock-model", "choices": [{"index": 0, "delta": {"content": "line 003 of the long reply for perf measurement\n"}, "finish_reason": null}]}
+
+data: {"id": "chatcmpl-mock", "object": "chat.completion.chunk", "created": 1700000000, "model": "mock-model", "choices": [{"index": 0, "delta": {"content": "line 004 of the long reply for perf measurement\n"}, "finish_reason": null}]}
+
+data: {"id": "chatcmpl-mock", "object": "chat.completion.chunk", "created": 1700000000, "model": "mock-model", "choices": [{"index": 0, "delta": {"content": "line 005 of the long reply for perf measurement\n"}, "finish_reason": null}]}
+
+data: {"id": "chatcmpl-mock", "object": "chat.completion.chunk", "created": 1700000000, "model": "mock-model", "choices": [{"index": 0, "delta": {"content": "line 006 of the long reply for perf measurement\n"}, "finish_reason": null}]}
+
+data: {"id": "chatcmpl-mock", "object": "chat.completion.chunk", "created": 1700000000, "model": "mock-model", "choices": [{"index": 0, "delta": {"content": "line 007 of the long reply for perf measurement\n"}, "finish_reason": null}]}
+
+data: {"id": "chatcmpl-mock", "object": "chat.completion.chunk", "created": 1700000000, "model": "mock-model", "choices": [{"index": 0, "delta": {"content": "line 008 of the long reply for perf measurement\n"}, "finish_reason": null}]}
+
+data: {"id": "chatcmpl-mock", "object": "chat.completion.chunk", "created": 1700000000, "model": "mock-model", "choices": [{"index": 0, "delta": {"content": "line 009 of the long reply for perf measurement\n"}, "finish_reason": null}]}
+
+data: {"id": "chatcmpl-mock", "object": "chat.completion.chunk", "created": 1700000000, "model": "mock-model", "choices": [{"index": 0, "delta": {"content": "line 010 of the long reply for perf measurement\n"}, "finish_reason": null}]}
+
+data: {"id": "chatcmpl-mock", "object": "chat.completion.chunk", "created": 1700000000, "model": "mock-model", "choices": [{"index": 0, "delta": {"content": "line 011 of the long reply for perf measurement\n"}, "finish_reason": null}]}
+
+data: {"id": "chatcmpl-mock", "object": "chat.completion.chunk", "created": 1700000000, "model": "mock-model", "choices": [{"index": 0, "delta": {"content": "line 012 of the long reply for perf measurement\n"}, "finish_reason": null}]}
+
+data: {"id": "chatcmpl-mock", "object": "chat.completion.chunk", "created": 1700000000, "model": "mock-model", "choices": [{"index": 0, "delta": {"content": "line 013 of the long reply for perf measurement\n"}, "finish_reason": null}]}
+
+data: {"id": "chatcmpl-mock", "object": "chat.completion.chunk", "created": 1700000000, "model": "mock-model", "choices": [{"index": 0, "delta": {"content": "line 014 of the long reply for perf measurement\n"}, "finish_reason": null}]}
+
+data: {"id": "chatcmpl-mock", "object": "chat.completion.chunk", "created": 1700000000, "model": "mock-model", "choices": [{"index": 0, "delta": {"content": "line 015 of the long reply for perf measurement\n"}, "finish_reason": null}]}
+
+data: {"id": "chatcmpl-mock", "object": "chat.completion.chunk", "created": 1700000000, "model": "mock-model", "choices": [{"index": 0, "delta": {"content": "line 016 of the long reply for perf measurement\n"}, "finish_reason": null}]}
+
+data: {"id": "chatcmpl-mock", "object": "chat.completion.chunk", "created": 1700000000, "model": "mock-model", "choices": [{"index": 0, "delta": {"content": "line 017 of the long reply for perf measurement\n"}, "finish_reason": null}]}
+
+data: {"id": "chatcmpl-mock", "object": "chat.completion.chunk", "created": 1700000000, "model": "mock-model", "choices": [{"index": 0, "delta": {"content": "line 018 of the long reply for perf measurement\n"}, "finish_reason": null}]}
+
+data: {"id": "chatcmpl-mock", "object": "chat.completion.chunk", "created": 1700000000, "model": "mock-model", "choices": [{"index": 0, "delta": {"content": "line 019 of the long reply for perf measurement\n"}, "finish_reason": null}]}
+
+data: {"id": "chatcmpl-mock", "object": "chat.completion.chunk", "created": 1700000000, "model": "mock-model", "choices": [{"index": 0, "delta": {"content": "line 020 of the long reply for perf measurement\n"}, "finish_reason": null}]}
+
+data: {"id": "chatcmpl-mock", "object": "chat.completion.chunk", "created": 1700000000, "model": "mock-model", "choices": [{"index": 0, "delta": {"content": "line 021 of the long reply for perf measurement\n"}, "finish_reason": null}]}
+
+data: {"id": "chatcmpl-mock", "object": "chat.completion.chunk", "created": 1700000000, "model": "mock-model", "choices": [{"index": 0, "delta": {"content": "line 022 of the long reply for perf measurement\n"}, "finish_reason": null}]}
+
+data: {"id": "chatcmpl-mock", "object": "chat.completion.chunk", "created": 1700000000, "model": "mock-model", "choices": [{"index": 0, "delta": {"content": "line 023 of the long reply for perf measurement\n"}, "finish_reason": null}]}
+
+data: {"id": "chatcmpl-mock", "object": "chat.completion.chunk", "created": 1700000000, "model": "mock-model", "choices": [{"index": 0, "delta": {"content": "line 024 of the long reply for perf measurement\n"}, "finish_reason": null}]}
+
+data: {"id": "chatcmpl-mock", "object": "chat.completion.chunk", "created": 1700000000, "model": "mock-model", "choices": [{"index": 0, "delta": {"content": "line 025 of the long reply for perf measurement\n"}, "finish_reason": null}]}
+
+data: {"id": "chatcmpl-mock", "object": "chat.completion.chunk", "created": 1700000000, "model": "mock-model", "choices": [{"index": 0, "delta": {"content": "line 026 of the long reply for perf measurement\n"}, "finish_reason": null}]}
+
+data: {"id": "chatcmpl-mock", "object": "chat.completion.chunk", "created": 1700000000, "model": "mock-model", "choices": [{"index": 0, "delta": {"content": "line 027 of the long reply for perf measurement\n"}, "finish_reason": null}]}
+
+data: {"id": "chatcmpl-mock", "object": "chat.completion.chunk", "created": 1700000000, "model": "mock-model", "choices": [{"index": 0, "delta": {"content": "line 028 of the long reply for perf measurement\n"}, "finish_reason": null}]}
+
+data: {"id": "chatcmpl-mock", "object": "chat.completion.chunk", "created": 1700000000, "model": "mock-model", "choices": [{"index": 0, "delta": {"content": "line 029 of the long reply for perf measurement\n"}, "finish_reason": null}]}
+
+data: {"id": "chatcmpl-mock", "object": "chat.completion.chunk", "created": 1700000000, "model": "mock-model", "choices": [{"index": 0, "delta": {"content": "line 030 of the long reply for perf measurement\n"}, "finish_reason": null}]}
+
+data: {"id": "chatcmpl-mock", "object": "chat.completion.chunk", "created": 1700000000, "model": "mock-model", "choices": [{"index": 0, "delta": {"content": "line 031 of the long reply for perf measurement\n"}, "finish_reason": null}]}
+
+data: {"id": "chatcmpl-mock", "object": "chat.completion.chunk", "created": 1700000000, "model": "mock-model", "choices": [{"index": 0, "delta": {"content": "line 032 of the long reply for perf measurement\n"}, "finish_reason": null}]}
+
+data: {"id": "chatcmpl-mock", "object": "chat.completion.chunk", "created": 1700000000, "model": "mock-model", "choices": [{"index": 0, "delta": {"content": "line 033 of the long reply for perf measurement\n"}, "finish_reason": null}]}
+
+data: {"id": "chatcmpl-mock", "object": "chat.completion.chunk", "created": 1700000000, "model": "mock-model", "choices": [{"index": 0, "delta": {"content": "line 034 of the long reply for perf measurement\n"}, "finish_reason": null}]}
+
+data: {"id": "chatcmpl-mock", "object": "chat.completion.chunk", "created": 1700000000, "model": "mock-model", "choices": [{"index": 0, "delta": {"content": "line 035 of the long reply for perf measurement\n"}, "finish_reason": null}]}
+
+data: {"id": "chatcmpl-mock", "object": "chat.completion.chunk", "created": 1700000000, "model": "mock-model", "choices": [{"index": 0, "delta": {"content": "line 036 of the long reply for perf measurement\n"}, "finish_reason": null}]}
+
+data: {"id": "chatcmpl-mock", "object": "chat.completion.chunk", "created": 1700000000, "model": "mock-model", "choices": [{"index": 0, "delta": {"content": "line 037 of the long reply for perf measurement\n"}, "finish_reason": null}]}
+
+data: {"id": "chatcmpl-mock", "object": "chat.completion.chunk", "created": 1700000000, "model": "mock-model", "choices": [{"index": 0, "delta": {"content": "line 038 of the long reply for perf measurement\n"}, "finish_reason": null}]}
+
+data: {"id": "chatcmpl-mock", "object": "chat.completion.chunk", "created": 1700000000, "model": "mock-model", "choices": [{"index": 0, "delta": {"content": "line 039 of the long reply for perf measurement\n"}, "finish_reason": null}]}
+
+data: {"id": "chatcmpl-mock", "object": "chat.completion.chunk", "created": 1700000000, "model": "mock-model", "choices": [{"index": 0, "delta": {"content": "line 040 of the long reply for perf measurement\n"}, "finish_reason": null}]}
+
+data: {"id": "chatcmpl-mock", "object": "chat.completion.chunk", "created": 1700000000, "model": "mock-model", "choices": [{"index": 0, "delta": {"content": "line 041 of the long reply for perf measurement\n"}, "finish_reason": null}]}
+
+data: {"id": "chatcmpl-mock", "object": "chat.completion.chunk", "created": 1700000000, "model": "mock-model", "choices": [{"index": 0, "delta": {"content": "line 042 of the long reply for perf measurement\n"}, "finish_reason": null}]}
+
+data: {"id": "chatcmpl-mock", "object": "chat.completion.chunk", "created": 1700000000, "model": "mock-model", "choices": [{"index": 0, "delta": {"content": "line 043 of the long reply for perf measurement\n"}, "finish_reason": null}]}
+
+data: {"id": "chatcmpl-mock", "object": "chat.completion.chunk", "created": 1700000000, "model": "mock-model", "choices": [{"index": 0, "delta": {"content": "line 044 of the long reply for perf measurement\n"}, "finish_reason": null}]}
+
+data: {"id": "chatcmpl-mock", "object": "chat.completion.chunk", "created": 1700000000, "model": "mock-model", "choices": [{"index": 0, "delta": {"content": "line 045 of the long reply for perf measurement\n"}, "finish_reason": null}]}
+
+data: {"id": "chatcmpl-mock", "object": "chat.completion.chunk", "created": 1700000000, "model": "mock-model", "choices": [{"index": 0, "delta": {"content": "line 046 of the long reply for perf measurement\n"}, "finish_reason": null}]}
+
+data: {"id": "chatcmpl-mock", "object": "chat.completion.chunk", "created": 1700000000, "model": "mock-model", "choices": [{"index": 0, "delta": {"content": "line 047 of the long reply for perf measurement\n"}, "finish_reason": null}]}
+
+data: {"id": "chatcmpl-mock", "object": "chat.completion.chunk", "created": 1700000000, "model": "mock-model", "choices": [{"index": 0, "delta": {"content": "line 048 of the long reply for perf measurement\n"}, "finish_reason": null}]}
+
+data: {"id": "chatcmpl-mock", "object": "chat.completion.chunk", "created": 1700000000, "model": "mock-model", "choices": [{"index": 0, "delta": {"content": "line 049 of the long reply for perf measurement\n"}, "finish_reason": null}]}
+
+data: {"id": "chatcmpl-mock", "object": "chat.completion.chunk", "created": 1700000000, "model": "mock-model", "choices": [{"index": 0, "delta": {"content": "line 050 of the long reply for perf measurement\n"}, "finish_reason": null}]}
+
+data: {"id": "chatcmpl-mock", "object": "chat.completion.chunk", "created": 1700000000, "model": "mock-model", "choices": [{"index": 0, "delta": {"content": "line 051 of the long reply for perf measurement\n"}, "finish_reason": null}]}
+
+data: {"id": "chatcmpl-mock", "object": "chat.completion.chunk", "created": 1700000000, "model": "mock-model", "choices": [{"index": 0, "delta": {"content": "line 052 of the long reply for perf measurement\n"}, "finish_reason": null}]}
+
+data: {"id": "chatcmpl-mock", "object": "chat.completion.chunk", "created": 1700000000, "model": "mock-model", "choices": [{"index": 0, "delta": {"content": "line 053 of the long reply for perf measurement\n"}, "finish_reason": null}]}
+
+data: {"id": "chatcmpl-mock", "object": "chat.completion.chunk", "created": 1700000000, "model": "mock-model", "choices": [{"index": 0, "delta": {"content": "line 054 of the long reply for perf measurement\n"}, "finish_reason": null}]}
+
+data: {"id": "chatcmpl-mock", "object": "chat.completion.chunk", "created": 1700000000, "model": "mock-model", "choices": [{"index": 0, "delta": {"content": "line 055 of the long reply for perf measurement\n"}, "finish_reason": null}]}
+
+data: {"id": "chatcmpl-mock", "object": "chat.completion.chunk", "created": 1700000000, "model": "mock-model", "choices": [{"index": 0, "delta": {"content": "line 056 of the long reply for perf measurement\n"}, "finish_reason": null}]}
+
+data: {"id": "chatcmpl-mock", "object": "chat.completion.chunk", "created": 1700000000, "model": "mock-model", "choices": [{"index": 0, "delta": {"content": "line 057 of the long reply for perf measurement\n"}, "finish_reason": null}]}
+
+data: {"id": "chatcmpl-mock", "object": "chat.completion.chunk", "created": 1700000000, "model": "mock-model", "choices": [{"index": 0, "delta": {"content": "line 058 of the long reply for perf measurement\n"}, "finish_reason": null}]}
+
+data: {"id": "chatcmpl-mock", "object": "chat.completion.chunk", "created": 1700000000, "model": "mock-model", "choices": [{"index": 0, "delta": {"content": "line 059 of the long reply for perf measurement\n"}, "finish_reason": null}]}
+
+data: {"id": "chatcmpl-mock", "object": "chat.completion.chunk", "created": 1700000000, "model": "mock-model", "choices": [{"index": 0, "delta": {"content": "line 060 of the long reply for perf measurement\n"}, "finish_reason": null}]}
+
+data: {"id": "chatcmpl-mock", "object": "chat.completion.chunk", "created": 1700000000, "model": "mock-model", "choices": [{"index": 0, "delta": {"content": "line 061 of the long reply for perf measurement\n"}, "finish_reason": null}]}
+
+data: {"id": "chatcmpl-mock", "object": "chat.completion.chunk", "created": 1700000000, "model": "mock-model", "choices": [{"index": 0, "delta": {"content": "line 062 of the long reply for perf measurement\n"}, "finish_reason": null}]}
+
+data: {"id": "chatcmpl-mock", "object": "chat.completion.chunk", "created": 1700000000, "model": "mock-model", "choices": [{"index": 0, "delta": {"content": "line 063 of the long reply for perf measurement\n"}, "finish_reason": null}]}
+
+data: {"id": "chatcmpl-mock", "object": "chat.completion.chunk", "created": 1700000000, "model": "mock-model", "choices": [{"index": 0, "delta": {"content": "line 064 of the long reply for perf measurement\n"}, "finish_reason": null}]}
+
+data: {"id": "chatcmpl-mock", "object": "chat.completion.chunk", "created": 1700000000, "model": "mock-model", "choices": [{"index": 0, "delta": {"content": "line 065 of the long reply for perf measurement\n"}, "finish_reason": null}]}
+
+data: {"id": "chatcmpl-mock", "object": "chat.completion.chunk", "created": 1700000000, "model": "mock-model", "choices": [{"index": 0, "delta": {"content": "line 066 of the long reply for perf measurement\n"}, "finish_reason": null}]}
+
+data: {"id": "chatcmpl-mock", "object": "chat.completion.chunk", "created": 1700000000, "model": "mock-model", "choices": [{"index": 0, "delta": {"content": "line 067 of the long reply for perf measurement\n"}, "finish_reason": null}]}
+
+data: {"id": "chatcmpl-mock", "object": "chat.completion.chunk", "created": 1700000000, "model": "mock-model", "choices": [{"index": 0, "delta": {"content": "line 068 of the long reply for perf measurement\n"}, "finish_reason": null}]}
+
+data: {"id": "chatcmpl-mock", "object": "chat.completion.chunk", "created": 1700000000, "model": "mock-model", "choices": [{"index": 0, "delta": {"content": "line 069 of the long reply for perf measurement\n"}, "finish_reason": null}]}
+
+data: {"id": "chatcmpl-mock", "object": "chat.completion.chunk", "created": 1700000000, "model": "mock-model", "choices": [{"index": 0, "delta": {"content": "line 070 of the long reply for perf measurement\n"}, "finish_reason": null}]}
+
+data: {"id": "chatcmpl-mock", "object": "chat.completion.chunk", "created": 1700000000, "model": "mock-model", "choices": [{"index": 0, "delta": {"content": "line 071 of the long reply for perf measurement\n"}, "finish_reason": null}]}
+
+data: {"id": "chatcmpl-mock", "object": "chat.completion.chunk", "created": 1700000000, "model": "mock-model", "choices": [{"index": 0, "delta": {"content": "line 072 of the long reply for perf measurement\n"}, "finish_reason": null}]}
+
+data: {"id": "chatcmpl-mock", "object": "chat.completion.chunk", "created": 1700000000, "model": "mock-model", "choices": [{"index": 0, "delta": {"content": "line 073 of the long reply for perf measurement\n"}, "finish_reason": null}]}
+
+data: {"id": "chatcmpl-mock", "object": "chat.completion.chunk", "created": 1700000000, "model": "mock-model", "choices": [{"index": 0, "delta": {"content": "line 074 of the long reply for perf measurement\n"}, "finish_reason": null}]}
+
+data: {"id": "chatcmpl-mock", "object": "chat.completion.chunk", "created": 1700000000, "model": "mock-model", "choices": [{"index": 0, "delta": {"content": "line 075 of the long reply for perf measurement\n"}, "finish_reason": null}]}
+
+data: {"id": "chatcmpl-mock", "object": "chat.completion.chunk", "created": 1700000000, "model": "mock-model", "choices": [{"index": 0, "delta": {"content": "line 076 of the long reply for perf measurement\n"}, "finish_reason": null}]}
+
+data: {"id": "chatcmpl-mock", "object": "chat.completion.chunk", "created": 1700000000, "model": "mock-model", "choices": [{"index": 0, "delta": {"content": "line 077 of the long reply for perf measurement\n"}, "finish_reason": null}]}
+
+data: {"id": "chatcmpl-mock", "object": "chat.completion.chunk", "created": 1700000000, "model": "mock-model", "choices": [{"index": 0, "delta": {"content": "line 078 of the long reply for perf measurement\n"}, "finish_reason": null}]}
+
+data: {"id": "chatcmpl-mock", "object": "chat.completion.chunk", "created": 1700000000, "model": "mock-model", "choices": [{"index": 0, "delta": {"content": "line 079 of the long reply for perf measurement\n"}, "finish_reason": null}]}
+
+data: {"id": "chatcmpl-mock", "object": "chat.completion.chunk", "created": 1700000000, "model": "mock-model", "choices": [{"index": 0, "delta": {"content": "line 080 of the long reply for perf measurement\n"}, "finish_reason": null}]}
+
+data: {"id": "chatcmpl-mock", "object": "chat.completion.chunk", "created": 1700000000, "model": "mock-model", "choices": [{"index": 0, "delta": {"content": "line 081 of the long reply for perf measurement\n"}, "finish_reason": null}]}
+
+data: {"id": "chatcmpl-mock", "object": "chat.completion.chunk", "created": 1700000000, "model": "mock-model", "choices": [{"index": 0, "delta": {"content": "line 082 of the long reply for perf measurement\n"}, "finish_reason": null}]}
+
+data: {"id": "chatcmpl-mock", "object": "chat.completion.chunk", "created": 1700000000, "model": "mock-model", "choices": [{"index": 0, "delta": {"content": "line 083 of the long reply for perf measurement\n"}, "finish_reason": null}]}
+
+data: {"id": "chatcmpl-mock", "object": "chat.completion.chunk", "created": 1700000000, "model": "mock-model", "choices": [{"index": 0, "delta": {"content": "line 084 of the long reply for perf measurement\n"}, "finish_reason": null}]}
+
+data: {"id": "chatcmpl-mock", "object": "chat.completion.chunk", "created": 1700000000, "model": "mock-model", "choices": [{"index": 0, "delta": {"content": "line 085 of the long reply for perf measurement\n"}, "finish_reason": null}]}
+
+data: {"id": "chatcmpl-mock", "object": "chat.completion.chunk", "created": 1700000000, "model": "mock-model", "choices": [{"index": 0, "delta": {"content": "line 086 of the long reply for perf measurement\n"}, "finish_reason": null}]}
+
+data: {"id": "chatcmpl-mock", "object": "chat.completion.chunk", "created": 1700000000, "model": "mock-model", "choices": [{"index": 0, "delta": {"content": "line 087 of the long reply for perf measurement\n"}, "finish_reason": null}]}
+
+data: {"id": "chatcmpl-mock", "object": "chat.completion.chunk", "created": 1700000000, "model": "mock-model", "choices": [{"index": 0, "delta": {"content": "line 088 of the long reply for perf measurement\n"}, "finish_reason": null}]}
+
+data: {"id": "chatcmpl-mock", "object": "chat.completion.chunk", "created": 1700000000, "model": "mock-model", "choices": [{"index": 0, "delta": {"content": "line 089 of the long reply for perf measurement\n"}, "finish_reason": null}]}
+
+data: {"id": "chatcmpl-mock", "object": "chat.completion.chunk", "created": 1700000000, "model": "mock-model", "choices": [{"index": 0, "delta": {"content": "line 090 of the long reply for perf measurement\n"}, "finish_reason": null}]}
+
+data: {"id": "chatcmpl-mock", "object": "chat.completion.chunk", "created": 1700000000, "model": "mock-model", "choices": [{"index": 0, "delta": {"content": "line 091 of the long reply for perf measurement\n"}, "finish_reason": null}]}
+
+data: {"id": "chatcmpl-mock", "object": "chat.completion.chunk", "created": 1700000000, "model": "mock-model", "choices": [{"index": 0, "delta": {"content": "line 092 of the long reply for perf measurement\n"}, "finish_reason": null}]}
+
+data: {"id": "chatcmpl-mock", "object": "chat.completion.chunk", "created": 1700000000, "model": "mock-model", "choices": [{"index": 0, "delta": {"content": "line 093 of the long reply for perf measurement\n"}, "finish_reason": null}]}
+
+data: {"id": "chatcmpl-mock", "object": "chat.completion.chunk", "created": 1700000000, "model": "mock-model", "choices": [{"index": 0, "delta": {"content": "line 094 of the long reply for perf measurement\n"}, "finish_reason": null}]}
+
+data: {"id": "chatcmpl-mock", "object": "chat.completion.chunk", "created": 1700000000, "model": "mock-model", "choices": [{"index": 0, "delta": {"content": "line 095 of the long reply for perf measurement\n"}, "finish_reason": null}]}
+
+data: {"id": "chatcmpl-mock", "object": "chat.completion.chunk", "created": 1700000000, "model": "mock-model", "choices": [{"index": 0, "delta": {"content": "line 096 of the long reply for perf measurement\n"}, "finish_reason": null}]}
+
+data: {"id": "chatcmpl-mock", "object": "chat.completion.chunk", "created": 1700000000, "model": "mock-model", "choices": [{"index": 0, "delta": {"content": "line 097 of the long reply for perf measurement\n"}, "finish_reason": null}]}
+
+data: {"id": "chatcmpl-mock", "object": "chat.completion.chunk", "created": 1700000000, "model": "mock-model", "choices": [{"index": 0, "delta": {"content": "line 098 of the long reply for perf measurement\n"}, "finish_reason": null}]}
+
+data: {"id": "chatcmpl-mock", "object": "chat.completion.chunk", "created": 1700000000, "model": "mock-model", "choices": [{"index": 0, "delta": {"content": "line 099 of the long reply for perf measurement\n"}, "finish_reason": null}]}
+
+data: {"id": "chatcmpl-mock", "object": "chat.completion.chunk", "created": 1700000000, "model": "mock-model", "choices": [{"index": 0, "delta": {"content": "line 100 of the long reply for perf measurement\n"}, "finish_reason": null}]}
+
+data: {"id": "chatcmpl-mock", "object": "chat.completion.chunk", "created": 1700000000, "model": "mock-model", "choices": [{"index": 0, "delta": {"content": "line 101 of the long reply for perf measurement\n"}, "finish_reason": null}]}
+
+data: {"id": "chatcmpl-mock", "object": "chat.completion.chunk", "created": 1700000000, "model": "mock-model", "choices": [{"index": 0, "delta": {"content": "line 102 of the long reply for perf measurement\n"}, "finish_reason": null}]}
+
+data: {"id": "chatcmpl-mock", "object": "chat.completion.chunk", "created": 1700000000, "model": "mock-model", "choices": [{"index": 0, "delta": {"content": "line 103 of the long reply for perf measurement\n"}, "finish_reason": null}]}
+
+data: {"id": "chatcmpl-mock", "object": "chat.completion.chunk", "created": 1700000000, "model": "mock-model", "choices": [{"index": 0, "delta": {"content": "line 104 of the long reply for perf measurement\n"}, "finish_reason": null}]}
+
+data: {"id": "chatcmpl-mock", "object": "chat.completion.chunk", "created": 1700000000, "model": "mock-model", "choices": [{"index": 0, "delta": {"content": "line 105 of the long reply for perf measurement\n"}, "finish_reason": null}]}
+
+data: {"id": "chatcmpl-mock", "object": "chat.completion.chunk", "created": 1700000000, "model": "mock-model", "choices": [{"index": 0, "delta": {"content": "line 106 of the long reply for perf measurement\n"}, "finish_reason": null}]}
+
+data: {"id": "chatcmpl-mock", "object": "chat.completion.chunk", "created": 1700000000, "model": "mock-model", "choices": [{"index": 0, "delta": {"content": "line 107 of the long reply for perf measurement\n"}, "finish_reason": null}]}
+
+data: {"id": "chatcmpl-mock", "object": "chat.completion.chunk", "created": 1700000000, "model": "mock-model", "choices": [{"index": 0, "delta": {"content": "line 108 of the long reply for perf measurement\n"}, "finish_reason": null}]}
+
+data: {"id": "chatcmpl-mock", "object": "chat.completion.chunk", "created": 1700000000, "model": "mock-model", "choices": [{"index": 0, "delta": {"content": "line 109 of the long reply for perf measurement\n"}, "finish_reason": null}]}
+
+data: {"id": "chatcmpl-mock", "object": "chat.completion.chunk", "created": 1700000000, "model": "mock-model", "choices": [{"index": 0, "delta": {"content": "line 110 of the long reply for perf measurement\n"}, "finish_reason": null}]}
+
+data: {"id": "chatcmpl-mock", "object": "chat.completion.chunk", "created": 1700000000, "model": "mock-model", "choices": [{"index": 0, "delta": {"content": "line 111 of the long reply for perf measurement\n"}, "finish_reason": null}]}
+
+data: {"id": "chatcmpl-mock", "object": "chat.completion.chunk", "created": 1700000000, "model": "mock-model", "choices": [{"index": 0, "delta": {"content": "line 112 of the long reply for perf measurement\n"}, "finish_reason": null}]}
+
+data: {"id": "chatcmpl-mock", "object": "chat.completion.chunk", "created": 1700000000, "model": "mock-model", "choices": [{"index": 0, "delta": {"content": "line 113 of the long reply for perf measurement\n"}, "finish_reason": null}]}
+
+data: {"id": "chatcmpl-mock", "object": "chat.completion.chunk", "created": 1700000000, "model": "mock-model", "choices": [{"index": 0, "delta": {"content": "line 114 of the long reply for perf measurement\n"}, "finish_reason": null}]}
+
+data: {"id": "chatcmpl-mock", "object": "chat.completion.chunk", "created": 1700000000, "model": "mock-model", "choices": [{"index": 0, "delta": {"content": "line 115 of the long reply for perf measurement\n"}, "finish_reason": null}]}
+
+data: {"id": "chatcmpl-mock", "object": "chat.completion.chunk", "created": 1700000000, "model": "mock-model", "choices": [{"index": 0, "delta": {"content": "line 116 of the long reply for perf measurement\n"}, "finish_reason": null}]}
+
+data: {"id": "chatcmpl-mock", "object": "chat.completion.chunk", "created": 1700000000, "model": "mock-model", "choices": [{"index": 0, "delta": {"content": "line 117 of the long reply for perf measurement\n"}, "finish_reason": null}]}
+
+data: {"id": "chatcmpl-mock", "object": "chat.completion.chunk", "created": 1700000000, "model": "mock-model", "choices": [{"index": 0, "delta": {"content": "line 118 of the long reply for perf measurement\n"}, "finish_reason": null}]}
+
+data: {"id": "chatcmpl-mock", "object": "chat.completion.chunk", "created": 1700000000, "model": "mock-model", "choices": [{"index": 0, "delta": {"content": "line 119 of the long reply for perf measurement\n"}, "finish_reason": null}]}
+
+data: {"id": "chatcmpl-mock", "object": "chat.completion.chunk", "created": 1700000000, "model": "mock-model", "choices": [{"index": 0, "delta": {"content": "line 120 of the long reply for perf measurement\n"}, "finish_reason": null}]}
+
+data: {"id": "chatcmpl-mock", "object": "chat.completion.chunk", "created": 1700000000, "model": "mock-model", "choices": [{"index": 0, "delta": {"content": "line 121 of the long reply for perf measurement\n"}, "finish_reason": null}]}
+
+data: {"id": "chatcmpl-mock", "object": "chat.completion.chunk", "created": 1700000000, "model": "mock-model", "choices": [{"index": 0, "delta": {"content": "line 122 of the long reply for perf measurement\n"}, "finish_reason": null}]}
+
+data: {"id": "chatcmpl-mock", "object": "chat.completion.chunk", "created": 1700000000, "model": "mock-model", "choices": [{"index": 0, "delta": {"content": "line 123 of the long reply for perf measurement\n"}, "finish_reason": null}]}
+
+data: {"id": "chatcmpl-mock", "object": "chat.completion.chunk", "created": 1700000000, "model": "mock-model", "choices": [{"index": 0, "delta": {"content": "line 124 of the long reply for perf measurement\n"}, "finish_reason": null}]}
+
+data: {"id": "chatcmpl-mock", "object": "chat.completion.chunk", "created": 1700000000, "model": "mock-model", "choices": [{"index": 0, "delta": {"content": "line 125 of the long reply for perf measurement\n"}, "finish_reason": null}]}
+
+data: {"id": "chatcmpl-mock", "object": "chat.completion.chunk", "created": 1700000000, "model": "mock-model", "choices": [{"index": 0, "delta": {"content": "line 126 of the long reply for perf measurement\n"}, "finish_reason": null}]}
+
+data: {"id": "chatcmpl-mock", "object": "chat.completion.chunk", "created": 1700000000, "model": "mock-model", "choices": [{"index": 0, "delta": {"content": "line 127 of the long reply for perf measurement\n"}, "finish_reason": null}]}
+
+data: {"id": "chatcmpl-mock", "object": "chat.completion.chunk", "created": 1700000000, "model": "mock-model", "choices": [{"index": 0, "delta": {"content": "line 128 of the long reply for perf measurement\n"}, "finish_reason": null}]}
+
+data: {"id": "chatcmpl-mock", "object": "chat.completion.chunk", "created": 1700000000, "model": "mock-model", "choices": [{"index": 0, "delta": {"content": "line 129 of the long reply for perf measurement\n"}, "finish_reason": null}]}
+
+data: {"id": "chatcmpl-mock", "object": "chat.completion.chunk", "created": 1700000000, "model": "mock-model", "choices": [{"index": 0, "delta": {"content": "line 130 of the long reply for perf measurement\n"}, "finish_reason": null}]}
+
+data: {"id": "chatcmpl-mock", "object": "chat.completion.chunk", "created": 1700000000, "model": "mock-model", "choices": [{"index": 0, "delta": {"content": "line 131 of the long reply for perf measurement\n"}, "finish_reason": null}]}
+
+data: {"id": "chatcmpl-mock", "object": "chat.completion.chunk", "created": 1700000000, "model": "mock-model", "choices": [{"index": 0, "delta": {"content": "line 132 of the long reply for perf measurement\n"}, "finish_reason": null}]}
+
+data: {"id": "chatcmpl-mock", "object": "chat.completion.chunk", "created": 1700000000, "model": "mock-model", "choices": [{"index": 0, "delta": {"content": "line 133 of the long reply for perf measurement\n"}, "finish_reason": null}]}
+
+data: {"id": "chatcmpl-mock", "object": "chat.completion.chunk", "created": 1700000000, "model": "mock-model", "choices": [{"index": 0, "delta": {"content": "line 134 of the long reply for perf measurement\n"}, "finish_reason": null}]}
+
+data: {"id": "chatcmpl-mock", "object": "chat.completion.chunk", "created": 1700000000, "model": "mock-model", "choices": [{"index": 0, "delta": {"content": "line 135 of the long reply for perf measurement\n"}, "finish_reason": null}]}
+
+data: {"id": "chatcmpl-mock", "object": "chat.completion.chunk", "created": 1700000000, "model": "mock-model", "choices": [{"index": 0, "delta": {"content": "line 136 of the long reply for perf measurement\n"}, "finish_reason": null}]}
+
+data: {"id": "chatcmpl-mock", "object": "chat.completion.chunk", "created": 1700000000, "model": "mock-model", "choices": [{"index": 0, "delta": {"content": "line 137 of the long reply for perf measurement\n"}, "finish_reason": null}]}
+
+data: {"id": "chatcmpl-mock", "object": "chat.completion.chunk", "created": 1700000000, "model": "mock-model", "choices": [{"index": 0, "delta": {"content": "line 138 of the long reply for perf measurement\n"}, "finish_reason": null}]}
+
+data: {"id": "chatcmpl-mock", "object": "chat.completion.chunk", "created": 1700000000, "model": "mock-model", "choices": [{"index": 0, "delta": {"content": "line 139 of the long reply for perf measurement\n"}, "finish_reason": null}]}
+
+data: {"id": "chatcmpl-mock", "object": "chat.completion.chunk", "created": 1700000000, "model": "mock-model", "choices": [{"index": 0, "delta": {"content": "line 140 of the long reply for perf measurement\n"}, "finish_reason": null}]}
+
+data: {"id": "chatcmpl-mock", "object": "chat.completion.chunk", "created": 1700000000, "model": "mock-model", "choices": [{"index": 0, "delta": {"content": "line 141 of the long reply for perf measurement\n"}, "finish_reason": null}]}
+
+data: {"id": "chatcmpl-mock", "object": "chat.completion.chunk", "created": 1700000000, "model": "mock-model", "choices": [{"index": 0, "delta": {"content": "line 142 of the long reply for perf measurement\n"}, "finish_reason": null}]}
+
+data: {"id": "chatcmpl-mock", "object": "chat.completion.chunk", "created": 1700000000, "model": "mock-model", "choices": [{"index": 0, "delta": {"content": "line 143 of the long reply for perf measurement\n"}, "finish_reason": null}]}
+
+data: {"id": "chatcmpl-mock", "object": "chat.completion.chunk", "created": 1700000000, "model": "mock-model", "choices": [{"index": 0, "delta": {"content": "line 144 of the long reply for perf measurement\n"}, "finish_reason": null}]}
+
+data: {"id": "chatcmpl-mock", "object": "chat.completion.chunk", "created": 1700000000, "model": "mock-model", "choices": [{"index": 0, "delta": {"content": "line 145 of the long reply for perf measurement\n"}, "finish_reason": null}]}
+
+data: {"id": "chatcmpl-mock", "object": "chat.completion.chunk", "created": 1700000000, "model": "mock-model", "choices": [{"index": 0, "delta": {"content": "line 146 of the long reply for perf measurement\n"}, "finish_reason": null}]}
+
+data: {"id": "chatcmpl-mock", "object": "chat.completion.chunk", "created": 1700000000, "model": "mock-model", "choices": [{"index": 0, "delta": {"content": "line 147 of the long reply for perf measurement\n"}, "finish_reason": null}]}
+
+data: {"id": "chatcmpl-mock", "object": "chat.completion.chunk", "created": 1700000000, "model": "mock-model", "choices": [{"index": 0, "delta": {"content": "line 148 of the long reply for perf measurement\n"}, "finish_reason": null}]}
+
+data: {"id": "chatcmpl-mock", "object": "chat.completion.chunk", "created": 1700000000, "model": "mock-model", "choices": [{"index": 0, "delta": {"content": "line 149 of the long reply for perf measurement\n"}, "finish_reason": null}]}
+
+data: {"id": "chatcmpl-mock", "object": "chat.completion.chunk", "created": 1700000000, "model": "mock-model", "choices": [{"index": 0, "delta": {"content": "line 150 of the long reply for perf measurement\n"}, "finish_reason": null}]}
+
+data: {"id": "chatcmpl-mock", "object": "chat.completion.chunk", "created": 1700000000, "model": "mock-model", "choices": [{"index": 0, "delta": {"content": "line 151 of the long reply for perf measurement\n"}, "finish_reason": null}]}
+
+data: {"id": "chatcmpl-mock", "object": "chat.completion.chunk", "created": 1700000000, "model": "mock-model", "choices": [{"index": 0, "delta": {"content": "line 152 of the long reply for perf measurement\n"}, "finish_reason": null}]}
+
+data: {"id": "chatcmpl-mock", "object": "chat.completion.chunk", "created": 1700000000, "model": "mock-model", "choices": [{"index": 0, "delta": {"content": "line 153 of the long reply for perf measurement\n"}, "finish_reason": null}]}
+
+data: {"id": "chatcmpl-mock", "object": "chat.completion.chunk", "created": 1700000000, "model": "mock-model", "choices": [{"index": 0, "delta": {"content": "line 154 of the long reply for perf measurement\n"}, "finish_reason": null}]}
+
+data: {"id": "chatcmpl-mock", "object": "chat.completion.chunk", "created": 1700000000, "model": "mock-model", "choices": [{"index": 0, "delta": {"content": "line 155 of the long reply for perf measurement\n"}, "finish_reason": null}]}
+
+data: {"id": "chatcmpl-mock", "object": "chat.completion.chunk", "created": 1700000000, "model": "mock-model", "choices": [{"index": 0, "delta": {"content": "line 156 of the long reply for perf measurement\n"}, "finish_reason": null}]}
+
+data: {"id": "chatcmpl-mock", "object": "chat.completion.chunk", "created": 1700000000, "model": "mock-model", "choices": [{"index": 0, "delta": {"content": "line 157 of the long reply for perf measurement\n"}, "finish_reason": null}]}
+
+data: {"id": "chatcmpl-mock", "object": "chat.completion.chunk", "created": 1700000000, "model": "mock-model", "choices": [{"index": 0, "delta": {"content": "line 158 of the long reply for perf measurement\n"}, "finish_reason": null}]}
+
+data: {"id": "chatcmpl-mock", "object": "chat.completion.chunk", "created": 1700000000, "model": "mock-model", "choices": [{"index": 0, "delta": {"content": "line 159 of the long reply for perf measurement\n"}, "finish_reason": null}]}
+
+data: {"id": "chatcmpl-mock", "object": "chat.completion.chunk", "created": 1700000000, "model": "mock-model", "choices": [{"index": 0, "delta": {"content": "line 160 of the long reply for perf measurement\n"}, "finish_reason": null}]}
+
+data: {"id": "chatcmpl-mock", "object": "chat.completion.chunk", "created": 1700000000, "model": "mock-model", "choices": [{"index": 0, "delta": {"content": "line 161 of the long reply for perf measurement\n"}, "finish_reason": null}]}
+
+data: {"id": "chatcmpl-mock", "object": "chat.completion.chunk", "created": 1700000000, "model": "mock-model", "choices": [{"index": 0, "delta": {"content": "line 162 of the long reply for perf measurement\n"}, "finish_reason": null}]}
+
+data: {"id": "chatcmpl-mock", "object": "chat.completion.chunk", "created": 1700000000, "model": "mock-model", "choices": [{"index": 0, "delta": {"content": "line 163 of the long reply for perf measurement\n"}, "finish_reason": null}]}
+
+data: {"id": "chatcmpl-mock", "object": "chat.completion.chunk", "created": 1700000000, "model": "mock-model", "choices": [{"index": 0, "delta": {"content": "line 164 of the long reply for perf measurement\n"}, "finish_reason": null}]}
+
+data: {"id": "chatcmpl-mock", "object": "chat.completion.chunk", "created": 1700000000, "model": "mock-model", "choices": [{"index": 0, "delta": {"content": "line 165 of the long reply for perf measurement\n"}, "finish_reason": null}]}
+
+data: {"id": "chatcmpl-mock", "object": "chat.completion.chunk", "created": 1700000000, "model": "mock-model", "choices": [{"index": 0, "delta": {"content": "line 166 of the long reply for perf measurement\n"}, "finish_reason": null}]}
+
+data: {"id": "chatcmpl-mock", "object": "chat.completion.chunk", "created": 1700000000, "model": "mock-model", "choices": [{"index": 0, "delta": {"content": "line 167 of the long reply for perf measurement\n"}, "finish_reason": null}]}
+
+data: {"id": "chatcmpl-mock", "object": "chat.completion.chunk", "created": 1700000000, "model": "mock-model", "choices": [{"index": 0, "delta": {"content": "line 168 of the long reply for perf measurement\n"}, "finish_reason": null}]}
+
+data: {"id": "chatcmpl-mock", "object": "chat.completion.chunk", "created": 1700000000, "model": "mock-model", "choices": [{"index": 0, "delta": {"content": "line 169 of the long reply for perf measurement\n"}, "finish_reason": null}]}
+
+data: {"id": "chatcmpl-mock", "object": "chat.completion.chunk", "created": 1700000000, "model": "mock-model", "choices": [{"index": 0, "delta": {"content": "line 170 of the long reply for perf measurement\n"}, "finish_reason": null}]}
+
+data: {"id": "chatcmpl-mock", "object": "chat.completion.chunk", "created": 1700000000, "model": "mock-model", "choices": [{"index": 0, "delta": {"content": "line 171 of the long reply for perf measurement\n"}, "finish_reason": null}]}
+
+data: {"id": "chatcmpl-mock", "object": "chat.completion.chunk", "created": 1700000000, "model": "mock-model", "choices": [{"index": 0, "delta": {"content": "line 172 of the long reply for perf measurement\n"}, "finish_reason": null}]}
+
+data: {"id": "chatcmpl-mock", "object": "chat.completion.chunk", "created": 1700000000, "model": "mock-model", "choices": [{"index": 0, "delta": {"content": "line 173 of the long reply for perf measurement\n"}, "finish_reason": null}]}
+
+data: {"id": "chatcmpl-mock", "object": "chat.completion.chunk", "created": 1700000000, "model": "mock-model", "choices": [{"index": 0, "delta": {"content": "line 174 of the long reply for perf measurement\n"}, "finish_reason": null}]}
+
+data: {"id": "chatcmpl-mock", "object": "chat.completion.chunk", "created": 1700000000, "model": "mock-model", "choices": [{"index": 0, "delta": {"content": "line 175 of the long reply for perf measurement\n"}, "finish_reason": null}]}
+
+data: {"id": "chatcmpl-mock", "object": "chat.completion.chunk", "created": 1700000000, "model": "mock-model", "choices": [{"index": 0, "delta": {"content": "line 176 of the long reply for perf measurement\n"}, "finish_reason": null}]}
+
+data: {"id": "chatcmpl-mock", "object": "chat.completion.chunk", "created": 1700000000, "model": "mock-model", "choices": [{"index": 0, "delta": {"content": "line 177 of the long reply for perf measurement\n"}, "finish_reason": null}]}
+
+data: {"id": "chatcmpl-mock", "object": "chat.completion.chunk", "created": 1700000000, "model": "mock-model", "choices": [{"index": 0, "delta": {"content": "line 178 of the long reply for perf measurement\n"}, "finish_reason": null}]}
+
+data: {"id": "chatcmpl-mock", "object": "chat.completion.chunk", "created": 1700000000, "model": "mock-model", "choices": [{"index": 0, "delta": {"content": "line 179 of the long reply for perf measurement\n"}, "finish_reason": null}]}
+
+data: {"id": "chatcmpl-mock", "object": "chat.completion.chunk", "created": 1700000000, "model": "mock-model", "choices": [{"index": 0, "delta": {"content": "line 180 of the long reply for perf measurement\n"}, "finish_reason": null}]}
+
+data: {"id": "chatcmpl-mock", "object": "chat.completion.chunk", "created": 1700000000, "model": "mock-model", "choices": [{"index": 0, "delta": {"content": "line 181 of the long reply for perf measurement\n"}, "finish_reason": null}]}
+
+data: {"id": "chatcmpl-mock", "object": "chat.completion.chunk", "created": 1700000000, "model": "mock-model", "choices": [{"index": 0, "delta": {"content": "line 182 of the long reply for perf measurement\n"}, "finish_reason": null}]}
+
+data: {"id": "chatcmpl-mock", "object": "chat.completion.chunk", "created": 1700000000, "model": "mock-model", "choices": [{"index": 0, "delta": {"content": "line 183 of the long reply for perf measurement\n"}, "finish_reason": null}]}
+
+data: {"id": "chatcmpl-mock", "object": "chat.completion.chunk", "created": 1700000000, "model": "mock-model", "choices": [{"index": 0, "delta": {"content": "line 184 of the long reply for perf measurement\n"}, "finish_reason": null}]}
+
+data: {"id": "chatcmpl-mock", "object": "chat.completion.chunk", "created": 1700000000, "model": "mock-model", "choices": [{"index": 0, "delta": {"content": "line 185 of the long reply for perf measurement\n"}, "finish_reason": null}]}
+
+data: {"id": "chatcmpl-mock", "object": "chat.completion.chunk", "created": 1700000000, "model": "mock-model", "choices": [{"index": 0, "delta": {"content": "line 186 of the long reply for perf measurement\n"}, "finish_reason": null}]}
+
+data: {"id": "chatcmpl-mock", "object": "chat.completion.chunk", "created": 1700000000, "model": "mock-model", "choices": [{"index": 0, "delta": {"content": "line 187 of the long reply for perf measurement\n"}, "finish_reason": null}]}
+
+data: {"id": "chatcmpl-mock", "object": "chat.completion.chunk", "created": 1700000000, "model": "mock-model", "choices": [{"index": 0, "delta": {"content": "line 188 of the long reply for perf measurement\n"}, "finish_reason": null}]}
+
+data: {"id": "chatcmpl-mock", "object": "chat.completion.chunk", "created": 1700000000, "model": "mock-model", "choices": [{"index": 0, "delta": {"content": "line 189 of the long reply for perf measurement\n"}, "finish_reason": null}]}
+
+data: {"id": "chatcmpl-mock", "object": "chat.completion.chunk", "created": 1700000000, "model": "mock-model", "choices": [{"index": 0, "delta": {"content": "line 190 of the long reply for perf measurement\n"}, "finish_reason": null}]}
+
+data: {"id": "chatcmpl-mock", "object": "chat.completion.chunk", "created": 1700000000, "model": "mock-model", "choices": [{"index": 0, "delta": {"content": "line 191 of the long reply for perf measurement\n"}, "finish_reason": null}]}
+
+data: {"id": "chatcmpl-mock", "object": "chat.completion.chunk", "created": 1700000000, "model": "mock-model", "choices": [{"index": 0, "delta": {"content": "line 192 of the long reply for perf measurement\n"}, "finish_reason": null}]}
+
+data: {"id": "chatcmpl-mock", "object": "chat.completion.chunk", "created": 1700000000, "model": "mock-model", "choices": [{"index": 0, "delta": {"content": "line 193 of the long reply for perf measurement\n"}, "finish_reason": null}]}
+
+data: {"id": "chatcmpl-mock", "object": "chat.completion.chunk", "created": 1700000000, "model": "mock-model", "choices": [{"index": 0, "delta": {"content": "line 194 of the long reply for perf measurement\n"}, "finish_reason": null}]}
+
+data: {"id": "chatcmpl-mock", "object": "chat.completion.chunk", "created": 1700000000, "model": "mock-model", "choices": [{"index": 0, "delta": {"content": "line 195 of the long reply for perf measurement\n"}, "finish_reason": null}]}
+
+data: {"id": "chatcmpl-mock", "object": "chat.completion.chunk", "created": 1700000000, "model": "mock-model", "choices": [{"index": 0, "delta": {"content": "line 196 of the long reply for perf measurement\n"}, "finish_reason": null}]}
+
+data: {"id": "chatcmpl-mock", "object": "chat.completion.chunk", "created": 1700000000, "model": "mock-model", "choices": [{"index": 0, "delta": {"content": "line 197 of the long reply for perf measurement\n"}, "finish_reason": null}]}
+
+data: {"id": "chatcmpl-mock", "object": "chat.completion.chunk", "created": 1700000000, "model": "mock-model", "choices": [{"index": 0, "delta": {"content": "line 198 of the long reply for perf measurement\n"}, "finish_reason": null}]}
+
+data: {"id": "chatcmpl-mock", "object": "chat.completion.chunk", "created": 1700000000, "model": "mock-model", "choices": [{"index": 0, "delta": {"content": "line 199 of the long reply for perf measurement"}, "finish_reason": null}]}
+
+data: {"id": "chatcmpl-mock", "object": "chat.completion.chunk", "created": 1700000000, "model": "mock-model", "choices": [{"index": 0, "delta": {}, "finish_reason": "stop"}], "usage": {"prompt_tokens": 10, "completion_tokens": 200, "total_tokens": 210}}
+
+data: [DONE]
+

@@ -1,0 +1,38 @@
+{
+  "id": "S28",
+  "description": "带**真实分叉**的会话（m2 下两条子 entry：m3a / m3b），rpc 模式走 读树→取 fork 候选→fork 到 m3a→再读树。验收：五层 same。",
+  "provider": "openai-completions",
+  "model": "mock-model",
+  "mode": "rpc",
+  "sessionFiles": {
+    "content": "{\"type\": \"session\", \"version\": 3, \"id\": \"seedS28-0000-4000-8000-000000000000\", \"timestamp\": \"2026-01-01T00:00:00.000Z\", \"cwd\": \"<CWD>\"}\n{\"type\": \"message\", \"id\": \"m1\", \"parentId\": null, \"timestamp\": \"2026-01-01T00:00:01.000Z\", \"message\": {\"role\": \"user\", \"content\": [{\"type\": \"text\", \"text\": \"第一个问题\"}], \"timestamp\": 1}}\n{\"type\": \"message\", \"id\": \"m2\", \"parentId\": \"m1\", \"timestamp\": \"2026-01-01T00:00:02.000Z\", \"message\": {\"role\": \"assistant\", \"content\": [{\"type\": \"text\", \"text\": \"第二个回答\"}], \"timestamp\": 2, \"api\": \"openai-completions\", \"provider\": \"mock\", \"model\": \"mock-model\", \"stopReason\": \"stop\", \"usage\": {\"input\": 1, \"output\": 1, \"cacheRead\": 0, \"cacheWrite\": 0, \"totalTokens\": 2, \"cost\": {\"input\": 0, \"output\": 0, \"cacheRead\": 0, \"cacheWrite\": 0, \"total\": 0}}}}\n{\"type\": \"message\", \"id\": \"m3a\", \"parentId\": \"m2\", \"timestamp\": \"2026-01-01T00:00:03.000Z\", \"message\": {\"role\": \"user\", \"content\": [{\"type\": \"text\", \"text\": \"分叉 A\"}], \"timestamp\": 3}}\n{\"type\": \"message\", \"id\": \"m3b\", \"parentId\": \"m2\", \"timestamp\": \"2026-01-01T00:00:04.000Z\", \"message\": {\"role\": \"user\", \"content\": [{\"type\": \"text\", \"text\": \"分叉 B\"}], \"timestamp\": 4}}",
+    "fileName": "session.jsonl"
+  },
+  "commands": [
+    {
+      "type": "get_tree"
+    },
+    {
+      "type": "get_fork_messages"
+    },
+    {
+      "type": "fork",
+      "entryId": "m3a"
+    },
+    {
+      "type": "get_tree"
+    },
+    {
+      "type": "prompt",
+      "message": "分叉后再问一句"
+    }
+  ],
+  "responses": [
+    {
+      "file": "fixtures/sse/openai/text-basic.sse"
+    }
+  ],
+  "cliArgs": [
+    "--continue"
+  ]
+}

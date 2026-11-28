@@ -1,0 +1,51 @@
+{
+ "id": "L-T88-ui-notify",
+ "description": "P9-1-E1c TUI 扩展 UI：session_start 发 notify(info/warning/error) + setStatus ×2；锚点 plugin ready / Warning: / Error: / 状态行",
+ "provider": "openai-completions",
+ "model": "mock-model",
+ "mode": "print",
+ "prompt": "hi",
+ "files": {},
+ "extensions": {
+  "ui/package.json": "{\n  \"type\": \"module\",\n  \"name\": \"pi-rs-ui-fixture\"\n}",
+  "ui/index.js": "// UI 帧夹具（P9-1-E1c / S6）：`session_start` 时发三条 notify（info/warning/error）\n// 与一条 setStatus，用来对拍 TUI 的渲染位置与文案。\nexport default function uiExtension(pi) {\n  pi.on(\"session_start\", (_event, ctx) => {\n    ctx?.ui?.notify?.(\"plugin ready\", \"info\");\n    ctx?.ui?.notify?.(\"plugin degraded\", \"warning\");\n    ctx?.ui?.notify?.(\"plugin failed\", \"error\");\n    ctx?.ui?.setStatus?.(\"zeta\", \"zeta-status\");\n    ctx?.ui?.setStatus?.(\"alpha\", \"alpha-status\");\n  });\n}\n"
+ },
+ "responses": [
+  {
+   "file": "fixtures/sse/openai/text-basic.sse"
+  }
+ ],
+ "tui": {
+  "cols": 100,
+  "rows": 30,
+  "steps": [
+   {
+    "action": "waitScreen",
+    "contains": "plugin ready",
+    "timeoutMs": 40000
+   },
+   {
+    "action": "waitStable",
+    "quietMs": 800,
+    "timeoutMs": 20000
+   },
+   {
+    "action": "snapshot",
+    "name": "after-notify"
+   },
+   {
+    "action": "type",
+    "text": "\u0004"
+   },
+   {
+    "action": "waitStable",
+    "quietMs": 500,
+    "timeoutMs": 10000
+   }
+  ],
+  "snapshots": [
+   "after-notify"
+  ]
+ },
+ "theme": "light"
+}

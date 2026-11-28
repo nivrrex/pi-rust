@@ -1,0 +1,59 @@
+{
+ "id": "T104-copy-no-messages",
+ "description": "R2：无助手消息时按 ctrl+x（ref showError 前缀 error 色 + `Error: `）",
+ "provider": "openai-completions",
+ "model": "mock-model",
+ "mode": "print",
+ "prompt": "hi",
+ "files": {},
+ "responses": [
+  {
+   "file": "fixtures/sse/openai/text-basic.sse"
+  }
+ ],
+ "tui": {
+  "cols": 100,
+  "rows": 30,
+  "snapshots": [
+   "after"
+  ],
+  "steps": [
+   {
+    "action": "waitScreen",
+    "contains": "Pi can explain",
+    "timeoutMs": 30000
+   },
+   {
+    "action": "waitStable",
+    "quietMs": 1200,
+    "timeoutMs": 20000
+   },
+   {
+    "action": "type",
+    "text": "\u0018"
+   },
+   {
+    "action": "delay",
+    "ms": 800
+   },
+   {
+    "action": "waitStable",
+    "quietMs": 800,
+    "timeoutMs": 15000
+   },
+   {
+    "action": "snapshot",
+    "name": "after"
+   },
+   {
+    "action": "type",
+    "text": "\u0004"
+   },
+   {
+    "action": "waitStable",
+    "quietMs": 500,
+    "timeoutMs": 10000
+   }
+  ]
+ }
+}

@@ -1,0 +1,71 @@
+{
+  "provider": "openai-completions",
+  "model": "mock-model",
+  "responses": [
+    {
+      "file": "fixtures/sse/openai/markdown-subset.sse"
+    }
+  ],
+  "files": {
+    "AGENTS.md": "# 项目规则\n\n- 项目级：改代码前先跑测试。\n"
+  },
+  "id": "L-T05",
+  "prompt": "say hi",
+  "description": "TUI 基线 T05：markdown 子集渲染（等待=回复文本 标题/fn main + 静默；屏幕模型缺陷已在 P7-4g/W1 修复，无需固定延迟）",
+  "tui": {
+    "cols": 100,
+    "rows": 30,
+    "steps": [
+      {
+        "action": "waitScreen",
+        "contains": "Pi can explain",
+        "timeoutMs": 20000
+      },
+      {
+        "action": "type",
+        "text": "say hi"
+      },
+      {
+        "action": "waitStable",
+        "quietMs": 600,
+        "timeoutMs": 15000
+      },
+      {
+        "action": "type",
+        "text": "\r"
+      },
+      {
+        "action": "waitStrip",
+        "contains": "标题",
+        "timeoutMs": 30000
+      },
+      {
+        "action": "waitStrip",
+        "contains": "fn main",
+        "timeoutMs": 30000
+      },
+      {
+        "action": "waitStable",
+        "quietMs": 2000,
+        "timeoutMs": 20000
+      },
+      {
+        "action": "snapshot",
+        "name": "after-prompt"
+      },
+      {
+        "action": "type",
+        "text": "\u0004"
+      },
+      {
+        "action": "waitStable",
+        "quietMs": 500,
+        "timeoutMs": 10000
+      }
+    ],
+    "snapshots": [
+      "after-prompt"
+    ]
+  },
+  "theme": "light"
+}

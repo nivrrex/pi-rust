@@ -1,0 +1,50 @@
+{
+ "id": "L-T100-skills",
+ "description": "F23/S1：默认路径（不设 enableSkills）下启动屏 [Skills] 段的形状",
+ "provider": "openai-completions",
+ "model": "mock-model",
+ "mode": "print",
+ "prompt": "hi",
+ "files": {},
+ "responses": [
+  {
+   "file": "fixtures/sse/openai/text-basic.sse"
+  }
+ ],
+ "tui": {
+  "cols": 100,
+  "rows": 30,
+  "steps": [
+   {
+    "action": "delay",
+    "ms": 2000
+   },
+   {
+    "action": "waitStable",
+    "quietMs": 900,
+    "timeoutMs": 15000
+   },
+   {
+    "action": "snapshot",
+    "name": "startup"
+   },
+   {
+    "action": "type",
+    "text": "\u0004"
+   },
+   {
+    "action": "waitStable",
+    "quietMs": 500,
+    "timeoutMs": 10000
+   }
+  ],
+  "snapshots": [
+   "startup"
+  ]
+ },
+ "agentFiles": {
+  "skills/alpha/SKILL.md": "---\nname: alpha-skill\ndescription: alpha desc\n---\nBody\n",
+  "skills/beta/SKILL.md": "---\nname: beta-skill\ndescription: beta desc\n---\nBody\n",
+  "skills/hidden/SKILL.md": "---\nname: hidden-skill\ndescription: hidden desc\ndisable-model-invocation: true\n---\nBody\n"
+ }
+}

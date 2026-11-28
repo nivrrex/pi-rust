@@ -1,0 +1,163 @@
+
+## F8：`user_bash` 事件（两种返回值）
+
+- `{result}` 直接采用：扩展给 `output/exitCode/cancelled/truncated/fullOutputPath`，宿主不执行本地 bash；
+- `{operations}` 替换执行：用扩展给的 operations 跑完，再按 `recordBashResult` 落盘；
+- 扩展抛错时**不回退**本地执行（ref `interactive-mode.ts:6735-6745`）；
+- 依赖 F7 的 `BashExecution` 消息类型（已完成）。
+
+## F9：TUI 的 `!` / `!!`
+
+- 输入分流（`:3225-3240`）与 bash 模式边框色；`BashExecutionComponent` 渲染（`:3739-3745`）；
+- 取消（Esc）、流式期间的 pending 队列（`agent-session.ts:3509-3515`）；
+- `/tree` 的命令摘要（`tree-selector.ts:577/808/910`）；
+- TS 录制 golden：dark/light 各四类（成功、`!!` 不进上下文、失败退出码、取消），逐帧 same；
+- （F7b 遗留项 ④ 已在 F7c 完成，见 `crates/pi-cli/tests/p9_f7c_resume_bash.rs`）
+
+## F10：已关闭（真因：TUI/rpc 入口未登记会话路径；见 notes/decisions.md「F10 复盘」）
+
+遗留：rpc 入口的 appendEntry（懒创建会话 ⇒ 启动期路径未知），见 LIMITATIONS。
+**F12 更正**：todo 的持久化载体是 toolResult.details.state（不是 appendEntry），判据见 decisions「F12」。
+
+## F10（历史记录，已关闭）：`p9_e3b_append` 偶发（退出时动作帧排空）
+
+- 现象：workspace 全量并行时偶发整条 `custom` 条目丢失（assistant 已落盘）。
+- 方向：收尾前把宿主动作帧排空（与 E4h 的 `in_flight`/`drain_pending` 同类），不加延迟、不放宽断言。
+- 前置：先找到能稳定放大的复现手段（并发 8 份 + 循环 200 次量级）。
+
+## F13：`/new` 与 `/resume` 的 pty 用例
+
+- `/new` 的 ref 语义（`agent-session-runtime.ts:226-252`）：`session_before_switch("new")` →
+  新 SessionManager → `teardownCurrent` → `session_start{reason:"new", previousSessionFile}`；
+  UI 侧 `interactive-mode.ts:6657-6670` 追加 `✓ New session started`。
+- 待做：实现 `/new`（writer 重建 + 清屏 + 事件顺序）、`/resume` 与 `/new` 各一条 pty 用例、
+  TS 录制 dark/light 对拍。
+- 另：`transcript_from_messages` 的 `ToolCall.id` 用 `replay-N`、`ToolResult` 分支为空，
+  在有"折叠态有可视结果行"的 golden 之前不改（当前 T71 逐帧 same）。
+
+## F17：`/new` 的 TS 对拍 golden + `/resume` 的 pty 用例（部分完成）
+
+已完成：`/new` 的 dark/light golden（T97，逐帧 same，10/10×2）、`session_shutdown` 派发。
+待做：`/resume` 的 pty 用例与 session_start/session_shutdown 的 reason 断言；退出矩阵（暂停）。
+
+- `/new`：dark/light 各录一个场景（输入 `/new` 回车，快照切换后的屏幕），逐帧 same + 10 次稳定性。
+- `/resume`：pty 用例断言切换后扩展 `appendEntry` 落到被 resume 的文件、`session_start` reason 为 `resume`。
+- 已做：`/new` 的实现与 pty 用例（`p9_f16_new_session`）。
+
+## F28（自述）
+- S1 `92cb1a5a`：`ctx.sessionManager.getSessionId/getBranch/getLeafId/getSessionDir`、`ui.getToolsExpanded`；
+  `session_start` 延后到会话登记后派发；`p9_f28_session_id`。
+- S2 `ba312269`：jiti 纯函数模块 + pnpm 多 hash 布局；扩展标签去 `/./`；`tools/difftest/test/jiti.test.mjs`（8 条）。
+- S3+S4 `5953dc6e`：`[Extension issues]` 折行（`p9_f28_issue_wrap` 80/120 列）；shim `ToolExecutionComponent.updateDisplay`。
+- 未做：底栏 `?/0` 取证、`[Extension issues]` pty 截图、`custom_input` 用例的并行超时治理。
+
+## F29（自述）
+- S4d `6ca5f3b8`：`session_start` 之前就填好 `ctx.getContextUsage()`（tokens=system 估算、window=模型
+  `contextWindow`、percent=tokens/window*100），真机底栏 `?/0 (auto)` 的根因是扩展读到 `undefined`。
+  新测 `p9_f29_ctx_usage`（断言 window=200000、percent 为数字、tokens>0）。
+- S5 `4ed85f8d`：`custom_input` 的 5s 超时是竞态——invoke 在队列里时按键 Cmd 排在它后面（actor 单线程），
+  或走直连时 actor 恰好空闲没人读帧。修法：`active_invokes` 计数决定走直连 + 直连后补发 `Cmd::Drain`
+  让 actor 读一轮。复测：并行 12 轮 0 失败（修前约 25% 失败）。
+
+## F31-B 收口记录
+- 落盘门控对齐 ref（`session-manager.ts:1160-1185`）：无 assistant 不落盘；`!`-only 会话不产生 jsonl、不打印 resume 行。已验证。
+- `user_bash` 事件三种返回：`{result}` 采用、`{operations}` 未接入（登记）、handler 抛错 fail-closed。已验证。
+- `!` 场景 golden 暂不入库（3 类差异未收敛，见 LIMITATIONS 第 5 条）。
+- C1：`!` 后 footer 改用 `estimate_context_tokens`（ref `compaction.ts:218-246`），与 TS 逐帧一致。
+- C3：入库 3 个 `!` 场景 golden（`T89a/T89b/T89c`）；`T89d` 折叠高度差 1 行未入库。
+- C4：发布包 `~/archives/publish-20261106c`（buildHead `638ccc27`、publishTree `f98badae`，未发布）。
+- C2：折叠态在输出与提示之间补一行空行（与 TS 逐行对拍得出），`T89d-bash-fold` 转 same 并入库；regress dark **88/0/20**、light **23/0/1**。
+
+## F32 收口
+- Markdown 对齐 ref：嵌套列表缩进/换行、H3+ 保留 `###` 前缀、有序序号、链接 URL、围栏语言、引用块 ` │ `、分隔线、GFM 表格。
+- Windows：`PATH` 同时找 `node`/`node.exe`（`find_node_in_path` 纯函数 + 单测）。
+- frontmatter：复杂 YAML 只跳过该键、不再整条报错。
+- regress 新增 `STYLE_CHECK=1`（接入既有 compare-style，默认关闭）。
+
+## F34 收口
+- Windows：jiti 覆盖 `%LOCALAPPDATA%\pnpm\global\<ver>\<hash>` 等布局（多 hash 取最新）、失败提示列全候选；node 查找双后缀。
+- Markdown：GFM 表格列宽按 ref 用自然宽、行内强调/删除线逐段染色、H1 underline、任务列表标记、列表内代码块缩进、HTML 按纯文本。
+- 工具：`tools/difftest/{md-oracle,md-diff,color-dump,color-classify}.mjs` + `crates/pi-tui/examples/md-render.rs`。
+- 新增入库 golden：`T89e-md-table`、`T89f-md-elements`、`T89g-md-table-cjk`。
+- 发布包 `~/archives/publish-20261107e`（buildHead/publishCommit `4bb46bf2`、publishTree `54c80ef7`，未发布）。
+
+## F35 收口
+- G0：新增 `md-cells`（逐单元格属性对拍）、`md-aggregate`（按元素聚合）、`md-oracle`/`md-render` 批量模式；
+  真实语料（30 会话 → 15181 块，抽 206 块 × dark/light × 80/120）逐格差异 **2,408,440 → 1,226,764**。
+- G1：引用空行改用**分隔线块**（pulldown 才会切断段落/列表）、引用内列表前缀、列表内代码块缩进；
+  `nested.md` 与 TS 文本层一致，既有 dark 91 / light 23 golden 全 same。
+- G2：新增 `crates/pi-tui/src/syntax.rs`（sh/rust/python/js/ts/go 轻量分词，覆盖 ref eager 语言集中
+  实现得到的 6 种；其余整行 `mdCodeBlock`），按 `theme.ts:1036-1064` 的 `buildCliHighlightTheme`
+  映射到 `syntaxKeyword/syntaxType/syntaxString/...`；标点/运算符不产生 token（ref 映射到默认色）。
+- G4：`extensionImportUrl`（Windows `file://`）+ 符号链接/junction 单测。
+- 发布包 `~/archives/publish-20261107f`（buildHead/publishCommit `e0970427`、publishTree `f6f42383`，未发布）。
+
+## F36 收口（部分）
+- H1：退出时复位 modifyOtherKeys（`>4;0m`），此前只开不关 ⇒ 真机退出后方向键回显 `^[[A`。
+- H2：扩展 ctx 补齐 `width` / `availableProviderCount` / `thinkingLevel` / **Model 对象**（ref `types.ts:327`），
+  页脚 override 行按**可见宽度**截断并保留 ANSI ⇒ 底栏 `(provider) model • level` 与 TS 一致。
+- H6a：runner 对 socket RST/EPIPE 静默退出 0。
+- H3：扩展 `setWidget` 行按 ref 加 1 列内边距（`new Text(line,1,0)`），belowEditor widget 与 TS 逐行一致；
+  合成夹具 `tools/difftest/fixtures/todo-widget-ext.ts`。
+- H5：底栏补 `R…/W…/CH…%`（ref `footer.ts:96-101/134-137`），会话累计读 `usage.cache_read/cache_write`；
+  新增 `T89i-usage-cache` golden（与 TS 逐字符一致）。
+- H4（渲染钩子按需取行）：**只有设计**（见 `notes/p9-f36/plan.md`），未实现；H6b/H6c 未单独验证。
+- 发布包 `~/archives/publish-20261107g`（buildHead/publishCommit `7db9c3b1`、publishTree `d03ba767`，未发布）。
+
+## F37 收口（部分）
+- J1：移除 ref 没有的 `?2031h`/`?996n`/`?2031l`；新增 `tools/difftest/term-sim.py` 终端应答模拟台，
+  三种配置（none / alacritty / xterm）× 两实现的退出模式配对**完全一致**，无遗留模式；
+  四条退出路径实测：Ctrl+D、`/quit`、SIGTERM 复位齐全，Ctrl+C×2 不退出（与 ref 一致）。
+- J2–J5 未做。发布包 `~/archives/publish-20261107h`（buildHead/publishCommit `ac4cd21c`、
+  publishTree `f4f1d761`，未发布）。
+
+## F38 收口（HEAD 12c8e73e）
+- K0：`ac4cd21c..HEAD` 只有文档提交，无代码改动 ⇒ 发布包 h 已含全部代码。
+- K1：删除 ref 没有的 `?2031h`/`?996n`；`tools/difftest/term-sim-residual.py` 实测三档应答延迟下
+  pi-rs 残留恒 0（TS 在 100ms 档残留 12 字节）；**Ctrl+C 双击（500ms 窗口）此前不退出**，已按
+  ref `interactive-mode.ts:4116-4124` 修，新测 `p9_f38_ctrlc_double.rs` 改前 FAILED → 改后 2/2。
+- K2：Linux pty 下两侧退出期都不重绘页脚（页脚次数 4 vs 3 的差异在会话区，不在退出期）。
+- K3：扩展开命令进斜杠菜单（`[tag] desc`、invocationName 去重、计数含之），T91 golden 入库；
+  另修 `quietStartup`（启动屏不打印 `Model scope:`/内置头部/资源清单），T92 golden 入库。
+- K4：渲染钩子按需重渲染（`ext.render.footer/widget` + `(kind,key,width,digest)` 缓存 + 200ms 超时回退）；
+  顺带修 widget 工厂不加内边距、补派发 `turn_end`；T95/T96/T97 golden 入库。
+- K5：loose 列表项间补空行（`markdown.ts:800-802`）——T89h 与 T89f/T89e/T89g 同时 same，golden 入库。
+- 收口数字（cargo clean 后全量）：workspace **1081/0**、clippy 0、precommit **11/11**、
+  regress **dark 98/0/21**、**light 23/0/1**、privacy-scan 干净、readonly 一致、check-orphans 0。
+- 发布包 `~/archives/publish-20261107i`（buildHead/publishCommit `12c8e73e`、publishTree `498dcc9f`，未发布）。
+
+## F39 收口（HEAD a075a5cc）
+- M0：**F38 的 K3b/K4 真实扩展对拍当时未做，本批补做**。真实 `pi-handoff-gate` 副本：Todo 部件
+  原先完全缺失，根因是 runner 的 `ctx.ui` 缺 `theme`（ref `types.ts:276-282`），扩展 `ctx.ui.theme.fg()`
+  抛错被自身 try/catch 吞掉；补齐后与 TS 一致。真实 `pi-ai-summary` 的工具行/thinking 行是
+  **原型补丁**（改 `ToolExecutionComponent.prototype.render`），跨进程架构下不生效 —— 需单列批次。
+- M1：启动屏 `[Skills]`/`[Extensions]` 与提示行的"着色后折行"对齐 TS（非末行补齐整宽、span 覆盖
+  前导空格、键位续行 muted、`pi v…` 行 dim）；逐格差异 T98 11→1、T99 6→2（剩余为夹具路径差异）。
+- M2：`restore()` 的 drain idle 150→50 ms（ref `terminal.ts:384`），退出收尾 161→60 ms；
+  新增 `tools/difftest/exit-timeline.py` 与 `p9_f39_exit_timeline.rs`（改前 gap 160.7 ms FAILED）。
+- M3：workspace **1082/0**、clippy 0、precommit **11/11**、regress **dark 100/0/22**、**light 23/0/1**、
+  privacy 干净、readonly 一致、orphans 0；**本批不出发布包**。
+
+## F40 取证与 N4（HEAD 63f58051）
+- N1：真实 10 扩展 × {全开, -ne, 逐个单开} × 3 次，pty 夹具下**未复现**（无存活子孙、termios 未变、无回显）。
+  夹具 `tools/difftest/pty-exit-probe.py`（2ms/10ms 粒度采样 + 占 tty 进程扫描 + `ESC[A` 回显探测）。
+- N2：ref 顺序是 `drainInput` → `stop()` → `await runtimeHost.dispose()`（内含 `await emitSessionShutdownEvent`）
+  → resume 行 → exit；pi-rs 的 `session_shutdown` 走 `enqueue_emit` **投递即返回**、不等宿主退出
+  （`ExtHost::drop` 只 `start_kill`）。属已确认偏离，但夹具下无可观测 tty 后果 ⇒ N3 未实施。
+- N4：`[Context]` 改为单行紧凑列表（ref `formatCompactList(..., {sort:false})`），多文件行数与 TS 一致；
+  新增 golden `T103-context-path`。
+
+## F41（HEAD 见 git）
+- 根因：扩展宿主的 stdout/stderr 继承 pty，Node 退出时 `uv_tty_reset_mode` 把 termios 写回 cooked
+  ⇒ shell 已设 raw 后又被改回，首个按键字面回显 `^[[A`。
+- 修法：宿主 stdio 全改管道（stdout/stderr 转发到宿主 stderr）+ 退出顺序对齐 ref
+  （等 `session_shutdown` → 等宿主退出 → 恢复终端）。用例 `p9_f41_host_no_tty` 改前 FAILED。
+- 退出耗时 55.8 → 55.9 ms（TS 60.3 ms）；golden T01/T05/T16/T90/T100/T103/T98/T89i/T96 全 same。
+
+## F44
+- S0：扩展日志按实例隔离（宿主单写入任务 + 每实例 256 KiB 缓冲；整行 `O_APPEND`）。
+- S1：markdown 列表续行悬挂缩进（`markdown.ts:758-781`）；S1b 实测两侧都不补空行，不改。
+- S2：`-c` 恢复补 `R/W/CH`（改用 `session_usage_totals` + `Usage` 分支拼三段）与 Todo 部件
+  （恢复分支不写 system ⇒ 补一次 `flush_pending_session_start`）。
+- S3：终端标题 OSC 2 → 0，且启动即写 `π - <cwd 名>`。
+- S4：页脚 cwd 缩写补 `state.home`（此前 `home` 解析后从未赋值）。

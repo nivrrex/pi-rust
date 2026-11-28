@@ -1,0 +1,32 @@
+{
+  "id": "S30",
+  "description": "rpc：种子（同 S28）+ `--continue` 后 `get_entries`（全量）→ `get_entries` 带 `since: \"m2\"`（只取其后）→ prompt。用于单独验证 `get_entries`（含 `since` 过滤与 `Entry not found:` 路径的对照）。验收：五层 same。",
+  "provider": "openai-completions",
+  "model": "mock-model",
+  "mode": "rpc",
+  "sessionFiles": {
+    "content": "{\"type\": \"session\", \"version\": 3, \"id\": \"seedS28-0000-4000-8000-000000000000\", \"timestamp\": \"2026-01-01T00:00:00.000Z\", \"cwd\": \"<CWD>\"}\n{\"type\": \"message\", \"id\": \"m1\", \"parentId\": null, \"timestamp\": \"2026-01-01T00:00:01.000Z\", \"message\": {\"role\": \"user\", \"content\": [{\"type\": \"text\", \"text\": \"第一个问题\"}], \"timestamp\": 1}}\n{\"type\": \"message\", \"id\": \"m2\", \"parentId\": \"m1\", \"timestamp\": \"2026-01-01T00:00:02.000Z\", \"message\": {\"role\": \"assistant\", \"content\": [{\"type\": \"text\", \"text\": \"第二个回答\"}], \"timestamp\": 2, \"api\": \"openai-completions\", \"provider\": \"mock\", \"model\": \"mock-model\", \"stopReason\": \"stop\", \"usage\": {\"input\": 1, \"output\": 1, \"cacheRead\": 0, \"cacheWrite\": 0, \"totalTokens\": 2, \"cost\": {\"input\": 0, \"output\": 0, \"cacheRead\": 0, \"cacheWrite\": 0, \"total\": 0}}}}\n{\"type\": \"message\", \"id\": \"m3a\", \"parentId\": \"m2\", \"timestamp\": \"2026-01-01T00:00:03.000Z\", \"message\": {\"role\": \"user\", \"content\": [{\"type\": \"text\", \"text\": \"分叉 A\"}], \"timestamp\": 3}}\n{\"type\": \"message\", \"id\": \"m3b\", \"parentId\": \"m2\", \"timestamp\": \"2026-01-01T00:00:04.000Z\", \"message\": {\"role\": \"user\", \"content\": [{\"type\": \"text\", \"text\": \"分叉 B\"}], \"timestamp\": 4}}",
+    "fileName": "session.jsonl"
+  },
+  "commands": [
+    {
+      "type": "get_entries"
+    },
+    {
+      "type": "get_entries",
+      "since": "m2"
+    },
+    {
+      "type": "prompt",
+      "message": "再看一眼条目"
+    }
+  ],
+  "responses": [
+    {
+      "file": "fixtures/sse/openai/text-basic.sse"
+    }
+  ],
+  "cliArgs": [
+    "--continue"
+  ]
+}

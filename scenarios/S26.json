@@ -1,0 +1,16 @@
+{
+  "id": "S26",
+  "description": "工具参数校验：read 缺必填 path，抓 TS 返回给模型的错误文本（见下一次请求体的 toolResult）",
+  "provider": "openai-completions",
+  "model": "mock-model",
+  "mode": "print",
+  "prompt": "read a file",
+  "responses": [
+    {
+      "file": "fixtures/sse/openai/toolcall-invalid.sse"
+    },
+    {
+      "file": "fixtures/sse/openai/text-basic.sse"
+    }
+  ]
+}

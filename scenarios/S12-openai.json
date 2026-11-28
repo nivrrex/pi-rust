@@ -1,0 +1,19 @@
+{
+  "id": "S12-openai",
+  "description": "thinking 回放（reasoning 字段回放）",
+  "provider": "openai-completions",
+  "model": "mock-model",
+  "mode": "print",
+  "prompt": "think then answer",
+  "responses": [
+    {
+      "file": "fixtures/sse/openai/reasoning-toolcall.sse"
+    },
+    {
+      "file": "fixtures/sse/openai/text-basic.sse"
+    }
+  ],
+  "files": {
+    "input.txt": "alpha\n"
+  }
+}

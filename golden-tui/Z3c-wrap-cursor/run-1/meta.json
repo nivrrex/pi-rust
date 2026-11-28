@@ -1,0 +1,33 @@
+{
+  "id": "Z3c-wrap-cursor",
+  "cols": 100,
+  "rows": 30,
+  "helperExit": 0,
+  "exitCode": 0,
+  "stderr": "",
+  "mockStderr": "",
+  "requestLog": "/tmp/record-Z3c-wrap-cursor/requests.jsonl",
+  "snapshotOffsets": [
+    {
+      "name": "cursor-mid-wrap",
+      "offset": 3654,
+      "t": 15282.042772298
+    },
+    {
+      "name": "home",
+      "offset": 3803,
+      "t": 15283.047555176
+    },
+    {
+      "name": "end",
+      "offset": 3953,
+      "t": 15284.052534703
+    },
+    {
+      "name": "final",
+      "offset": 4159,
+      "t": 15285.832783976
+    }
+  ],
+  "sessionDir": "/tmp/record-Z3c-wrap-cursor/session"
+}

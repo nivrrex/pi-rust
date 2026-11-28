@@ -1,0 +1,28 @@
+{
+  "id": "S32",
+  "description": "rpc：种子 + `--continue` 后**空闲时**取 `get_messages`（应含种子路径上的消息）→ prompt 一轮 → 再取一次。第一段是确定性判据；第二段与 S31 同理会踩到已定性的调度差异（TS 命令排队、响应在轮次事件之后），故只保留第一段。验收：五层 same。",
+  "provider": "openai-completions",
+  "model": "mock-model",
+  "mode": "rpc",
+  "sessionFiles": {
+    "content": "{\"type\": \"session\", \"version\": 3, \"id\": \"seedS28-0000-4000-8000-000000000000\", \"timestamp\": \"2026-01-01T00:00:00.000Z\", \"cwd\": \"<CWD>\"}\n{\"type\": \"message\", \"id\": \"m1\", \"parentId\": null, \"timestamp\": \"2026-01-01T00:00:01.000Z\", \"message\": {\"role\": \"user\", \"content\": [{\"type\": \"text\", \"text\": \"第一个问题\"}], \"timestamp\": 1}}\n{\"type\": \"message\", \"id\": \"m2\", \"parentId\": \"m1\", \"timestamp\": \"2026-01-01T00:00:02.000Z\", \"message\": {\"role\": \"assistant\", \"content\": [{\"type\": \"text\", \"text\": \"第二个回答\"}], \"timestamp\": 2, \"api\": \"openai-completions\", \"provider\": \"mock\", \"model\": \"mock-model\", \"stopReason\": \"stop\", \"usage\": {\"input\": 1, \"output\": 1, \"cacheRead\": 0, \"cacheWrite\": 0, \"totalTokens\": 2, \"cost\": {\"input\": 0, \"output\": 0, \"cacheRead\": 0, \"cacheWrite\": 0, \"total\": 0}}}}\n{\"type\": \"message\", \"id\": \"m3a\", \"parentId\": \"m2\", \"timestamp\": \"2026-01-01T00:00:03.000Z\", \"message\": {\"role\": \"user\", \"content\": [{\"type\": \"text\", \"text\": \"分叉 A\"}], \"timestamp\": 3}}\n{\"type\": \"message\", \"id\": \"m3b\", \"parentId\": \"m2\", \"timestamp\": \"2026-01-01T00:00:04.000Z\", \"message\": {\"role\": \"user\", \"content\": [{\"type\": \"text\", \"text\": \"分叉 B\"}], \"timestamp\": 4}}",
+    "fileName": "session.jsonl"
+  },
+  "commands": [
+    {
+      "type": "get_messages"
+    },
+    {
+      "type": "prompt",
+      "message": "再看一眼消息"
+    }
+  ],
+  "responses": [
+    {
+      "file": "fixtures/sse/openai/text-basic.sse"
+    }
+  ],
+  "cliArgs": [
+    "--continue"
+  ]
+}

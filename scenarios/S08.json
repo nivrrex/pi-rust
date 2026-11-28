@@ -1,0 +1,23 @@
+{
+  "id": "S08",
+  "description": "流中途断连（按事件分块，第 1 块后断开）",
+  "provider": "openai-completions",
+  "model": "mock-model",
+  "mode": "print",
+  "prompt": "say hi",
+  "responses": [
+    {
+      "file": "fixtures/sse/openai/text-basic.sse",
+      "disconnectAfterChunks": 1,
+      "chunkByEvent": true
+    },
+    {
+      "file": "fixtures/sse/openai/text-basic.sse"
+    }
+  ],
+  "expectInjections": {
+    "gateHits": 0,
+    "disconnects": 1,
+    "retryAfterSent": 0
+  }
+}

@@ -1,0 +1,26 @@
+{
+  "id": "S13d",
+  "description": "提示词前的压缩检查：--continue 载入'被中止且上下文超阈值'的会话，再发提示词；TS 应在 agent_start 之前压缩（ref agent-session.ts:1693-1698，skipAbortedCheck=false）",
+  "provider": "openai-completions",
+  "model": "mock-model",
+  "mode": "print",
+  "contextWindow": 20000,
+  "maxTokens": 1024,
+  "settings": {
+    "compaction": {
+      "enabled": true,
+      "reserveTokens": 1000,
+      "keepRecentTokens": 1
+    }
+  },
+  "cliArgs": ["--continue"],
+  "sessionFiles": {
+    "fileName": "seed.jsonl",
+    "content": "{\"type\": \"session\", \"version\": 3, \"id\": \"seed13d0-0000-4000-8000-000000000000\", \"timestamp\": \"2026-01-01T00:00:00.000Z\", \"cwd\": \"<CWD>\"}\n{\"type\": \"model_change\", \"id\": \"d0000001\", \"parentId\": null, \"timestamp\": \"2026-01-01T00:00:01.000Z\", \"provider\": \"mock\", \"modelId\": \"mock-model\"}\n{\"type\": \"thinking_level_change\", \"id\": \"d0000002\", \"parentId\": \"d0000001\", \"timestamp\": \"2026-01-01T00:00:02.000Z\", \"thinkingLevel\": \"off\"}\n{\"type\": \"message\", \"id\": \"d0000003\", \"parentId\": \"d0000002\", \"timestamp\": \"2026-01-01T00:00:03.000Z\", \"message\": {\"role\": \"user\", \"content\": [{\"type\": \"text\", \"text\": \"被中止那一轮的问题\"}], \"timestamp\": 1700000000003}}\n{\"type\": \"message\", \"id\": \"d0000004\", \"parentId\": \"d0000003\", \"timestamp\": \"2026-01-01T00:00:04.000Z\", \"message\": {\"role\": \"assistant\", \"content\": [{\"type\": \"text\", \"text\": \"被中止的回答\"}], \"timestamp\": 1700000000004, \"api\": \"openai-completions\", \"provider\": \"mock\", \"model\": \"mock-model\", \"usage\": {\"input\": 25000, \"output\": 10, \"cacheRead\": 0, \"cacheWrite\": 0, \"reasoning\": 0, \"totalTokens\": 25010, \"cost\": {\"input\": 0, \"output\": 0, \"cacheRead\": 0, \"cacheWrite\": 0, \"total\": 0}}, \"stopReason\": \"aborted\"}}\n"
+  },
+  "prompt": "中止之后的新提示词",
+  "responses": [
+    { "file": "fixtures/sse/openai/summary.sse" },
+    { "file": "fixtures/sse/openai/text-basic.sse" }
+  ]
+}

@@ -1,0 +1,105 @@
+{
+  "provider": "openai-completions",
+  "model": "mock-model",
+  "responses": [
+    {
+      "file": "fixtures/sse/openai/markdown-subset.sse"
+    }
+  ],
+  "files": {
+    "AGENTS.md": "# 项目规则\n\n- 项目级：改代码前先跑测试。\n"
+  },
+  "prompt": "say hi",
+  "id": "Z3c-wrap-cursor",
+  "description": "F54/Z3：光标停在折行中间，左右/Home/End 移动（ref editor.ts:923-950）",
+  "tui": {
+    "cols": 100,
+    "rows": 30,
+    "snapshots": [
+      "final"
+    ],
+    "steps": [
+      {
+        "action": "waitScreen",
+        "contains": "Pi can explain",
+        "timeoutMs": 25000
+      },
+      {
+        "action": "waitStable",
+        "quietMs": 600,
+        "timeoutMs": 20000
+      },
+      {
+        "action": "type",
+        "text": "onescoretwo hundred and thirty four five six seven eight nine ten"
+      },
+      {
+        "action": "waitStable",
+        "quietMs": 600,
+        "timeoutMs": 20000
+      },
+      {
+        "action": "type",
+        "text": "\u001b[D\u001b[D\u001b[D\u001b[D\u001b[D"
+      },
+      {
+        "action": "waitStable",
+        "quietMs": 600,
+        "timeoutMs": 20000
+      },
+      {
+        "action": "snapshot",
+        "name": "cursor-mid-wrap"
+      },
+      {
+        "action": "type",
+        "text": "\u001b[H"
+      },
+      {
+        "action": "waitStable",
+        "quietMs": 600,
+        "timeoutMs": 20000
+      },
+      {
+        "action": "snapshot",
+        "name": "home"
+      },
+      {
+        "action": "type",
+        "text": "\u001b[F"
+      },
+      {
+        "action": "waitStable",
+        "quietMs": 600,
+        "timeoutMs": 20000
+      },
+      {
+        "action": "snapshot",
+        "name": "end"
+      },
+      {
+        "action": "type",
+        "text": "\u0003"
+      },
+      {
+        "action": "delay",
+        "ms": 600
+      },
+      {
+        "action": "type",
+        "text": "\u0004"
+      },
+      {
+        "action": "waitStable",
+        "quietMs": 500,
+        "timeoutMs": 20000
+      },
+      {
+        "action": "snapshot",
+        "name": "final",
+        "quietMs": 600,
+        "timeoutMs": 20000
+      }
+    ]
+  }
+}

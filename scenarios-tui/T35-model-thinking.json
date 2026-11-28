@@ -1,0 +1,323 @@
+{
+  "id": "T35-model-thinking",
+  "description": "P7-7c3d：/settings → Default thinking level per model 两步子菜单",
+  "provider": "openai-completions",
+  "model": "mock-model",
+  "mode": "print",
+  "prompt": "say hi",
+  "files": {
+    "AGENTS.md": "# 项目规则\n\n- 项目级：改代码前先跑测试。\n"
+  },
+  "globalFiles": {
+    "CLAUDE.md": "# 全局规则\n\n- 全局级：回答用中文。\n"
+  },
+  "tui": {
+    "cols": 100,
+    "rows": 30,
+    "snapshots": [
+      "step-model",
+      "step-level"
+    ],
+    "steps": [
+      {
+        "action": "waitScreen",
+        "contains": "Pi can explain",
+        "timeoutMs": 25000
+      },
+      {
+        "action": "type",
+        "text": "/settings"
+      },
+      {
+        "action": "waitStable",
+        "quietMs": 800,
+        "timeoutMs": 15000
+      },
+      {
+        "action": "type",
+        "text": "\r"
+      },
+      {
+        "action": "delay",
+        "ms": 6000
+      },
+      {
+        "action": "waitStable",
+        "quietMs": 1200,
+        "timeoutMs": 20000
+      },
+      {
+        "action": "type",
+        "text": "\u001b[B"
+      },
+      {
+        "action": "delay",
+        "ms": 40
+      },
+      {
+        "action": "type",
+        "text": "\u001b[B"
+      },
+      {
+        "action": "delay",
+        "ms": 40
+      },
+      {
+        "action": "type",
+        "text": "\u001b[B"
+      },
+      {
+        "action": "delay",
+        "ms": 40
+      },
+      {
+        "action": "type",
+        "text": "\u001b[B"
+      },
+      {
+        "action": "delay",
+        "ms": 40
+      },
+      {
+        "action": "type",
+        "text": "\u001b[B"
+      },
+      {
+        "action": "delay",
+        "ms": 40
+      },
+      {
+        "action": "type",
+        "text": "\u001b[B"
+      },
+      {
+        "action": "delay",
+        "ms": 40
+      },
+      {
+        "action": "type",
+        "text": "\u001b[B"
+      },
+      {
+        "action": "delay",
+        "ms": 40
+      },
+      {
+        "action": "type",
+        "text": "\u001b[B"
+      },
+      {
+        "action": "delay",
+        "ms": 40
+      },
+      {
+        "action": "type",
+        "text": "\u001b[B"
+      },
+      {
+        "action": "delay",
+        "ms": 40
+      },
+      {
+        "action": "type",
+        "text": "\u001b[B"
+      },
+      {
+        "action": "delay",
+        "ms": 40
+      },
+      {
+        "action": "type",
+        "text": "\u001b[B"
+      },
+      {
+        "action": "delay",
+        "ms": 40
+      },
+      {
+        "action": "type",
+        "text": "\u001b[B"
+      },
+      {
+        "action": "delay",
+        "ms": 40
+      },
+      {
+        "action": "type",
+        "text": "\u001b[B"
+      },
+      {
+        "action": "delay",
+        "ms": 40
+      },
+      {
+        "action": "type",
+        "text": "\u001b[B"
+      },
+      {
+        "action": "delay",
+        "ms": 40
+      },
+      {
+        "action": "type",
+        "text": "\u001b[B"
+      },
+      {
+        "action": "delay",
+        "ms": 40
+      },
+      {
+        "action": "type",
+        "text": "\u001b[B"
+      },
+      {
+        "action": "delay",
+        "ms": 40
+      },
+      {
+        "action": "type",
+        "text": "\u001b[B"
+      },
+      {
+        "action": "delay",
+        "ms": 40
+      },
+      {
+        "action": "type",
+        "text": "\u001b[B"
+      },
+      {
+        "action": "delay",
+        "ms": 40
+      },
+      {
+        "action": "type",
+        "text": "\u001b[B"
+      },
+      {
+        "action": "delay",
+        "ms": 40
+      },
+      {
+        "action": "type",
+        "text": "\u001b[B"
+      },
+      {
+        "action": "delay",
+        "ms": 40
+      },
+      {
+        "action": "type",
+        "text": "\u001b[B"
+      },
+      {
+        "action": "delay",
+        "ms": 40
+      },
+      {
+        "action": "type",
+        "text": "\u001b[B"
+      },
+      {
+        "action": "delay",
+        "ms": 40
+      },
+      {
+        "action": "type",
+        "text": "\u001b[B"
+      },
+      {
+        "action": "delay",
+        "ms": 40
+      },
+      {
+        "action": "type",
+        "text": "\u001b[B"
+      },
+      {
+        "action": "delay",
+        "ms": 40
+      },
+      {
+        "action": "type",
+        "text": "\u001b[B"
+      },
+      {
+        "action": "delay",
+        "ms": 40
+      },
+      {
+        "action": "waitStable",
+        "quietMs": 900,
+        "timeoutMs": 15000
+      },
+      {
+        "action": "type",
+        "text": "\r"
+      },
+      {
+        "action": "waitStable",
+        "quietMs": 1200,
+        "timeoutMs": 15000
+      },
+      {
+        "action": "snapshot",
+        "name": "step-model"
+      },
+      {
+        "action": "type",
+        "text": "\r"
+      },
+      {
+        "action": "waitStable",
+        "quietMs": 1200,
+        "timeoutMs": 15000
+      },
+      {
+        "action": "snapshot",
+        "name": "step-level"
+      },
+      {
+        "action": "type",
+        "text": "\u001b"
+      },
+      {
+        "action": "waitStable",
+        "quietMs": 600,
+        "timeoutMs": 10000
+      },
+      {
+        "action": "type",
+        "text": "\u001b"
+      },
+      {
+        "action": "waitStable",
+        "quietMs": 600,
+        "timeoutMs": 10000
+      },
+      {
+        "action": "type",
+        "text": "\u001b"
+      },
+      {
+        "action": "waitStable",
+        "quietMs": 600,
+        "timeoutMs": 10000
+      },
+      {
+        "action": "type",
+        "text": "\u0004"
+      },
+      {
+        "action": "waitStable",
+        "quietMs": 500,
+        "timeoutMs": 10000
+      }
+    ]
+  },
+  "responses": [
+    {
+      "file": "fixtures/sse/openai/text-basic.sse"
+    }
+  ]
+}

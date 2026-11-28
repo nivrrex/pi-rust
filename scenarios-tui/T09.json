@@ -1,0 +1,87 @@
+{
+  "provider": "openai-completions",
+  "model": "mock-model",
+  "responses": [
+    {
+      "file": "fixtures/sse/openai/markdown-subset.sse"
+    }
+  ],
+  "files": {
+    "AGENTS.md": "# 项目规则\n\n- 项目级：改代码前先跑测试。\n"
+  },
+  "id": "T09",
+  "prompt": "say hi",
+  "description": "P7-5 W1 T09：多行输入（Ctrl+J = \\n 换行，实测候选）→ 提交前快照 → 提交 → 回复后快照",
+  "tui": {
+    "cols": 100,
+    "rows": 30,
+    "snapshots": [
+      "before-submit",
+      "after-submit"
+    ],
+    "steps": [
+      {
+        "action": "waitScreen",
+        "contains": "Pi can explain",
+        "timeoutMs": 25000
+      },
+      {
+        "action": "type",
+        "text": "line one"
+      },
+      {
+        "action": "waitStable",
+        "quietMs": 600,
+        "timeoutMs": 15000
+      },
+      {
+        "action": "type",
+        "text": "\n"
+      },
+      {
+        "action": "waitStable",
+        "quietMs": 800,
+        "timeoutMs": 15000
+      },
+      {
+        "action": "type",
+        "text": "line two"
+      },
+      {
+        "action": "waitStable",
+        "quietMs": 800,
+        "timeoutMs": 15000
+      },
+      {
+        "action": "snapshot",
+        "name": "before-submit"
+      },
+      {
+        "action": "type",
+        "text": "\r"
+      },
+      {
+        "action": "delay",
+        "ms": 20000
+      },
+      {
+        "action": "waitStable",
+        "quietMs": 1500,
+        "timeoutMs": 20000
+      },
+      {
+        "action": "snapshot",
+        "name": "after-submit"
+      },
+      {
+        "action": "type",
+        "text": "\u0004"
+      },
+      {
+        "action": "waitStable",
+        "quietMs": 500,
+        "timeoutMs": 10000
+      }
+    ]
+  }
+}

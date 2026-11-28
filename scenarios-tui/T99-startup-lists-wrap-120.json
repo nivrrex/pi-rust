@@ -1,0 +1,86 @@
+{
+ "id": "T99-startup-lists-wrap-120",
+ "description": "启动屏 [Skills]/[Extensions] 在窄宽度下折成多行（续行 SGR、缩进、段间空行）",
+ "provider": "openai-completions",
+ "model": "mock-model",
+ "mode": "print",
+ "prompt": "hi",
+ "files": {},
+ "agentFiles": {
+  "skills/skill-with-long-name-01/SKILL.md": "---\nname: skill-with-long-name-01\ndescription: Synthetic skill 1 for startup wrapping test\n---\n\n# skill-with-long-name-01\n",
+  "skills/skill-with-long-name-02/SKILL.md": "---\nname: skill-with-long-name-02\ndescription: Synthetic skill 2 for startup wrapping test\n---\n\n# skill-with-long-name-02\n",
+  "skills/skill-with-long-name-03/SKILL.md": "---\nname: skill-with-long-name-03\ndescription: Synthetic skill 3 for startup wrapping test\n---\n\n# skill-with-long-name-03\n",
+  "skills/skill-with-long-name-04/SKILL.md": "---\nname: skill-with-long-name-04\ndescription: Synthetic skill 4 for startup wrapping test\n---\n\n# skill-with-long-name-04\n",
+  "skills/skill-with-long-name-05/SKILL.md": "---\nname: skill-with-long-name-05\ndescription: Synthetic skill 5 for startup wrapping test\n---\n\n# skill-with-long-name-05\n",
+  "skills/skill-with-long-name-06/SKILL.md": "---\nname: skill-with-long-name-06\ndescription: Synthetic skill 6 for startup wrapping test\n---\n\n# skill-with-long-name-06\n",
+  "skills/skill-with-long-name-07/SKILL.md": "---\nname: skill-with-long-name-07\ndescription: Synthetic skill 7 for startup wrapping test\n---\n\n# skill-with-long-name-07\n",
+  "skills/skill-with-long-name-08/SKILL.md": "---\nname: skill-with-long-name-08\ndescription: Synthetic skill 8 for startup wrapping test\n---\n\n# skill-with-long-name-08\n",
+  "skills/skill-with-long-name-09/SKILL.md": "---\nname: skill-with-long-name-09\ndescription: Synthetic skill 9 for startup wrapping test\n---\n\n# skill-with-long-name-09\n",
+  "skills/skill-with-long-name-10/SKILL.md": "---\nname: skill-with-long-name-10\ndescription: Synthetic skill 10 for startup wrapping test\n---\n\n# skill-with-long-name-10\n",
+  "skills/skill-with-long-name-11/SKILL.md": "---\nname: skill-with-long-name-11\ndescription: Synthetic skill 11 for startup wrapping test\n---\n\n# skill-with-long-name-11\n",
+  "skills/skill-with-long-name-12/SKILL.md": "---\nname: skill-with-long-name-12\ndescription: Synthetic skill 12 for startup wrapping test\n---\n\n# skill-with-long-name-12\n"
+ },
+ "extensions": {
+  "ext-with-long-name-01/package.json": "{\"type\":\"module\",\"name\":\"ext-with-long-name-01\"}",
+  "ext-with-long-name-01/index.js": "export default function e1(pi) {}\n",
+  "ext-with-long-name-02/package.json": "{\"type\":\"module\",\"name\":\"ext-with-long-name-02\"}",
+  "ext-with-long-name-02/index.js": "export default function e2(pi) {}\n",
+  "ext-with-long-name-03/package.json": "{\"type\":\"module\",\"name\":\"ext-with-long-name-03\"}",
+  "ext-with-long-name-03/index.js": "export default function e3(pi) {}\n",
+  "ext-with-long-name-04/package.json": "{\"type\":\"module\",\"name\":\"ext-with-long-name-04\"}",
+  "ext-with-long-name-04/index.js": "export default function e4(pi) {}\n",
+  "ext-with-long-name-05/package.json": "{\"type\":\"module\",\"name\":\"ext-with-long-name-05\"}",
+  "ext-with-long-name-05/index.js": "export default function e5(pi) {}\n",
+  "ext-with-long-name-06/package.json": "{\"type\":\"module\",\"name\":\"ext-with-long-name-06\"}",
+  "ext-with-long-name-06/index.js": "export default function e6(pi) {}\n",
+  "ext-with-long-name-07/package.json": "{\"type\":\"module\",\"name\":\"ext-with-long-name-07\"}",
+  "ext-with-long-name-07/index.js": "export default function e7(pi) {}\n",
+  "ext-with-long-name-08/package.json": "{\"type\":\"module\",\"name\":\"ext-with-long-name-08\"}",
+  "ext-with-long-name-08/index.js": "export default function e8(pi) {}\n",
+  "ext-with-long-name-09/package.json": "{\"type\":\"module\",\"name\":\"ext-with-long-name-09\"}",
+  "ext-with-long-name-09/index.js": "export default function e9(pi) {}\n",
+  "ext-with-long-name-10/package.json": "{\"type\":\"module\",\"name\":\"ext-with-long-name-10\"}",
+  "ext-with-long-name-10/index.js": "export default function e10(pi) {}\n",
+  "ext-with-long-name-11/package.json": "{\"type\":\"module\",\"name\":\"ext-with-long-name-11\"}",
+  "ext-with-long-name-11/index.js": "export default function e11(pi) {}\n",
+  "ext-with-long-name-12/package.json": "{\"type\":\"module\",\"name\":\"ext-with-long-name-12\"}",
+  "ext-with-long-name-12/index.js": "export default function e12(pi) {}\n"
+ },
+ "responses": [
+  {
+   "file": "fixtures/sse/openai/text-basic.sse"
+  }
+ ],
+ "tui": {
+  "cols": 120,
+  "rows": 40,
+  "snapshots": [
+   "start"
+  ],
+  "steps": [
+   {
+    "action": "waitScreen",
+    "contains": "Pi can explain",
+    "timeoutMs": 40000
+   },
+   {
+    "action": "waitStable",
+    "quietMs": 1200,
+    "timeoutMs": 20000
+   },
+   {
+    "action": "snapshot",
+    "name": "start"
+   },
+   {
+    "action": "type",
+    "text": "\u0004"
+   },
+   {
+    "action": "waitStable",
+    "quietMs": 500,
+    "timeoutMs": 10000
+   }
+  ]
+ }
+}

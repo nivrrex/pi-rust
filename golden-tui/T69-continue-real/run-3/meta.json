@@ -1,0 +1,17 @@
+{
+  "id": "P78C-C-REAL",
+  "cols": 100,
+  "rows": 30,
+  "helperExit": 0,
+  "exitCode": 0,
+  "stderr": "",
+  "mockStderr": "",
+  "requestLog": "/tmp/rr/T69-continue-real/run-3/requests.jsonl",
+  "snapshotOffsets": [
+    {
+      "name": "after-continue",
+      "offset": 4599
+    }
+  ],
+  "sessionDir": "/tmp/rr/T69-continue-real/run-3/session"
+}

@@ -1,0 +1,73 @@
+{
+  "provider": "openai-completions",
+  "model": "mock-model",
+  "responses": [
+    {
+      "file": "fixtures/sse/openai/markdown-subset.sse"
+    }
+  ],
+  "files": {
+    "AGENTS.md": "# 项目规则\n\n- 项目级：改代码前先跑测试。\n"
+  },
+  "id": "T18",
+  "prompt": "say hi",
+  "description": "P7-6 W1 T18：未知命令 /xyz 的提示行为（不发送、不报错退出）",
+  "tui": {
+    "cols": 100,
+    "rows": 30,
+    "snapshots": [
+      "unknown-command"
+    ],
+    "steps": [
+      {
+        "action": "waitScreen",
+        "contains": "Pi can explain",
+        "timeoutMs": 25000
+      },
+      {
+        "action": "type",
+        "text": "/xyz"
+      },
+      {
+        "action": "waitStable",
+        "quietMs": 800,
+        "timeoutMs": 15000
+      },
+      {
+        "action": "type",
+        "text": "\r"
+      },
+      {
+        "action": "delay",
+        "ms": 6000
+      },
+      {
+        "action": "waitStable",
+        "quietMs": 1500,
+        "timeoutMs": 15000
+      },
+      {
+        "action": "snapshot",
+        "name": "unknown-command"
+      },
+      {
+        "action": "type",
+        "text": "\u0003"
+      },
+      {
+        "action": "waitStable",
+        "quietMs": 600,
+        "timeoutMs": 15000
+      },
+      {
+        "action": "type",
+        "text": "\u0004"
+      },
+      {
+        "action": "waitStable",
+        "quietMs": 500,
+        "timeoutMs": 10000
+      }
+    ]
+  }
+}

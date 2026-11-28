@@ -1,0 +1,13 @@
+{
+  "id": "S04c",
+  "description": "edit：oldText 不唯一",
+  "provider": "openai-completions",
+  "model": "mock-model",
+  "mode": "print",
+  "prompt": "edit input.txt",
+  "files": { "input.txt": "alpha\nbeta\n", "dup.txt": "same\nsame\n" },
+  "responses": [
+    { "file": "fixtures/sse/openai/tool-edit-ambiguous.sse" },
+    { "file": "fixtures/sse/openai/text-basic.sse" }
+  ]
+}

@@ -1,0 +1,23 @@
+{
+  "id": "T91-slash-ext-cmd",
+  "cols": 100,
+  "rows": 30,
+  "helperExit": 0,
+  "exitCode": 0,
+  "stderr": "",
+  "mockStderr": "",
+  "requestLog": "/tmp/k3ts/requests.jsonl",
+  "snapshotOffsets": [
+    {
+      "name": "slash-zz",
+      "offset": 4010,
+      "t": 43346.121234756
+    },
+    {
+      "name": "slash-all",
+      "offset": 5364,
+      "t": 43347.775561735
+    }
+  ],
+  "sessionDir": "/tmp/k3ts/session"
+}

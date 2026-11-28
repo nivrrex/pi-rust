@@ -1,0 +1,26 @@
+{
+  "description": "模型不写 api/baseUrl，继承 provider 级",
+  "probe": [
+    "p",
+    "m"
+  ],
+  "loadError": null,
+  "found": {
+    "provider": "p",
+    "id": "m",
+    "api": "openai-completions",
+    "baseUrl": "https://a.example/v1",
+    "maxTokens": 16384,
+    "contextWindow": 128000,
+    "cost": {
+      "input": 0,
+      "output": 0,
+      "cacheRead": 0,
+      "cacheWrite": 0
+    },
+    "reasoning": false
+  },
+  "modelIds": [
+    "m"
+  ]
+}

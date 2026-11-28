@@ -1,0 +1,38 @@
+plain-short @20
+ hello              
+====
+plain-long-20 @20
+ the quick brown    
+ fox jumps over the 
+ lazy dog           
+====
+plain-long-40 @40
+ the quick brown fox jumps over the     
+ lazy dog                               
+====
+wide-cjk-20 @20
+ 中文宽字符测试中文 
+ 宽字符测试         
+====
+ansi-color-20 @20
+ [31mred part[0m and       
+ normal             
+====
+tabs @40
+ a   b   c                              
+====
+padding-y @40
+                                        
+ padded                                 
+                                        
+====
+padding-x2-narrow @5
+  a  
+  b  
+  c  
+  d  
+  e  
+  f  
+====
+empty @20
+

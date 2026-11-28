@@ -1,0 +1,195 @@
+#!/bin/sh
+# pi-rs 发布脚本（用户本人执行）。
+#
+# 依赖：sh、git、curl。凭据只从环境变量 GITHUB_TOKEN 读取，并通过 `curl -K -`
+# 以 stdin 配置方式传入（不出现在进程参数、不写文件、不打印）。
+#
+# 用法：
+#   cd $HOME/archives/publish-<日期>
+#   export GITHUB_TOKEN=...
+#   sh publish.sh
+set -eu
+
+REPO="${REPO:-nivrrex/pi-rust}"
+TAG="${TAG:-v0.87.1}"
+API="${API_BASE:-https://api.github.com}/repos/$REPO"
+DRY_RUN="${DRY_RUN:-0}"
+ASSETS="pi-rs-linux-amd64 pi-rs-linux-amd64-musl pi-rs-linux-arm64 pi-rs-windows-amd64.exe"
+HERE=$(cd "$(dirname "$0")" && pwd)
+BACKUP_BUNDLE="${BACKUP_BUNDLE:-${HOME}/archives/pi-rust-remote-backup-20261029.bundle}"
+
+die() { printf '✗ %s\n' "$1" >&2; exit 1; }
+step() { printf '\n== %s\n' "$1"; }
+
+step "0/7 前置检查"
+[ -n "${GITHUB_TOKEN:-}" ] || die "缺少环境变量 GITHUB_TOKEN（只在环境里提供，不要写进脚本）"
+[ -f "$BACKUP_BUNDLE" ] || die "找不到备份 bundle：$BACKUP_BUNDLE（先在远端状态良好时做过 git clone --mirror 才对）"
+[ -f "$HERE/SHA256SUMS" ] || die "缺少 $HERE/SHA256SUMS"
+[ -f "$HERE/pi-rs.git.bundle" ] || die "缺少发布提交的 bundle：$HERE/pi-rs.git.bundle"
+for f in $ASSETS; do [ -f "$HERE/$f" ] || die "缺少产物：$f"; done
+( cd "$HERE" && sha256sum -c SHA256SUMS >/dev/null ) || die "SHA256SUMS 与本地产物不一致"
+[ -f "$HERE/MANIFEST" ] || die "缺少 MANIFEST（包与产物未绑定）"
+# 包与提交绑定：MANIFEST 记的 tree 必须等于包里 bundle 的发布提交 tree
+manifest_tree=$(awk '/^publishTree:/{print $2}' "$HERE/MANIFEST")
+bundle_tree=$(git -C "$HERE/repo" rev-parse "refs/heads/publish^{tree}" 2>/dev/null || true)
+[ -n "$manifest_tree" ] || die "MANIFEST 缺少 publishTree"
+[ "$manifest_tree" = "$bundle_tree" ] || die "包与 git bundle 不匹配（MANIFEST tree=$manifest_tree bundle tree=$bundle_tree）——请重建包"
+# 产物哈希必须与 MANIFEST 一致（防止换了产物没更新 MANIFEST）
+while read -r want name; do
+  got=$(sha256sum "$HERE/$name" | awk '{print $1}')
+  [ "$want" = "$got" ] || die "MANIFEST 与产物不一致：$name"
+done <<EOF2
+$(awk '/^artifacts:/{f=1;next} f&&NF{print $1, $2}' "$HERE/MANIFEST")
+EOF2
+printf '✓ 备份 bundle、SHA256SUMS、四份产物、git bundle 齐备\n'
+
+# curl 的凭据配置走 stdin（`-K -`），避免出现在 argv / 历史里
+gh() {
+  method=$1; url=$2; out=$3; data=${4:-}
+  if [ -n "$data" ]; then
+    printf 'header = "Authorization: token %s"\n' "$GITHUB_TOKEN" \
+      | curl -sS -K - -X "$method" -H 'Accept: application/vnd.github+json' \
+             -H 'Content-Type: application/json' --data-binary "$data" "$url" -o "$out"
+  else
+    printf 'header = "Authorization: token %s"\n' "$GITHUB_TOKEN" \
+      | curl -sS -K - -X "$method" -H 'Accept: application/vnd.github+json' "$url" -o "$out"
+  fi
+}
+
+# 远端默认分支（G''a）：优先 GET /repos/<owner>/<repo>，失败再 `git ls-remote --symref`。
+default_branch() {
+  tmp=$(mktemp)
+  if gh GET "$API" "$tmp" 2>/dev/null && python3 -c 'import json,sys;print(json.load(open(sys.argv[1]))["default_branch"])' "$tmp" >"$tmp.branch" 2>/dev/null; then
+    cat "$tmp.branch"; rm -f "$tmp" "$tmp.branch"; return 0
+  fi
+  rm -f "$tmp"
+  git ls-remote --symref "https://github.com/$REPO" HEAD 2>/dev/null \
+    | awk '/^ref:/{sub("refs/heads/","",$2); print $2; exit}'
+}
+
+# 带凭据的 git push：令牌只经环境变量交给 GIT_ASKPASS 助手脚本，
+# 不出现在 argv / 命令行历史 / 仓库配置里（`https://user:token@` 会被 ps 看到）。
+git_push_auth() {
+  askpass=$(mktemp)
+  cat > "$askpass" <<'ASKPASS'
+#!/bin/sh
+case "$1" in
+  *Username*) printf '%s\n' "x-access-token" ;;
+  *Password*) printf '%s\n' "${GITHUB_TOKEN:-}" ;;
+esac
+ASKPASS
+  chmod 700 "$askpass"
+  GIT_ASKPASS="$askpass" GIT_TERMINAL_PROMPT=0 GITHUB_TOKEN="$GITHUB_TOKEN" \
+    git -C "$HERE/repo" push --force "https://github.com/$REPO" "$@"
+  status=$?
+  rm -f "$askpass"
+  return $status
+}
+
+gh_up() { # upload <upload_url> <file>
+  printf 'header = "Authorization: token %s"\n' "$GITHUB_TOKEN" \
+    | curl -sS -K - -X POST -H 'Content-Type: application/octet-stream' \
+           --data-binary "@$2" "$1" -o /dev/null
+}
+
+step "1/7 强推默认分支（发布用单提交）"
+if [ "$DRY_RUN" = 1 ]; then
+  printf '（DRY_RUN：跳过 git push main）\n'
+else
+  BRANCH=$(default_branch)
+  [ -n "$BRANCH" ] || die "读不到远端默认分支（API 与 ls-remote 都失败）"
+  printf '  远端默认分支：%s\n' "$BRANCH"
+  git_push_auth "refs/heads/publish:refs/heads/$BRANCH" \
+    || die "强推失败。回滚：git clone $BACKUP_BUNDLE 后按其中的 refs/heads/master 恢复"
+  printf '✓ main 已更新\n'
+fi
+
+step "2/7 移动 tag $TAG"
+if [ "$DRY_RUN" = 1 ]; then
+  printf '（DRY_RUN：跳过 git push tag）\n'
+else
+  # **必须在本地重建 tag 再推**：`refs/tags/$TAG` 是一个 annotated tag 对象，
+  # 它自身指向某个 commit。包里的 `repo` 检出自发布提交，但 tag 对象是从仓库
+  # 原样带过来的——直接推同名 ref 只会把**旧 tag 对象**再发一遍，
+  # 远端 tag 因此永远停在首次发布那个提交上（而 Release 附件是新的，
+  # 表面上一切正常，点开"源码"却是旧的）。
+  # 先删再建，让 tag 对象指向 `publish` 分支的提交。
+  git -C "$HERE/repo" tag -d "$TAG" >/dev/null 2>&1 || true
+  git -C "$HERE/repo" tag -a "$TAG" -m "pi-rs $TAG" refs/heads/publish \
+    || die "本地重建 tag 失败"
+  git_push_auth "refs/tags/$TAG:refs/tags/$TAG" \
+    || die "tag 推送失败。回滚：以备份 bundle 中的 tag 为准强推回去"
+  printf '✓ tag 已指向新提交（%s）\n' "$(git -C "$HERE/repo" rev-parse 'refs/tags/'"$TAG"'^{commit}' | cut -c1-8)"
+fi
+
+step "3/7 删除 Release 旧附件"
+gh GET "$API/releases/tags/$TAG" "$HERE/.release.json" || die "查询 Release 失败"
+python3 - "$HERE/.release.json" > "$HERE/.asset-ids" <<'PY'
+import json, sys
+data = json.load(open(sys.argv[1]))
+for asset in data.get("assets", []):
+    print(asset["id"], asset["name"])
+PY
+[ -s "$HERE/.asset-ids" ] || printf '（Release 目前没有附件）\n'
+while read -r id name; do
+  [ -n "${id:-}" ] || continue
+  gh DELETE "$API/releases/assets/$id" "$HERE/.del.json" || die "删除附件 $name 失败"
+  printf '  - 已删除 %s\n' "$name"
+done < "$HERE/.asset-ids"
+
+step "4/7 上传新附件"
+UPLOAD=$(python3 -c 'import json,sys;print(json.load(open(sys.argv[1]))["upload_url"].split("{")[0])' "$HERE/.release.json")
+for f in $ASSETS; do
+  gh_up "$UPLOAD?name=$f" "$HERE/$f" || die "上传 $f 失败（可用备份 bundle 回滚 tag 与 main）"
+  printf '  + %s\n' "$f"
+done
+gh_up "$UPLOAD?name=SHA256SUMS" "$HERE/SHA256SUMS" || die "上传 SHA256SUMS 失败"
+
+step "5/7 重新下载并逐个核对 sha256"
+gh GET "$API/releases/tags/$TAG" "$HERE/.release2.json" || die "查询 Release 失败"
+python3 - "$HERE/.release2.json" > "$HERE/.asset-urls" <<'PY'
+import json, sys
+data = json.load(open(sys.argv[1]))
+for asset in data.get("assets", []):
+    print(asset["name"], asset["browser_download_url"])
+PY
+fail=0
+while read -r name url; do
+  case " $ASSETS SHA256SUMS " in *" $name "*) ;; *) continue ;; esac
+  # 清单自己不列自身 ⇒ 只确认存在，不比对 sha256
+  if [ "$name" = "SHA256SUMS" ]; then printf '  ✓ %s（清单本身，仅确认存在）\n' "$name"; continue; fi
+  curl -sSL "$url" -o "$HERE/.check-$name" || { printf '  ✗ 下载 %s 失败\n' "$name"; fail=1; continue; }
+  want=$(grep " $name\$" "$HERE/SHA256SUMS" | awk '{print $1}')
+  got=$(sha256sum "$HERE/.check-$name" | awk '{print $1}')
+  if [ "$want" = "$got" ]; then printf '  ✓ %s %s\n' "$name" "$got"; else printf '  ✗ %s 期望 %s 实际 %s\n' "$name" "$want" "$got"; fail=1; fi
+  rm -f "$HERE/.check-$name"
+done < "$HERE/.asset-urls"
+[ "$fail" = 0 ] || die "附件校验失败（已上传的内容可用备份 bundle 回滚）"
+
+step "6/7 更新 Release 说明"
+if [ -f "$HERE/发布正文.md" ]; then
+  python3 - "$HERE/发布正文.md" > "$HERE/.release-body.json" <<'PYBODY'
+import json, sys
+body = open(sys.argv[1], encoding="utf-8").read()
+print(json.dumps({"body": body}, ensure_ascii=False))
+PYBODY
+  # PATCH 只认 release id（按 tag 取 id），不能直接用 /releases/tags/<tag>
+  release_id=$(python3 -c 'import json,sys;print(json.load(open(sys.argv[1]))["id"])' "$HERE/.release.json")
+  printf 'header = "Authorization: token %s"\n' "$GITHUB_TOKEN" \
+    | curl -sS -K - -X PATCH -H 'Accept: application/vnd.github+json' \
+           -H 'Content-Type: application/json' --data-binary "@$HERE/.release-body.json" \
+           "$API/releases/$release_id" -o "$HERE/.release-patch.json"
+  python3 - "$HERE/.release-patch.json" <<'PYCHECK'
+import json, sys
+data = json.load(open(sys.argv[1]))
+if "body" in data:
+    print("  ✓ Release 说明已更新")
+else:
+    print("  ✗ Release 说明更新失败：%s" % data.get("message", data))
+    raise SystemExit(1)
+PYCHECK
+fi
+
+step "7/7 完成"
+printf '✓ 发布完成：https://github.com/%s/releases/tag/%s\n' "$REPO" "$TAG"
+printf '  回滚：用 %s 里的 refs 恢复 main/tag，再重跑本脚本上传旧产物。\n' "$BACKUP_BUNDLE"

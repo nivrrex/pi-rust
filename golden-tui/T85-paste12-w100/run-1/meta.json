@@ -1,0 +1,18 @@
+{
+  "id": "T85-paste12-w100",
+  "cols": 100,
+  "rows": 30,
+  "helperExit": 0,
+  "exitCode": 0,
+  "stderr": "",
+  "mockStderr": "",
+  "requestLog": "/tmp/record-T85-paste12-w100/requests.jsonl",
+  "snapshotOffsets": [
+    {
+      "name": "pasted",
+      "offset": 3516,
+      "t": 14682.017215162
+    }
+  ],
+  "sessionDir": "/tmp/record-T85-paste12-w100/session"
+}

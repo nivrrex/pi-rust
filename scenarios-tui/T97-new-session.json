@@ -1,0 +1,59 @@
+{
+ "id": "T97-new-session",
+ "description": "F17：TUI 里输入 /new 后切换会话，取切换后的屏幕（不显示会话路径，避免随机名影响逐帧比较）",
+ "provider": "openai-completions",
+ "model": "mock-model",
+ "mode": "print",
+ "prompt": "hi",
+ "files": {},
+ "tui": {
+  "cols": 100,
+  "rows": 30,
+  "steps": [
+   {
+    "action": "waitScreen",
+    "contains": "Pi can explain",
+    "timeoutMs": 25000
+   },
+   {
+    "action": "delay",
+    "ms": 1500
+   },
+   {
+    "action": "waitStable",
+    "quietMs": 800,
+    "timeoutMs": 15000
+   },
+   {
+    "action": "type",
+    "text": "/new\r"
+   },
+   {
+    "action": "waitStable",
+    "quietMs": 1200,
+    "timeoutMs": 20000
+   },
+   {
+    "action": "snapshot",
+    "name": "after-new"
+   },
+   {
+    "action": "type",
+    "text": "\u0004"
+   },
+   {
+    "action": "waitStable",
+    "quietMs": 500,
+    "timeoutMs": 10000
+   }
+  ],
+  "snapshots": [
+   "after-new"
+  ]
+ },
+ "responses": [
+  {
+   "file": "fixtures/sse/openai/text-basic.sse"
+  }
+ ]
+}

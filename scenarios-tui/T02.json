@@ -1,0 +1,50 @@
+{
+  "id": "T02",
+  "description": "P7-2 TUI 基线：/quit 退出（纯本地，无网络）",
+  "provider": "openai-completions",
+  "model": "mock-model",
+  "mode": "print",
+  "prompt": "say hi",
+  "files": {
+    "AGENTS.md": "# 项目规则\n\n- 项目级：改代码前先跑测试。\n"
+  },
+  "globalFiles": {
+    "CLAUDE.md": "# 全局规则\n\n- 全局级：回答用中文。\n"
+  },
+  "tui": {
+    "cols": 100,
+    "rows": 30,
+    "steps": [
+      {
+        "action": "waitScreen",
+        "contains": "Pi can explain",
+        "timeoutMs": 25000
+      },
+      {
+        "action": "type",
+        "text": "/quit\r"
+      },
+      {
+        "action": "waitStable",
+        "quietMs": 600,
+        "timeoutMs": 15000
+      },
+      {
+        "action": "snapshot",
+        "name": "before-exit"
+      },
+      {
+        "action": "waitExit",
+        "timeoutMs": 15000
+      }
+    ],
+    "snapshots": [
+      "before-exit"
+    ]
+  },
+  "responses": [
+    {
+      "file": "fixtures/sse/openai/text-basic.sse"
+    }
+  ]
+}

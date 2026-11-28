@@ -1,0 +1,22 @@
+{
+  "provider": "openai-completions",
+  "model": "mock-model",
+  "enableSkills": true,
+  "mode": "print",
+  "prompt": "/skill:review-helper 看一下这次改动",
+  "responses": [
+    {
+      "file": "fixtures/sse/openai/text-basic.sse"
+    }
+  ],
+  "files": {
+    "AGENTS.md": "# 项目规则\n\n- 项目级：先跑测试再改代码。\n"
+  },
+  "globalFiles": {
+    "CLAUDE.md": "# 全局规则\n\n- 全局级：回答用中文。\n",
+    "skills/review-helper/SKILL.md": "---\nname: review-helper\ndescription: 审阅改动时使用。\n---\n\n# review-helper\n\n- 逐条给证据。\n",
+    "settings.json": "{\"skills\": {\"enableSkillCommands\": false}}\n"
+  },
+  "id": "S50",
+  "description": "skills.enableSkillCommands=false 对 print 模式**无影响**：该键只被交互模式消费（ref modes/interactive/interactive-mode.ts:761/4760、settings-selector.ts:60/771），print 仍展开 ⇒ 断言 prompt 被展开为 <skill> 块（若将来误把该键当展开开关会转红）"
+}

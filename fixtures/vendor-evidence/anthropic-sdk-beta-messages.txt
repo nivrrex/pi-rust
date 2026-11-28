@@ -1,0 +1,23 @@
+# 摘录自 @anthropic-ai/sdk（仅供 spec 引用，本文件不由 pi-rust 维护）
+# SDK 根：<PI_TS_INSTALL>/node_modules/@earendil-works/pi-coding-agent/node_modules/@anthropic-ai/sdk
+# 版本：0.124.0
+
+## resources/beta/messages/messages.js:43-44（create 的请求行）
+        return this._client.post('/v1/messages?beta=true', {
+            body,
+
+## resources/beta/messages/messages.js:47-52（anthropic-beta 头的来源）
+            headers: (0, headers_1.buildHeaders)([
+                {
+                    ...(betas?.toString() != null ? { 'anthropic-beta': betas?.toString() } : undefined),
+                    ...(user_profile_id != null ? { 'anthropic-user-profile-id': user_profile_id } : undefined),
+                    ...(workspace_id != null ? { 'anthropic-workspace-id': workspace_id } : undefined),
+                },
+
+## client.js:444-449（OAuth 模式追加 anthropic-beta）
+            const existing = headers
+                .get('anthropic-beta')
+                ?.split(',')
+                .map((s) => s.trim());
+            if (!existing?.includes(types_1.OAUTH_API_BETA_HEADER)) {
+                headers.append('anthropic-beta', types_1.OAUTH_API_BETA_HEADER);

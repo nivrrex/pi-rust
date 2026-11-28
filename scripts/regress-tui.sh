@@ -1,0 +1,213 @@
+#!/usr/bin/env bash
+# TUI 全场景回归（严格逐帧）：默认并行 4，**LLM 流式场景串行**。
+#
+# 背景（P9-F5 更正）：`T10`（两轮 18s 固定 delay）与 `T52-tree-summarize`（/tree 摘要）曾被记为
+# "对负载敏感、footer 停在 1.1%"。**实测否定**：各连跑 30 次结果完全一致（不是偶发），
+# 真正的变量是 **`TS_PI_ENTRY`（→ `PI_PACKAGE_DIR`）有没有设置**——它决定 system prompt 的 docs 段，
+# 少 213 字符 ⇒ 上下文百分比从 `1.2%` 掉到 `1.1%`（见 `notes/p9-f5/flaky.md`）。
+# 设置后 `--jobs 4` 连跑两次均为 80 same / 0 different。故本脚本现在**缺该变量直接报错退出**，
+# 不再产出"看起来像偶发差异"的结果；SERIAL 列表保留（仍可减少固定 delay 场景的排队抖动）。
+#
+# 用法：
+#   scripts/regress-tui.sh [--runs N] [--jobs N] [--bin <pi-rs 路径>]
+# 判据不放宽：每个场景与 `golden-tui/<名>/run-1` 严格逐帧比较。
+set -u
+# 缺 `TS_PI_ENTRY`（或 `PI_TS_PACKAGE_DIR`）时，system prompt 的 docs 段会少 213 字符，
+# T10/T52 的 footer 上下文百分比因此差 0.1pp——与渲染无关，纯属环境缺失。直接失败，避免误判为偶发。
+# F30/P1：golden 语料是**两类录制路径**混着的 ⇒ 按场景名选包路径。
+#   PI_TS_SHORT：<短路径包>/dist/bundle/cli.js 这类**短路径**（多数 TUI golden）
+#   PI_TS_LONG ：pnpm 全局包一类的**长路径**（T10 / T52-tree-summarize 与 print 层 S01）
+# 两个变量都必须由调用方给出；脚本里不写死任何用户路径。
+if [ -z "${PI_TS_SHORT:-}" ] || [ -z "${PI_TS_LONG:-}" ]; then
+  echo "regress-tui: 需要 PI_TS_SHORT 与 PI_TS_LONG（golden 语料分两类录制路径；缺一个就会得到 0.1pp 假差异）" >&2
+  echo "  export PI_TS_SHORT=/path/pi-ts-0.87.1/dist/bundle/cli.js" >&2
+  echo "  export PI_TS_LONG=/path/pnpm/.../pi-coding-agent/dist/bundle/cli.js" >&2
+  exit 2
+fi
+# 用长路径录制的场景（其余一律短路径）。
+LONG_PATH_SCENARIOS=" T10 T52-tree-summarize "
+# 必须 export：实际的 run_one 跑在 `xargs sh -c "$(declare -f run_one)…"` 子进程里，
+# 不 export 的话子进程看不到这几个变量（表现为 TS_PI_ENTRY 为空 ⇒ docs 段退回短版本）。
+export PI_TS_SHORT PI_TS_LONG LONG_PATH_SCENARIOS
+REPO=$(cd "$(dirname "$0")/.." && pwd)
+RUNS=3
+JOBS=4
+BIN="${TUI_CMD:-$REPO/target/debug/pi-rs}"
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --runs)
+      RUNS=$2
+      shift 2
+      ;;
+    --jobs)
+      JOBS=$2
+      shift 2
+      ;;
+    --bin)
+      BIN=$2
+      shift 2
+      ;;
+    *)
+      echo "未知参数 $1" >&2
+      exit 2
+      ;;
+  esac
+done
+# 对负载敏感的场景（固定 delay 等 LLM 回合）：串行。
+# 判据：**多次 `waitStable` 夹着长 `delay`（等一整轮 LLM 回合）的场景**在 4 路并行下
+# 偶发判 different——并行时写终端变慢，"流本身停顿 > quietMs" 会被判成稳定、拍下中间帧。
+# 这些场景隔离连跑都稳定（T116 连跑 5/5、F52g 连跑 3/3、4 路并发 4/4），串行即可消除。
+# **不是**"所有带 delay 的都要串行"：149 个场景里 106 个含 >=1s 的 delay，
+# 全串行会让全量回归慢数倍，而它们的判稳窗口足够宽、并行下没出过问题。
+# `T74-retry-success`：`delay 12000` + `waitStable(1500)` 等一整轮重试回合，
+# 与上面几个同类。并行全量里实测 1/3 失败（差异只是少了一个空行，
+# 23 行 vs 22 行 —— 状态行清除与快照的先后），隔离连跑 6/6 全 same。
+SERIAL="T10 T52-tree-summarize T116-toolrow-collapsed F52g-ctrl-o-w80 T74-retry-success"
+OUT_ROOT=${OUT_ROOT:-/tmp/regress-tui}
+rm -rf "$OUT_ROOT"
+mkdir -p "$OUT_ROOT"
+
+# 主题维度：`THEME=dark|light`。light 用 `scenarios-tui-light/` + `golden-tui-light/`，
+# 缺省 dark 保持原有路径（`scenarios-tui/` + `golden-tui/`），因此默认行为不变。
+# `truecolor` 复用 `scenarios-tui/` 的场景，但 golden 在 `golden-tui-truecolor/`，
+# 并把 `COLORTERM` 固定成 `truecolor`（`run-tui.mjs` 认 `DIFTEST_COLORTERM`）。
+# 此前这 7 个场景**没有驱动**，只能手工 `run-tui.mjs` + `COLORTERM=truecolor` 逐个跑
+# （F122 核对时才发现），等于长期没有被自动回归覆盖。
+THEME=${THEME:-dark}
+case "$THEME" in
+  dark)
+    SCEN_DIR=scenarios-tui
+    GOLD_DIR=golden-tui
+    ;;
+  light)
+    SCEN_DIR=scenarios-tui-light
+    GOLD_DIR=golden-tui-light
+    ;;
+  truecolor)
+    SCEN_DIR=scenarios-tui
+    GOLD_DIR=golden-tui-truecolor
+    DIFTEST_COLORTERM=truecolor
+    ;;
+  *)
+    echo "regress-tui: THEME 只接受 dark|light|truecolor，收到 $THEME" >&2
+    exit 2
+    ;;
+esac
+
+# **固定 locale**：golden 里的 bash 报错是中文（`F52g` 的
+# `/bin/bash: 第 5 行：cd: … 没有那个文件或目录`），而 bash 的报错语言随
+# `LANGUAGE`/`LC_MESSAGES` 变。不固定时同一个二进制在不同 shell 下会得出
+# 不同结论——实测 `LANGUAGE=C` 让 F52g 判 different（纯假红，一个字都没差，
+# 只是英文 `No such file or directory`）。环境里未必有 zh_CN 时退回 C，
+# 但那样 golden 必然不同，所以**优先 zh_CN**并把结果写进日志便于排查。
+export LANGUAGE="${DIFTEST_LANGUAGE:-zh_CN}"
+export LANG="${DIFTEST_LOCALE:-zh_CN.UTF-8}"
+
+export THEME SCEN_DIR GOLD_DIR
+[ -n "${DIFTEST_COLORTERM:-}" ] && export DIFTEST_COLORTERM
+
+run_one() {
+  name=$1
+  run=$2
+  out="$OUT_ROOT/$name/run-$run"
+  mkdir -p "$out"
+  case "$LONG_PATH_SCENARIOS" in
+    *" $name "*) ts_entry=$PI_TS_LONG ;;
+    *) ts_entry=$PI_TS_SHORT ;;
+  esac
+  unshare -n sh -c "ip link set lo up; env PATH=\"$PATH\" TS_PI_ENTRY=$ts_entry TUI_CMD=$BIN DIFTEST_IMPL=pi-rs \
+    node $REPO/tools/difftest/run-tui.mjs --scenario $REPO/$SCEN_DIR/$name.json --out $out" \
+    >"$out/run.log" 2>&1
+  gold="$REPO/$GOLD_DIR/$name/run-1/raw.bin"
+  raw="$out/run-1/raw.bin"
+  if [ ! -f "$gold" ]; then
+    echo "$name run-$run nogolden"
+    return
+  fi
+  if [ ! -f "$raw" ]; then
+    echo "$name run-$run runfail"
+    return
+  fi
+  # helper 超时强杀也会留下 raw；只看 raw 存在会把 SIGKILL 误判成 same。
+  # 必须同时要求 helper 自身成功且被测 TUI 正常退出。
+  meta="$out/run-1/meta.json"
+  if [ ! -f "$meta" ] || ! node -e '
+    const fs=require("fs"); const m=JSON.parse(fs.readFileSync(process.argv[1],"utf8"));
+    process.exit(m.helperExit === 0 && m.exitCode === 0 ? 0 : 1);
+  ' "$meta"; then
+    echo "$name run-$run runfail"
+    return
+  fi
+  # 每个场景可能声明自己的 `tui.cols/rows`（如 T05-w80）；比较必须用**场景的**尺寸，
+  # 否则 80 列录的 golden 会被按 100 列回放，必然 different。
+  # shellcheck disable=SC2016 # Node 脚本里的 JS 模板字符串必须由 node 自己展开。
+  dims=$(node -e 'const fs=require("fs");const s=JSON.parse(fs.readFileSync(process.argv[1],"utf8"));const t=s.tui||{};process.stdout.write(`${t.cols||100} ${t.rows||30}`)' "$REPO/$SCEN_DIR/$name.json" 2>/dev/null)
+  cols=${dims%% *}
+  rows=${dims##* }
+  if node "$REPO/tools/difftest/compare-tui.mjs" --left "$gold" --right "$raw" \
+    --cols "$cols" --rows "$rows" 2>&1 | head -1 | grep -q same; then
+    # 文本一致后再比**样式**（SGR：前景/背景/粗体/斜体/暗淡/反显）。`compare-style.mjs` 是既有
+    # 比较器，这里只**增加调用**、不改它的判据；文本已 different 的场景不再重复算样式。
+    if [ "${STYLE_CHECK:-0}" = "1" ] && ! node "$REPO/tools/difftest/compare-style.mjs" \
+      --left "$gold" --right "$raw" --cols "$cols" --rows "$rows" 2>&1 | head -1 | grep -q same; then
+      echo "$name run-$run STYLE"
+    else
+      echo "$name run-$run same"
+    fi
+  else
+    echo "$name run-$run DIFFERENT"
+  fi
+}
+
+serial_list=""
+parallel_list=""
+for path in "$REPO"/"$SCEN_DIR"/*.json; do
+  name=$(basename "$path" .json)
+  # `truecolor` 复用 `scenarios-tui/` 的 148 个场景，但只有 7 个录了 truecolor golden。
+  # 没有 golden 的跑一遍只是被记成 `nogolden`、白跑 148 次——这里直接跳过。
+  if [ "$THEME" = "truecolor" ] && [ ! -f "$REPO/$GOLD_DIR/$name/run-1/raw.bin" ]; then
+    continue
+  fi
+  case " $SERIAL " in *" $name "*) serial_list="$serial_list $name" ;; esac
+  case " $SERIAL " in *" $name "*) ;; *) parallel_list="$parallel_list $name" ;; esac
+done
+
+echo "$parallel_list" | tr ' ' '\n' | grep -v '^$' | while read -r name; do
+  for run in $(seq 1 "$RUNS"); do echo "$name $run"; done
+done >"$OUT_ROOT/parallel.txt"
+echo "$serial_list" | tr ' ' '\n' | grep -v '^$' | while read -r name; do
+  for run in $(seq 1 "$RUNS"); do echo "$name $run"; done
+done >"$OUT_ROOT/serial.txt"
+
+# **空清单必须不执行**：`xargs` 在输入为空时仍会跑一次（`$0=sh`、`$1` 为空），
+# 于是 `run_one sh ""` 打出一行 `sh run- nogolden` —— 曾让 light 的汇总多出
+# 1 个假 nogolden（27 个场景全有 golden 却报 nogolden=1）。
+# 用 `-r`（GNU）对空输入不执行；再对空 `$1` 兜底，兼容 BSD xargs。
+run_batch() {
+  jobs="$1"
+  list="$2"
+  log="$3"
+  [ -s "$list" ] || {
+    : >"$log"
+    return 0
+  }
+  xargs -r -P "$jobs" -n 2 sh -c \
+    "$(declare -f run_one); REPO=$REPO OUT_ROOT=$OUT_ROOT BIN=$BIN SCEN_DIR=$SCEN_DIR GOLD_DIR=$GOLD_DIR STYLE_CHECK=${STYLE_CHECK:-0}; \
+     [ -n \"\$1\" ] || exit 0; run_one \"\$0\" \"\$1\"" \
+    <"$list" >"$log" 2>&1
+}
+run_batch "$JOBS" "$OUT_ROOT/parallel.txt" "$OUT_ROOT/parallel.log"
+run_batch 1 "$OUT_ROOT/serial.txt" "$OUT_ROOT/serial.log"
+
+cat "$OUT_ROOT/parallel.log" "$OUT_ROOT/serial.log" >"$OUT_ROOT/result.txt"
+same=$(grep -c ' same$' "$OUT_ROOT/result.txt" || true)
+diff=$(grep -c ' DIFFERENT$' "$OUT_ROOT/result.txt" || true)
+nogold=$(grep -c ' nogolden$' "$OUT_ROOT/result.txt" || true)
+fail=$(grep -c ' runfail$' "$OUT_ROOT/result.txt" || true)
+style=$(grep -c ' STYLE$' "$OUT_ROOT/result.txt" || true)
+if [ "${STYLE_CHECK:-0}" = "1" ]; then
+  echo "same=$same different=$diff style=$style nogolden=$nogold runfail=$fail"
+else
+  echo "same=$same different=$diff nogolden=$nogold runfail=$fail"
+fi
+[ "$diff" -eq 0 ] && [ "$fail" -eq 0 ]

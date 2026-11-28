@@ -1,0 +1,20 @@
+{
+  "id": "S27",
+  "description": "带 custom_message 与 branch_summary 的会话加载后 --continue：两类条目都要变成 user 消息进上下文（convertToLlm）",
+  "provider": "openai-completions",
+  "model": "mock-model",
+  "mode": "print",
+  "sessionFiles": {
+    "fileName": "seed.jsonl",
+    "content": "{\"type\": \"session\", \"version\": 3, \"id\": \"seed2222-0000-4000-8000-000000000000\", \"timestamp\": \"2026-01-01T00:00:00.000Z\", \"cwd\": \"<CWD>\"}\n{\"type\": \"message\", \"id\": \"m1\", \"parentId\": null, \"timestamp\": \"2026-01-01T00:00:01.000Z\", \"message\": {\"role\": \"user\", \"content\": [{\"type\": \"text\", \"text\": \"\\u7b2c\\u4e00\\u4e2a\\u95ee\\u9898\"}], \"timestamp\": 1700000000001}}\n{\"type\": \"message\", \"id\": \"m2\", \"parentId\": \"m1\", \"timestamp\": \"2026-01-01T00:00:02.000Z\", \"message\": {\"role\": \"assistant\", \"content\": [{\"type\": \"text\", \"text\": \"第一个回答\"}], \"timestamp\": 1700000000002, \"api\": \"openai-completions\", \"provider\": \"mock\", \"model\": \"mock-model\", \"stopReason\": \"stop\", \"usage\": {\"input\": 1, \"output\": 1, \"cacheRead\": 0, \"cacheWrite\": 0, \"totalTokens\": 2, \"cost\": {\"input\": 0, \"output\": 0, \"cacheRead\": 0, \"cacheWrite\": 0, \"total\": 0}}}}\n{\"type\": \"custom_message\", \"id\": \"c1\", \"parentId\": \"m2\", \"timestamp\": \"2026-01-01T00:00:03.000Z\", \"customType\": \"note\", \"content\": \"\\u8fd9\\u662f\\u4e00\\u6761\\u6269\\u5c55\\u5199\\u5165\\u7684\\u81ea\\u5b9a\\u4e49\\u6d88\\u606f\", \"display\": true}\n{\"type\": \"branch_summary\", \"id\": \"b1\", \"parentId\": \"c1\", \"timestamp\": \"2026-01-01T00:00:04.000Z\", \"fromId\": \"m9\", \"summary\": \"\\u8fd9\\u91cc\\u662f\\u4ece\\u53e6\\u4e00\\u5206\\u652f\\u56de\\u6765\\u65f6\\u7684\\u6458\\u8981\"}"
+  },
+  "cliArgs": [
+    "--continue"
+  ],
+  "prompt": "继续",
+  "responses": [
+    {
+      "file": "fixtures/sse/openai/text-basic.sse"
+    }
+  ]
+}

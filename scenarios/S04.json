@@ -1,0 +1,13 @@
+{
+  "id": "S04",
+  "description": "edit：替换成功",
+  "provider": "openai-completions",
+  "model": "mock-model",
+  "mode": "print",
+  "prompt": "edit input.txt",
+  "files": { "input.txt": "alpha\nbeta\n", "dup.txt": "same\nsame\n" },
+  "responses": [
+    { "file": "fixtures/sse/openai/tool-edit-ok.sse" },
+    { "file": "fixtures/sse/openai/text-basic.sse" }
+  ]
+}

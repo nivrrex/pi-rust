@@ -1,0 +1,20 @@
+data: {"type": "response.created", "sequence_number": 0, "response": {"id": "resp_mock", "object": "response", "created_at": 1700000000, "status": "in_progress", "model": "mock-model", "output": [], "parallel_tool_calls": true, "tool_choice": "auto", "tools": [], "error": null, "incomplete_details": null, "instructions": null, "metadata": {}, "temperature": 1.0, "top_p": 1.0, "max_output_tokens": null, "previous_response_id": null, "reasoning": {"effort": null, "summary": null}, "store": false, "text": {"format": {"type": "text"}}, "truncation": "disabled", "user": null}}
+
+data: {"type": "response.in_progress", "sequence_number": 1, "response": {"id": "resp_mock", "object": "response", "created_at": 1700000000, "status": "in_progress", "model": "mock-model", "output": [], "parallel_tool_calls": true, "tool_choice": "auto", "tools": [], "error": null, "incomplete_details": null, "instructions": null, "metadata": {}, "temperature": 1.0, "top_p": 1.0, "max_output_tokens": null, "previous_response_id": null, "reasoning": {"effort": null, "summary": null}, "store": false, "text": {"format": {"type": "text"}}, "truncation": "disabled", "user": null}}
+
+data: {"type": "response.output_item.added", "sequence_number": 2, "output_index": 0, "item": {"id": "msg_1", "type": "message", "role": "assistant", "status": "in_progress", "content": []}}
+
+data: {"type": "response.content_part.added", "sequence_number": 3, "output_index": 0, "content_index": 0, "part": {"type": "output_text", "text": "", "annotations": []}}
+
+data: {"type": "response.output_text.delta", "sequence_number": 4, "output_index": 0, "content_index": 0, "delta": "Hello", "logprobs": []}
+
+data: {"type": "response.output_text.delta", "sequence_number": 5, "output_index": 0, "content_index": 0, "delta": " world", "logprobs": []}
+
+data: {"type": "response.output_text.done", "sequence_number": 6, "output_index": 0, "content_index": 0, "text": "Hello world", "logprobs": []}
+
+data: {"type": "response.content_part.done", "sequence_number": 7, "output_index": 0, "content_index": 0, "part": {"type": "output_text", "text": "Hello world", "annotations": []}}
+
+data: {"type": "response.output_item.done", "sequence_number": 8, "output_index": 0, "item": {"id": "msg_1", "type": "message", "role": "assistant", "status": "completed", "content": [{"type": "output_text", "text": "Hello world", "annotations": []}]}}
+
+data: {"type": "response.completed", "sequence_number": 9, "response": {"id": "resp_mock", "object": "response", "created_at": 1700000000, "status": "completed", "model": "mock-model", "output": [{"id": "msg_1", "type": "message", "role": "assistant", "status": "completed", "content": [{"type": "output_text", "text": "Hello world", "annotations": []}]}], "parallel_tool_calls": true, "tool_choice": "auto", "tools": [], "error": null, "incomplete_details": null, "instructions": null, "metadata": {}, "temperature": 1.0, "top_p": 1.0, "max_output_tokens": null, "previous_response_id": null, "reasoning": {"effort": null, "summary": null}, "store": false, "text": {"format": {"type": "text"}}, "truncation": "disabled", "user": null, "usage": {"input_tokens": 10, "output_tokens": 2, "total_tokens": 12, "input_tokens_details": {"cached_tokens": 0}, "output_tokens_details": {"reasoning_tokens": 0}}}}
+

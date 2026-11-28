@@ -1,0 +1,18 @@
+{
+  "id": "T92-quiet-startup-scope",
+  "cols": 100,
+  "rows": 30,
+  "helperExit": 0,
+  "exitCode": 0,
+  "stderr": "",
+  "mockStderr": "",
+  "requestLog": "/tmp/k3t92/requests.jsonl",
+  "snapshotOffsets": [
+    {
+      "name": "scope",
+      "offset": 5245,
+      "t": 51986.885864118
+    }
+  ],
+  "sessionDir": "/tmp/k3t92/session"
+}

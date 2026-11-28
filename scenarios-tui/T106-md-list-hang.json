@@ -1,0 +1,59 @@
+{
+ "id": "T106-md-list-hang",
+ "description": "S1：有序/无序列表项折行后的悬挂缩进（ref markdown.ts:758-781）",
+ "provider": "openai-completions",
+ "model": "mock-model",
+ "mode": "print",
+ "prompt": "hi",
+ "files": {},
+ "responses": [
+  {
+   "file": "fixtures/sse/openai/md-list-hang.sse"
+  }
+ ],
+ "tui": {
+  "cols": 110,
+  "rows": 40,
+  "snapshots": [
+   "md"
+  ],
+  "steps": [
+   {
+    "action": "waitScreen",
+    "contains": "Pi can explain",
+    "timeoutMs": 30000
+   },
+   {
+    "action": "waitStable",
+    "quietMs": 1200,
+    "timeoutMs": 20000
+   },
+   {
+    "action": "type",
+    "text": "hi\r"
+   },
+   {
+    "action": "delay",
+    "ms": 6000
+   },
+   {
+    "action": "waitStable",
+    "quietMs": 1500,
+    "timeoutMs": 20000
+   },
+   {
+    "action": "snapshot",
+    "name": "md"
+   },
+   {
+    "action": "type",
+    "text": "\u0004"
+   },
+   {
+    "action": "waitStable",
+    "quietMs": 500,
+    "timeoutMs": 10000
+   }
+  ]
+ }
+}

@@ -1,0 +1,73 @@
+{
+  "id": "T80-model-scope-invalid",
+  "provider": "openai-completions",
+  "model": "mock-model",
+  "mode": "tui",
+  "prompt": "",
+  "files": {
+    "AGENTS.md": "# 项目规则\n"
+  },
+  "globalFiles": {},
+  "cliArgs": [],
+  "settings": {
+    "enabledModels": [
+      "openai-completions/mock-model",
+      "openai-completions/does-not-exist"
+    ]
+  },
+  "responses": [
+    {
+      "file": "fixtures/sse/openai/text-basic.sse"
+    }
+  ],
+  "description": "P8e-10/M-c：enabledModels 含不存在的 id ⇒ 启动打 Warning 并把它从 Ctrl+P 循环里过滤掉",
+  "tui": {
+    "cols": 100,
+    "rows": 30,
+    "snapshots": [
+      "scope"
+    ],
+    "steps": [
+      {
+        "action": "waitScreen",
+        "contains": "Pi can explain",
+        "timeoutMs": 25000
+      },
+      {
+        "action": "type",
+        "text": "scope test"
+      },
+      {
+        "action": "waitStable",
+        "quietMs": 600,
+        "timeoutMs": 15000
+      },
+      {
+        "action": "type",
+        "text": "\r"
+      },
+      {
+        "action": "delay",
+        "ms": 3000
+      },
+      {
+        "action": "waitStable",
+        "quietMs": 1200,
+        "timeoutMs": 15000
+      },
+      {
+        "action": "snapshot",
+        "name": "scope"
+      },
+      {
+        "action": "type",
+        "text": "\u0004"
+      },
+      {
+        "action": "waitStable",
+        "quietMs": 600,
+        "timeoutMs": 15000
+      }
+    ]
+  }
+}

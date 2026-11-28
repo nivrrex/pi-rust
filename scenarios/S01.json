@@ -1,0 +1,8 @@
+{
+  "id": "S01",
+  "description": "纯文本回复",
+  "provider": "openai-completions",
+  "model": "mock-model",
+  "mode": "print",
+  "responses": [{ "file": "fixtures/sse/openai/text-basic.sse" }]
+}

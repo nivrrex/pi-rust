@@ -1,0 +1,19 @@
+{
+  "providers": {
+    "p": {
+      "baseUrl": "https://a.example/v1",
+      "api": "openai-completions",
+      "models": [
+        {
+          "id": "m",
+          "cost": {
+            "input": 0,
+            "output": 0,
+            "cacheRead": 0,
+            "cacheWrite": 0
+          }
+        }
+      ]
+    }
+  }
+}

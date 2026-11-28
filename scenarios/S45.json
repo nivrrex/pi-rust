@@ -1,0 +1,26 @@
+{
+  "provider": "openai-completions",
+  "model": "mock-model",
+  "enableSkills": true,
+  "mode": "print",
+  "responses": [
+    {
+      "file": "fixtures/sse/openai/text-basic.sse"
+    }
+  ],
+  "files": {
+    "AGENTS.md": "# 项目规则\n\n- 项目级：先跑测试再改代码。\n",
+    ".pi/skills/dup-helper/SKILL.md": "---\nname: dup-helper\ndescription: 来自显式路径的同名者。\n---\n\n# dup-helper\n\n# body\n"
+  },
+  "globalFiles": {
+    "CLAUDE.md": "# 全局规则\n\n- 全局级：回答用中文。\n",
+    "skills/review-helper/SKILL.md": "---\nname: review-helper\ndescription: 审阅改动时使用。\n---\n\n# review-helper\n\n- 逐条给证据。\n",
+    "skills/dup-helper/SKILL.md": "---\nname: dup-helper\ndescription: 来自 user 目录的同名者。\n---\n\n# dup-helper\n\n# body\n"
+  },
+  "id": "S45",
+  "description": "同名冲突保留先者（user 目录胜出；skills.ts:433-448）+ collision 诊断到 stderr",
+  "cliArgs": [
+    "--skill",
+    ".pi/skills/dup-helper"
+  ]
+}

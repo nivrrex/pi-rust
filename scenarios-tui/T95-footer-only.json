@@ -1,0 +1,65 @@
+{
+ "id": "T95-footer-only",
+ "description": "K4 渲染钩子：扩展 setFooter/setWidget 的工厂按 (width, 状态摘要) 重渲染（ref interactive-mode.ts:2394-2422）",
+ "provider": "openai-completions",
+ "model": "mock-model",
+ "mode": "print",
+ "prompt": "hi",
+ "tui": {
+  "cols": 100,
+  "rows": 30,
+  "snapshots": [
+   "after"
+  ],
+  "steps": [
+   {
+    "action": "waitScreen",
+    "contains": "Pi can explain",
+    "timeoutMs": 30000
+   },
+   {
+    "action": "waitStable",
+    "quietMs": 1200,
+    "timeoutMs": 25000
+   },
+   {
+    "action": "type",
+    "text": "hi\r"
+   },
+   {
+    "action": "delay",
+    "ms": 5000
+   },
+   {
+    "action": "waitStable",
+    "quietMs": 1500,
+    "timeoutMs": 20000
+   },
+   {
+    "action": "delay",
+    "ms": 600
+   },
+   {
+    "action": "snapshot",
+    "name": "after"
+   },
+   {
+    "action": "type",
+    "text": "\u0004"
+   },
+   {
+    "action": "waitExit",
+    "timeoutMs": 20000
+   }
+  ]
+ },
+ "responses": [
+  {
+   "file": "fixtures/sse/openai/usage-cache.sse"
+  }
+ ],
+ "extensions": {
+  "k4/package.json": "{\n  \"type\": \"module\",\n  \"name\": \"pi-rs-k4-fixture\"\n}",
+  "k4/index.js": "import { Text, Container } from \"@earendil-works/pi-tui\";\n\nexport default function summaryExt(pi) {\n  pi.on(\"session_start\", (_e, ctx) => {\n    if (typeof ctx.ui?.setFooter !== \"function\") return;\n    ctx.ui.setFooter((_tui, theme, footerData) => {\n      return {\n        render(width) {\n          const prov = footerData.getAvailableProviderCount();\n          const statuses = footerData.getExtensionStatuses();\n          return [\n            theme.fg(\"dim\", `K4-FOOTER w=${width} p=${prov} st=${statuses.size}`),\n          ];\n        },\n        invalidate() {},\n      };\n    });\n  });\n}\n"
+ }
+}

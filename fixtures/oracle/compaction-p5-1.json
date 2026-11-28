@@ -1,0 +1,324 @@
+{
+  "goldenS21Sample": {
+    "prepared": null,
+    "placeholderIdExplanation": "golden 的 id/parentId/firstKeptEntryId 都是按出现顺序生成的占位符，引用关系不可解",
+    "entryKinds": [
+      "session",
+      "model_change",
+      "thinking_level_change",
+      "message",
+      "message",
+      "message",
+      "message",
+      "message",
+      "compaction",
+      "message",
+      "message",
+      "message",
+      "message"
+    ]
+  },
+  "projectionSamplePlain": {
+    "roles": [
+      "compactionSummary",
+      "assistant",
+      "user",
+      "assistant"
+    ],
+    "entryIds": [
+      "K",
+      "a1",
+      "u2",
+      "a2"
+    ],
+    "entryMessageCounts": [
+      1,
+      1,
+      1,
+      1
+    ],
+    "projectedTokens": {
+      "tokens": 20,
+      "usageTokens": 20,
+      "trailingTokens": 0,
+      "lastUsageIndex": 3
+    },
+    "prepared": {
+      "firstKeptEntryId": "a2",
+      "isSplitTurn": true,
+      "tokensBefore": 20,
+      "previousSummary": "旧摘要",
+      "messagesToSummarizeRoles": [
+        "assistant"
+      ],
+      "turnPrefixRoles": [
+        "user"
+      ],
+      "fileOps": {
+        "read": [],
+        "written": [],
+        "edited": []
+      }
+    }
+  },
+  "projectionSample": {
+    "roles": [
+      "compactionSummary",
+      "assistant",
+      "user",
+      "custom",
+      "branchSummary",
+      "user",
+      "assistant"
+    ],
+    "thinkingLevel": "off",
+    "model": {
+      "provider": "mock",
+      "modelId": "mock-model"
+    },
+    "entryIds": [
+      "K",
+      "a1",
+      "E1",
+      "u2",
+      "C1",
+      "B1",
+      "u3",
+      "a3"
+    ],
+    "entryMessageCounts": [
+      1,
+      1,
+      0,
+      1,
+      1,
+      1,
+      1,
+      1
+    ],
+    "projectedTokens": {
+      "tokens": 20,
+      "usageTokens": 20,
+      "trailingTokens": 0,
+      "lastUsageIndex": 6
+    },
+    "prepared": {
+      "firstKeptEntryId": "a3",
+      "isSplitTurn": true,
+      "tokensBefore": 20,
+      "previousSummary": "旧摘要",
+      "messagesToSummarizeRoles": [
+        "assistant",
+        "user",
+        "custom",
+        "branchSummary"
+      ],
+      "messagesToSummarizeCount": 4,
+      "turnPrefixRoles": [
+        "user"
+      ],
+      "fileOps": {
+        "read": [],
+        "written": [],
+        "edited": []
+      }
+    }
+  },
+  "jsValueSamples": {
+    "n_1_0": "1",
+    "n_1e21": "1e+21",
+    "n_neg0": "0",
+    "n_2p53p1": "9007199254740992",
+    "n_0_1": "0.1",
+    "n_1e_7": "1e-7",
+    "n_int": "42",
+    "n_neg": "-3.5",
+    "n_true": "true",
+    "n_null": "null",
+    "s_u2028": "\" \"",
+    "s_del": "\"\"",
+    "s_emoji": "\"😀\"",
+    "s_ctrl": "\"\\u0001\"",
+    "s_quote_backslash": "\"a\\\"b\\\\c\"",
+    "s_newline_tab": "\"a\\nb\\tc\"",
+    "nested_single_key": "{\"outer\":{\"inner\":1}}",
+    "array_mixed": "[1,\"two\",null,true]"
+  },
+  "argsJson": {
+    "multiArgNonAlpha": {
+      "z": 1,
+      "a": 2,
+      "m": 3
+    },
+    "integerKeys": {
+      "1": "one",
+      "2": "two",
+      "10": "ten",
+      "a": "a"
+    },
+    "duplicateKeys": {
+      "a": "second",
+      "b": "b"
+    },
+    "nestedArgs": {
+      "outer": {
+        "inner": 1
+      },
+      "list": [
+        1,
+        "two"
+      ],
+      "none": null,
+      "yes": true
+    },
+    "numberFormats": {
+      "a": 1,
+      "b": 1e+21,
+      "c": 0,
+      "d": 9007199254740992,
+      "e": 0.1,
+      "f": 1e-7
+    },
+    "stringFormats": {
+      "u2028": " ",
+      "del": "",
+      "emoji": "😀",
+      "ctrl": "\u0001",
+      "quote": "a\"b\\c"
+    },
+    "singleKeyNumber": {
+      "n": 1e+21
+    },
+    "singleKeyString": {
+      "s": " "
+    },
+    "singleKeyFloat": {
+      "n": 1
+    }
+  },
+  "serializedArgs": {
+    "multiArgNonAlpha": "[Assistant tool calls]: t(z=1, a=2, m=3)",
+    "integerKeys": "[Assistant tool calls]: t(1=\"one\", 2=\"two\", 10=\"ten\", a=\"a\")",
+    "duplicateKeys": "[Assistant tool calls]: t(a=\"second\", b=\"b\")",
+    "nestedArgs": "[Assistant tool calls]: t(outer={\"inner\":1}, list=[1,\"two\"], none=null, yes=true)",
+    "numberFormats": "[Assistant tool calls]: t(a=1, b=1e+21, c=0, d=9007199254740992, e=0.1, f=1e-7)",
+    "stringFormats": "[Assistant tool calls]: t(u2028=\" \", del=\"\", emoji=\"😀\", ctrl=\"\\u0001\", quote=\"a\\\"b\\\\c\")",
+    "singleKeyNumber": "[Assistant tool calls]: t(n=1e+21)",
+    "singleKeyString": "[Assistant tool calls]: t(s=\" \")",
+    "singleKeyFloat": "[Assistant tool calls]: t(n=1)"
+  },
+  "meta": {
+    "source": "ref/pi-0.87.1/packages/coding-agent/src/core/compaction/{compaction,utils}.ts",
+    "loadedFrom": "<PI_TS_INSTALL>/node_modules/@earendil-works/pi-coding-agent/dist/core/compaction",
+    "note": "期望值来自 TS 实现（dist 模块），Rust 侧只做逐字段一致比较"
+  },
+  "defaults": {
+    "enabled": true,
+    "reserveTokens": 16384,
+    "keepRecentTokens": 20000
+  },
+  "calculatedTokens": {
+    "nativeTotal": 10,
+    "fallback": 10
+  },
+  "tokenSamples": {
+    "systemPlain": 100,
+    "systemWithSectionsAndTools": 29,
+    "userString": 20,
+    "userWithImage": 1202,
+    "assistantMixed": 12,
+    "toolResultShort": 5,
+    "bashExecution": 10,
+    "branchSummary": 6,
+    "compactionSummary": 6
+  },
+  "emptyVsFilled": {
+    "emptyBlock": 0,
+    "filledBlock": 1
+  },
+  "contextEstimateSamples": {
+    "withUsage": {
+      "tokens": 168,
+      "usageTokens": 165,
+      "trailingTokens": 3,
+      "lastUsageIndex": 1
+    },
+    "abortedOnly": {
+      "tokens": 12,
+      "usageTokens": 0,
+      "trailingTokens": 12,
+      "lastUsageIndex": null
+    },
+    "zeroUsage": {
+      "tokens": 10,
+      "usageTokens": 0,
+      "trailingTokens": 10,
+      "lastUsageIndex": null
+    },
+    "empty": {
+      "tokens": 0,
+      "usageTokens": 0,
+      "trailingTokens": 0,
+      "lastUsageIndex": null
+    }
+  },
+  "thresholdSamples": {
+    "exact": false,
+    "above": true,
+    "below": false,
+    "disabled": false
+  },
+  "cutSamples": {
+    "small": {
+      "firstKeptEntryIndex": 7,
+      "turnStartIndex": -1,
+      "isSplitTurn": false
+    },
+    "large": {
+      "firstKeptEntryIndex": 0,
+      "turnStartIndex": -1,
+      "isSplitTurn": false
+    },
+    "atAssistant": {
+      "firstKeptEntryIndex": 3,
+      "turnStartIndex": 0,
+      "isSplitTurn": true
+    },
+    "atUser": {
+      "firstKeptEntryIndex": 0,
+      "turnStartIndex": -1,
+      "isSplitTurn": false
+    },
+    "emptyRange": {
+      "firstKeptEntryIndex": 0,
+      "turnStartIndex": -1,
+      "isSplitTurn": false
+    },
+    "onlyToolResultCanSatisfy": {
+      "firstKeptEntryIndex": 1,
+      "turnStartIndex": 0,
+      "isSplitTurn": true
+    }
+  },
+  "turnStartSamples": {
+    "fromToolResult": 0,
+    "fromAssistant": 0,
+    "fromUser": 4,
+    "noneBefore": -1
+  },
+  "fileLists": {
+    "read": [
+      "README.md"
+    ],
+    "modified": [
+      "src/main.rs"
+    ],
+    "formatted": "\n\n<read-files>\nREADME.md\n</read-files>\n\n<modified-files>\nsrc/main.rs\n</modified-files>"
+  },
+  "serializeSamples": {
+    "mixed": "[User]: 问题\n\n[Assistant thinking]: 想一下\n\n[Assistant]: 回答\n\n[Assistant tool calls]: read(path=\"a.txt\", offset=1)\n\n[Tool result]: LLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLL\n\n[... 500 more characters truncated]",
+    "singleArgToolCall": "[Assistant tool calls]: read(path=\"a.txt\")",
+    "onlyThinking": "[Assistant thinking]: 只有思考",
+    "noTextNoTool": ""
+  }
+}

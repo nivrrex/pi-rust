@@ -1,0 +1,4 @@
+data: {"id":"chatcmpl-mock","object":"chat.completion.chunk","created":1700000000,"model":"mock-model","choices":[{"index":0,"delta":{"content":"下面这一段以冒号结尾，用来验证它和后面那块之间是否补空行：（段落→有序列表）\n1. 甲项一\n2. 甲项二\n\n下面这一段以冒号结尾，用来验证它和后面那块之间是否补空行：（段落→无序列表）\n- 乙项一\n- 乙项二\n\n下面这一段以冒号结尾，用来验证它和后面那块之间是否补空行：（段落→代码块）\n```sh\nls -la\n```\n\n```sh\necho hi\n```\n- 丙项一\n\n- 丁项一\n这一小节说明也以冒号结尾，紧接着就是下一块：（列表→段落）\n\n## 小节标题\n- 戊项一\n\n下面这一段以冒号结尾，用来验证它和后面那块之间是否补空行：（段落→引用）\n> 引用一行"},"finish_reason":null}]}
+
+data: {"id":"chatcmpl-mock","object":"chat.completion.chunk","created":1700000000,"model":"mock-model","choices":[{"index":0,"delta":{},"finish_reason":"stop"}],"usage":{"prompt_tokens":10,"completion_tokens":400,"total_tokens":410}}
+

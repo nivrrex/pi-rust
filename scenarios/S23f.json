@@ -1,0 +1,23 @@
+{
+  "id": "S23f",
+  "description": "--system-prompt 与项目指令文件交互：自定义 preamble 时 project_context 仍应加入（ref agent-session.ts:1379-1394）",
+  "provider": "openai-completions",
+  "model": "mock-model",
+  "mode": "print",
+  "prompt": "say hi",
+  "files": {
+    "AGENTS.md": "# 项目规则\n\n- 项目级：改代码前先跑测试。\n"
+  },
+  "globalFiles": {
+    "CLAUDE.md": "# 全局规则\n\n- 全局级：回答用中文。\n"
+  },
+  "responses": [
+    {
+      "file": "fixtures/sse/openai/text-basic.sse"
+    }
+  ],
+  "cliArgs": [
+    "--system-prompt",
+    "你是自定义系统提示。"
+  ]
+}

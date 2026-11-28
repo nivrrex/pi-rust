@@ -1,0 +1,60 @@
+case c1-split-kitty 2
+chunk G1s/
+chunk MXU=
+case c2-split-da1 2
+chunk G1s/MQ==
+chunk OzJj
+case c3-split-three 3
+chunk Gw==
+chunk Wz8x
+chunk dQ==
+event Gw==
+event Ww==
+event Pw==
+event MQ==
+event dQ==
+case c4-key-resp-key 3
+chunk YQ==
+chunk G1s/MXU=
+chunk Yg==
+event YQ==
+event Yg==
+case c5-resp-between 2
+chunk eBtbPzN1
+chunk eQ==
+event eA==
+event eQ==
+case c6-two-resp-between 5
+chunk YQ==
+chunk G1s/MXU=
+chunk Yg==
+chunk G1s/MTsyYw==
+chunk Yw==
+event YQ==
+event Yg==
+event Yw==
+case c7-esc-then-resp 2
+chunk Gw==
+chunk G1s/MXU=
+event Gw==
+case c8-esc-arrow-resp 3
+chunk Gw==
+chunk W0E=
+chunk G1s/MXU=
+event Gw==
+event Ww==
+event QQ==
+case c9-resp-then-esc 2
+chunk G1s/MXU=
+chunk Gw==
+event Gw==
+case c10-paste-osc11 1
+chunk G1syMDB+eBtdMTE7cmdiOjExMTEvMjIyMi8zMzMzB3kbWzIwMX4=
+event G1syMDB+eBtdMTE7cmdiOjExMTEvMjIyMi8zMzMzB3kbWzIwMX4=
+case c11-paste-kitty 1
+chunk G1syMDB+cBtbPzF1cRtbMjAxfg==
+event G1syMDB+cBtbPzF1cRtbMjAxfg==
+case c12-paste-split 2
+chunk G1syMDB+aGU=
+chunk bGxvG1syMDF+
+event G1syMDB+aGVsbG8bWzIwMX4=

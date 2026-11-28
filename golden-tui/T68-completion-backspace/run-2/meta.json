@@ -1,0 +1,25 @@
+{
+  "id": "T68-completion-backspace",
+  "cols": 100,
+  "rows": 30,
+  "helperExit": 0,
+  "exitCode": -9,
+  "stderr": "",
+  "mockStderr": "",
+  "requestLog": "/tmp/rr/T68-completion-backspace/run-2/requests.jsonl",
+  "snapshotOffsets": [
+    {
+      "name": "after-tree",
+      "offset": 3905
+    },
+    {
+      "name": "after-backspace",
+      "offset": 4605
+    },
+    {
+      "name": "after-tab",
+      "offset": 5336
+    }
+  ],
+  "sessionDir": "/tmp/rr/T68-completion-backspace/run-2/session"
+}

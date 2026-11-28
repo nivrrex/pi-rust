@@ -1,0 +1,15 @@
+{
+  "id": "S25-anthropic",
+  "provider": "anthropic-messages",
+  "model": "mock-model",
+  "mode": "print",
+  "exitCode": 0,
+  "runs": 3,
+  "sane": true,
+  "stableLayers": {
+    "A": true,
+    "B": false,
+    "C": true
+  },
+  "stderr": ""
+}

@@ -1,0 +1,45 @@
+{
+ "T16": {
+  "width": 100,
+  "frame": "model-open",
+  "lines": [
+   "────────────────────────────────────────────────────────────────────────────────────────────────────",
+   "",
+   "Only showing models from configured providers. Use /login to add providers.",
+   "",
+   ">",
+   "",
+   "→ ✓ mock-model [openai-completions] · default",
+   "",
+   "  Model Name: mock-model",
+   "",
+   "  Model catalogs refreshed.",
+   "",
+   "  Enter to select · Ctrl+S to set as default · Escape/Ctrl+C to cancel"
+  ]
+ },
+ "T17": {
+  "width": 100,
+  "frame": "settings-open",
+  "lines": [
+   "────────────────────────────────────────────────────────────────────────────────────────────────────",
+   ">",
+   "",
+   "→ Auto-compact                      true",
+   "  Auto-resize images                true",
+   "  Block images                      false",
+   "  Skill commands                    true",
+   "  Show hardware cursor              false",
+   "  Editor padding                    0",
+   "  Output padding                    1",
+   "  Autocomplete max items            5",
+   "  Clear on shrink                   false",
+   "  Terminal progress                 false",
+   "  (1/31)",
+   "",
+   "  Automatically compact context when it gets too large",
+   "",
+   "  Type to search · Enter/Space to change · Esc to cancel"
+  ]
+ }
+}

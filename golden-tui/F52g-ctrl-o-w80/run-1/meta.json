@@ -1,0 +1,18 @@
+{
+  "id": "F52g-ctrl-o-w80",
+  "cols": 80,
+  "rows": 170,
+  "helperExit": 0,
+  "exitCode": 0,
+  "stderr": "",
+  "mockStderr": "",
+  "requestLog": "/tmp/g-ts-F52g-ctrl-o-w80/requests.jsonl",
+  "snapshotOffsets": [
+    {
+      "name": "state",
+      "offset": 23108,
+      "t": 244760.403668533
+    }
+  ],
+  "sessionDir": "/tmp/g-ts-F52g-ctrl-o-w80/session"
+}

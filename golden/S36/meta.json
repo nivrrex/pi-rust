@@ -1,0 +1,23 @@
+{
+  "id": "S36",
+  "provider": "openai-completions",
+  "model": "mock-model",
+  "mode": "print",
+  "exitCode": 0,
+  "runs": 3,
+  "sane": true,
+  "stableLayers": {
+    "A": true,
+    "B": false,
+    "C": true
+  },
+  "stderr": "",
+  "stepTrace": [
+    {
+      "index": 0,
+      "action": "waitExit",
+      "ms": 420,
+      "result": "ok"
+    }
+  ]
+}

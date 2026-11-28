@@ -1,0 +1,3390 @@
+//! 扩展工具接入（P9-1-B 第一批）：发现扩展 → 启动宿主 → 把 `registerTool` 的结果
+//! 接成 `pi_core::tools::tool::Tool`。
+//!
+//! 设计约束：
+//! - **零影响**：没有扩展目录、没有 node、握手失败 ⇒ 返回空列表并打印一条警告，
+//!   主程序其余功能照常（`--list-tools`、TUI、print 都不因它失败）；
+//! - **只启动一次**：宿主是进程级单例（`OnceLock`），避免每次取工具都 spawn；
+//! - **只支持 `.mjs`/`.js`**：`.ts` 需要 jiti（分发方案待定，见 `notes/questions.md`）。
+
+use std::path::{Path, PathBuf};
+use std::sync::{Arc, OnceLock};
+
+use pi_core::tools::tool::Tool;
+
+/// 进程级宿主句柄（`None` = 尝试过但不可用）。
+///
+/// **为什么是 `Mutex<Option<…>>` 而不是直接 `Option<…>`**：`/reload` 要换掉整个宿主
+/// （ref `interactive-mode.ts:6227` 的 `session.reload()` —— 重新加载 keybindings/
+/// extensions/skills/prompts/themes/context files）。扩展模块在同一 Node 进程里
+/// 被 `import` 后会进 ESM 缓存，重新 import **不会重新执行**，所以只能真的换进程。
+/// 换进程就必须能替换这个槽位，`OnceLock<Option<…>>` 做不到。
+static HOST: OnceLock<std::sync::Mutex<Option<pi_ext_host::HostHandle>>> = OnceLock::new();
+
+/// 启动宿主是否已**失败过**（失败才记住：启动成功后靠 `HOST` 槽位判断，
+/// 未启动过则每次都允许再试一次）。
+///
+/// 为什么不能记"尝试过"：测试与多入口会在同一进程里用**不同的 agentDir** 调
+/// `extension_tools`（`p9_f1_tool_call_input` 的两个 `#[tokio::test]` 各建一个
+/// tmpdir）。记"尝试过"会让第二次调用既拿不到宿主、也不再启动，
+/// 直接返回空工具表（实测：两个用例都红，报"应有扩展工具"）。
+static HOST_START_FAILED: OnceLock<bool> = OnceLock::new();
+
+/// TUI 的扩展 UI 事件上行通道（TUI 启动时注册；`None` = 非 TUI 模式）。
+static UI_TX: OnceLock<std::sync::mpsc::Sender<pi_tui::TuiEvent>> = OnceLock::new();
+
+/// 创建并注册 TUI 的 UI 上行通道：返回接收端（交给 `tui::run`），发送端留在全局。
+///
+/// 必须在 `default_tools`（会启动扩展宿主）**之前**调用，否则宿主拿不到发送端。
+#[must_use]
+pub fn register_ui_channel() -> std::sync::mpsc::Receiver<pi_tui::TuiEvent> {
+    let (tx, rx) = std::sync::mpsc::channel();
+    let _ = UI_TX.set(tx);
+    rx
+}
+
+/// UI 询问通道（TUI 面板作答；`None` = 无前端，宿主按取消处理）。
+static UI_ASK_TX: OnceLock<std::sync::mpsc::Sender<pi_ext_host::UiAsk>> = OnceLock::new();
+
+/// 创建并注册 UI 询问通道：返回接收端（交给 `tui::run`）。
+///
+/// 与 [`register_ui_channel`] 一样，必须在 `default_tools`（启动宿主）之前调用。
+#[must_use]
+pub fn register_ui_asks() -> std::sync::mpsc::Receiver<pi_ext_host::UiAsk> {
+    let (tx, rx) = std::sync::mpsc::channel();
+    let _ = UI_ASK_TX.set(tx);
+    rx
+}
+
+/// 事件分发队列（专用线程消费，见 `emit_event`）。
+/// 分发队列的载荷：`(宿主句柄, 事件名, 载荷)`。
+struct EmitItem {
+    host: pi_ext_host::HostHandle,
+    name: String,
+    payload: serde_json::Value,
+    /// 处理完该事件后，让 TUI 丢弃扩展 UI 的渲染缓存（回合边界用）。
+    invalidate_ui_after: bool,
+}
+
+static EMIT_TX: OnceLock<std::sync::mpsc::Sender<EmitItem>> = OnceLock::new();
+
+/// 把一条事件放进分发队列（专用线程逐个调用 `emit`）。
+///
+/// 显式传 `host`：`start_host` 里 `HOST` 还没写入，但 `session_start` 也要能入队。
+fn enqueue_emit(host: pi_ext_host::HostHandle, name: &str, payload: serde_json::Value) {
+    enqueue(EmitItem {
+        host,
+        name: name.to_string(),
+        payload,
+        invalidate_ui_after: false,
+    });
+}
+
+fn enqueue(item: EmitItem) {
+    let sender = EMIT_TX.get_or_init(|| {
+        let (tx, rx) = std::sync::mpsc::channel::<EmitItem>();
+        std::thread::spawn(move || {
+            while let Ok(item) = rx.recv() {
+                if let Err(error) =
+                    item.host
+                        .emit(&item.name, item.payload, std::time::Duration::from_secs(2))
+                {
+                    warn_runtime(&format!("pi-rs: 扩展事件 {} 分发失败：{error}", item.name));
+                }
+                // **必须在本事件的处理完成之后**才让 TUI 丢弃扩展 UI 缓存：
+                // handler 里自增的私有计数（`T97` 的 `turns += 1`）要等这次
+                // `emit` 返回才生效。此前在 `TuiEventSink` 里同步发 invalidate，
+                // 它排在 handler 之前 ⇒ 重渲染读到的还是旧值。
+                if item.invalidate_ui_after {
+                    emit_ui_event(pi_tui::TuiEvent::ExtensionUiInvalidate);
+                }
+            }
+        });
+        tx
+    });
+    let _ = sender.send(item);
+}
+
+/// 派发事件，并**在该事件的处理完成之后**让 TUI 丢弃扩展 UI 缓存（回合边界用）。
+///
+/// 与 [`emit_event`] 的区别只有 `invalidate_ui_after`：两者走**同一条串行队列**，
+/// 所以缓存失效一定排在 handler 执行之后。
+pub fn emit_event_then_invalidate_ui(name: &str, payload: serde_json::Value) {
+    let Some(host) = host_handle() else {
+        return;
+    };
+    enqueue(EmitItem {
+        host,
+        name: name.to_string(),
+        payload,
+        invalidate_ui_after: true,
+    });
+}
+
+/// 扩展可见的 ctx 快照（`types.ts:313-353` 的子集），宿主启动前由调用方配置。
+static CTX: OnceLock<std::sync::Mutex<serde_json::Value>> = OnceLock::new();
+
+/// 配置 ctx（必须在扩展宿主启动前调用；只第一次生效）。
+///
+/// 本批只填 `cwd`/`mode`/`hasUI`；`model`/`thinkingLevel` 传 `null`
+/// （它们的解析发生在装配工具之后，见 `notes/p9-1d/spotcheck.md`）。
+pub fn configure_ctx(cwd: &std::path::Path, mode: &str, has_ui: bool) {
+    let slot = CTX.get_or_init(|| {
+        std::sync::Mutex::new(serde_json::json!({
+            "cwd": cwd.display().to_string(),
+            "mode": mode,
+            "hasUI": has_ui,
+            // ref `terminal-image.ts:73-74` 的真彩能力提示；扩展的 `theme.fg` 据此决定
+            // 走真彩还是 256 色（F45/T4）。
+            "trueColor": pi_tui::style::truecolor_supported(),
+            // 当前主题名（`settings.json` 的 `theme`）：扩展的 `theme.fg` 据此选浅/深色表（F46/U3）。
+            "themeName": "dark",
+            "model": serde_json::Value::Null,
+            "thinkingLevel": serde_json::Value::Null,
+            // ref `core/footer-data-provider.ts:239-248` 的 git 分支：扩展页脚用它拼
+            // `cwd (branch)`。启动时算一次，`update_ctx_cwd` 在恢复会话后按会话 cwd 重算。
+            "gitBranch": git_branch_for(cwd),
+            // ref `extensions/types.ts:336-338` 的 `isProjectTrusted()`（F61/21 起有真正的
+            // `/trust` 状态机）。此前宿主硬编码 `false`，会让 `pi-ai-summary` 的项目级
+            // settings 链**永久失效**（它用这个值决定是否读项目配置）。
+            // 无 `trust.json`/无条目 ⇒ false（ref 的 fail-closed）。
+            "isProjectTrusted": false,
+            // 当前会话叶子 id（ref `session-manager.ts:1469` 的 `this.leafId`）。
+            // 每次事件派发时宿主都会带 `ctx`（`emit_event_value` 的 `ctx` 参数），
+            // 因此 `set_ctx_leaf_id` → `push_ctx` 能传到 runner。
+            "leafId": leaf_id_snapshot(),
+            // `ctx.signal` 的生命周期标记（ref `runner.ts:858-861` 的 getter →
+            // `agent-session.ts:3100` 的 `this.agent.signal`）。`false` 表示
+            // 当前没有取消，宿主每次下发 ctx 都带上它，扩展侧据此换新控制器。
+            "signalAborted": false,
+        }))
+    });
+    // 二次调用（测试/多入口）只更新可变字段，不覆盖 model/thinkingLevel。
+    if let Ok(mut guard) = slot.lock() {
+        guard["cwd"] = serde_json::Value::String(cwd.display().to_string());
+        guard["mode"] = serde_json::Value::String(mode.to_string());
+        guard["hasUI"] = serde_json::Value::Bool(has_ui);
+        guard["trueColor"] = serde_json::Value::Bool(pi_tui::style::truecolor_supported());
+    }
+    push_ctx();
+}
+
+/// 当前 cwd 的 git 分支（无仓库 ⇒ `Null`）。
+fn git_branch_for(cwd: &std::path::Path) -> serde_json::Value {
+    match pi_tui::gitinfo::git_branch(cwd) {
+        Some(branch) => serde_json::Value::String(branch),
+        None => serde_json::Value::Null,
+    }
+}
+
+/// 把项目信任决定写进 ctx（`/trust` 保存后调用；启动时由 `main` 在 `configure_ctx`
+/// 之后立即调用一次）。
+///
+/// 单独一个入口而不是塞进 `configure_ctx`：`configure_ctx` 只拿 cwd、不拿 agentDir，
+/// 而信任决定存在 `<agentDir>/trust.json`。
+pub fn update_ctx_project_trusted(trusted: bool) {
+    let Some(slot) = CTX.get() else {
+        return;
+    };
+    if let Ok(mut guard) = slot.lock() {
+        guard["isProjectTrusted"] = serde_json::Value::Bool(trusted);
+    }
+    push_ctx();
+}
+
+/// 更新 ctx 里的工作目录与 git 分支。
+///
+/// ref 里 `ctx.sessionManager.getCwd()` 是**会话**的工作目录（`--session`/`-c` 恢复时取
+/// 会话头里的 `cwd`，见 `core/session-manager.ts:1779`），扩展页脚用它拼 `cwd (branch)`。
+/// 此前 ctx.cwd 只在进程启动时写一次 ⇒ 在别处恢复会话时扩展页脚显示的是**进程** cwd、
+/// 分支名因而不出现（真机 G1）。
+pub fn update_ctx_cwd(cwd: &std::path::Path) {
+    let Some(slot) = CTX.get() else {
+        return;
+    };
+    if let Ok(mut guard) = slot.lock() {
+        guard["cwd"] = serde_json::Value::String(cwd.display().to_string());
+        guard["gitBranch"] = git_branch_for(cwd);
+    }
+    push_ctx();
+}
+
+/// 更新 ctx 里的终端宽度（列数）。扩展的页脚/组件按它渲染（ref 的 `render(width)`）。
+pub fn update_ctx_width(cols: usize) {
+    let Some(slot) = CTX.get() else {
+        return;
+    };
+    if let Ok(mut guard) = slot.lock() {
+        guard["width"] = serde_json::json!(cols);
+    }
+    push_ctx();
+}
+
+/// 更新 ctx 里的当前主题名（`settings.json` 的 `theme`）。
+///
+/// 扩展的 `theme.fg(...)` 据此选浅/深色表（F46/U3）：ref `theme/theme.ts:529` 按主题名取
+/// 对应主题对象；此前宿主固定用 dark 表 ⇒ light 主题下扩展的颜色全错（真机 `✓ 全部完成`
+/// 呈深色 `#b5bd68`）。必须在扩展宿主渲染页脚**之前**调用。
+pub fn update_ctx_theme(name: &str) {
+    let Some(slot) = CTX.get() else {
+        return;
+    };
+    if let Ok(mut guard) = slot.lock() {
+        guard["themeName"] = serde_json::Value::String(name.to_string());
+    }
+    push_ctx();
+}
+
+/// 把 `ctx.model` 设成 ref 的 **Model 对象**（`types.ts:327` 是 `Model<any> | undefined`，
+/// 不是字符串）。扩展普遍读 `ctx.model?.id` / `.provider` / `.reasoning`
+/// （如实测的 pi-ai-summary 页脚），此前我们存的是字符串 ⇒ `model=undefined`、页脚丢模型名。
+pub fn set_ctx_model_object(id: &str, provider: &str, reasoning: bool, context_window: u64) {
+    set_ctx_available_providers(0);
+    let Some(slot) = CTX.get() else {
+        return;
+    };
+    if let Ok(mut guard) = slot.lock() {
+        guard["model"] = serde_json::json!({
+            "id": id,
+            "provider": provider,
+            "reasoning": reasoning,
+            "contextWindow": context_window,
+        });
+    }
+    push_ctx();
+}
+
+/// 把 `ResolvedModel` 转成 ref 的 **Model 对象**（`ai/src/types.ts:982-1002`）。
+///
+/// 与 rpc `set_model` 响应里的 `data` 同源：扩展的 `model_select` 事件载荷
+/// （`extensions/types.ts:914-919`）要的就是这个形状。
+#[must_use]
+pub fn model_json(resolved: &pi_ai::config::ResolvedModel) -> serde_json::Value {
+    let rate = |value: f64| -> serde_json::Value {
+        serde_json::Number::from_f64(value)
+            .map_or(serde_json::Value::Null, serde_json::Value::Number)
+    };
+    serde_json::json!({
+        "id": resolved.model_id,
+        "name": resolved.name.clone().unwrap_or_else(|| resolved.model_id.clone()),
+        "api": resolved.api,
+        "provider": resolved.provider_name,
+        "baseUrl": resolved.base_url,
+        "reasoning": resolved.reasoning,
+        "input": resolved.input_supported,
+        "cost": {
+            "input": rate(resolved.rates.input),
+            "output": rate(resolved.rates.output),
+            "cacheRead": rate(resolved.rates.cache_read),
+            "cacheWrite": rate(resolved.rates.cache_write),
+        },
+        "contextWindow": resolved.context_window,
+        "maxTokens": resolved.max_tokens,
+    })
+}
+
+/// 派发 `model_select`（ref `extensions/types.ts:1414` / `:913-919`）。
+///
+/// `modelsAreEqual` 为真时**不派发**（ref `agent-session.ts:2105-2107` 的前置判断）。
+/// `source` 取 `set` / `cycle` / `restore`（ref `:911`）。
+pub fn emit_model_select(
+    model: &pi_ai::config::ResolvedModel,
+    previous: Option<&pi_ai::config::ResolvedModel>,
+    source: &str,
+) {
+    if let Some(previous) = previous {
+        if previous.provider_name == model.provider_name && previous.model_id == model.model_id {
+            return;
+        }
+    }
+    let Some(host) = host_handle() else {
+        return;
+    };
+    let payload = serde_json::json!({
+        "type": "model_select",
+        "model": model_json(model),
+        "previousModel": previous.map(model_json),
+        "source": source,
+    });
+    let _ = host.emit_value("model_select", payload, std::time::Duration::from_secs(10));
+}
+
+/// 派发 `model_select`，载荷直接用已备好的 **Model 对象**。
+///
+/// 与 [`emit_model_select`] 的区别：那个从 [`pi_ai::config::ResolvedModel`] 现造，
+/// 这个用于调用方**只有** id/provider（`previousModel`）的情形。
+/// `modelsAreEqual` 为真时不派发（ref `agent-session.ts:2105-2107`）。
+pub fn emit_model_select_json(
+    model: serde_json::Value,
+    previous: Option<serde_json::Value>,
+    source: &str,
+) {
+    let same = previous.as_ref().is_some_and(|previous| {
+        previous.get("provider") == model.get("provider") && previous.get("id") == model.get("id")
+    });
+    if same {
+        return;
+    }
+    let Some(host) = host_handle() else {
+        return;
+    };
+    let payload = serde_json::json!({
+        "type": "model_select",
+        "model": model,
+        "previousModel": previous,
+        "source": source,
+    });
+    let _ = host.emit_value("model_select", payload, std::time::Duration::from_secs(10));
+}
+
+/// 派发 `ui_prompt_start` / `ui_prompt_end`（ref `extensions/types.ts:1404-1405`、
+/// 接口 `:827-843`、实现 `runner.ts:541-566` 的 `withUIPrompt`）。
+///
+/// 语义（ref 逐行）：
+/// - 只在**最外层**（`uiPromptDepth == 0`）派发 start；每层退出时递减，
+///   减到 0 才派发 end。`kind`/`title` 取 start 时记下的那个（`activeUIPrompt`）。
+/// - `reason` 恒为 `"ui_prompt"`。
+///
+/// `title` 为空时**不带该键**（ref 的 `...(title ? { title } : {})`）。
+///
+/// 线程安全：只读全局宿主句柄 + 一次跨进程 RPC。
+pub fn emit_ui_prompt(kind: &str, title: Option<&str>, start: bool) {
+    let Some(host) = host_handle() else {
+        return;
+    };
+    let mut payload = serde_json::json!({
+        "type": if start { "ui_prompt_start" } else { "ui_prompt_end" },
+        "reason": "ui_prompt",
+        "kind": kind,
+    });
+    if let Some(title) = title.filter(|title| !title.is_empty()) {
+        if let Some(map) = payload.as_object_mut() {
+            map.insert(
+                "title".to_string(),
+                serde_json::Value::String(title.to_string()),
+            );
+        }
+    }
+    // **必须异步**（`enqueue_emit`，专用线程）。
+    //
+    // 不能用同步 `emit_value`：这两个事件在**面板打开/关闭的那一刻**派发，而此刻
+    // 扩展宿主正阻塞在 `ctx.ui.select(...)` 的 await 里（等用户回答）。同步 RPC
+    // 会卡住调用它的线程——面板开始那次在 TUI 主循环里 ⇒ 主循环停摆，
+    // 面板画不出来、按键也处理不了（`T89-ext-select` 实测：draw 只跑 7 次且
+    // 每次 `panel=None`，随后 pty 超时 `helperExit=3`）。返回值本来就没人用
+    // （ref `runner.ts:568-572` 用 `queueMicrotask` 派发，同样不等）。
+    enqueue_emit(
+        host_handle().unwrap_or(host),
+        if start {
+            "ui_prompt_start"
+        } else {
+            "ui_prompt_end"
+        },
+        payload,
+    );
+}
+
+/// 把 **prompt 模板清单**下发给扩展（`pi.getCommands()` 的 `source: "prompt"` 部分）。
+///
+/// ref `agent-session.ts:3031-3037`：`getCommands()` 返回
+/// `[...extensionCommands, ...templates, ...skills]`。此前 pi-rs 只返回扩展命令，
+/// 模板与技能对扩展完全不可见。
+pub fn set_ctx_prompt_commands(items: &[(String, String)]) {
+    let Some(slot) = CTX.get() else {
+        return;
+    };
+    let list: Vec<serde_json::Value> = items
+        .iter()
+        .map(|(name, description)| {
+            serde_json::json!({
+                "name": name,
+                "description": description,
+                "source": "prompt",
+            })
+        })
+        .collect();
+    if let Ok(mut guard) = slot.lock() {
+        guard["promptCommands"] = serde_json::Value::Array(list);
+    }
+    push_ctx();
+}
+
+/// 把 **技能清单**下发给扩展（`pi.getCommands()` 的 `source: "skill"` 部分）。
+///
+/// `name` 由 runner 加 `skill:` 前缀（ref 同一行拼 `skill:${skill.name}`）。
+pub fn set_ctx_skill_commands(items: &[(String, String)]) {
+    let Some(slot) = CTX.get() else {
+        return;
+    };
+    let list: Vec<serde_json::Value> = items
+        .iter()
+        .map(|(name, description)| {
+            serde_json::json!({
+                "name": name,
+                "description": description,
+                "source": "skill",
+            })
+        })
+        .collect();
+    if let Ok(mut guard) = slot.lock() {
+        guard["skillCommands"] = serde_json::Value::Array(list);
+    }
+    push_ctx();
+}
+
+/// 把**内置工具清单**下发给扩展（`pi.getAllTools()` 的数据源之一）。
+///
+/// ref `agent-session.ts:1259-1267` 的 `getAllTools()` 返回 `_toolDefinitions`
+/// **全部**（内置 + 扩展），而 pi-rs 的 runner 只有自己注册的那张表 ——
+/// `pi-secrets`（用户已装）在 `session_start` 里统计
+/// `getAllTools().filter(name === "bash")`，内置 `bash` 不在列表里时它恒为 0。
+///
+/// 载荷形如 `[{name, description, parameters, promptGuidelines, sourceInfo}]`，
+/// 与扩展自己注册的工具同构（`sourceInfo.kind = "builtin"`）。
+pub fn set_ctx_builtin_tools(tools: &[std::sync::Arc<dyn pi_core::tools::tool::Tool>]) {
+    let Some(slot) = CTX.get() else {
+        return;
+    };
+    let list: Vec<serde_json::Value> = tools
+        .iter()
+        .map(|tool| {
+            serde_json::json!({
+                "name": tool.name(),
+                "description": tool.description(),
+                "parameters": tool.schema(),
+                "promptGuidelines": [],
+                "sourceInfo": { "kind": "builtin" },
+            })
+        })
+        .collect();
+    if let Ok(mut guard) = slot.lock() {
+        guard["builtinTools"] = serde_json::Value::Array(list);
+    }
+    push_ctx();
+}
+
+/// 设 `ctx.systemPrompt`（`ctx.getSystemPrompt()` 的取值来源，
+/// ref `extensions/types.ts:351-352`）。
+///
+/// 存的是**当前生效**的完整系统提示文本（与 `LoopConfig.system` 同源），
+/// 扩展据此可读回自己或别人改过的提示。
+pub fn set_ctx_system_prompt(prompt: &str) {
+    let Some(slot) = CTX.get() else {
+        return;
+    };
+    if let Ok(mut guard) = slot.lock() {
+        guard["systemPrompt"] = serde_json::Value::String(prompt.to_string());
+    }
+    push_ctx();
+}
+
+/// 设 `ctx.thinkingLevel`（`pi.getThinkingLevel()` 的取值来源，ref
+/// `extensions/types.ts:1538-1546`）。
+pub fn set_ctx_thinking_level(level: &str) {
+    update_ctx_model(None, Some(level));
+}
+
+/// 设 `ctx.sessionName`（`pi.getSessionName()` 的取值来源，ref
+/// `extensions/types.ts:1508-1509`）。`None` ⇒ 名字被清空。
+pub fn set_ctx_session_name(name: Option<&str>) {
+    let Some(slot) = CTX.get() else {
+        return;
+    };
+    if let Ok(mut guard) = slot.lock() {
+        guard["sessionName"] = name.map_or(serde_json::Value::Null, |name| {
+            serde_json::Value::String(name.to_string())
+        });
+    }
+    push_ctx();
+}
+
+/// 设 `ctx.availableProviderCount`（ref `footer.ts` 的 `footerData.getAvailableProviderCount()`
+/// 决定右侧模型名前是否加 `(provider)` 前缀）。
+pub fn set_ctx_available_providers(count: usize) {
+    let Some(slot) = CTX.get() else {
+        return;
+    };
+    if count > 0 {
+        if let Ok(mut guard) = slot.lock() {
+            guard["availableProviderCount"] = serde_json::json!(count);
+        }
+        push_ctx();
+    }
+}
+
+/// 更新 ctx 里的当前模型与思考档位（切换模型 / Ctrl+P / `/thinking` 后调用）。
+///
+/// ref `types.ts:325-334`：`ctx.model` 与 `ctx.thinkingLevel` 是**当前**值，扩展在
+/// 下一次事件/工具调用里应看到新值。
+pub fn update_ctx_model(model: Option<&str>, thinking_level: Option<&str>) {
+    let Some(slot) = CTX.get() else {
+        return;
+    };
+    if let Ok(mut guard) = slot.lock() {
+        if let Some(model) = model {
+            guard["model"] = serde_json::Value::String(model.to_string());
+        }
+        if let Some(level) = thinking_level {
+            guard["thinkingLevel"] = serde_json::Value::String(level.to_string());
+        }
+    }
+    push_ctx();
+}
+
+/// 更新 ctx 里的上下文用量（`ctx.getContextUsage()`，ref `types.ts:294-300`）。
+///
+/// `tokens` 未知时传 `None`（ref 里刚压缩完就是 `null`）。
+pub fn update_ctx_usage(tokens: Option<u64>, context_window: u64, percent: Option<f64>) {
+    let Some(slot) = CTX.get() else {
+        return;
+    };
+    if let Ok(mut guard) = slot.lock() {
+        guard["usage"] = serde_json::json!({
+            "tokens": tokens,
+            "contextWindow": context_window,
+            "percent": percent,
+        });
+    }
+    push_ctx();
+}
+
+fn ctx_snapshot() -> serde_json::Value {
+    let mut value = CTX
+        .get()
+        .and_then(|slot| slot.lock().ok().map(|guard| guard.clone()))
+        .unwrap_or(serde_json::Value::Null);
+    if let Some(id) = session_id() {
+        if let Some(object) = value.as_object_mut() {
+            object.insert("sessionId".to_string(), serde_json::Value::String(id));
+        }
+    }
+    // 当前叶子**每次取快照都重读**：导航/分叉后它会变，缓存在 `CTX` 里会过期
+    // （`getBranch()`/`getLeafId()` 因此算错分支，ref `session-manager.ts:1469`）。
+    if let Some(object) = value.as_object_mut() {
+        object.insert("leafId".to_string(), leaf_id_snapshot());
+    }
+    // 终端宽度：扩展的页脚/组件按 `render(width)` 排版（ref `footer.ts`），而 `session_start`
+    // 在建宿主时就派发 ⇒ 每次取快照都补上当前宽度（`update_ctx_width` 的提前调用可能早于 TTY 就绪）。
+    if let Some(object) = value.as_object_mut() {
+        if !object.contains_key("width") {
+            if let Ok((cols, _)) = crossterm::terminal::size() {
+                object.insert("width".to_string(), serde_json::json!(cols as usize));
+            }
+        }
+    }
+    value
+}
+
+/// 把最新 ctx 推给正在运行的宿主（`HostHandle::set_ctx`）。
+fn push_ctx() {
+    if let Some(host) = host_handle() {
+        let snapshot = ctx_snapshot();
+        host.set_ctx(snapshot);
+    }
+}
+
+/// 握手时收集到的工具声明（**不可变快照**）。
+///
+/// 为什么要单独存：`ExtHost` 在工具执行期间被 `Mutex` 占着，
+/// 列工具（`--list-tools`、TUI 重建 parts）不能因为锁被占就少列——手工注册信息不会变。
+/// 扩展工具规格快照（宿主握手时收集；`/reload` 会替换）。
+///
+/// 也是 `Mutex<Vec<…>>` 而不是 `OnceLock<Vec<…>>`：`/reload` 之后扩展可能注册了
+/// 不同的工具集合，旧快照必须能被替换掉，否则新扩展的工具永远不生效。
+static SPECS: OnceLock<std::sync::Mutex<Vec<pi_ext_host::ToolSpec>>> = OnceLock::new();
+
+/// 扩展排入的用户消息（`pi.sendUserMessage`），由主循环在下一轮注入。
+static PENDING_USER_MESSAGES: OnceLock<std::sync::Mutex<Vec<String>>> = OnceLock::new();
+
+/// 是否有扩展订阅了某事件（`agent_end` 之类需要稍等异步派发）。
+#[must_use]
+pub fn has_event(name: &str) -> bool {
+    host_handle()
+        .map(|host| host.events().iter().any(|event| event == name))
+        .unwrap_or(false)
+}
+
+/// 取走所有待注入的用户消息（主循环每轮结束时调用）。
+#[must_use]
+pub fn take_pending_user_messages() -> Vec<String> {
+    PENDING_USER_MESSAGES
+        .get()
+        .and_then(|slot| {
+            slot.lock()
+                .ok()
+                .map(|mut guard| std::mem::take(&mut *guard))
+        })
+        .unwrap_or_default()
+}
+
+/// `pi.setActiveTools` 的待处理请求：run 循环在下次构造前取走并应用。
+///
+/// 不走同步回调是因为扩展命令在**宿主线程**上处理，而工具集归 `RpcShared`/TUI
+/// 的 run 循环所有；两边同时改会踩锁序。留成"待处理"由 run 前消费，与
+/// `PENDING_USER_MESSAGES` 同一套机制。
+static PENDING_ACTIVE_TOOLS: OnceLock<std::sync::Mutex<Option<Vec<String>>>> = OnceLock::new();
+
+/// 取走待处理的工具集变更（没有则 `None`）。
+pub fn take_pending_active_tools() -> Option<Vec<String>> {
+    PENDING_ACTIVE_TOOLS
+        .get_or_init(|| std::sync::Mutex::new(None))
+        .lock()
+        .ok()
+        .and_then(|mut guard| guard.take())
+}
+
+/// 当前会话文件（`pi.appendEntry` 写它；由 print/TUI 在建立 writer 后设置）。
+static SESSION_FILE: OnceLock<std::sync::Mutex<Option<PathBuf>>> = OnceLock::new();
+
+/// 当前会话 id（F28/S1）：扩展 `ctx.sessionManager.getSessionId()` 用。
+static SESSION_ID: OnceLock<std::sync::Mutex<Option<String>>> = OnceLock::new();
+
+/// 宿主已启动但会话尚未登记时，`session_start` 延后到 `set_session_id` 之后派发（F28/S1）。
+static PENDING_START: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+/// 记录当前会话 id（须在 `dispatch_session_start` 之前调用）。
+pub fn set_session_id(id: Option<String>) {
+    let slot = SESSION_ID.get_or_init(|| std::sync::Mutex::new(None));
+    if let Ok(mut guard) = slot.lock() {
+        *guard = id;
+    }
+    // 宿主可能已在解析 flag 时启动：把带 id 的 ctx 推给宿主，事件里才能看到。
+    push_ctx();
+}
+
+/// 供 **provider 请求**用的会话 id：优先真实会话 id（`session_id()`），
+/// 没有会话（`--no-session`、会话尚未物化）时给一个**进程级**稳定 id。
+///
+/// 为什么需要兜底：ref 的 `sessionId` 来自 `sessionManager.getSessionId()`，**始终存在**；
+/// `opencode` / `opencode-go` 拿不到它就直接 `400 Request is missing x-opencode-session`。
+/// 用一个进程级 uuid 满足"同一进程内路由一致"，不改变会话文件语义（不写盘）。
+#[must_use]
+pub fn provider_session_id() -> String {
+    static FALLBACK: OnceLock<String> = OnceLock::new();
+    session_id().unwrap_or_else(|| {
+        FALLBACK
+            .get_or_init(|| {
+                // 复用会话 id 生成器，保证格式与真实 id 一致（uuid v7）。
+                pi_core::session_path::create_session_id()
+            })
+            .clone()
+    })
+}
+
+/// 当前会话 id。
+pub fn session_id() -> Option<String> {
+    SESSION_ID
+        .get()
+        .and_then(|slot| slot.lock().ok().and_then(|guard| guard.clone()))
+}
+
+/// 记录当前会话文件路径（扩展 `pi.appendEntry` 用）。
+pub fn set_session_file(path: &Path) {
+    let slot = SESSION_FILE.get_or_init(|| std::sync::Mutex::new(None));
+    if let Ok(mut guard) = slot.lock() {
+        *guard = Some(path.to_path_buf());
+    }
+    // 扩展的 `ctx.sessionManager.getSessionFile()/getEntries()` 读它（ref `types.ts:1854`）。
+    if let Some(ctx_slot) = CTX.get() {
+        if let Ok(mut guard) = ctx_slot.lock() {
+            guard["sessionFile"] = serde_json::Value::String(path.display().to_string());
+        }
+    }
+    push_ctx();
+}
+
+/// 宿主动作：`createBashToolDefinition` 等需要宿主执行的工具（目前只有 `bash`）。
+fn spawn_action_sink() -> Option<std::sync::mpsc::Sender<pi_ext_host::ActionCall>> {
+    let (tx, rx) = std::sync::mpsc::channel::<pi_ext_host::ActionCall>();
+    std::thread::spawn(move || {
+        let Ok(runtime) = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+        else {
+            return;
+        };
+        while let Ok(call) = rx.recv() {
+            let result = match call.action.as_str() {
+                // ref `types.ts:342` 的 `ctx.abort()`：中止当前 agent 操作。
+                //
+                // 真实使用方是 `pi-agent-resilience`（用户已装）：
+                // 流卡住（`stream_stall`）或检测到文本循环时调用它（`index.ts:116/227`），
+                // 此前 runner 侧 `ctx.abort` 缺失 ⇒ 扩展的 `try { ctx.abort() } catch {}`
+                // 把 TypeError 吞掉 ⇒ **自动恢复完全不生效**（只是静默失败，不报错）。
+                //
+                // 实现方式：这条通道本来就通向宿主主循环，用一次
+                // `TuiEvent::AbortTurn` 把请求交回去（取消令牌由 TUI 持有，
+                // 不在 ext-host 线程里）。print/rpc 没有 TUI 事件通道 ⇒ 回一个
+                // 明确的错误而不是假装成功。
+                "abort" => match UI_TX.get().map(|tx| tx.send(pi_tui::TuiEvent::AbortTurn)) {
+                    Some(Ok(())) => serde_json::json!({ "ok": true }),
+                    Some(Err(error)) => serde_json::json!({
+                        "ok": false,
+                        "error": format!("abort: ui channel closed: {error}"),
+                    }),
+                    None => serde_json::json!({
+                        "ok": false,
+                        "error": "abort: no interactive UI in this mode",
+                    }),
+                },
+                // ref `types.ts:346` 的 `ctx.shutdown()`：优雅退出（与 `/quit` 同路径）。
+                "shutdown" => match UI_TX.get().map(|tx| tx.send(pi_tui::TuiEvent::Shutdown)) {
+                    Some(Ok(())) => serde_json::json!({ "ok": true }),
+                    Some(Err(error)) => serde_json::json!({
+                        "ok": false,
+                        "error": format!("shutdown: ui channel closed: {error}"),
+                    }),
+                    None => serde_json::json!({
+                        "ok": false,
+                        "error": "shutdown: no interactive UI in this mode",
+                    }),
+                },
+                "bash" => {
+                    let command = call
+                        .args
+                        .get("command")
+                        .and_then(|value| value.as_str())
+                        .unwrap_or_default()
+                        .to_string();
+                    let tool = pi_core::tools::bash::BashTool;
+                    let context = pi_core::tools::tool::ToolContext {
+                        cwd: std::env::current_dir().unwrap_or_else(|_| PathBuf::from(".")),
+                    };
+                    let cancel = tokio_util::sync::CancellationToken::new();
+                    let outcome = runtime.block_on(tool.execute(
+                        serde_json::json!({ "command": command }),
+                        &context,
+                        &cancel,
+                    ));
+                    serde_json::json!({
+                        "content": [{ "type": "text", "text": outcome.text_content() }],
+                        "isError": outcome.is_error,
+                    })
+                }
+                other => serde_json::json!({
+                    "content": [{ "type": "text", "text": format!("unknown host action: {other}") }],
+                    "isError": true,
+                }),
+            };
+            let _ = call.reply.send(result);
+        }
+    });
+    Some(tx)
+}
+
+/// sink 线程的发送端与句柄（`shutdown_session_sink` 用）。
+type SessionSinkSlot = std::sync::Mutex<
+    Option<(
+        std::sync::mpsc::Sender<pi_ext_host::SessionCmd>,
+        std::thread::JoinHandle<()>,
+    )>,
+>;
+
+static SESSION_SINK: OnceLock<SessionSinkSlot> = OnceLock::new();
+
+/// 退出前收尾：drop 发送端（让 sink 的 `recv` 返回 Err 并退出循环），再 join 线程。
+///
+/// **必须有上限**：sink 卡在 `PI_TEST_DELAY_SINK_MS` 或慢磁盘时不能把进程拖死；
+/// 超时就打日志放过（条目已丢，但用户能看到原因）。返回是否在时限内 join 成功。
+pub fn shutdown_session_sink(timeout: std::time::Duration) -> bool {
+    let Some(slot) = SESSION_SINK.get() else {
+        return true;
+    };
+    let Some((tx, handle)) = slot.lock().ok().and_then(|mut guard| guard.take()) else {
+        return true;
+    };
+    // 发一条 Shutdown 让 sink 退出循环（宿主 state 里还有一份 sender clone，光 drop 不够）。
+    let _ = tx.send(pi_ext_host::SessionCmd::Shutdown);
+    drop(tx);
+    let (done_tx, done_rx) = std::sync::mpsc::channel::<()>();
+    std::thread::spawn(move || {
+        let _ = handle.join();
+        let _ = done_tx.send(());
+    });
+    match done_rx.recv_timeout(timeout) {
+        Ok(()) => true,
+        Err(_) => {
+            warn_runtime(&format!(
+                "pi-rs: 退出前等待会话写入超时（{} ms），可能有 appendEntry 未落盘",
+                timeout.as_millis()
+            ));
+            false
+        }
+    }
+}
+
+/// 启动会话写入的消费者线程（只做"追加一行 JSON"）。
+fn spawn_session_sink() -> Option<std::sync::mpsc::Sender<pi_ext_host::SessionCmd>> {
+    let (tx, rx) = std::sync::mpsc::channel::<pi_ext_host::SessionCmd>();
+    let handle = std::thread::spawn(move || {
+        while let Ok(command) = rx.recv() {
+            match command {
+                pi_ext_host::SessionCmd::Shutdown => break,
+                pi_ext_host::SessionCmd::SendUserMessage { text } => {
+                    let slot =
+                        PENDING_USER_MESSAGES.get_or_init(|| std::sync::Mutex::new(Vec::new()));
+                    if let Ok(mut guard) = slot.lock() {
+                        guard.push(text);
+                    }
+                }
+                pi_ext_host::SessionCmd::SetThinkingLevel { level } => {
+                    // ref `agent-session.ts:2263-2274` 的 `setThinkingLevel`：
+                    // 写 `thinking_level_change` 条目 + 发 `thinking_level_changed`
+                    // + 派发 `thinking_level_select`（都在 `append_thinking_level_change`
+                    // 内部完成）。会话文件可能还没就绪，短暂等待。
+                    let mut path = None;
+                    for _ in 0..200 {
+                        path = SESSION_FILE
+                            .get()
+                            .and_then(|slot| slot.lock().ok().and_then(|guard| guard.clone()));
+                        if path.is_some() {
+                            break;
+                        }
+                        std::thread::sleep(std::time::Duration::from_millis(50));
+                    }
+                    let Some(path) = path else {
+                        warn_runtime(&format!(
+                            "pi-rs: setThinkingLevel 未写入（等待会话路径超时 10s）：{level}"
+                        ));
+                        continue;
+                    };
+                    match crate::session_writer::SessionWriter::open(&path) {
+                        Ok(mut writer) => {
+                            if let Err(error) = writer.append_thinking_level_change(&level) {
+                                warn_runtime(&format!("pi-rs: setThinkingLevel 写失败：{error}"));
+                            } else {
+                                set_ctx_thinking_level(&level);
+                            }
+                        }
+                        Err(error) => {
+                            warn_runtime(&format!("pi-rs: setThinkingLevel 打开会话失败：{error}"))
+                        }
+                    }
+                }
+                pi_ext_host::SessionCmd::SetLabel { entry_id, label } => {
+                    // ref `agent-session.ts:3079-3081` 直连 `appendLabelChange`。
+                    // 会话文件可能还没就绪，短暂等待（与 `setThinkingLevel` 同一处理）。
+                    let mut path = None;
+                    for _ in 0..200 {
+                        path = SESSION_FILE
+                            .get()
+                            .and_then(|slot| slot.lock().ok().and_then(|guard| guard.clone()));
+                        if path.is_some() {
+                            break;
+                        }
+                        std::thread::sleep(std::time::Duration::from_millis(50));
+                    }
+                    let Some(path) = path else {
+                        warn_runtime(&format!(
+                            "pi-rs: setLabel 未写入（等待会话路径超时 10s）：{entry_id}"
+                        ));
+                        continue;
+                    };
+                    match crate::session_writer::SessionWriter::open(&path) {
+                        Ok(mut writer) => {
+                            if let Err(error) =
+                                writer.append_label_change(&entry_id, label.as_deref())
+                            {
+                                // ref 找不到目标时抛错；扩展侧 `pi.setLabel` 是 `void`，
+                                // 这里记诊断而不是静默吞掉。
+                                warn_runtime(&format!("pi-rs: setLabel 失败：{error}"));
+                            }
+                        }
+                        Err(error) => {
+                            warn_runtime(&format!("pi-rs: setLabel 打开会话失败：{error}"))
+                        }
+                    }
+                }
+                pi_ext_host::SessionCmd::SetActiveTools { names } => {
+                    // 交给 run 循环处理（它拥有工具集）。`pi.setActiveTools` 没有返回值，
+                    // 失败也不会让扩展感知到——与 ref 的 `void` 返回一致。
+                    let slot = PENDING_ACTIVE_TOOLS.get_or_init(|| std::sync::Mutex::new(None));
+                    if let Ok(mut guard) = slot.lock() {
+                        *guard = Some(names);
+                    }
+                }
+                pi_ext_host::SessionCmd::SetSessionName { name } => {
+                    // ref `agent-session.ts:3559-3564` 的 `setSessionName`：
+                    // 写 `session_info` 条目 → 通告 `session_info_changed`。
+                    // 会话文件可能还没就绪（与 appendEntry 同一情形），短暂等待。
+                    let mut path = None;
+                    for _ in 0..200 {
+                        path = SESSION_FILE
+                            .get()
+                            .and_then(|slot| slot.lock().ok().and_then(|guard| guard.clone()));
+                        if path.is_some() {
+                            break;
+                        }
+                        std::thread::sleep(std::time::Duration::from_millis(50));
+                    }
+                    let Some(path) = path else {
+                        warn_runtime(&format!(
+                            "pi-rs: setSessionName 未写入（等待会话路径超时 10s）：{name}"
+                        ));
+                        continue;
+                    };
+                    match crate::session_writer::append_session_info_to(&path, &name) {
+                        Ok(saved) => {
+                            set_ctx_session_name((!saved.is_empty()).then_some(saved.as_str()));
+                        }
+                        Err(error) => {
+                            warn_runtime(&format!("pi-rs: setSessionName 写失败：{error}"))
+                        }
+                    }
+                }
+                pi_ext_host::SessionCmd::AppendEntry { custom_type, data } => {
+                    // **仅测试用**（F23/S3）：人为推迟 sink 的写入，让"进程退出早于 sink 写完"
+                    // 必然发生，用于确定性复现 R2。生产路径默认不设置该变量。
+                    if let Ok(ms) = std::env::var("PI_TEST_DELAY_SINK_MS") {
+                        if let Ok(ms) = ms.trim().parse::<u64>() {
+                            if ms > 0 {
+                                std::thread::sleep(std::time::Duration::from_millis(ms));
+                            }
+                        }
+                    }
+                    // 会话文件可能比宿主晚就绪（`default_tools` 也可能在 writer 之前被调用），
+                    // 所以这里短暂等待，而不是把条目丢掉。
+                    let mut path = None;
+                    // 并行跑全量时宿主可能比 writer 早很多就绪：给足 10s。
+                    for _ in 0..200 {
+                        path = SESSION_FILE
+                            .get()
+                            .and_then(|slot| slot.lock().ok().and_then(|guard| guard.clone()));
+                        if path.is_some() {
+                            break;
+                        }
+                        std::thread::sleep(std::time::Duration::from_millis(50));
+                    }
+                    let Some(path) = path else {
+                        // F11：不再静默丢弃——告警并保留内容，便于用户/我们定位。
+                        warn_runtime(&format!(
+                            "pi-rs: appendEntry 未写入（等待会话路径超时 10s）：\n  customType={custom_type} data={data}"
+                        ));
+                        continue;
+                    };
+                    // 与 ref `appendCustomEntry` 对齐：补 `id` / `parentId` / 真实时间戳，
+                    // 并推进共享叶子（否则后续条目会挂到旧父节点上，链分叉）。
+                    let parent = SESSION_CHAIN
+                        .get()
+                        .and_then(|chain| chain.lock().ok().and_then(|guard| guard.clone()));
+                    let id: String = uuid::Uuid::new_v4().to_string().chars().take(8).collect();
+                    let line = serde_json::json!({
+                        "type": "custom",
+                        "customType": custom_type,
+                        "data": data,
+                        "id": id,
+                        "parentId": parent.map_or(serde_json::Value::Null, serde_json::Value::String),
+                        "timestamp": pi_core::timefmt::unix_millis_to_iso8601(
+                            pi_core::timefmt::now_unix_millis()
+                        ),
+                    });
+                    if let Ok(mut file) = std::fs::OpenOptions::new()
+                        .create(true)
+                        .append(true)
+                        .open(&path)
+                    {
+                        use std::io::Write;
+                        let _ = writeln!(file, "{line}");
+                    }
+                    if let Some(chain) = SESSION_CHAIN.get() {
+                        if let Ok(mut guard) = chain.lock() {
+                            *guard = Some(id);
+                        }
+                    }
+                }
+            }
+        }
+    });
+    // 句柄存起来：退出前要 drop 发送端并 join，否则进程先退、sink 还没写完（F23/S3 的 R2）。
+    let slot = SESSION_SINK.get_or_init(|| std::sync::Mutex::new(None));
+    if let Ok(mut guard) = slot.lock() {
+        *guard = Some((tx.clone(), handle));
+    }
+    Some(tx)
+}
+
+/// 命令行里未被 pi-rs 消费的 `--flag`（值 = 显式值，`None` = 裸开关）。
+static UNKNOWN_FLAGS: OnceLock<std::collections::BTreeMap<String, Option<String>>> =
+    OnceLock::new();
+
+/// 记录未知 flag（两阶段解析的第一阶段，ref `cli/args.ts:236-250`）。
+pub fn set_unknown_flags(flags: std::collections::BTreeMap<String, Option<String>>) {
+    let _ = UNKNOWN_FLAGS.set(flags);
+}
+
+/// 两阶段解析的第二阶段：扩展加载（`registerFlag`）之后校验未知 flag 并下发
+/// （ref `agent-session-services.ts:92-125`）。
+///
+/// 失败时按 ref 的措辞打印 `Error: …` 并以退出码 1 结束（与 `main` 里其它诊断一致）。
+fn resolve_flags(host: &pi_ext_host::HostHandle) {
+    let Some(unknown) = UNKNOWN_FLAGS.get() else {
+        return;
+    };
+    if unknown.is_empty() {
+        return;
+    }
+    let registered = host.flags().to_vec();
+    let mut values = serde_json::Map::new();
+    let mut unknown_names: Vec<String> = Vec::new();
+    for (name, value) in unknown {
+        let Some(spec) = registered.iter().find(|spec| &spec.name == name) else {
+            unknown_names.push(name.clone());
+            continue;
+        };
+        if spec.flag_type == "boolean" {
+            values.insert(name.clone(), serde_json::Value::Bool(true));
+            continue;
+        }
+        match value {
+            Some(text) => {
+                values.insert(name.clone(), serde_json::Value::String(text.clone()));
+            }
+            None => {
+                eprintln!("Error: Extension flag \"--{name}\" requires a value");
+                std::process::exit(1);
+            }
+        }
+    }
+    if !unknown_names.is_empty() {
+        let list = unknown_names
+            .iter()
+            .map(|name| format!("--{name}"))
+            .collect::<Vec<_>>()
+            .join(", ");
+        let plural = if unknown_names.len() == 1 { "" } else { "s" };
+        eprintln!("Error: Unknown option{plural}: {list}");
+        std::process::exit(1);
+    }
+    if let Err(error) = host.set_flag_values(
+        serde_json::Value::Object(values),
+        std::time::Duration::from_secs(5),
+    ) {
+        warn_runtime(&format!("pi-rs: 扩展 flag 下发失败：{error}"));
+    }
+}
+
+/// 没有可用扩展时的 flag 校验（ref 里 flag 只可能由扩展认领）：
+/// 发现不到任何扩展 ⇒ 任何未知 flag 都是 `Unknown option(s)`。
+#[must_use]
+pub fn flags_without_extensions(agent_dir: &Path, cwd: &Path) -> Option<String> {
+    let unknown = UNKNOWN_FLAGS.get()?;
+    if unknown.is_empty() {
+        return None;
+    }
+    let mut discovered = if discovery_disabled() {
+        Vec::new()
+    } else {
+        pi_ext_host::discover_extensions_in_order(cwd, agent_dir)
+    };
+    if let Some(extra) = EXTRA_EXTENSIONS.get() {
+        for path in extra {
+            discovered.extend(pi_ext_host::expand_extension_path(path));
+        }
+    }
+    if !discovered.is_empty() {
+        return None;
+    }
+    let list = unknown
+        .keys()
+        .map(|name| format!("--{name}"))
+        .collect::<Vec<_>>()
+        .join(", ");
+    let plural = if unknown.len() == 1 { "" } else { "s" };
+    Some(format!("Unknown option{plural}: {list}"))
+}
+
+/// `-e/--extension` 给的显式路径（`set_extra_extensions` 在启动宿主前写入）。
+static EXTRA_EXTENSIONS: OnceLock<Vec<PathBuf>> = OnceLock::new();
+
+/// `--no-extensions / -ne`：跳过**发现**（项目级 `.pi/extensions` 与 `<agentDir>/extensions`），
+/// 显式 `-e` 路径照常加载（ref `resource-loader.ts:452-454` / `:556-559`）。
+static NO_EXTENSIONS: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+/// 记录 `--no-extensions / -ne`（`main` 在启动宿主前调用）。
+pub fn set_no_extensions(enabled: bool) {
+    NO_EXTENSIONS.store(enabled, std::sync::atomic::Ordering::SeqCst);
+}
+
+fn discovery_disabled() -> bool {
+    NO_EXTENSIONS.load(std::sync::atomic::Ordering::SeqCst)
+}
+
+/// 记录 `-e/--extension` 的路径（相对路径按当前目录解析，ref `loader.ts:781-783`）。
+pub fn set_extra_extensions(paths: &[String]) {
+    let cwd = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
+    let resolved: Vec<PathBuf> = paths
+        .iter()
+        .map(|raw| {
+            let path = PathBuf::from(raw);
+            if path.is_absolute() {
+                path
+            } else {
+                cwd.join(path)
+            }
+        })
+        .collect();
+    let _ = EXTRA_EXTENSIONS.set(resolved);
+}
+
+/// 与 `SessionWriter` 共享的"当前叶子 id"（F25/S3）：扩展的 appendEntry 裸追加时也要
+/// 拿到正确的 `parentId`，否则会话链断掉（ref `session-manager.ts:1288-1299`）。
+static SESSION_CHAIN: OnceLock<std::sync::Arc<std::sync::Mutex<Option<String>>>> = OnceLock::new();
+
+/// 设当前叶子并**立即下发**到扩展 ctx（`ctx.leafId`）。
+///
+/// 与直接改 `session_chain()` 的区别：那个只改共享状态、不触发 `push_ctx`，
+/// 扩展直到下一次别的原因推送才看到新值。
+pub fn set_ctx_leaf_id(leaf_id: Option<&str>) {
+    let chain = session_chain();
+    if let Ok(mut guard) = chain.lock() {
+        *guard = leaf_id.map(str::to_string);
+    }
+    push_ctx();
+}
+
+/// 读当前叶子（`ctx.leafId` 的取值来源）。
+fn leaf_id_snapshot() -> serde_json::Value {
+    SESSION_CHAIN
+        .get()
+        .and_then(|chain| chain.lock().ok().and_then(|guard| guard.clone()))
+        .map_or(serde_json::Value::Null, serde_json::Value::String)
+}
+
+/// 取共享叶子句柄（惰性创建；所有入口共用同一份）。
+pub fn session_chain() -> std::sync::Arc<std::sync::Mutex<Option<String>>> {
+    SESSION_CHAIN
+        .get_or_init(|| std::sync::Arc::new(std::sync::Mutex::new(None)))
+        .clone()
+}
+
+/// 登记共享叶子（各入口在建好 writer 后调用一次）。
+pub fn set_session_chain(chain: std::sync::Arc<std::sync::Mutex<Option<String>>>) {
+    let _ = SESSION_CHAIN.set(chain);
+}
+
+/// 运行期告警：TUI 模式入诊断队列（由渲染层放到会话区），其它模式写 stderr。
+///
+/// **为什么不能一律 `eprintln!`**：TUI 是 inline 渲染，stderr 的每一行都会把首屏
+/// 挤下去一行。扩展宿主回调线程（`setThinkingLevel`/`setSessionName`/`appendEntry`
+/// 等）在**运行期**出错时正是这种情况——用户会看到首屏被一行内部告警顶掉。
+/// 与 F63/K、F75、F115 同一处理。
+fn warn_runtime(message: &str) {
+    // 统一走 `tui_notices`：TUI 下入队、主循环逐帧取走渲染；其它模式写 stderr。
+    //
+    // 此前这里入的是 `settings::pending_diagnostics()`——那是**启动期**队列，
+    // 只有 `tui::run` 开头排空一次，运行期推进去的告警**永远不会显示**
+    // （既没进屏幕、也没进 stderr，等于静默丢弃）。
+    crate::tui_notices::warn(message);
+}
+
+/// 扩展加载问题（ref `interactive-mode.ts:1874-1894` 的 `[Extension issues]` 段用）。
+static EXT_ISSUES: OnceLock<std::sync::Mutex<Vec<String>>> = OnceLock::new();
+
+fn record_issue(message: impl Into<String>) {
+    let slot = EXT_ISSUES.get_or_init(|| std::sync::Mutex::new(Vec::new()));
+    if let Ok(mut guard) = slot.lock() {
+        guard.push(message.into());
+    }
+}
+
+/// 向 TUI 投递一条事件（没有 TUI 时静默忽略）。供非扩展来源（如 skills 标签）使用。
+pub fn emit_ui_event(event: pi_tui::TuiEvent) {
+    if let Some(tx) = UI_TX.get() {
+        let _ = tx.send(event);
+    }
+}
+
+/// 启动屏要展示的扩展问题（没有则为空）。
+#[must_use]
+pub fn extension_issues() -> Vec<String> {
+    EXT_ISSUES
+        .get()
+        .and_then(|slot| slot.lock().ok().map(|guard| guard.clone()))
+        .unwrap_or_default()
+}
+
+/// 已加载扩展的入口路径（启动屏 `[Extensions]` 段用，ref `interactive-mode.ts:1821-1832`）。
+static EXT_ENTRIES: OnceLock<Vec<std::path::PathBuf>> = OnceLock::new();
+
+/// 启动屏的扩展标签：`dir/index.ts` → `dir`，直接文件保持文件名（ref
+/// `getCompactExtensionLabels` 的 `:1475-1491`：去掉末尾的 `index.ts`/`index.js`）。
+#[must_use]
+pub fn extension_labels() -> Vec<String> {
+    let mut out: Vec<String> = EXT_ENTRIES
+        .get()
+        .map(|entries| {
+            entries
+                .iter()
+                .map(|path| {
+                    let is_index = path
+                        .file_name()
+                        .map(|name| {
+                            // ref `getCompactExtensionLabels`：去掉末尾的 `index.*`（含 `.mjs`/`.mts`）。
+                            matches!(
+                                name.to_string_lossy().as_ref(),
+                                "index.ts" | "index.js" | "index.mjs" | "index.mts"
+                            )
+                        })
+                        .unwrap_or(false);
+                    if is_index {
+                        path.parent()
+                            .and_then(|parent| parent.file_name())
+                            .map(|name| name.to_string_lossy().to_string())
+                            .unwrap_or_else(|| path.display().to_string())
+                    } else {
+                        path.file_name()
+                            .map(|name| name.to_string_lossy().to_string())
+                            .unwrap_or_else(|| path.display().to_string())
+                    }
+                })
+                .collect()
+        })
+        .unwrap_or_default();
+    out.sort();
+    out
+}
+
+/// 找 node：`PI_NODE` 优先，其次在 `PATH` 里找可执行文件。
+#[must_use]
+pub fn find_node() -> Option<std::path::PathBuf> {
+    if let Some(explicit) = std::env::var_os("PI_NODE") {
+        let path = std::path::PathBuf::from(explicit);
+        return path.is_file().then_some(path);
+    }
+    find_node_in_path(&std::env::var_os("PATH")?)
+}
+
+/// 在给定的 `PATH` 值里找 node（`node` 与 Windows 的 `node.exe` 都试）。
+///
+/// 抽成纯函数是为了能单测：改 `PATH` 环境变量在并行测试里会互相踩。
+#[must_use]
+pub fn find_node_in_path(paths: &std::ffi::OsStr) -> Option<std::path::PathBuf> {
+    // Windows 上可执行文件带扩展名（`node.exe`）：只试 `node` 会漏掉所有 Windows 安装，
+    // 真机表现是"扩展未加载：找不到 node"，而 `node -v` 明明能用。两者都试，不区分平台
+    // （Linux 目录里不会有 `node.exe`，多试一次无副作用）。
+    for dir in std::env::split_paths(paths) {
+        for name in ["node", "node.exe"] {
+            let candidate = dir.join(name);
+            if candidate.is_file() {
+                return Some(candidate);
+            }
+        }
+    }
+    None
+}
+
+/// 扩展根目录：`<agentDir>/extensions`。
+#[must_use]
+pub fn extensions_root(agent_dir: &Path) -> std::path::PathBuf {
+    agent_dir.join("extensions")
+}
+
+/// runner 脚本位置：与可执行文件同目录的 `ext-host/runner.mjs`，或开发树里的 `tools/ext-host`。
+fn runner_path() -> Option<std::path::PathBuf> {
+    if let Some(explicit) = std::env::var_os("PI_EXT_RUNNER") {
+        let path = std::path::PathBuf::from(explicit);
+        return path.is_file().then_some(path);
+    }
+    // 1) 随发行包放置：<exe 目录>/ext-host/runner.mjs
+    if let Ok(exe) = std::env::current_exe() {
+        if let Some(dir) = exe.parent() {
+            let candidate = dir.join("ext-host/runner.mjs");
+            if candidate.is_file() {
+                return Some(candidate);
+            }
+        }
+    }
+    // 2) 源码树（cargo run / 测试）：从 CARGO_MANIFEST_DIR 往上找
+    let manifest = Path::new(env!("CARGO_MANIFEST_DIR"));
+    let candidate = manifest.join("../../tools/ext-host/runner.mjs");
+    if candidate.is_file() {
+        return Some(candidate);
+    }
+    // 3) **单文件发行包**（用户从 release 只拿一个二进制时）：runner 内嵌在可执行文件里，
+    //    运行时落到临时目录。没有这一步，"扩展未加载：找不到 ext-host/runner.mjs" 会让
+    //    所有扩展能力在发行版上不可用（Armbian 真机实测）。
+    materialize_embedded_runner()
+}
+
+/// 内嵌的扩展宿主脚本（编译期由 `include_str!` 打入）。
+///
+/// **必须包含 shim 与 resolve.mjs**：`runner.mjs` 会 `import "./shim/pi-tui.mjs"` 等
+/// （`runner.mjs:13-20`）。只写 runner.mjs 会让 node 报
+/// `ERR_MODULE_NOT_FOUND ... /shim/pi-tui.mjs`（Armbian 真机实测）。
+const EMBEDDED_EXT_HOST: &[(&str, &str)] = &[
+    (
+        "runner.mjs",
+        include_str!("../../../tools/ext-host/runner.mjs"),
+    ),
+    ("jiti.mjs", include_str!("../../../tools/ext-host/jiti.mjs")),
+    (
+        "resolve.mjs",
+        include_str!("../../../tools/ext-host/resolve.mjs"),
+    ),
+    (
+        "shim/pi-ai.mjs",
+        include_str!("../../../tools/ext-host/shim/pi-ai.mjs"),
+    ),
+    (
+        "shim/pi-coding-agent.mjs",
+        include_str!("../../../tools/ext-host/shim/pi-coding-agent.mjs"),
+    ),
+    (
+        "shim/pi-tui.mjs",
+        include_str!("../../../tools/ext-host/shim/pi-tui.mjs"),
+    ),
+    (
+        "shim/theme-colors.mjs",
+        include_str!("../../../tools/ext-host/shim/theme-colors.mjs"),
+    ),
+    (
+        "shim/typebox.mjs",
+        include_str!("../../../tools/ext-host/shim/typebox.mjs"),
+    ),
+];
+
+/// 派发 `session_start`（F28/S1）。
+///
+/// **必须**在"会话文件已建 + `set_session_file`/`set_session_id` 已登记"之后调用：
+/// 扩展在 `session_start` 里读 `ctx.sessionManager.getSessionId()`/`appendEntry`，
+/// 宿主启动本身要早于此（flag 两阶段解析需要扩展声明），故派发与启动解耦。
+pub fn dispatch_session_start(reason: &str, previous: Option<&std::path::Path>) {
+    let Some(host) = host_handle() else {
+        return;
+    };
+    emit_session_start_with(host, reason, previous);
+}
+
+/// 会话已登记、system 条目已写之后调用：把延后的 `session_start` 派发出去。
+pub fn flush_pending_session_start() {
+    if PENDING_START.swap(false, std::sync::atomic::Ordering::SeqCst) {
+        dispatch_session_start("startup", None);
+    }
+}
+
+/// 无会话的 CLI 模式（`--list-tools` 等）在宿主启动后显式派发一次 `session_start`。
+pub fn dispatch_startup_without_session() {
+    PENDING_START.store(false, std::sync::atomic::Ordering::SeqCst);
+    dispatch_session_start("startup", None);
+}
+
+/// 用**指定**宿主派发（`start_host` 里 HOST 还没写进全局槽位时用）。
+fn emit_session_start_with(
+    host: pi_ext_host::HostHandle,
+    reason: &str,
+    previous: Option<&std::path::Path>,
+) {
+    let payload = session_start_payload(reason, previous);
+    if UI_ASK_TX.get().is_some() {
+        // 有 UI 前端（TUI）：`session_start` 里的 `ctx.ui.select` 要等面板作答，
+        // 同步派发会把启动流程阻塞到用户操作之前 ⇒ 放到独立线程里派发，
+        // **派发完成之后**再让启动屏显示 `[Extensions]` 清单（ref 的清单是在
+        // `session_start` 之后渲染的，见 `notes/decisions.md`）。
+
+        std::thread::spawn(move || {
+            if let Err(error) = host.emit(
+                "session_start",
+                payload,
+                std::time::Duration::from_secs(3600),
+            ) {
+                warn_runtime(&format!("pi-rs: 扩展事件 session_start 分发失败：{error}"));
+            }
+            let labels = extension_labels();
+            let paths: Vec<String> = EXT_ENTRIES
+                .get()
+                .map(|entries| {
+                    entries
+                        .iter()
+                        .map(|path| path.display().to_string())
+                        .collect()
+                })
+                .unwrap_or_default();
+            if let Some(tx) = UI_TX.get() {
+                let _ = tx.send(pi_tui::TuiEvent::ExtensionLabels(labels));
+                let _ = tx.send(pi_tui::TuiEvent::ExtensionPaths(paths));
+                // 加载问题同步进启动屏（`[Extension issues]`），否则 TUI 里完全看不到。
+                let issues = extension_issues();
+                if !issues.is_empty() {
+                    let _ = tx.send(pi_tui::TuiEvent::ExtensionIssues(issues));
+                }
+            }
+        });
+    } else if let Err(error) =
+        host.emit("session_start", payload, std::time::Duration::from_secs(2))
+    {
+        warn_runtime(&format!("pi-rs: 扩展事件 session_start 分发失败: {error}"));
+    }
+}
+
+/// 把内嵌的宿主脚本写到临时目录（同进程内只写一次），返回 `runner.mjs` 的路径。
+fn materialize_embedded_runner() -> Option<std::path::PathBuf> {
+    use std::sync::OnceLock;
+    static PATH: OnceLock<Option<std::path::PathBuf>> = OnceLock::new();
+    PATH.get_or_init(|| {
+        let dir = std::env::temp_dir().join(format!("pi-rs-ext-host-{}", std::process::id()));
+        std::fs::create_dir_all(dir.join("shim")).ok()?;
+        for (relative, contents) in EMBEDDED_EXT_HOST {
+            let path = dir.join(relative);
+            // 内容随二进制固定：字节数一致就复用，避免每次启动重写。
+            let same = std::fs::metadata(&path)
+                .map(|meta| meta.len() as usize == contents.len())
+                .unwrap_or(false);
+            if !same {
+                std::fs::write(&path, contents).ok()?;
+            }
+        }
+        Some(dir.join("runner.mjs"))
+    })
+    .clone()
+}
+
+/// 是否有 UI 前端（TUI）。宿主日志的去向按它决定（F42/Q2）。
+fn has_ui_frontend() -> bool {
+    UI_TX.get().is_some()
+}
+
+/// 扩展日志文件路径（F42/Q2）：`<agentDir>/extensions.log`。
+///
+/// **只在 TUI 模式使用**：宿主 node 的 stdout/stderr 会被转发到这里，而不是宿主 stderr，
+/// 否则日志会穿插进 TUI 画面。路径基于配置目录，不硬编码绝对路径。
+#[must_use]
+pub fn extension_log_path(agent_dir: &Path) -> std::path::PathBuf {
+    agent_dir.join("extensions.log")
+}
+
+/// 本实例的扩展日志内存缓冲（F44/S0）：宿主每写一行就存进来，退出时只输出这里的内容。
+static EXT_LOG_BUFFER: OnceLock<
+    std::sync::Mutex<Option<std::sync::Arc<pi_ext_host::logbuf::LogBuffer>>>,
+> = OnceLock::new();
+
+/// 日志文件**上限**（超过则在启动时截断，见 [`prepare_extension_log`]）。
+const LOG_MAX_BYTES: u64 = 1024 * 1024;
+/// 截断后保留的尾部字节数。
+const LOG_KEEP_BYTES: usize = 256 * 1024;
+
+/// 记录本次会话的起点，并做**容量治理**（F43/R1 的偏移逻辑已在 F44/S0 移除）。
+///
+/// 增量输出改用**每实例内存缓冲**（[`EXT_LOG_BUFFER`]），不再按文件偏移取增量 ——
+/// 并发多实例时偏移区间会混进别的实例的行（用户常同时开多个 pi-rs）。
+/// 这里只保留容量治理：文件超过 [`LOG_MAX_BYTES`] 时截断为最近 [`LOG_KEEP_BYTES`]。
+///
+/// 并发安全：方式为「读尾部 → 写临时文件 → `rename` 原子替换」。
+/// `rename` 不会让正在 `O_APPEND` 写的其他实例写到一半的文件消失，它们随后的
+/// `open`+`append` 会落到新 inode 上；但在"读尾部"到"rename"之间的窗口里，
+/// 其他实例写入的少量行会随旧 inode 一起丢弃（登记为已知限制）。
+pub fn prepare_extension_log(agent_dir: &Path) {
+    let path = extension_log_path(agent_dir);
+    if let Some(parent) = path.parent() {
+        let _ = std::fs::create_dir_all(parent);
+    }
+    let Ok(meta) = std::fs::metadata(&path) else {
+        return;
+    };
+    if meta.len() <= LOG_MAX_BYTES {
+        return;
+    }
+    let Ok(bytes) = std::fs::read(&path) else {
+        return;
+    };
+    let keep_from = bytes.len().saturating_sub(LOG_KEEP_BYTES);
+    let Ok(tail) = std::str::from_utf8(&bytes[keep_from..]) else {
+        return;
+    };
+    // 从下一个换行开始，避免把一个 UTF-8 行切断后残留半行。
+    let trimmed = match tail.find('\n') {
+        Some(index) => &tail[index + 1..],
+        None => tail,
+    };
+    let tmp = path.with_extension("log.tmp");
+    if std::fs::write(&tmp, trimmed).is_ok() && std::fs::rename(&tmp, &path).is_err() {
+        let _ = std::fs::remove_file(&tmp);
+    }
+}
+
+/// 退出时把**本实例**的扩展日志输出到 stderr（TUI 模式）。
+///
+/// 内容来自 [`EXT_LOG_BUFFER`]（宿主每写一行就存一份），因此并发多实例时
+/// 不会带出别的实例的行。文件**不删除**：用户可能要回看历史。
+pub fn flush_extension_log(_agent_dir: &Path) {
+    let Some(slot) = EXT_LOG_BUFFER.get() else {
+        return;
+    };
+    let Some(buffer) = slot.lock().ok().and_then(|guard| guard.clone()) else {
+        return;
+    };
+    let (text, dropped) = buffer.snapshot();
+    if dropped > 0 {
+        warn_runtime(&format!(
+            "pi-rs: 扩展日志超出缓冲上限，已丢弃最早的 {dropped} 行"
+        ));
+    }
+    if text.trim().is_empty() {
+        return;
+    }
+    eprint!("{text}");
+    if !text.ends_with('\n') {
+        eprintln!();
+    }
+}
+
+/// 返回扩展工具（首次调用时启动宿主）。失败时返回空列表并打印警告。
+#[must_use]
+pub fn extension_tools(agent_dir: &Path, cwd: &Path) -> Vec<Arc<dyn Tool>> {
+    // 首次调用时启动宿主；已存在（或已失败）时复用槽位里的结果。
+    // 锁只在"判断是否需要启动"期间持有，`start_host` 在锁外执行（它要拉起 node 进程，
+    // 持锁会阻塞所有扩展事件派发）。
+    let needs_start = host_slot().lock().is_ok_and(|guard| guard.is_none())
+        && tool_specs().is_empty()
+        // 只在**已经失败过**时不再重试（成功由槽位非空体现）。
+        && !HOST_START_FAILED.get().is_some_and(|failed| *failed);
+    if needs_start {
+        let started = start_host(agent_dir, cwd);
+        if started.is_none() {
+            let _ = HOST_START_FAILED.set(true);
+        }
+        set_host_handle(started);
+    }
+    let Some(host) = host_handle() else {
+        return Vec::new();
+    };
+    // F51：**宿主一建立就把 ctx 推过去**。此前只在字段变化时 `push_ctx()`，而
+    // `session_start` 在宿主启动时立刻派发 ⇒ 扩展在那一刻读到的 `ctx.mode` 是 `undefined`，
+    // `pi-ai-summary` 的 `if (mode !== "tui") return;` 于是直接跳过所有适配器安装
+    // （真机：TS 显示扩展页脚 `¥954.32`，pi-rs 只有内置页脚）。
+    push_ctx();
+    // 用不可变快照，避免"工具正在执行 ⇒ 锁被占 ⇒ 少列工具"。
+    let tools = tool_specs();
+    tools
+        .into_iter()
+        .map(|spec| Arc::new(pi_ext_host::ExtTool::new(spec, host.clone())) as Arc<dyn Tool>)
+        .collect()
+}
+
+fn start_host(agent_dir: &Path, cwd: &Path) -> Option<pi_ext_host::HostHandle> {
+    let root = extensions_root(agent_dir);
+    // ref 的顺序：项目级 `.pi/extensions` 在前、全局目录在后（`loader.ts:770-776`）。
+    let mut extensions = if discovery_disabled() {
+        Vec::new()
+    } else {
+        pi_ext_host::discover_extensions_in_order(cwd, agent_dir)
+    };
+    // `-e/--extension`（ref `loader.ts:780-795`）：按给定顺序追加，已出现的路径不重复。
+    if let Some(extra) = EXTRA_EXTENSIONS.get() {
+        for path in extra {
+            for entry in pi_ext_host::expand_extension_path(path) {
+                let key = entry.canonicalize().unwrap_or_else(|_| entry.clone());
+                let seen = extensions.iter().any(|existing| {
+                    existing.canonicalize().unwrap_or_else(|_| existing.clone()) == key
+                });
+                if !seen {
+                    extensions.push(entry);
+                }
+            }
+        }
+    }
+    if extensions.is_empty() {
+        return None;
+    }
+    let Some(node) = find_node() else {
+        warn_runtime(&format!(
+            "pi-rs: 扩展未加载：找不到 node（{} 下有 {} 个扩展）。安装 node 或设置 PI_NODE。",
+            root.display(),
+            extensions.len()
+        ));
+        return None;
+    };
+    let Some(runner) = runner_path() else {
+        warn_runtime("pi-rs: 扩展未加载：找不到 ext-host/runner.mjs");
+        record_issue("找不到 ext-host/runner.mjs（扩展宿主无法启动）");
+        return None;
+    };
+    let mut env = vec![(
+        "PI_CODING_AGENT_DIR".to_string(),
+        agent_dir.display().to_string(),
+    )];
+    if let Some(home) = std::env::var_os("HOME") {
+        env.push(("HOME".to_string(), home.to_string_lossy().to_string()));
+    }
+    // F51/Z1(e)：**把初始 ctx 通过环境变量交给 runner**。
+    // `session_start` 在宿主一启动就派发，而 `host.ctx` 是异步帧 —— 扩展在那一刻读到的
+    // `ctx.mode` 是 `undefined`，`pi-ai-summary/index.ts:56` 的 `if (mode !== "tui") return;`
+    // 于是直接跳过全部适配器安装（页脚/工具行/思考折叠都不生效）。
+    // 环境变量在进程启动时就可见，不依赖帧顺序。
+    env.push(("PI_EXT_CTX".to_string(), ctx_snapshot().to_string()));
+    // F42/Q2：**TUI 模式**把扩展日志写文件（退出时一次性输出到 stderr），
+    // 否则日志会穿插进画面。print/rpc 等非 TUI 模式仍直接转发到宿主 stderr。
+    // F44/S0：TUI 模式下日志**每实例内存缓冲**（退出时只输出自己的行）；
+    // 文件仍累积写（供回看/跨会话排查），并发多实例由宿主侧单写入任务按整行 `O_APPEND` 落盘。
+    let (log_path, log_sink) = if has_ui_frontend() {
+        prepare_extension_log(agent_dir);
+        let sink = std::sync::Arc::new(pi_ext_host::logbuf::LogBuffer::new());
+        if let Ok(mut slot) = EXT_LOG_BUFFER.get_or_init(Default::default).lock() {
+            *slot = Some(std::sync::Arc::clone(&sink));
+        }
+        (Some(extension_log_path(agent_dir)), Some(sink))
+    } else {
+        (None, None)
+    };
+    let options = pi_ext_host::HostOptions {
+        node,
+        runner,
+        extensions: extensions.clone(),
+        cwd: cwd.to_path_buf(),
+        env,
+        log_sink,
+        log_path,
+    };
+    // actor：宿主由专用线程独占（`notes/decisions.md` 的 "扩展宿主 actor 化"）。
+    let host = match pi_ext_host::HostHandle::start(options) {
+        Ok(host) => host,
+        Err(error) => {
+            warn_runtime(&format!("pi-rs: 扩展未加载：{error}"));
+            record_issue(format!("扩展宿主启动失败：{error}"));
+            return None;
+        }
+    };
+    // F19：单个扩展的加载失败要进 `[Extension issues]`（ref `interactive-mode.ts:1874-1894`）。
+    for (path, message) in host.load_errors() {
+        // **TUI 模式不再往 stderr 打**：那里已经会以 `[Extension issues]` 段呈现，
+        // 而 stderr 的每一行都会把 inline 首屏挤下去（与 F63/K、F75 同类问题）。
+        // 判定用「UI 通道是否已注册」——`register_ui_channel` 只在 TUI 入口调用。
+        if UI_TX.get().is_none() {
+            warn_runtime(&format!("pi-rs: 扩展加载失败：{path}: {message}"));
+        }
+        record_issue(format!("{path}: {message}"));
+    }
+    // 两阶段解析的第二步：扩展已 registerFlag，现在才能校验命令行里的未知 flag。
+    resolve_flags(&host);
+    if let Ok(mut guard) = SPECS
+        .get_or_init(|| std::sync::Mutex::new(Vec::new()))
+        .lock()
+    {
+        *guard = host.tools().to_vec();
+    }
+    // 扩展开命令进斜杠菜单（ref `interactive-mode.ts:745-756`）。**在这里发**而不是在
+    // `session_start` 线程里：TS 的扩展在 TUI 起来之前就注册完命令，晚发会让首帧的
+    // `/` 计数少一条（实测 `(1/26)` vs TS `(1/27)`）。
+    if let Some(tx) = UI_TX.get() {
+        let _ = tx.send(pi_tui::TuiEvent::ExtensionCommands(menu_commands_of(&host)));
+    }
+    let _ = EXT_ENTRIES.set(extensions.clone());
+    host.set_ctx(ctx_snapshot());
+    // UI 上行：宿主 actor 把 `host.ui.*` 帧送进这个 channel，再转成 TuiEvent
+    // （ref `interactive-mode.ts:2541/2543`）。
+    if let Some(sink) = spawn_action_sink() {
+        host.set_action_sink(Some(sink));
+    }
+    if let Some(sink) = spawn_session_sink() {
+        host.set_session_sink(Some(sink));
+    }
+    if let Some(ask_tx) = UI_ASK_TX.get().cloned() {
+        host.set_ui_ask(Some(ask_tx));
+    }
+    if let Some(ui_tx) = UI_TX.get().cloned() {
+        let (frame_tx, frame_rx) = std::sync::mpsc::channel::<pi_ext_host::client::UiFrame>();
+        host.set_ui_sink(Some(frame_tx));
+        std::thread::spawn(move || {
+            while let Ok(frame) = frame_rx.recv() {
+                let event = match frame {
+                    pi_ext_host::client::UiFrame::Notify { message, kind } => {
+                        pi_tui::TuiEvent::ExtensionNotice { message, kind }
+                    }
+                    pi_ext_host::client::UiFrame::SetStatus { key, text } => {
+                        pi_tui::TuiEvent::ExtensionStatus { key, text }
+                    }
+                    // ref `types.ts:2586` 的 `ctx.ui.setToolsExpanded(boolean)`：
+                    // 扩展真的改变 TUI 的工具展开态（此前只记状态、渲染不动）。
+                    pi_ext_host::client::UiFrame::SetToolsExpanded { expanded } => {
+                        pi_tui::TuiEvent::ToolsExpanded(expanded)
+                    }
+                    pi_ext_host::client::UiFrame::CustomOpen { lines, overlay } => {
+                        if overlay {
+                            pi_tui::TuiEvent::OverlayOpen(Some(lines))
+                        } else {
+                            pi_tui::TuiEvent::CustomOpen(lines)
+                        }
+                    }
+                    pi_ext_host::client::UiFrame::SetTitle { title } => {
+                        pi_tui::TuiEvent::Title(title)
+                    }
+                    pi_ext_host::client::UiFrame::SetHeader { lines } => {
+                        pi_tui::TuiEvent::HeaderOverride(lines)
+                    }
+                    pi_ext_host::client::UiFrame::SetFooter { lines } => {
+                        pi_tui::TuiEvent::FooterOverride(lines)
+                    }
+                    pi_ext_host::client::UiFrame::SetWidget {
+                        key,
+                        lines,
+                        placement,
+                        from_lines,
+                    } => pi_tui::TuiEvent::ExtensionWidget {
+                        key,
+                        lines,
+                        placement,
+                        from_lines,
+                    },
+                };
+                if ui_tx.send(event).is_err() {
+                    break;
+                }
+            }
+        });
+    }
+    // F28/S1：会话还没建（扩展在 flag 解析阶段就加载）时，`session_start` 延后到
+    // `set_session_id` 之后派发——扩展在事件里要读 `getSessionId()`。
+    // F28/S1：**一律**延后到会话落盘之后再派发（调用方 `flush_pending_session_start`），
+    // 扩展在 `session_start` 里 `appendEntry` 时链叶子才是 system 条目的 id。
+    PENDING_START.store(true, std::sync::atomic::Ordering::SeqCst);
+    let _ = &host;
+    Some(host)
+}
+
+pub fn emit_event(name: &str, payload: serde_json::Value) {
+    let Some(host) = host_handle() else {
+        return;
+    };
+    enqueue_emit(host, name, payload);
+}
+
+/// 派发 `before_provider_headers` 并**取回**改写后的请求头
+/// （ref `extensions/types.ts:723-729`）。
+///
+/// 扩展可增/删/改；`null` 值表示删除该头，回到调用方时表现为该键缺席。
+/// 没有扩展订阅时原样返回（不引入额外开销）。
+#[must_use]
+pub fn transform_provider_headers(headers: Vec<(String, String)>) -> Vec<(String, String)> {
+    let Some(host) = host_handle() else {
+        return headers;
+    };
+    let pairs: Vec<serde_json::Value> = headers
+        .iter()
+        .map(|(name, value)| serde_json::json!([name, value]))
+        .collect();
+    let payload = serde_json::json!({
+        "type": "before_provider_headers",
+        "headers": pairs,
+    });
+    let Ok(Some(value)) = host.emit_value(
+        "before_provider_headers",
+        payload,
+        std::time::Duration::from_secs(10),
+    ) else {
+        return headers;
+    };
+    let Some(list) = value.get("headers").and_then(serde_json::Value::as_array) else {
+        return headers;
+    };
+    // 扩展回的是同名数组；`null` 值（或非字符串）⇒ 删除该头。
+    let mut out: Vec<(String, String)> = Vec::with_capacity(list.len());
+    for item in list {
+        let Some(pair) = item.as_array() else {
+            continue;
+        };
+        let Some(name) = pair.first().and_then(serde_json::Value::as_str) else {
+            continue;
+        };
+        if pair.len() > 1 {
+            if let Some(serde_json::Value::String(header_value)) = pair.get(1) {
+                out.push((name.to_string(), header_value.clone()));
+            }
+        }
+    }
+    out
+}
+
+/// 派发 `after_provider_response`（ref `extensions/types.ts:729-734`）。
+///
+/// 载荷：`status`（HTTP 状态码）+ `headers`（对象，同名头后者覆盖前者）。
+pub fn emit_after_provider_response(status: u16, headers: &[(String, String)]) {
+    let Some(host) = host_handle() else {
+        return;
+    };
+    let map: serde_json::Map<String, serde_json::Value> = headers
+        .iter()
+        .map(|(name, value)| (name.clone(), serde_json::json!(value)))
+        .collect();
+    let payload = serde_json::json!({
+        "type": "after_provider_response",
+        "status": status,
+        "headers": map,
+    });
+    let _ = host.emit_value(
+        "after_provider_response",
+        payload,
+        std::time::Duration::from_secs(10),
+    );
+}
+
+/// 把一次按键转给扩展的自定义组件；返回 `{lines, closed, result?}`。
+#[must_use]
+pub fn custom_input(key: &str, width: usize) -> Option<serde_json::Value> {
+    let host = host_handle()?;
+    host.custom_input(key, width).ok()
+}
+
+/// 把渲染钩子的降级帧展开成行（宿主侧宽度裁剪）。
+///
+/// `None` = 扩展没有渲染器、或渲染器用了不支持的组件（调用方应回落到内置渲染）。
+#[must_use]
+pub fn flatten_render_frame(frame: &serde_json::Value, width: usize) -> Option<Vec<String>> {
+    match frame.get("kind").and_then(|kind| kind.as_str()) {
+        Some("text") => {
+            // 照 ref `components/text.ts:53-100`：空/纯空白 ⇒ `[""]`；制表符变 3 空格；
+            // `paddingX` 在窄终端压到 `floor((width-1)/2)`；内容按 `width-2*paddingX` **折行**；
+            // 上下各 `paddingY` 空行。
+            let raw = frame
+                .get("text")
+                .and_then(|t| t.as_str())
+                .unwrap_or_default();
+            let padding_y = frame.get("paddingY").and_then(|v| v.as_u64()).unwrap_or(0) as usize;
+            if raw.trim().is_empty() {
+                // ref `components/text.ts:53-58`：空/纯空白**直接返回空数组**（连 paddingY 也不画）。
+                return Some(Vec::new());
+            }
+            let requested_x = frame.get("paddingX").and_then(|v| v.as_u64()).unwrap_or(0) as usize;
+            let padding_x = requested_x.min(width.saturating_sub(1) / 2);
+            let content_width = width.saturating_sub(padding_x * 2).max(1);
+            let normalized = raw.replace('\t', "   ");
+            let mut lines: Vec<String> = vec![String::new(); padding_y];
+            for input_line in normalized.split('\n') {
+                for wrapped in wrap_ansi(input_line, content_width) {
+                    lines.push(format!("{}{wrapped}", " ".repeat(padding_x)));
+                }
+            }
+            lines.extend(vec![String::new(); padding_y]);
+            Some(lines)
+        }
+        Some("spacer") => {
+            let count = frame.get("lines").and_then(|v| v.as_u64()).unwrap_or(0) as usize;
+            Some(vec![String::new(); count])
+        }
+        Some("stack") => {
+            let mut lines = Vec::new();
+            for child in frame
+                .get("children")
+                .and_then(|v| v.as_array())
+                .cloned()
+                .unwrap_or_default()
+            {
+                lines.extend(flatten_render_frame(&child, width)?);
+            }
+            Some(lines)
+        }
+        // `unsupported`（或未知帧）：回落内置渲染。
+        _other => None,
+    }
+}
+
+/// 折行时把 ANSI 转义序列当**零宽**（ref `utils.ts:851-900` 的 `wrapTextWithAnsi` 同语义）。
+///
+/// 只用于渲染钩子的文本帧；不改变 pi-tui 既有折行路径。
+fn wrap_ansi(text: &str, width: usize) -> Vec<String> {
+    if width == 0 {
+        return vec![String::new()];
+    }
+    let mut out: Vec<String> = Vec::new();
+    let mut current = String::new();
+    let mut used = 0usize;
+    let chars: Vec<char> = text.chars().collect();
+    let mut index = 0usize;
+    while index < chars.len() {
+        let ch = chars[index];
+        // CSI：`ESC [` 到 `@`–`~` 的终止字节，宽度 0。
+        if ch == '\u{1b}' && index + 1 < chars.len() && chars[index + 1] == '[' {
+            let mut end = index + 2;
+            while end < chars.len() && !('@'..='~').contains(&chars[end]) {
+                end += 1;
+            }
+            let end = (end + 1).min(chars.len());
+            current.extend(&chars[index..end]);
+            index = end;
+            continue;
+        }
+        // 单字符宽度用 pi-tui 的可见宽度（CJK 记 2）。
+        let char_width = pi_tui::display_width(&ch.to_string());
+        if used + char_width > width && used > 0 {
+            // 恰好填满后遇到**空格**：直接断行并丢掉它（pi-tui 的 `wrap_to_width` 同策略，
+            // 否则会白白少放一个词）。
+            if ch == ' ' {
+                out.push(std::mem::take(&mut current));
+                used = 0;
+                index += 1;
+                continue;
+            }
+            // 否则回退到最近的空格。
+            if let Some(space_at) = current.rfind(' ') {
+                if space_at > 0 && !current[..space_at].trim().is_empty() {
+                    let rest = current[space_at + 1..].to_string();
+                    out.push(current[..space_at].trim_end().to_string());
+                    current = rest;
+                    used = pi_tui::display_width(&current);
+                    continue;
+                }
+            }
+            out.push(std::mem::take(&mut current));
+            used = 0;
+            continue;
+        }
+        current.push(ch);
+        used += char_width;
+        index += 1;
+    }
+    out.push(current);
+    out
+}
+
+/// 取扩展对某个工具调用的渲染结果（`phase` = `call`/`result`）；`None` = 回落内置渲染。
+#[must_use]
+pub fn render_tool_block(
+    tool_name: &str,
+    phase: &str,
+    payload: serde_json::Value,
+    width: usize,
+) -> Option<Vec<String>> {
+    let host = host_handle()?;
+    let frame = host.render(tool_name, phase, payload, width).ok()??;
+    // `unknown-tool` 由 `render_tool_block` 的**调用方**用 `tool_definition_known` 判断，
+    // 这里当作"没有行"返回（不产生文本行）。
+    flatten_render_frame(&frame, width)
+}
+
+/// 扩展注册了几个 Markdown 变换器（0 = 不必为渲染走 RPC）。
+#[must_use]
+pub fn markdown_transformer_count() -> usize {
+    host_handle().map_or(0, |host| host.markdown_transformer_count())
+}
+
+/// 把一段 Markdown 交给扩展**渲染前**改写（ref `types.ts:1473`）。
+///
+/// 真实使用方 `pi-secrets`（用户已装）注册
+/// `(md) => redactText("markdown", md)`（`src/index.ts:326`），
+/// 目的是让密钥**不进终端 scrollback**——它自己的注释写明「message_end/tool_result
+/// 之前就已经流式渲染，必须有自己的钩子」。此前宿主只记录不应用 ⇒ 脱敏完全失效。
+///
+/// 没有扩展注册变换器时**原样返回**（零 RPC、零开销）；RPC 失败也原样返回
+/// （渲染不能因为脱敏链路故障而中断）。
+#[must_use]
+pub fn transform_markdown(markdown: &str, width: usize) -> String {
+    if markdown.is_empty() || markdown_transformer_count() == 0 {
+        return markdown.to_string();
+    }
+    let Some(host) = host_handle() else {
+        return markdown.to_string();
+    };
+    host.transform_markdown(markdown, width)
+        .unwrap_or_else(|_| markdown.to_string())
+}
+
+/// 按需重渲染扩展 UI（F38/K4）：返回 `None` 表示没有扩展接管/渲染失败，调用方回落原生渲染。
+///
+/// `digest` 为宿主算的状态摘要；`(kind, key, width, digest)` 相同的请求在 runner 侧命中缓存。
+/// 失败会记一条 `[Extension issues]`（同一扩展只记一次，避免每帧刷屏）。
+#[must_use]
+pub fn render_ui_block(
+    kind: &str,
+    key: &str,
+    width: usize,
+    digest: &str,
+    timeout_ms: u64,
+) -> Option<Vec<String>> {
+    let host = host_handle()?;
+    match host.render_ui(kind, key, width, digest, timeout_ms) {
+        Ok(lines) => lines,
+        Err(error) => {
+            note_render_failure(kind, &error.to_string());
+            None
+        }
+    }
+}
+
+/// 把**一批**工具行渲染委托给扩展的原型补丁（F48/X3 + F50/Z1）。
+///
+/// 一条 RPC 处理整批、只回一条响应 ⇒ 调用方只重绘一次。逐条请求会让"视口上方的行"
+/// 每变一次就触发一次整屏重绘（ref `tui-main-screen.ts:455-459`），
+/// 历史工具行越多重绘次数越多（真机"从头到尾反复刷新"）。
+///
+/// 返回值按输入顺序给出 `(toolCallId, 行)`；`None` = 该行没有扩展接管（原生渲染）。
+/// 一批工具行的渲染结果：`rows` 是逐行结果，`failed` = 整批失败（超时/协议错误）。
+pub type ToolRowBatch = (Vec<(String, Option<Vec<String>>)>, bool);
+
+/// 一批工具行的渲染结果，外加"**这一批整体失败**"的标记（超时/协议错误）。
+///
+/// 失败时调用方必须把该批的 id 从去重表里**移除**，否则这批行会永久停在原生块上
+/// （F51 实测：大会话里 463 行只折叠了 2 行，其余批次的 key 留在表里、再也不会重试）。
+///
+/// F53/T2：测试钩子读取的**扩展渲染计数**（`PI_TEST_DUMP` 的 `ext` 段）。
+///
+/// 只是三个 `AtomicU64` 的自增：写入点在渲染请求处，读点在 dump 时。
+/// 与是否启用钩子无关、不改变任何输出（未启用时没人读）。
+static TEST_RENDER_TOOL_REQUESTS: std::sync::atomic::AtomicU64 =
+    std::sync::atomic::AtomicU64::new(0);
+static TEST_RENDER_TOOL_ROWS: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+static TEST_THINKING_REQUESTS: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+static TEST_THINKING_LABELS: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+
+/// 扩展工具行渲染请求数。
+pub fn test_render_tool_requests() -> u64 {
+    TEST_RENDER_TOOL_REQUESTS.load(std::sync::atomic::Ordering::Relaxed)
+}
+
+/// 扩展工具行渲染**实际返回行数**的累计（用于区分"接管了但返回 0 行"）。
+#[must_use]
+pub fn test_render_tool_rows() -> u64 {
+    TEST_RENDER_TOOL_ROWS.load(std::sync::atomic::Ordering::Relaxed)
+}
+
+/// 思考标签请求数。
+#[must_use]
+pub fn test_thinking_requests() -> u64 {
+    TEST_THINKING_REQUESTS.load(std::sync::atomic::Ordering::Relaxed)
+}
+
+/// 思考标签**拿到非空标签**的次数。
+#[must_use]
+pub fn test_thinking_labels() -> u64 {
+    TEST_THINKING_LABELS.load(std::sync::atomic::Ordering::Relaxed)
+}
+
+pub fn render_tool_rows(rows: Vec<(String, serde_json::Value)>, width: usize) -> ToolRowBatch {
+    let ids: Vec<String> = rows.iter().map(|(id, _)| id.clone()).collect();
+    let Some(host) = host_handle() else {
+        return (rows.into_iter().map(|(id, _)| (id, None)).collect(), false);
+    };
+    let payloads: Vec<serde_json::Value> = rows.into_iter().map(|(_, payload)| payload).collect();
+    TEST_RENDER_TOOL_REQUESTS.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    match host.render_tool_rows(payloads, width) {
+        Ok(out) => {
+            let produced: usize = out
+                .iter()
+                .filter_map(|(_, lines)| lines.as_ref().map(Vec::len))
+                .sum();
+            TEST_RENDER_TOOL_ROWS.fetch_add(produced as u64, std::sync::atomic::Ordering::Relaxed);
+            (out, false)
+        }
+        Err(error) => {
+            note_render_failure("tool", &error.to_string());
+            (ids.into_iter().map(|id| (id, None)).collect(), true)
+        }
+    }
+}
+
+/// 让扩展给出**思考块的折叠标签**（F51/Z1）；`None` = 没有扩展接管（用原文）。
+#[must_use]
+pub fn thinking_label(content: &[serde_json::Value]) -> Option<String> {
+    let host = host_handle()?;
+    TEST_THINKING_REQUESTS.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    let label = host
+        .thinking_label(serde_json::Value::Array(content.to_vec()))
+        .ok()
+        .flatten();
+    if label.is_some() {
+        TEST_THINKING_LABELS.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    }
+    label
+}
+
+/// 批量取思考块折叠标签；按 32 条分片，避免单帧过大。
+pub fn thinking_labels(contents: &[serde_json::Value]) -> Vec<Option<String>> {
+    let mut out = vec![None; contents.len()];
+    let Some(host) = host_handle() else {
+        return out;
+    };
+    for (chunk_index, chunk) in contents.chunks(32).enumerate() {
+        TEST_THINKING_REQUESTS.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        let payload: Vec<serde_json::Value> = chunk.to_vec();
+        if let Ok(labels) = host.thinking_labels(payload) {
+            for (offset, label) in labels.into_iter().enumerate() {
+                if label.is_some() {
+                    TEST_THINKING_LABELS.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                }
+                out[chunk_index * 32 + offset] = label;
+            }
+        }
+    }
+    out
+}
+
+/// 该工具在宿主侧**是否有定义**（F51/Z0）。
+///
+/// `Some(false)` ⇒ 完全没有定义：ref 走 `tool-execution.ts:421-432` 的
+/// `formatToolExecution`（名字 + 缩进 JSON 参数 + 结果正文）；
+/// `Some(true)` ⇒ 有定义（可能没有 `renderCall`）：ref 走 `createCallFallback()`，只有名字。
+/// `None` ⇒ 没有宿主（非 TUI/无扩展），调用方按"有定义"处理（保持旧行为）。
+#[must_use]
+pub fn tool_definition_known(tool_name: &str) -> Option<bool> {
+    let host = host_handle()?;
+    host.tool_known(tool_name).ok().flatten()
+}
+
+/// 渲染钩子失败只记一次（ref `interactive-mode.ts:1874-1894` 的 `[Extension issues]`）。
+fn note_render_failure(kind: &str, message: &str) {
+    use std::sync::Mutex;
+    static SEEN: std::sync::OnceLock<Mutex<std::collections::BTreeSet<String>>> =
+        std::sync::OnceLock::new();
+    let slot = SEEN.get_or_init(|| Mutex::new(std::collections::BTreeSet::new()));
+    let key = format!("{kind}: {message}");
+    let first = slot
+        .lock()
+        .map(|mut guard| guard.insert(key.clone()))
+        .unwrap_or(false);
+    if first {
+        record_issue(format!("{kind} 渲染失败，已回落内置渲染：{message}"));
+    }
+}
+
+/// `input` 钩子的结果（ref `types.ts:952-975` 的 `InputEventResult`）。
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum InputOutcome {
+    /// 原样提交。
+    Continue,
+    /// 用替换后的文本提交（ref 的 `action:"transform"`）。
+    Transform(String),
+    /// 扩展已接管，**不跑 agent**（ref 的 `action:"handled"`）。
+    Handled,
+}
+
+/// 已注册的扩展命令名（宿主握手时收集）。
+#[must_use]
+pub fn command_names() -> Vec<String> {
+    host_handle()
+        .map(|host| {
+            host.commands()
+                .iter()
+                .map(|command| command.name.clone())
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+/// 已注册的扩展命令完整元数据（RPC `get_commands` 用）。
+#[must_use]
+pub fn command_specs() -> Vec<pi_ext_host::handshake::CommandSpec> {
+    host_handle()
+        .map(|host| host.commands().to_vec())
+        .unwrap_or_default()
+}
+
+/// 斜杠补全菜单用的扩展命令：`(name, "[tag] description")`。
+///
+/// 拼装规则照 ref `interactive-mode.ts:645-661` 的 `prefixAutocompleteDescription`：
+/// 有描述 ⇒ `[<tag>] <desc>`，无描述 ⇒ `[<tag>]`。
+#[must_use]
+pub fn menu_commands() -> Vec<(String, String)> {
+    let mut items = vec![(
+        "llama".to_string(),
+        "[t] Manage llama.cpp router models".to_string(),
+    )];
+    if let Some(host) = host_handle() {
+        items.extend(menu_commands_of(&host));
+    }
+    items
+}
+
+/// 从**指定**宿主取菜单条目（`start_host` 里 `HOST` 尚未写入时用，避免拿到空表）。
+#[must_use]
+pub fn menu_commands_of(host: &pi_ext_host::HostHandle) -> Vec<(String, String)> {
+    {
+        host.commands()
+            .iter()
+            .map(|command| {
+                // ref `interactive-mode.ts:636-641`：`user`→`u`、`project`→`p`、其余（含 `temporary`）→`t`。
+                let tag = match command.scope.as_str() {
+                    "u" | "user" => "u",
+                    "p" | "project" => "p",
+                    "t" | "temporary" => "t",
+                    scope => scope,
+                };
+                let label = match command.description.as_deref() {
+                    Some(text) if !text.is_empty() => format!("[{tag}] {text}"),
+                    Some(_) | None => format!("[{tag}]"),
+                };
+                (command.name.clone(), label)
+            })
+            .collect()
+    }
+}
+
+/// 解析 `/name args` 成 `(name, args)`；不是扩展命令则 `None`。
+///
+/// **只做解析**（纯函数、不阻塞）：调用方先用它判断"这是不是一个扩展命令"，
+/// 再把真正的执行丢到后台线程 —— 见 [`spawn_command`]。
+#[must_use]
+pub fn parse_command(text: &str) -> Option<(String, String)> {
+    if !text.starts_with('/') {
+        return None;
+    }
+    let body = &text[1..];
+    let (name, args) = match body.find(' ') {
+        Some(index) => (&body[..index], &body[index + 1..]),
+        None => (body, ""),
+    };
+    if !command_names().iter().any(|known| known == name) {
+        return None;
+    }
+    Some((name.to_string(), args.to_string()))
+}
+
+/// 同步执行扩展命令（**仅 print / rpc 用**）。
+///
+/// 这两条路径没有"主循环 + 事件队列"，命令的 UI 输出直接走 stderr/流，
+/// 因此同步不会造成"屏幕不刷新"。TUI 必须用 [`spawn_command`]。
+///
+/// 返回 `true` 表示已处理（**不**再把这段文本当 prompt 发送）；命令不存在 ⇒ `false`。
+pub fn try_run_command(text: &str) -> bool {
+    let Some((name, args)) = parse_command(text) else {
+        return false;
+    };
+    let Some(host) = host_handle() else {
+        return false;
+    };
+    match host.invoke_command(&name, &args, std::time::Duration::from_secs(30)) {
+        Ok(_value) => true,
+        Err(error) => {
+            warn_runtime(&format!("pi-rs: 扩展命令 {name} 执行失败：{error}"));
+            true
+        }
+    }
+}
+
+/// 测试辅助：执行扩展命令并取回它返回的 `text`（没有则 `None`）。
+///
+/// 只为让集成测试能问扩展"你看到了什么"，生产路径不走它。
+#[doc(hidden)]
+pub fn invoke_command_text_for_test(name: &str) -> Option<String> {
+    let host = host_handle()?;
+    let value = host
+        .invoke_command(name, "", std::time::Duration::from_secs(30))
+        .ok()?;
+    value
+        .get("text")
+        .and_then(serde_json::Value::as_str)
+        .map(str::to_string)
+}
+
+/// 在**后台线程**执行扩展命令（ref `agent-session.ts:1766-1789`）。
+///
+/// 为什么不能在主循环里同步执行：`HostHandle::invoke_command` 会 `block_on` 到扩展
+/// handler 返回（上限 30 s）。期间主循环无法 `recv` 事件，而 handler 里的
+/// `ctx.ui.notify` / `ctx.ui.setWidget` 正通过**事件队列**回灌给主循环 ——
+/// 于是命令的可见效果（`/todo` 的清单文本、widget 更新）全部被压到命令返回之后，
+/// 屏幕在这几秒里**一个字节都不输出**（真 pty 实测：`/todo` 回车后 6.1 s 零输出，
+/// 用户感知为"输入无反应，只能 ctrl+d"）。
+///
+/// 放到后台线程后，主循环继续转，`notify`/`setWidget` 事件即时生效。
+pub fn spawn_command(name: String, args: String) {
+    std::thread::spawn(move || {
+        let Some(host) = host_handle() else {
+            return;
+        };
+        if let Err(error) = host.invoke_command(&name, &args, std::time::Duration::from_secs(30)) {
+            // 失败要让用户看见（ref 的 handler 抛错由 runner 记 `[ext-host] command … failed`，
+            // 宿主侧把错误转成一条可见提示）。走 notify 事件而不是 stderr：
+            // stderr 在 TUI raw 模式下会打烂画面（F57/D4 的教训）。
+            if let Some(ui_tx) = UI_TX.get().cloned() {
+                let _ = ui_tx.send(pi_tui::TuiEvent::ExtensionNotice {
+                    message: format!("Command {name} failed: {error}"),
+                    kind: Some("error".to_string()),
+                });
+            }
+        }
+    });
+}
+
+/// 派发 `input` 事件（ref `agent-session.ts:1553-1572` + `runner.ts:1412-1460`）。
+///
+/// 无宿主 / 无处理器 / 处理器出错时一律 `Continue`（与 ref 的"异常只上报不阻断"一致）。
+#[must_use]
+pub fn run_input_hooks(text: &str, source: &str) -> InputOutcome {
+    let Some(host) = host_handle() else {
+        return InputOutcome::Continue;
+    };
+    let payload = serde_json::json!({
+        "type": "input",
+        "text": text,
+        "source": source,
+    });
+    let Ok(Some(value)) = host.emit_value("input", payload, std::time::Duration::from_secs(10))
+    else {
+        return InputOutcome::Continue;
+    };
+    let Some(action) = value.get("action").and_then(|a| a.as_str()) else {
+        return InputOutcome::Continue;
+    };
+    match action {
+        "handled" => InputOutcome::Handled,
+        "transform" => value
+            .get("text")
+            .and_then(|t| t.as_str())
+            .map(|t| InputOutcome::Transform(t.to_string()))
+            .unwrap_or(InputOutcome::Continue),
+        _other => InputOutcome::Continue,
+    }
+}
+
+/// 请求前的 `context` 变换（ref `runner.ts:1190-1219` 的 `emitContext`）。
+///
+/// 语义（与 ref 逐条对应）：
+/// 1. 只把**非 system** 消息交给扩展（`visibleMessages = messages.filter(role !== "system")`）；
+/// 2. 扩展可以返回新列表，也可以**原地改写** `event.messages`；
+///    两者都没有改动 ⇒ 该处理器等于没说话；
+/// 3. 处理完把 system 消息**还原**回原位（`restoreSystemMessages`）；
+/// 4. 处理器抛错只记录、不中断请求。
+///
+/// 真实使用方 `context-gateway`（用户已装）在这里做**投影层老化**：把重复发送过的
+/// 工具结果全文换成视图（`index.ts:320-`），会话原史不动。此前 pi-rs 完全不派发
+/// `context` ⇒ 老化层从未生效，上下文只增不减。
+pub fn transform_context(messages: Vec<pi_ai::message::Message>) -> Vec<pi_ai::message::Message> {
+    let Some(host) = host_handle() else {
+        return messages;
+    };
+    // 拆出 system（ref 的 `visibleMessages` 与 `restoreSystemMessages` 用同一位置信息）。
+    let mut visible: Vec<pi_ai::message::Message> = Vec::with_capacity(messages.len());
+    let mut system_slots: Vec<(usize, pi_ai::message::Message)> = Vec::new();
+    for (index, message) in messages.iter().enumerate() {
+        if matches!(message, pi_ai::message::Message::System { .. }) {
+            system_slots.push((index, message.clone()));
+        } else {
+            visible.push(message.clone());
+        }
+    }
+    if visible.is_empty() {
+        // 只有 system（或空转录）：`context` 相无事可做，但 `context_with_system`
+        // 仍要看到完整转录（ref 的第二相独立遍历）。
+        return restore_with_system(messages);
+    }
+    let snapshot = visible.clone();
+    // ref 的 `AgentMessage` 里 user/assistant 的 `content` 一律是**块数组**
+    // （`content: string` 只在会话文件的旧形态里出现）。这里把裸字符串统一成
+    // `[{type:"text",text}]` 再交给扩展：否则扩展侧 `content.map(...)` 拿到的是
+    // 字符串（`pi-secrets` / `context-gateway` 都按数组处理），改写会静默失效。
+    let payload_messages: Vec<serde_json::Value> = visible
+        .iter()
+        .map(|message| {
+            let mut value = serde_json::to_value(message).unwrap_or(serde_json::Value::Null);
+            if let Some(object) = value.as_object_mut() {
+                if let Some(serde_json::Value::String(text)) = object.get("content") {
+                    let text = text.clone();
+                    object.insert(
+                        "content".to_string(),
+                        serde_json::json!([{ "type": "text", "text": text }]),
+                    );
+                }
+            }
+            value
+        })
+        .collect();
+    let payload = serde_json::json!({
+        "type": "context",
+        "messages": payload_messages,
+    });
+    let Ok(Some(value)) = host.emit_value("context", payload, std::time::Duration::from_secs(10))
+    else {
+        return restore_with_system(messages);
+    };
+    // 扩展可以回新列表（`handlerResult.messages`），也可以原地改；两者都按"有改动"处理。
+    let returned: Option<Vec<pi_ai::message::Message>> = value
+        .get("messages")
+        .and_then(|value| serde_json::from_value(value.clone()).ok());
+    let Some(new_visible) = returned else {
+        return restore_with_system(messages);
+    };
+    if new_visible == snapshot {
+        return restore_with_system(messages);
+    }
+    // 还原 system：按原来的下标顺序插回去（ref `restoreSystemMessages`）。
+    let mut restored = new_visible;
+    for (slot, message) in system_slots {
+        let at = slot.min(restored.len());
+        restored.insert(at, message);
+    }
+    // 第二相：`context_with_system`（ref `runner.ts:1221-1250`）。
+    // 与 `context` 的区别：**带上 system 消息**（完整转录），且 handler 的返回
+    // **直接采用**（没有"原地改也生效"的兜底、也不再还原 system 位置）。
+    restore_with_system(restored)
+}
+
+/// `context_with_system` 的第二相（ref `runner.ts:1221-1250` 的第二个 for 循环）。
+///
+/// 语义要点（与 `context` 逐条对应）：
+/// - 载荷是**完整**转录（含 `system`），扩展据此可整体替换提示与工具声明；
+/// - 返回值直接采用（ref `currentMessages = handlerResult?.messages ?? currentMessages`）；
+/// - 若原首条是 `system` 而处理后首条不再是，ref **照样采用**、只报一条错误
+///   （"Handler removed the leading system message…"）。这里同样只记录。
+fn restore_with_system(messages: Vec<pi_ai::message::Message>) -> Vec<pi_ai::message::Message> {
+    let Some(host) = host_handle() else {
+        return messages;
+    };
+    let payload_messages: Vec<serde_json::Value> = messages
+        .iter()
+        .map(|message| {
+            let mut value = serde_json::to_value(message).unwrap_or(serde_json::Value::Null);
+            if let Some(object) = value.as_object_mut() {
+                if let Some(serde_json::Value::String(text)) = object.get("content") {
+                    let text = text.clone();
+                    object.insert(
+                        "content".to_string(),
+                        serde_json::json!([{ "type": "text", "text": text }]),
+                    );
+                }
+            }
+            value
+        })
+        .collect();
+    let had_leading_system = messages
+        .first()
+        .is_some_and(|message| matches!(message, pi_ai::message::Message::System { .. }));
+    let payload = serde_json::json!({
+        "type": "context_with_system",
+        "messages": payload_messages,
+    });
+    let Ok(Some(value)) = host.emit_value(
+        "context_with_system",
+        payload,
+        std::time::Duration::from_secs(10),
+    ) else {
+        return messages;
+    };
+    let Some(returned) = value.get("messages").and_then(|value| {
+        serde_json::from_value::<Vec<pi_ai::message::Message>>(value.clone()).ok()
+    }) else {
+        return messages;
+    };
+    if had_leading_system
+        && !returned
+            .first()
+            .is_some_and(|message| matches!(message, pi_ai::message::Message::System { .. }))
+    {
+        warn_runtime(
+            "pi-rs: [context_with_system] 处理器移除了首条 system 消息；请求将没有提示与初始工具声明",
+        );
+    }
+    returned
+}
+
+/// `before_agent_start` 的结果：注入的自定义消息 + 系统提示覆盖。
+#[derive(Debug, Clone, Default)]
+pub struct BeforeAgentStart {
+    /// `{customType, content}` 形式的自定义消息（ref `types.ts:735-748`）。
+    pub messages: Vec<serde_json::Value>,
+    /// 系统提示覆盖（后者胜）。
+    pub system_prompt: Option<String>,
+    /// 处理器对 `systemPromptOptions.sections` 的修改（ref `types.ts:745-746`：
+    /// "Later handlers observe mutations made by earlier handlers"，回流后进系统提示）。
+    ///
+    /// `pi-handoff-gate` 靠这条路追加自己的 section
+    /// （`index.ts:557` 的 `event.systemPromptOptions.sections[...] = ...`）。
+    pub sections: Option<serde_json::Map<String, serde_json::Value>>,
+}
+
+/// 当前系统提示段落快照（`{名称: 文本}`）：`before_agent_start` 的
+/// `systemPromptOptions.sections` 初值。
+///
+/// 宿主没有单独存段落时就返回空表——`pi-handoff-gate` 往空表里写自己的键，
+/// 效果等同"新增一节"（ref 的 `normalizeBuildSystemPromptOptions` 同样从空表起步）。
+fn system_sections_snapshot() -> std::collections::BTreeMap<String, String> {
+    let mut out = std::collections::BTreeMap::new();
+    let Some(slot) = CTX.get() else {
+        return out;
+    };
+    let Ok(guard) = slot.lock() else {
+        return out;
+    };
+    if let Some(sections) = guard
+        .get("systemPromptSections")
+        .and_then(serde_json::Value::as_object)
+    {
+        for (name, text) in sections {
+            if let Some(text) = text.as_str() {
+                out.insert(name.clone(), text.to_string());
+            }
+        }
+    }
+    out
+}
+
+/// 当前内置工具名快照（`systemPromptOptions.selectedTools` 的初值）。
+fn builtin_tool_names_snapshot() -> Vec<String> {
+    let Some(slot) = CTX.get() else {
+        return Vec::new();
+    };
+    let Ok(guard) = slot.lock() else {
+        return Vec::new();
+    };
+    guard
+        .get("builtinTools")
+        .and_then(serde_json::Value::as_array)
+        .map(|items| {
+            items
+                .iter()
+                .filter_map(|item| item.get("name").and_then(serde_json::Value::as_str))
+                .map(str::to_string)
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+/// 派发 `before_agent_start`（ref `agent-session.ts:1703`、`runner.ts:1312-1365`）。
+pub fn emit_before_agent_start(prompt: &str, system_prompt: &str) -> BeforeAgentStart {
+    let Some(host) = host_handle() else {
+        return BeforeAgentStart::default();
+    };
+    // `systemPromptOptions` 是**事件契约的一部分**（ref `types.ts:738-746`），
+    // 处理器会原地改 `sections` 并让它回流进系统提示。缺这个字段时
+    // `pi-handoff-gate` 直接抛 `Cannot read properties of undefined (reading 'sections')`
+    // ——表现为"扩展事件 before_agent_start 处理器失败"，续跑与提示注入随之失效。
+    //
+    // 这里给出**可变的完整骨架**：`sections` 从宿主维护的系统段落填充，
+    // 其余字段按 ref 的 `NormalizedBuildSystemPromptOptions` 给空值/默认值
+    // （pi-rs 没有这些概念时它们本就不参与渲染）。
+    let mut sections = serde_json::Map::new();
+    for (name, text) in system_sections_snapshot() {
+        sections.insert(name, serde_json::Value::String(text));
+    }
+    let payload = serde_json::json!({
+        "type": "before_agent_start",
+        "prompt": prompt,
+        "systemPrompt": system_prompt,
+        "systemPromptOptions": {
+            "sections": sections,
+            "selectedTools": builtin_tool_names_snapshot(),
+            "cwd": std::env::current_dir()
+                .map(|path| path.to_string_lossy().to_string())
+                .unwrap_or_default(),
+        },
+    });
+    let Some(value) = host
+        .emit_value(
+            "before_agent_start",
+            payload,
+            std::time::Duration::from_secs(10),
+        )
+        .ok()
+        .flatten()
+    else {
+        return BeforeAgentStart::default();
+    };
+    BeforeAgentStart {
+        messages: value
+            .get("messages")
+            .and_then(|v| v.as_array())
+            .cloned()
+            .unwrap_or_default(),
+        system_prompt: value
+            .get("systemPrompt")
+            .and_then(|v| v.as_str())
+            .map(str::to_string),
+        sections: value
+            .get("systemPromptOptions")
+            .and_then(|options| options.get("sections"))
+            .and_then(serde_json::Value::as_object)
+            .cloned(),
+    }
+}
+
+/// 派发 `session_shutdown`（ref `agent-session-runtime.ts:167-176` 的 `teardownCurrent`
+/// 与 `:404-411` 的 `dispose`）：`{type, reason, targetSessionFile?}`，
+/// reason 取值 `new` / `resume` / `quit`。
+pub fn emit_session_shutdown(reason: &str, target: Option<&std::path::Path>) {
+    emit_session_shutdown_sync(reason, target, std::time::Duration::from_secs(1));
+}
+
+/// 同步派发 `session_shutdown` 并**等待处理器完成**（上限 `timeout`）。
+///
+/// ref 是 `await emit(event)`（`core/extensions/runner.ts:254-263`，由
+/// `interactive-mode.ts` 的 `runtimeHost.dispose()` 等待）；我们原来的 `emit_event` 只是
+/// 投递到队列就返回 ⇒ 退出时扩展的清理可能与 shell 接管并发。这里按 ref 等到完成，
+/// 让"派发并等待 → 关宿主并等待 → 恢复终端"的顺序可以成立。
+///
+/// 超时只打一条 stderr，不阻塞退出（ref 也没有硬超时，1s 是我们对"卡死扩展"的保护）。
+pub fn emit_session_shutdown_sync(
+    reason: &str,
+    target: Option<&std::path::Path>,
+    timeout: std::time::Duration,
+) {
+    let Some(host) = host_handle() else {
+        return;
+    };
+    let payload = serde_json::json!({
+        "type": "session_shutdown",
+        "reason": reason,
+        "targetSessionFile": target.map(|path| path.display().to_string()),
+    });
+    if let Err(error) = host.emit("session_shutdown", payload, timeout) {
+        warn_runtime(&format!(
+            "pi-rs: 扩展事件 session_shutdown 分发失败：{error}"
+        ));
+    }
+}
+
+/// 取当前宿主句柄（克隆 `Arc`；锁只在取的时候持有）。
+fn host_slot() -> &'static std::sync::Mutex<Option<pi_ext_host::HostHandle>> {
+    HOST.get_or_init(|| std::sync::Mutex::new(None))
+}
+
+/// 扩展工具规格快照（宿主握手时写入；未启动 ⇒ 空）。
+fn tool_specs() -> Vec<pi_ext_host::ToolSpec> {
+    SPECS
+        .get()
+        .and_then(|slot| slot.lock().ok().map(|guard| guard.clone()))
+        .unwrap_or_default()
+}
+
+/// 当前宿主（未启动/启动失败 ⇒ `None`）。
+fn host_handle() -> Option<pi_ext_host::HostHandle> {
+    host_slot().lock().ok().and_then(|guard| guard.clone())
+}
+
+/// 换上新的宿主句柄（`/reload` 用）；旧的由调用方先 `shutdown`。
+fn set_host_handle(host: Option<pi_ext_host::HostHandle>) {
+    if let Ok(mut guard) = host_slot().lock() {
+        *guard = host;
+    }
+}
+
+/// 重启扩展宿主：关闭旧的、拉起新的，并重新派发 `session_start`。
+///
+/// 为什么必须换进程：扩展是 ESM 模块，同一 Node 进程里 `import` 之后会进缓存，
+/// 再次 import **不会重新执行**模块顶层（扩展的所有注册都发生在那里）。
+/// ref 的 `/reload` 走 `session.reload()`（`interactive-mode.ts:6227`），
+/// 在 TS 里能重新求值靠的是它自己的加载器；我们只能换进程。
+///
+/// 返回 `Ok(())` 表示新宿主已就绪（`None` 句柄也算——没有扩展时无宿主是正常状态）。
+/// `session_start` 的派发由调用方通过 `flush_pending_session_start` 触发，
+/// 与首次启动同一条路径（避免两套派发逻辑分叉）。
+pub fn reload_host(agent_dir: &Path, cwd: &Path) -> Result<(), String> {
+    // 1. 关掉旧宿主（超时 3s，比正常退出短：`/reload` 是用户主动操作，不该久等）。
+    if let Some(old) = host_handle() {
+        old.shutdown();
+        let started = std::time::Instant::now();
+        while started.elapsed() < std::time::Duration::from_secs(3) {
+            std::thread::sleep(std::time::Duration::from_millis(50));
+        }
+    }
+    set_host_handle(None);
+    // 2. 清掉"已尝试"标记与工具快照，让下一次 `extension_tools` 真的重新建宿主。
+    //    `SPECS` 是 `OnceLock`，进程内无法重置 —— 因此这里显式重启并回填。
+    let Some(fresh) = start_host(agent_dir, cwd) else {
+        return Ok(());
+    };
+    set_host_handle(Some(fresh));
+    push_ctx();
+    Ok(())
+}
+
+/// 当前扩展宿主进程的 PID（未启动 ⇒ `None`）。
+///
+/// 只给测试与 `/reload` 的"确实换了宿主"断言用：`/reload` 的语义是换进程
+/// （ESM 缓存导致重新 import 不会重新求值），因此 PID 必须变化才算真的重载了。
+#[must_use]
+pub fn host_pid_for_test() -> Option<u32> {
+    host_handle().and_then(|host| host.pid())
+}
+
+/// 关闭扩展宿主并**等待其进程退出**（上限 `timeout`；超时按 PID kill）。
+///
+/// 宿主 node 若晚于 pi-rs 退出，Node 会在退出时对继承来的 tty 做 `uv_tty_reset_mode`
+/// （F41/P2① 已切断继承，这里再保证"退出前等它走完"，双保险）。
+pub fn shutdown_host(timeout: std::time::Duration) {
+    let Some(host) = host_handle() else {
+        return;
+    };
+    let pid = host.pid();
+    let started = std::time::Instant::now();
+    host.shutdown();
+    // `HostHandle::shutdown` 内部最多等 5s；这里按批次的 1s 上限补偿：
+    // 若已超时且子进程仍在，按 PID kill（不 pkill）。
+    if started.elapsed() >= timeout {
+        if let Some(pid) = pid {
+            warn_runtime(&format!("pi-rs: 扩展宿主 {pid} 超时未退出，按 PID 清理"));
+            let _ = std::process::Command::new("kill")
+                .arg("-9")
+                .arg(pid.to_string())
+                .status();
+        }
+    }
+}
+
+/// `user_bash` 的三种返回（ref `runner.ts:1154-1170`）。
+pub enum UserBash {
+    /// 没有扩展处理（或处理器返回 `undefined`）⇒ 本地执行。
+    None,
+    /// 扩展直接给了结果，本地不再执行（ref `interactive-mode.ts:6747-6773`）。
+    Result(serde_json::Value),
+    /// 扩展提供了执行实现（ref `:6781-6805`）。
+    Operations(serde_json::Value),
+    /// 处理器抛错 ⇒ **fail-closed**，不执行（ref `:6741-6744`）。
+    Failed,
+}
+
+/// 派发 `user_bash`（ref `interactive-mode.ts:6732-6744`）。
+#[must_use]
+pub fn emit_user_bash(
+    command: &str,
+    exclude_from_context: bool,
+    cwd: &std::path::Path,
+) -> UserBash {
+    let Some(host) = host_handle() else {
+        return UserBash::None;
+    };
+    let payload = serde_json::json!({
+        "type": "user_bash",
+        "command": command,
+        "excludeFromContext": exclude_from_context,
+        "cwd": cwd.display().to_string(),
+    });
+    match host.emit_value("user_bash", payload, std::time::Duration::from_secs(30)) {
+        Ok(Some(value)) => {
+            if value.get("__failed").is_some() {
+                return UserBash::Failed;
+            }
+            if let Some(result) = value.get("result") {
+                UserBash::Result(result.clone())
+            } else if let Some(operations) = value.get("operations") {
+                UserBash::Operations(operations.clone())
+            } else {
+                UserBash::None
+            }
+        }
+        Ok(None) => UserBash::None,
+        Err(_) => UserBash::Failed,
+    }
+}
+
+/// 派发 `session_before_switch`（ref `agent-session-runtime.ts:231` 的 `emitBeforeSwitch`）。
+///
+/// 返回 `true` 表示扩展要求**取消**本次切换（`{cancelled:true}`）。没有扩展/超时按"不取消"处理
+/// （ref 里没有 handler 时结果为空，等同放行）。
+#[must_use]
+pub fn emit_session_before_switch(reason: &str, previous: Option<&std::path::Path>) -> bool {
+    let Some(host) = host_handle() else {
+        return false;
+    };
+    let payload = serde_json::json!({
+        "type": "session_before_switch",
+        "reason": reason,
+        "previousSessionFile": previous.map(|path| path.display().to_string()),
+    });
+    host.emit_value(
+        "session_before_switch",
+        payload,
+        std::time::Duration::from_secs(10),
+    )
+    .ok()
+    .flatten()
+    .and_then(|value| value.get("cancelled").and_then(serde_json::Value::as_bool))
+    .unwrap_or(false)
+}
+
+/// 派发 `session_compact`（ref `extensions/types.ts:1373` / `:611-619`）。
+///
+/// 载荷：`compactionEntry`（**会话条目**原样）、`fromExtension`、`reason`
+/// （`manual`/`threshold`/`overflow`）、`willRetry`（溢出恢复时压缩后重跑该回合）。
+///
+/// 线程安全：只读全局宿主句柄 + 一次跨进程 RPC（与其它 `emit_*` 相同）。
+pub fn emit_session_compact(
+    entry: &pi_core::session::SessionEntry,
+    from_extension: bool,
+    reason: &str,
+    will_retry: bool,
+) {
+    let Some(host) = host_handle() else {
+        return;
+    };
+    let payload = serde_json::json!({
+        "type": "session_compact",
+        "compactionEntry": entry,
+        "fromExtension": from_extension,
+        "reason": reason,
+        "willRetry": will_retry,
+    });
+    let _ = host.emit_value(
+        "session_compact",
+        payload,
+        std::time::Duration::from_secs(10),
+    );
+}
+
+/// 派发 `session_compact_failed`（ref `extensions/types.ts:1374` / `:622-632`）。
+///
+/// `aborted` 表示被取消/中断，`errorMessage` 只在"非中断原因导致的失败"时给出。
+pub fn emit_session_compact_failed(
+    reason: &str,
+    error_message: Option<&str>,
+    aborted: bool,
+    will_retry: bool,
+) {
+    let Some(host) = host_handle() else {
+        return;
+    };
+    let mut payload = serde_json::json!({
+        "type": "session_compact_failed",
+        "reason": reason,
+        "aborted": aborted,
+        "willRetry": will_retry,
+    });
+    if let Some(message) = error_message {
+        if let Some(map) = payload.as_object_mut() {
+            map.insert(
+                "errorMessage".to_string(),
+                serde_json::Value::String(message.to_string()),
+            );
+        }
+    }
+    let _ = host.emit_value(
+        "session_compact_failed",
+        payload,
+        std::time::Duration::from_secs(10),
+    );
+}
+
+/// 派发 `session_info_changed`（ref `extensions/types.ts:1360` / `:577-581`）。
+///
+/// `name` 为 `None` 表示名字被清空。ref 在 `setSessionName` 写完条目后**立即**
+/// 派发（`agent-session.ts:3559-3564`），`/name` 与 `/resume` 改名共用同一出口。
+pub fn emit_session_info_changed(name: Option<&str>) {
+    let Some(host) = host_handle() else {
+        return;
+    };
+    let payload = serde_json::json!({
+        "type": "session_info_changed",
+        "name": name,
+    });
+    let _ = host.emit_value(
+        "session_info_changed",
+        payload,
+        std::time::Duration::from_secs(10),
+    );
+}
+
+/// 派发 `thinking_level_select`（ref `extensions/types.ts:1415` / `:921-926`）。
+///
+/// 只在档位**真的变化**时调用（ref `agent-session.ts:2268` 的 `isChanging` 前置判断），
+/// 且与 `thinking_level_changed` 同一处派发。
+pub fn emit_thinking_level_select(level: &str, previous_level: &str) {
+    let Some(host) = host_handle() else {
+        return;
+    };
+    let payload = serde_json::json!({
+        "type": "thinking_level_select",
+        "level": level,
+        "previousLevel": previous_level,
+    });
+    let _ = host.emit_value(
+        "thinking_level_select",
+        payload,
+        std::time::Duration::from_secs(10),
+    );
+}
+
+/// 派发 `project_trust`（ref `runner.ts:292-322` 的 `emitProjectTrustEvent`）。
+///
+/// 语义与其它事件**不同**：**第一个**给出 `trusted: "yes"|"no"` 的处理器胜出并
+/// 立即返回；`"undecided"`（或缺省）继续问下一个。ref 刻意这样设计——
+/// 信任决策需要**确定性**，不能像 `context` 那样链式叠加。
+///
+/// 返回 `None` 表示没有扩展愿意裁决（调用方继续走 `trust.json` /
+/// `defaultProjectTrust` / 交互询问）。
+///
+/// 线程安全：只读全局宿主句柄 + 一次跨进程 RPC。
+#[must_use]
+pub fn emit_project_trust(cwd: &std::path::Path) -> Option<pi_core::trust::TrustVerdict> {
+    let host = host_handle()?;
+    let payload = serde_json::json!({
+        "type": "project_trust",
+        "cwd": cwd.display().to_string(),
+    });
+    let value = host
+        .emit_value("project_trust", payload, std::time::Duration::from_secs(10))
+        .ok()
+        .flatten()?;
+    // ref 判别的是 `trusted === "yes"`（其余一律不信任），因此这里必须区分
+    // "明确的 no" 与 "undecided/缺失"：后者要继续问下一个扩展 / 走后续规则。
+    let decision = value.get("trusted").and_then(serde_json::Value::as_str)?;
+    let trusted = match decision {
+        "yes" => true,
+        "no" => false,
+        // `undecided` 或未知值 ⇒ 不裁决。
+        _other => return None,
+    };
+    Some(pi_core::trust::TrustVerdict {
+        trusted,
+        remember: value
+            .get("remember")
+            .and_then(serde_json::Value::as_bool)
+            .unwrap_or(false),
+    })
+}
+
+/// `session_before_tree` 的结果（ref `agent-session.ts:3641-3656`）。
+///
+/// 字段语义照 ref：`cancel` 取消本次导航；`summary` 若给出，**替代**模型生成的
+/// 分支摘要（ref 里还要 `options.summarize` 为真才采用，`fromExtension = true`）。
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct BeforeTree {
+    pub cancel: bool,
+    pub summary: Option<String>,
+}
+
+/// 派发 `session_before_tree`（ref `agent-session.ts:3641-3656`）。
+///
+/// 在 `/tree` 导航**之前**、摘要生成之前派发：扩展可以选择取消导航，
+/// 或直接给出一份摘要（省掉一次模型调用）。
+///
+/// 没有扩展/超时/结果不合法 ⇒ 全部按"不介入"处理（`cancel=false`、无摘要），
+/// 与 ref 在无 handler 时行为一致。
+///
+/// 线程安全：内部只读全局宿主句柄并做一次跨进程 RPC，可在任意线程调用。
+#[must_use]
+pub fn emit_session_before_tree(target_id: Option<&str>, from_id: Option<&str>) -> BeforeTree {
+    let Some(host) = host_handle() else {
+        return BeforeTree::default();
+    };
+    let payload = serde_json::json!({
+        "type": "session_before_tree",
+        "preparation": {
+            "targetId": target_id,
+            "fromId": from_id,
+        },
+    });
+    let result = host
+        .emit_value(
+            "session_before_tree",
+            payload,
+            std::time::Duration::from_secs(10),
+        )
+        .ok()
+        .flatten();
+    let Some(value) = result else {
+        return BeforeTree::default();
+    };
+    BeforeTree {
+        cancel: value
+            .get("cancel")
+            .and_then(serde_json::Value::as_bool)
+            .unwrap_or(false),
+        // 空串与缺失等价（ref 用 `if (result?.summary)` 的真值判断）。
+        summary: value
+            .get("summary")
+            .and_then(serde_json::Value::as_str)
+            .map(str::trim)
+            .filter(|text| !text.is_empty())
+            .map(str::to_string),
+    }
+}
+
+/// 派发 `agent_before_settle`（ref `agent-session.ts:1532-1550`、`runner.ts:928-975`）。
+///
+/// 返回扩展要求的 `continue` 与要落盘的 `entries`（print 路径据此决定是否再跑一轮）。
+#[must_use]
+pub fn emit_agent_before_settle(outcome: &str) -> SettleOutcome {
+    emit_agent_before_settle_with_messages(outcome, &[])
+}
+
+/// 同 [`emit_agent_before_settle`]，但带上当前上下文消息。
+///
+/// `context.llmMessages` 是**事件契约的一部分**（ref `types.ts:797-819` 的
+/// `BoundaryContextPreview`）：`pi-handoff-gate` 与 `pi-agent-resilience` 都靠
+/// "最后一条是不是空 assistant"决定是否让出/续跑。此前载荷只有 `{type, outcome}`，
+/// 真机上每轮报 `Cannot read properties of undefined (reading 'llmMessages')`，
+/// 两个扩展的续跑与空回复保护因此完全不工作。
+pub fn emit_agent_before_settle_with_messages(
+    outcome: &str,
+    messages: &[pi_ai::message::Message],
+) -> SettleOutcome {
+    let Some(host) = host_handle() else {
+        return SettleOutcome::default();
+    };
+    let llm_messages = serde_json::to_value(messages).unwrap_or(serde_json::Value::Null);
+    let payload = serde_json::json!({
+        "type": "agent_before_settle",
+        "outcome": outcome,
+        // `BoundaryState` 的其余字段：本实现不产生"边界草稿"，因此 `entries` 为空；
+        // `continue` 的最终值由扩展返回值决定（下面解析）。
+        "entries": [],
+        "continue": false,
+        "context": {
+            "llmMessages": llm_messages,
+            "contextMessages": llm_messages,
+            "contextEntries": [],
+            "pendingMessages": [],
+            "canContinue": messages
+                .last()
+                .map(|message| !matches!(message, pi_ai::message::Message::Assistant { .. }))
+                .unwrap_or(false),
+        },
+    });
+    host.emit_value(
+        "agent_before_settle",
+        payload,
+        std::time::Duration::from_secs(10),
+    )
+    .ok()
+    .flatten()
+    .map(|value| SettleOutcome {
+        should_continue: value
+            .get("continue")
+            .and_then(serde_json::Value::as_bool)
+            .unwrap_or(false),
+        entries: value
+            .get("entries")
+            .and_then(|items| items.as_array())
+            .cloned()
+            .unwrap_or_default(),
+    })
+    .unwrap_or_default()
+}
+
+/// `agent_before_settle` 的返回值（ref `types.ts:817-822`）。
+#[derive(Debug, Clone, Default)]
+pub struct SettleOutcome {
+    /// 是否再跑一轮。
+    pub should_continue: bool,
+    /// 要写进会话的条目（本实现以 `role:"custom"` 消息落盘）。
+    pub entries: Vec<serde_json::Value>,
+}
+
+/// `session_start` 的载荷（ref `types.ts:568-575`：`{type, reason, previousSessionFile?}`）。
+#[must_use]
+pub fn session_start_payload(
+    reason: &str,
+    previous: Option<&std::path::Path>,
+) -> serde_json::Value {
+    let mut payload = serde_json::json!({"type": "session_start", "reason": reason});
+    if let Some(path) = previous {
+        payload["previousSessionFile"] = serde_json::Value::String(path.display().to_string());
+    }
+    payload
+}
+
+/// `--list-tools` 的一行（内置 + 扩展）。
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ToolRow {
+    /// 工具名。
+    pub name: String,
+    /// 来源：`builtin` / `extension`。
+    pub source: &'static str,
+    /// 描述首行。
+    pub description: String,
+}
+
+/// 组装 `--list-tools` 的行（内置在前，扩展按名字排序）。
+#[must_use]
+pub fn collect_rows(builtin: &[Arc<dyn Tool>], extensions: &[Arc<dyn Tool>]) -> Vec<ToolRow> {
+    let mut rows: Vec<ToolRow> = builtin
+        .iter()
+        .map(|tool| ToolRow {
+            name: tool.name().to_string(),
+            source: "builtin",
+            description: first_line(tool.description()),
+        })
+        .collect();
+    let mut ext_rows: Vec<ToolRow> = extensions
+        .iter()
+        .map(|tool| ToolRow {
+            name: tool.name().to_string(),
+            source: "extension",
+            description: first_line(tool.description()),
+        })
+        .collect();
+    ext_rows.sort_by(|a, b| a.name.cmp(&b.name));
+    rows.extend(ext_rows);
+    rows
+}
+
+fn first_line(text: &str) -> String {
+    text.lines().next().unwrap_or_default().trim().to_string()
+}
+
+/// 带扩展钩子的工具装饰器（`tool_call` / `tool_result`）。
+///
+/// ref 语义与行号：`tool_call` 在执行前、**首个 block 即止**（`runner.ts:1136-1153`、
+/// `agent-loop.ts:722-740`）；`tool_result` 在执行后链式替换（`runner.ts:1080-1135`）。
+///
+/// 线程模型：宿主由 actor 线程独占（`notes/decisions.md`）；这里只通过句柄的
+/// `*_async` 方法调用（内部 `spawn_blocking`，不阻塞 async worker）。
+pub struct HookedTool {
+    inner: Arc<dyn Tool>,
+    host: pi_ext_host::HostHandle,
+}
+
+impl HookedTool {
+    /// 装饰一个工具。
+    #[must_use]
+    pub fn new(inner: Arc<dyn Tool>, host: pi_ext_host::HostHandle) -> Self {
+        Self { inner, host }
+    }
+
+    async fn emit(
+        host: pi_ext_host::HostHandle,
+        name: &'static str,
+        payload: serde_json::Value,
+    ) -> Option<serde_json::Value> {
+        let timeout = std::time::Duration::from_secs(2);
+        match host
+            .emit_value_async(name.to_string(), payload, timeout)
+            .await
+        {
+            Ok(value) => value,
+            Err(error) => {
+                warn_runtime(&format!("pi-rs: 扩展事件 {name} 失败：{error}"));
+                None
+            }
+        }
+    }
+}
+
+impl Tool for HookedTool {
+    fn name(&self) -> &str {
+        self.inner.name()
+    }
+
+    fn description(&self) -> &str {
+        self.inner.description()
+    }
+
+    fn schema(&self) -> &serde_json::Value {
+        self.inner.schema()
+    }
+
+    /// 归一必须**委托给内层工具**：`invoke` 的默认实现只调自己的
+    /// `prepare_arguments`，包一层钩子后不委托就会丢掉内层的归一
+    /// （实测：`edit` 的 legacy `{path, oldText, newText}` 在带扩展时
+    /// 仍回 `Validation failed`，而不带扩展时正常）。
+    fn prepare_arguments(&self, arguments: serde_json::Value) -> serde_json::Value {
+        self.inner.prepare_arguments(arguments)
+    }
+
+    fn execute<'a>(
+        &'a self,
+        arguments: serde_json::Value,
+        context: &'a pi_core::tools::tool::ToolContext,
+        cancel: &'a tokio_util::sync::CancellationToken,
+    ) -> futures::future::BoxFuture<'a, pi_core::tools::tool::ToolResult> {
+        Box::pin(async move {
+            use pi_core::tools::tool::{ToolResult, ToolResultBlock};
+            let tool_call_id = next_tool_call_id();
+            let tool_name = self.inner.name().to_string();
+            let before = Self::emit(
+                self.host.clone(),
+                "tool_call",
+                serde_json::json!({
+                    "type": "tool_call",
+                    "toolName": tool_name,
+                    "toolCallId": tool_call_id,
+                    "input": arguments.clone(),
+                }),
+            )
+            .await;
+            // `tool_call` 的**就地修改**（ref `agent-loop.ts:727`/`:770-775`：扩展拿到的是同一个
+            // `args` 对象，改它即改执行参数）。宿主只认"原对象被就地改过"——返回 `{ input }`
+            // 在 ref 里无效（`runner.ts:1134-1152` 只用 `block/reason/terminate`），这里同样忽略
+            // 一个**替换**语义：runner 回传的永远是它收到的那个 `input` 对象。
+            let mut arguments = arguments;
+            if let Some(result) = before.as_ref() {
+                if let Some(mutated) = result.get("input") {
+                    if mutated.is_object() {
+                        arguments = mutated.clone();
+                    }
+                }
+            }
+            if let Some(result) = before {
+                if result.get("block").and_then(serde_json::Value::as_bool) == Some(true) {
+                    let reason = result
+                        .get("reason")
+                        .and_then(serde_json::Value::as_str)
+                        .filter(|text| !text.is_empty())
+                        .unwrap_or("Tool execution was blocked")
+                        .to_string();
+                    return ToolResult {
+                        content: vec![ToolResultBlock::Text { text: reason }],
+                        is_error: true,
+                        details: None,
+                        terminate: result
+                            .get("terminate")
+                            .and_then(serde_json::Value::as_bool)
+                            .unwrap_or(false),
+                    };
+                }
+            }
+            let mut result = self.inner.execute(arguments.clone(), context, cancel).await;
+            let after = Self::emit(
+                self.host.clone(),
+                "tool_result",
+                serde_json::json!({
+                    "type": "tool_result",
+                    "toolName": tool_name,
+                    "toolCallId": tool_call_id,
+                    "input": arguments,
+                    "content": blocks_to_json(&result.content),
+                    "details": result.details,
+                    "isError": result.is_error,
+                }),
+            )
+            .await;
+            if let Some(replacement) = after {
+                if let Some(content) = replacement.get("content") {
+                    let blocks = json_to_blocks(content);
+                    if !blocks.is_empty() {
+                        result.content = blocks;
+                    }
+                }
+                if let Some(details) = replacement.get("details") {
+                    if !details.is_null() {
+                        result.details = Some(details.clone());
+                    }
+                }
+                if let Some(is_error) = replacement
+                    .get("isError")
+                    .and_then(serde_json::Value::as_bool)
+                {
+                    result.is_error = is_error;
+                }
+            }
+            result
+        })
+    }
+}
+
+fn next_tool_call_id() -> String {
+    use std::sync::atomic::{AtomicU64, Ordering};
+    static COUNTER: AtomicU64 = AtomicU64::new(1);
+    format!("pi-rs-{}", COUNTER.fetch_add(1, Ordering::Relaxed))
+}
+
+fn blocks_to_json(blocks: &[pi_core::tools::tool::ToolResultBlock]) -> serde_json::Value {
+    use pi_core::tools::tool::ToolResultBlock;
+    serde_json::Value::Array(
+        blocks
+            .iter()
+            .map(|block| match block {
+                ToolResultBlock::Text { text } => serde_json::json!({"type": "text", "text": text}),
+                ToolResultBlock::Image { data, mime_type } => {
+                    serde_json::json!({"type": "image", "data": data, "mimeType": mime_type})
+                }
+            })
+            .collect(),
+    )
+}
+
+fn json_to_blocks(value: &serde_json::Value) -> Vec<pi_core::tools::tool::ToolResultBlock> {
+    use pi_core::tools::tool::ToolResultBlock;
+    let mut out = Vec::new();
+    if let Some(items) = value.as_array() {
+        for item in items {
+            match item.get("type").and_then(serde_json::Value::as_str) {
+                Some("text") => out.push(ToolResultBlock::Text {
+                    text: item
+                        .get("text")
+                        .and_then(serde_json::Value::as_str)
+                        .unwrap_or_default()
+                        .to_string(),
+                }),
+                Some("image") => out.push(ToolResultBlock::Image {
+                    data: item
+                        .get("data")
+                        .and_then(serde_json::Value::as_str)
+                        .unwrap_or_default()
+                        .to_string(),
+                    mime_type: item
+                        .get("mimeType")
+                        .and_then(serde_json::Value::as_str)
+                        .unwrap_or("image/png")
+                        .to_string(),
+                }),
+                _other => {}
+            }
+        }
+    }
+    out
+}
+
+/// 当扩展宿主可用时把工具包一层钩子；否则原样返回。
+#[must_use]
+pub fn wrap_with_hooks(tools: Vec<Arc<dyn Tool>>) -> Vec<Arc<dyn Tool>> {
+    let Some(host) = host_handle() else {
+        return tools;
+    };
+    tools
+        .into_iter()
+        .map(|tool| Arc::new(HookedTool::new(tool, host.clone())) as Arc<dyn Tool>)
+        .collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    struct Fake(&'static str, &'static str);
+
+    impl Tool for Fake {
+        fn name(&self) -> &str {
+            self.0
+        }
+        fn description(&self) -> &str {
+            self.1
+        }
+        fn schema(&self) -> &serde_json::Value {
+            static SCHEMA: std::sync::OnceLock<serde_json::Value> = std::sync::OnceLock::new();
+            SCHEMA.get_or_init(|| serde_json::json!({"type": "object"}))
+        }
+        fn execute<'a>(
+            &'a self,
+            _arguments: serde_json::Value,
+            _context: &'a pi_core::tools::tool::ToolContext,
+            _cancel: &'a tokio_util::sync::CancellationToken,
+        ) -> futures::future::BoxFuture<'a, pi_core::tools::tool::ToolResult> {
+            Box::pin(async { pi_core::tools::tool::ToolResult::text("ok") })
+        }
+    }
+
+    /// 内置在前、扩展按名字排序；描述取首行。
+    #[test]
+    fn rows_are_grouped_and_sorted() {
+        let builtin: Vec<Arc<dyn Tool>> = vec![Arc::new(Fake("read", "读文件\n第二行"))];
+        let extensions: Vec<Arc<dyn Tool>> = vec![
+            Arc::new(Fake("web_search", "网页搜索")),
+            Arc::new(Fake("ext_echo", "回显")),
+        ];
+        let rows = collect_rows(&builtin, &extensions);
+        let names: Vec<&str> = rows.iter().map(|row| row.name.as_str()).collect();
+        assert_eq!(names, vec!["read", "ext_echo", "web_search"]);
+        assert_eq!(rows[0].description, "读文件");
+        assert_eq!(rows[1].source, "extension");
+    }
+
+    /// 没有扩展目录 ⇒ `extension_tools` 返回空（不 spawn、不报错）。
+    #[test]
+    fn missing_extensions_dir_is_silent() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        assert!(extension_tools(dir.path(), Path::new("/tmp")).is_empty());
+    }
+
+    /// Windows 的 node 带扩展名：`PATH` 里只有 `node.exe` 时也必须找到。
+    /// 真机曾报"扩展未加载：找不到 node"，而 `node -v` 正常。
+    #[test]
+    fn find_node_accepts_exe_suffix_on_path() {
+        let dir = tempfile::tempdir().expect("临时目录");
+        let exe = dir.path().join("node.exe");
+        std::fs::write(&exe, b"").expect("写假 node.exe");
+        // 纯函数：只给定 PATH 值，不碰进程环境（并行测试下安全）。
+        assert_eq!(
+            find_node_in_path(dir.path().as_os_str()).as_deref(),
+            Some(exe.as_path())
+        );
+    }
+
+    /// `PI_NODE` 指向不存在的文件 ⇒ `find_node` 返回 None（不 panic）。
+    #[test]
+    fn find_node_honours_explicit_override() {
+        // 该测试读进程环境；用不存在的路径验证覆盖分支。
+        let previous = std::env::var_os("PI_NODE");
+        // SAFETY（测试内）：单线程测试进程，设置/恢复环境变量不与其他线程竞争。
+        std::env::set_var("PI_NODE", "/nonexistent/node-pi-test");
+        assert!(find_node().is_none());
+        match previous {
+            Some(value) => std::env::set_var("PI_NODE", value),
+            None => std::env::remove_var("PI_NODE"),
+        }
+    }
+}

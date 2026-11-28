@@ -1,0 +1,24 @@
+{
+  "id": "S35",
+  "description": "rpc：空队列下 `clear_queue`（应回 {steering:[], followUp:[]}）→ `get_state` → prompt 一轮。空队列是**确定性判据**：在飞时排队/清理会踩到已知的异步调度差异，故本场景不覆盖那种情形。验收：五层 same。",
+  "provider": "openai-completions",
+  "model": "mock-model",
+  "mode": "rpc",
+  "commands": [
+    {
+      "type": "clear_queue"
+    },
+    {
+      "type": "get_state"
+    },
+    {
+      "type": "prompt",
+      "message": "清完队列再问一句"
+    }
+  ],
+  "responses": [
+    {
+      "file": "fixtures/sse/openai/text-basic.sse"
+    }
+  ]
+}

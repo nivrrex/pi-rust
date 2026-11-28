@@ -1,0 +1,23 @@
+{
+  "id": "S23g",
+  "provider": "openai-completions",
+  "model": "mock-model",
+  "mode": "print",
+  "exitCode": 0,
+  "runs": 3,
+  "sane": true,
+  "stableLayers": {
+    "A": true,
+    "B": true,
+    "C": true
+  },
+  "stderr": "",
+  "stepTrace": [
+    {
+      "index": 0,
+      "action": "waitExit",
+      "ms": 392,
+      "result": "ok"
+    }
+  ]
+}

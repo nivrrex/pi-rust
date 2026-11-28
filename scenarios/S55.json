@@ -1,0 +1,26 @@
+{
+  "provider": "openai-completions",
+  "model": "mock-model",
+  "enableSkills": true,
+  "enablePromptTemplates": true,
+  "mode": "print",
+  "responses": [
+    {
+      "file": "fixtures/sse/openai/text-basic.sse"
+    }
+  ],
+  "files": {
+    "AGENTS.md": "# 项目规则\n\n- 项目级：先跑测试再改代码。\n"
+  },
+  "globalFiles": {
+    "CLAUDE.md": "# 全局规则\n\n- 全局级：回答用中文。\n",
+    "prompts/my-tpl.md": "模板开始。\n参数一是 $1；全部参数是 $ARGUMENTS；\n模板结束。\n",
+    "prompts/slice-tpl.md": "切片：${@:2:3}｜默认：${1:-没有}｜全部：$@\n"
+  },
+  "id": "S55",
+  "description": "--no-prompt-templates/-np ⇒ 不展开（ref args.ts:200-201、resource-loader.ts:483/697）",
+  "prompt": "/my-tpl 甲 乙 丙",
+  "cliArgs": [
+    "--no-prompt-templates"
+  ]
+}

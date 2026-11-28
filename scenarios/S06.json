@@ -1,0 +1,13 @@
+{
+  "id": "S06",
+  "description": "同轮多个并行 tool call，其中一个失败",
+  "provider": "openai-completions",
+  "model": "mock-model",
+  "mode": "print",
+  "prompt": "read missing and write out",
+  "files": {},
+  "responses": [
+    { "file": "fixtures/sse/openai/tool-parallel-mixed.sse" },
+    { "file": "fixtures/sse/openai/text-basic.sse" }
+  ]
+}

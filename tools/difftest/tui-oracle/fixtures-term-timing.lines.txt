@@ -1,0 +1,63 @@
+case t1-lone-esc-immediate 1
+step feed Gw==
+events -
+case t2-lone-esc-then-key 2
+step feed Gw==
+step feed YQ==
+events -
+events G2E=
+case t3-lone-esc-then-wait 2
+step feed Gw==
+step wait -
+events -
+events Gw==
+case t4-prefix-esc-bracket 2
+step feed G1s=
+step wait -
+events -
+events G1s=
+case t5-prefix-esc-?-empty 2
+step feed G1s/
+step wait -
+events -
+events G1s/
+case t6-prefix-esc-?-digits 2
+step feed G1s/MTI=
+step wait -
+events -
+events G1s/MTI=
+case t7-csi-arrow-mod 1
+step feed G1sxOzVB
+events G1sxOzVB
+case t8-csi-delete 1
+step feed G1szfg==
+events G1szfg==
+case t9-csi-pageup 1
+step feed G1s1fg==
+events G1s1fg==
+case t13-lone-esc-short-wait 2
+step feed Gw==
+step short -
+events -
+events Gw==
+case t14-prefix-short-wait 2
+step feed G1s/
+step short -
+events -
+events -
+case t15-csi-short-wait 2
+step feed G1sxOzVB
+step short -
+events G1sxOzVB
+events -
+case t10-kitty-answer 1
+step feed G1s/MXU=
+events -
+case t11-da1-answer 1
+step feed G1s/MTsyYw==
+events -
+case t12-prefix-then-complete 2
+step feed G1s/
+step feed MXU=
+events -
+events -

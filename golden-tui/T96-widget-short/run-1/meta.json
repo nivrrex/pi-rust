@@ -1,0 +1,18 @@
+{
+  "id": "T96-widget-short",
+  "cols": 100,
+  "rows": 30,
+  "helperExit": 0,
+  "exitCode": 0,
+  "stderr": "",
+  "mockStderr": "",
+  "requestLog": "/tmp/k6-pi-ts/requests.jsonl",
+  "snapshotOffsets": [
+    {
+      "name": "after",
+      "offset": 5750,
+      "t": 53222.439787225
+    }
+  ],
+  "sessionDir": "/tmp/k6-pi-ts/session"
+}

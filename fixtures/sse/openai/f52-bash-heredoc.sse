@@ -1,0 +1,12 @@
+data: {"id":"chatcmpl-mock","object":"chat.completion.chunk","created":1700000000,"model":"mock-model","choices":[{"index":0,"delta":{"role":"assistant","content":""},"finish_reason":null}]}
+
+data: {"id":"chatcmpl-mock","object":"chat.completion.chunk","created":1700000000,"model":"mock-model","choices":[{"index":0,"delta":{"reasoning_content":"先想一下要不要跑合成命令。"},"finish_reason":null}]}
+
+data: {"id":"chatcmpl-mock","object":"chat.completion.chunk","created":1700000000,"model":"mock-model","choices":[{"index":0,"delta":{"content":"先跑一段合成命令："},"finish_reason":null}]}
+
+data: {"id":"chatcmpl-mock","object":"chat.completion.chunk","created":1700000000,"model":"mock-model","choices":[{"index":0,"delta":{"tool_calls":[{"index":0,"id":"call_bash","type":"function","function":{"name":"bash","arguments":"{\"command\":\"cat <<'EOF' > /tmp/synth.txt\\n第一行 CJK 内容用来验证折行\\n\\t缩进行 with tab\\nEOF\\ncd /tmp/一个非常长的没有空格的中文目录名字用来测试折行而不是截断/and-a-very-long-ascii-segment-without-any-space-at-all\\nseq 1 60\",\"timeout\":600}"}}]},"finish_reason":null}]}
+
+data: {"id":"chatcmpl-mock","object":"chat.completion.chunk","created":1700000000,"model":"mock-model","choices":[{"index":0,"delta":{"tool_calls":[{"index":1,"id":"call_edit","type":"function","function":{"name":"edit","arguments":"{\"path\":\"synth.txt\",\"oldText\":\"旧\",\"newText\":\"新\"}"}}]},"finish_reason":null}]}
+
+data: {"id":"chatcmpl-mock","object":"chat.completion.chunk","created":1700000000,"model":"mock-model","choices":[{"index":0,"delta":{},"finish_reason":"tool_calls"}],"usage":{"prompt_tokens":10,"completion_tokens":60,"total_tokens":70}}
+

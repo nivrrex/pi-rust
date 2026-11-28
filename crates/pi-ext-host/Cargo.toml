@@ -1,0 +1,19 @@
+[package]
+name = "pi-ext-host"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+pi-core = { path = "../pi-core" }
+futures.workspace = true
+tokio-util.workspace = true
+tokio = { workspace = true }
+uuid = { workspace = true }
+
+[dev-dependencies]
+tempfile.workspace = true

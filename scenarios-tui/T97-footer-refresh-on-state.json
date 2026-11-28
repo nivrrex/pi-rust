@@ -1,0 +1,65 @@
+{
+ "id": "T97-footer-refresh-on-state",
+ "description": "K4：扩展页脚在状态变化（turn_end 计数 + 用量）后重渲染（ref 每帧 render(width)）",
+ "provider": "openai-completions",
+ "model": "mock-model",
+ "mode": "print",
+ "prompt": "hi",
+ "tui": {
+  "cols": 100,
+  "rows": 30,
+  "snapshots": [
+   "after"
+  ],
+  "steps": [
+   {
+    "action": "waitScreen",
+    "contains": "Pi can explain",
+    "timeoutMs": 30000
+   },
+   {
+    "action": "waitStable",
+    "quietMs": 1200,
+    "timeoutMs": 25000
+   },
+   {
+    "action": "type",
+    "text": "hi\r"
+   },
+   {
+    "action": "delay",
+    "ms": 5000
+   },
+   {
+    "action": "waitStable",
+    "quietMs": 1500,
+    "timeoutMs": 20000
+   },
+   {
+    "action": "delay",
+    "ms": 600
+   },
+   {
+    "action": "snapshot",
+    "name": "after"
+   },
+   {
+    "action": "type",
+    "text": "\u0004"
+   },
+   {
+    "action": "waitExit",
+    "timeoutMs": 20000
+   }
+  ]
+ },
+ "responses": [
+  {
+   "file": "fixtures/sse/openai/usage-cache.sse"
+  }
+ ],
+ "extensions": {
+  "k4/package.json": "{\n  \"type\": \"module\",\n  \"name\": \"pi-rs-k4b-fixture\"\n}",
+  "k4/index.js": "import { Text, Container } from \"@earendil-works/pi-tui\";\n\nlet turns = 0;\n\nexport default function refreshExt(pi) {\n  pi.on(\"turn_end\", () => {\n    turns += 1;\n  });\n  pi.on(\"session_start\", (_e, ctx) => {\n    if (typeof ctx.ui?.setFooter !== \"function\") return;\n    ctx.ui.setFooter((tui, theme) => ({\n      render(width) {\n        const box = new Container();\n        box.addChild(new Text(theme.fg(\"dim\", `K4 n=${turns} w=${width}`), 1, 0));\n        return [theme.fg(\"dim\", `K4 n=${turns} w=${width}`)];\n      },\n      invalidate() {},\n    }));\n  });\n}\n"
+ }
+}

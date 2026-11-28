@@ -1,0 +1,23 @@
+{
+  "id": "X03-responses-incomplete",
+  "description": "P8d/X3：openai-responses 的 incomplete 终态（print 模式，看截断提示排布）",
+  "provider": "openai-responses",
+  "model": "mock-model",
+  "mode": "print",
+  "prompt": "hi",
+  "files": {
+    "AGENTS.md": "# 项目规则\n"
+  },
+  "responses": [
+    {
+      "file": "fixtures/sse/responses/incomplete.sse",
+      "chunkByEvent": true
+    }
+  ],
+  "script": [
+    {
+      "action": "waitExit",
+      "timeoutMs": 30000
+    }
+  ]
+}

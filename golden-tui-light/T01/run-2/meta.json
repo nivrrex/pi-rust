@@ -1,0 +1,17 @@
+{
+  "id": "L-T01",
+  "cols": 100,
+  "rows": 30,
+  "helperExit": 0,
+  "exitCode": 0,
+  "stderr": "",
+  "mockStderr": "",
+  "requestLog": "/tmp/lg-T01/run-2/requests.jsonl",
+  "snapshotOffsets": [
+    {
+      "name": "after-prompt",
+      "offset": 5606
+    }
+  ],
+  "sessionDir": "/tmp/lg-T01/run-2/session"
+}

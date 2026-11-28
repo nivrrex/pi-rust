@@ -1,0 +1,18 @@
+{
+  "id": "F52e-alternate",
+  "cols": 110,
+  "rows": 170,
+  "helperExit": 0,
+  "exitCode": 0,
+  "stderr": "",
+  "mockStderr": "",
+  "requestLog": "/tmp/g-ts-F52e-alternate/requests.jsonl",
+  "snapshotOffsets": [
+    {
+      "name": "state",
+      "offset": 45613,
+      "t": 244690.214927551
+    }
+  ],
+  "sessionDir": "/tmp/g-ts-F52e-alternate/session"
+}

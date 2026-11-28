@@ -1,0 +1,129 @@
+{
+  "id": "T63-resume-threaded",
+  "description": "P7-7d：/resume 的 Threaded 是否把 fork 子会话排在父会话之后（Recent 按时间）",
+  "provider": "openai-completions",
+  "model": "mock-model",
+  "mode": "tui",
+  "prompt": "say hi",
+  "files": {
+    "AGENTS.md": "# 项目规则\n\n- 项目级：改代码前先跑测试。\n"
+  },
+  "globalFiles": {},
+  "sessionFiles": [
+    {
+      "fileName": "2026-01-02T00-00-00-000Z_pppp1111.jsonl",
+      "content": "{\"type\":\"session\",\"version\":3,\"id\":\"pppp1111\",\"timestamp\":\"2026-01-02T00:00:00.000Z\",\"cwd\":\"<CWD>\"}\n{\"type\":\"model_change\",\"id\":\"pppp1111e\",\"parentId\":null,\"timestamp\":\"2026-01-02T00:00:00.000Z\",\"provider\":\"openai-completions\",\"modelId\":\"mock-model\"}\n{\"type\":\"thinking_level_change\",\"id\":\"pppp1111t\",\"parentId\":\"pppp1111e\",\"timestamp\":\"2026-01-02T00:00:00.000Z\",\"thinkingLevel\":\"off\"}\n{\"type\":\"message\",\"id\":\"pppp1111u\",\"parentId\":\"pppp1111t\",\"timestamp\":\"2026-01-02T00:00:00.000Z\",\"message\":{\"role\":\"user\",\"content\":\"parentmsg\",\"timestamp\":1767312000000}}\n{\"type\":\"message\",\"id\":\"pppp1111a\",\"parentId\":\"pppp1111u\",\"timestamp\":\"2026-01-02T00:00:00.000Z\",\"message\":{\"role\":\"assistant\",\"content\":[{\"type\":\"text\",\"text\":\"ok parentmsg\"}],\"api\":\"openai-completions\",\"provider\":\"openai-completions\",\"model\":\"mock-model\",\"usage\":{\"input\":10,\"output\":2,\"cacheRead\":0,\"cacheWrite\":0,\"reasoning\":0,\"totalTokens\":12,\"cost\":{\"input\":9.999999999999999e-06,\"output\":4e-06,\"cacheRead\":0,\"cacheWrite\":0,\"total\":1.3999999999999998e-05}},\"stopReason\":\"stop\",\"timestamp\":1767312001000}}\n"
+    },
+    {
+      "fileName": "2026-01-05T00-00-00-000Z_cccc3333.jsonl",
+      "content": "{\"type\":\"session\",\"version\":3,\"id\":\"cccc3333\",\"timestamp\":\"2026-01-05T00:00:00.000Z\",\"cwd\":\"<CWD>\",\"parentSessionPath\":\"<SESS>/2026-01-02T00-00-00-000Z_pppp1111.jsonl\"}\n{\"type\":\"model_change\",\"id\":\"cccc3333e\",\"parentId\":null,\"timestamp\":\"2026-01-05T00:00:00.000Z\",\"provider\":\"openai-completions\",\"modelId\":\"mock-model\"}\n{\"type\":\"thinking_level_change\",\"id\":\"cccc3333t\",\"parentId\":\"cccc3333e\",\"timestamp\":\"2026-01-05T00:00:00.000Z\",\"thinkingLevel\":\"off\"}\n{\"type\":\"message\",\"id\":\"cccc3333u\",\"parentId\":\"cccc3333t\",\"timestamp\":\"2026-01-05T00:00:00.000Z\",\"message\":{\"role\":\"user\",\"content\":\"childmsg\",\"timestamp\":1767571200000}}\n{\"type\":\"message\",\"id\":\"cccc3333a\",\"parentId\":\"cccc3333u\",\"timestamp\":\"2026-01-05T00:00:00.000Z\",\"message\":{\"role\":\"assistant\",\"content\":[{\"type\":\"text\",\"text\":\"ok childmsg\"}],\"api\":\"openai-completions\",\"provider\":\"openai-completions\",\"model\":\"mock-model\",\"usage\":{\"input\":10,\"output\":2,\"cacheRead\":0,\"cacheWrite\":0,\"reasoning\":0,\"totalTokens\":12,\"cost\":{\"input\":9.999999999999999e-06,\"output\":4e-06,\"cacheRead\":0,\"cacheWrite\":0,\"total\":1.3999999999999998e-05}},\"stopReason\":\"stop\",\"timestamp\":1767571201000}}\n"
+    },
+    {
+      "fileName": "2026-01-03T00-00-00-000Z_iiii2222.jsonl",
+      "content": "{\"type\":\"session\",\"version\":3,\"id\":\"iiii2222\",\"timestamp\":\"2026-01-03T00:00:00.000Z\",\"cwd\":\"<CWD>\"}\n{\"type\":\"model_change\",\"id\":\"iiii2222e\",\"parentId\":null,\"timestamp\":\"2026-01-03T00:00:00.000Z\",\"provider\":\"openai-completions\",\"modelId\":\"mock-model\"}\n{\"type\":\"thinking_level_change\",\"id\":\"iiii2222t\",\"parentId\":\"iiii2222e\",\"timestamp\":\"2026-01-03T00:00:00.000Z\",\"thinkingLevel\":\"off\"}\n{\"type\":\"message\",\"id\":\"iiii2222u\",\"parentId\":\"iiii2222t\",\"timestamp\":\"2026-01-03T00:00:00.000Z\",\"message\":{\"role\":\"user\",\"content\":\"indep\",\"timestamp\":1767398400000}}\n{\"type\":\"message\",\"id\":\"iiii2222a\",\"parentId\":\"iiii2222u\",\"timestamp\":\"2026-01-03T00:00:00.000Z\",\"message\":{\"role\":\"assistant\",\"content\":[{\"type\":\"text\",\"text\":\"ok indep\"}],\"api\":\"openai-completions\",\"provider\":\"openai-completions\",\"model\":\"mock-model\",\"usage\":{\"input\":10,\"output\":2,\"cacheRead\":0,\"cacheWrite\":0,\"reasoning\":0,\"totalTokens\":12,\"cost\":{\"input\":9.999999999999999e-06,\"output\":4e-06,\"cacheRead\":0,\"cacheWrite\":0,\"total\":1.3999999999999998e-05}},\"stopReason\":\"stop\",\"timestamp\":1767398401000}}\n"
+    }
+  ],
+  "responses": [
+    {
+      "file": "fixtures/sse/openai/text-basic.sse"
+    }
+  ],
+  "tui": {
+    "cols": 100,
+    "rows": 30,
+    "snapshots": [
+      "threaded",
+      "recent"
+    ],
+    "steps": [
+      {
+        "action": "waitScreen",
+        "contains": "Pi can explain",
+        "timeoutMs": 25000
+      },
+      {
+        "action": "type",
+        "text": "/resume"
+      },
+      {
+        "action": "waitStable",
+        "quietMs": 800,
+        "timeoutMs": 15000
+      },
+      {
+        "action": "type",
+        "text": "\r"
+      },
+      {
+        "action": "delay",
+        "ms": 8000
+      },
+      {
+        "action": "waitStable",
+        "quietMs": 1500,
+        "timeoutMs": 20000
+      },
+      {
+        "action": "type",
+        "text": "\t"
+      },
+      {
+        "action": "delay",
+        "ms": 4000
+      },
+      {
+        "action": "waitStable",
+        "quietMs": 1500,
+        "timeoutMs": 20000
+      },
+      {
+        "action": "snapshot",
+        "name": "threaded"
+      },
+      {
+        "action": "type",
+        "text": "\u0013"
+      },
+      {
+        "action": "delay",
+        "ms": 1200
+      },
+      {
+        "action": "waitStable",
+        "quietMs": 1200,
+        "timeoutMs": 20000
+      },
+      {
+        "action": "snapshot",
+        "name": "recent"
+      },
+      {
+        "action": "type",
+        "text": "\u001b"
+      },
+      {
+        "action": "waitStable",
+        "quietMs": 600,
+        "timeoutMs": 10000
+      },
+      {
+        "action": "type",
+        "text": "\u001b"
+      },
+      {
+        "action": "waitStable",
+        "quietMs": 600,
+        "timeoutMs": 10000
+      },
+      {
+        "action": "type",
+        "text": "\u0004"
+      },
+      {
+        "action": "waitStable",
+        "quietMs": 500,
+        "timeoutMs": 10000
+      }
+    ]
+  }
+}

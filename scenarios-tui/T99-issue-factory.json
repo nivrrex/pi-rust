@@ -1,0 +1,49 @@
+{
+ "id": "T99-issue-factory",
+ "description": "F22/S0b：factory 类扩展加载失败",
+ "provider": "openai-completions",
+ "model": "mock-model",
+ "mode": "print",
+ "prompt": "hi",
+ "files": {},
+ "extensions": {
+  "c/package.json": "{\"type\":\"module\"}",
+  "c/index.mjs": "export default function (pi) { throw new Error(\"boom from factory\"); }\n"
+ },
+ "responses": [
+  {
+   "file": "fixtures/sse/openai/text-basic.sse"
+  }
+ ],
+ "tui": {
+  "cols": 100,
+  "rows": 30,
+  "steps": [
+   {
+    "action": "delay",
+    "ms": 2000
+   },
+   {
+    "action": "waitStable",
+    "quietMs": 900,
+    "timeoutMs": 15000
+   },
+   {
+    "action": "snapshot",
+    "name": "startup"
+   },
+   {
+    "action": "type",
+    "text": "\u0004"
+   },
+   {
+    "action": "waitStable",
+    "quietMs": 500,
+    "timeoutMs": 10000
+   }
+  ],
+  "snapshots": [
+   "startup"
+  ]
+ }
+}

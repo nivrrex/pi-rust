@@ -1,0 +1,16 @@
+{
+  "id": "S26c",
+  "description": "工具参数校验：多余字段：whatever，抓 TS 的错误文本",
+  "provider": "openai-completions",
+  "model": "mock-model",
+  "mode": "print",
+  "prompt": "read a file",
+  "responses": [
+    {
+      "file": "fixtures/sse/openai/toolcall-extrafield.sse"
+    },
+    {
+      "file": "fixtures/sse/openai/text-basic.sse"
+    }
+  ]
+}

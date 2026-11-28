@@ -1,0 +1,18 @@
+{
+  "id": "T109-todo-alldone",
+  "cols": 100,
+  "rows": 34,
+  "helperExit": 0,
+  "exitCode": 0,
+  "stderr": "",
+  "mockStderr": "",
+  "requestLog": "/tmp/t4-pi-ts/requests.jsonl",
+  "snapshotOffsets": [
+    {
+      "name": "after",
+      "offset": 4092,
+      "t": 100118.811723102
+    }
+  ],
+  "sessionDir": "/tmp/t4-pi-ts/session"
+}

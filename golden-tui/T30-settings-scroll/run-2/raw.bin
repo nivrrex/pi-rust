@@ -1,0 +1,112 @@
+[?2004h[>7u[?u[c[?25l]11;?[>4;2m[?2026h[0m]8;;
+[38;5;239m────────────────────────────────────────────────────────────────────────────────────────────────────[39m[0m]8;;
+[7m [0m                                                                                                   [0m]8;;
+[38;5;239m────────────────────────────────────────────────────────────────────────────────────────────────────[39m[0m]8;;
+[38;5;241m/tmp/tui-T30-settings-scroll-b1gLDF/work[39m[0m]8;;
+[38;5;241m0.0%/128k (auto)[39m[38;5;241m                                                                          mock-model[39m[0m]8;;[?2026l[3A[1G[?25l]0;π - work[?2026h[1A[2K [38;5;109mpi[39m[38;5;241m v0.87.1[39m                                                                                         [0m]8;;
+[2K [38;5;241mescape[39m[38;5;244m interrupt[39m[38;5;244m · [39m[38;5;241mctrl+c/ctrl+d[39m[38;5;244m clear/exit[39m[38;5;244m · [39m[38;5;241m/[39m[38;5;244m commands[39m[38;5;244m · [39m[38;5;241m![39m[38;5;244m bash[39m[38;5;244m · [39m[38;5;241mctrl+o[39m[38;5;244m more[39m                    [0m]8;;
+[2K [38;5;241mPress ctrl+o to show full startup help and loaded resources.[39m                                       [0m]8;;
+[2K                                                                                                    [0m]8;;
+[2K [38;5;241mPi can explain its own features and look up its docs. Ask it how to use or extend Pi.[39m              [0m]8;;
+[2K[0m]8;;
+[2K[0m]8;;
+[2K[38;5;222m[Context][39m                                                                                           [0m]8;;
+[2K[38;5;241m  AGENTS.md[39m                                                                                         [0m]8;;
+[2K[0m]8;;
+[2K[0m]8;;
+[2K[38;5;239m────────────────────────────────────────────────────────────────────────────────────────────────────[39m[0m]8;;
+[2K[7m [0m                                                                                                   [0m]8;;
+[2K[38;5;239m────────────────────────────────────────────────────────────────────────────────────────────────────[39m[0m]8;;
+[2K[38;5;241m/tmp/tui-T30-settings-scroll-b1gLDF/work[39m[0m]8;;
+[2K[38;5;241m0.0%/128k (auto)[39m[38;5;241m                                                                          mock-model[39m[0m]8;;[?2026l[3A[1G[?25l[1G[?25l[?2026h[2K/settings[7m [0m                                                                                          [0m]8;;[?2026l[10G[?25l[?2026h[2B[2K[38;5;109m→ settings    Open settings menu[39m                                                                    [0m]8;;
+[2K[38;5;241m/tmp/tui-T30-settings-scroll-b1gLDF/work[39m[0m]8;;
+[2K[38;5;241m0.0%/128k (auto)[39m[38;5;241m                                                                          mock-model[39m[0m]8;;[?2026l[4A[10G[?25l[?2026h[1A[2K[38;5;69m────────────────────────────────────────────────────────────────────────────────────────────────────[39m[0m]8;;
+[2K> [7m [27m                                                                                                 [0m]8;;
+[2K[0m]8;;
+[2K[38;5;109m→ [39m[38;5;109mAuto-compact                    [39m  [38;5;109mtrue[39m[0m]8;;
+[2K  Auto-resize images                [38;5;244mtrue[39m[0m]8;;
+[2K  Block images                      [38;5;244mfalse[39m[0m]8;;
+[2K  Skill commands                    [38;5;244mtrue[39m[0m]8;;
+[2K  Show hardware cursor              [38;5;244mfalse[39m[0m]8;;
+[2K  Editor padding                    [38;5;244m0[39m[0m]8;;
+[2K  Output padding                    [38;5;244m1[39m[0m]8;;
+[2K  Autocomplete max items            [38;5;244m5[39m[0m]8;;
+[2K  Clear on shrink                   [38;5;244mfalse[39m[0m]8;;
+[2K  Terminal progress                 [38;5;244mfalse[39m[0m]8;;
+[2K[38;5;241m  (1/31)[39m[0m]8;;
+[2K[0m]8;;
+[2K[38;5;241m  Automatically compact context when it gets too large[39m[0m]8;;
+[2K[0m]8;;
+[2K[38;5;241m  Type to search · Enter/Space to change · Esc to cancel[39m[0m]8;;
+[2K[38;5;69m────────────────────────────────────────────────────────────────────────────────────────────────────[39m[0m]8;;
+[2K[38;5;241m/tmp/tui-T30-settings-scroll-b1gLDF/work[39m[0m]8;;
+[2K[38;5;241m0.0%/128k (auto)[39m[38;5;241m                                                                          mock-model[39m[0m]8;;[?2026l[?25l[?2026h[17A[2K  Editor padding                    [38;5;244m0[39m[0m]8;;
+[2K  Output padding                    [38;5;244m1[39m[0m]8;;
+[2K  Autocomplete max items            [38;5;244m5[39m[0m]8;;
+[2K  Clear on shrink                   [38;5;244mfalse[39m[0m]8;;
+[2K  Terminal progress                 [38;5;244mfalse[39m[0m]8;;
+[2K[38;5;109m→ [39m[38;5;109mSteering mode                   [39m  [38;5;109mone-at-a-time[39m[0m]8;;
+[2K  Follow-up mode                    [38;5;244mone-at-a-time[39m[0m]8;;
+[2K  Transport                         [38;5;244mauto[39m[0m]8;;
+[2K  HTTP idle timeout                 [38;5;244m5 min[39m[0m]8;;
+[2K  Cache warming                     [38;5;244mstreaming[39m[0m]8;;
+[2K[38;5;241m  (11/31)[39m[0m]8;;
+[2K[0m]8;;
+[2K[38;5;241m  Enter while streaming queues steering messages. 'one-at-a-time': deliver one, wait for response.[39m[0m]8;;
+[2K[38;5;241m  'all': deliver all at once.[39m[0m]8;;
+[2K[0m]8;;
+[2K[38;5;241m  Type to search · Enter/Space to change · Esc to cancel[39m[0m]8;;
+[2K[38;5;69m────────────────────────────────────────────────────────────────────────────────────────────────────[39m[0m]8;;
+[2K[38;5;241m/tmp/tui-T30-settings-scroll-b1gLDF/work[39m[0m]8;;
+[2K[38;5;241m0.0%/128k (auto)[39m[38;5;241m                                                                          mock-model[39m[0m]8;;[?2026l[?25l[?2026h[18A[2K  Hide thinking                     [38;5;244mfalse[39m[0m]8;;
+[2K  Mermaid diagrams                  [38;5;244mstreaming[39m[0m]8;;
+[2K  Cache miss notices                [38;5;244mfalse[39m[0m]8;;
+[2K  Collapse changelog                [38;5;244mfalse[39m[0m]8;;
+[2K  Quiet startup                     [38;5;244mfalse[39m[0m]8;;
+[2K[38;5;109m→ [39m[38;5;109mInstall telemetry               [39m  [38;5;109mtrue[39m[0m]8;;
+[2K  Default project trust             [38;5;244mAsk[39m[0m]8;;
+[2K  Double-escape action              [38;5;244mtree[39m[0m]8;;
+[2K  Tree filter mode                  [38;5;244mdefault[39m[0m]8;;
+[2K  Warnings                          [38;5;244mconfigure[39m[0m]8;;
+[2K[38;5;241m  (21/31)[39m[0m]8;;
+[2K[0m]8;;
+[2K[38;5;241m  Send an anonymous version/update ping after changelog-detected updates[39m[0m]8;;
+[2K[0m]8;;
+[2K[38;5;241m  Type to search · Enter/Space to change · Esc to cancel[39m[0m]8;;
+[2K[38;5;69m────────────────────────────────────────────────────────────────────────────────────────────────────[39m[0m]8;;
+[2K[38;5;241m/tmp/tui-T30-settings-scroll-b1gLDF/work[39m[0m]8;;
+[2K[38;5;241m0.0%/128k (auto)[39m[38;5;241m                                                                          mock-model[39m[0m]8;;
+[2K[1A[?2026l[?25l[?2026h[17A[2K  Default project trust             [38;5;244mAsk[39m[0m]8;;
+[2K  Double-escape action              [38;5;244mtree[39m[0m]8;;
+[2K  Tree filter mode                  [38;5;244mdefault[39m[0m]8;;
+[2K  Warnings                          [38;5;244mconfigure[39m[0m]8;;
+[2K  Default thinking level per model  [38;5;244mnone[39m[0m]8;;
+[2K  TUI mode                          [38;5;244mregular[39m[0m]8;;
+[2K  Fullscreen exit output            [38;5;244mtranscript[39m[0m]8;;
+[2K  Fullscreen scrollbar              [38;5;244mauto[39m[0m]8;;
+[2K  Fullscreen copy on select         [38;5;244mtrue[39m[0m]8;;
+[2K[38;5;109m→ [39m[38;5;109mTheme                           [39m  [38;5;109mdark[39m[0m]8;;
+[2K[38;5;241m  (31/31)[39m[0m]8;;
+[2K[0m]8;;
+[2K[38;5;241m  Color theme for the interface[39m[0m]8;;[?2026l[?25l[?2026h[15A[2K[38;5;239m────────────────────────────────────────────────────────────────────────────────────────────────────[39m[0m]8;;
+[2K[7m [0m                                                                                                   [0m]8;;
+[2K[38;5;239m────────────────────────────────────────────────────────────────────────────────────────────────────[39m[0m]8;;
+[2K[38;5;241m/tmp/tui-T30-settings-scroll-b1gLDF/work[39m[0m]8;;
+[2K[38;5;241m0.0%/128k (auto)[39m[38;5;241m                                                                          mock-model[39m[0m]8;;
+[2K
+[2K
+[2K
+[2K
+[2K
+[2K
+[2K
+[2K
+[2K
+[2K
+[2K
+[2K
+[2K
+[2K
+[2K
+[2K[16A[?2026l[3A[1G[?25l[<u[>4;0m[1G[?25l [4B
+[?25h[?2004l]0;π - work

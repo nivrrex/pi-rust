@@ -1,0 +1,19 @@
+{
+  "id": "T89-ext-select",
+  "cols": 100,
+  "rows": 30,
+  "helperExit": 0,
+  "exitCode": 0,
+  "stderr": "",
+  "mockStderr": "",
+  "snapshotOffsets": [
+    {
+      "name": "select-panel",
+      "offset": 10406
+    },
+    {
+      "name": "after-select",
+      "offset": 11910
+    }
+  ]
+}

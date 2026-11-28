@@ -1,0 +1,22 @@
+{
+  "id": "S23g",
+  "description": "--no-context-files/-nc：ref 清空项目指令文件（resource-loader.ts:515-521）；pi-rs 现状=拒绝该开关",
+  "provider": "openai-completions",
+  "model": "mock-model",
+  "mode": "print",
+  "prompt": "say hi",
+  "files": {
+    "AGENTS.md": "# 项目规则\n\n- 项目级：改代码前先跑测试。\n"
+  },
+  "globalFiles": {
+    "CLAUDE.md": "# 全局规则\n\n- 全局级：回答用中文。\n"
+  },
+  "responses": [
+    {
+      "file": "fixtures/sse/openai/text-basic.sse"
+    }
+  ],
+  "cliArgs": [
+    "--no-context-files"
+  ]
+}

@@ -1,0 +1,25 @@
+//! CLI 参数解析与模式判定（可单测的纯逻辑部分）。
+
+pub mod args;
+pub mod auth_store;
+pub mod auto_compaction;
+pub mod bracket_paste;
+pub mod clipboard;
+mod config_store;
+pub mod ext_tools;
+pub mod list_models;
+pub mod llama;
+pub mod login_options;
+pub mod model_selector;
+pub mod print_mode;
+pub mod rpc;
+pub mod rpc_session;
+pub mod runtime;
+pub mod session_writer;
+pub mod settings;
+pub mod settings_selector;
+pub mod stages;
+pub mod testhook;
+pub mod thinking_selector;
+pub mod tui;
+pub mod tui_notices;

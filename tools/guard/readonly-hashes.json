@@ -1,0 +1,16 @@
+{
+  "ref": {
+    "packages/tui/src/keys.ts": "b972facce4233a4623239fc38029e28cae15d0fb326558c0c09dc02cf4345fa7",
+    "packages/tui/src/components/editor.ts": "241695859d48f49c6aaba9b9cfc14c6cd28639c6c247adb4fe2c202a9e2c6e20",
+    "packages/tui/src/keybindings.ts": "eea5e3fe258ad50337595bb5320955a6d97bac0c8f6c0a838f988d75079bcf38",
+    "packages/tui/src/terminal.ts": "d281681398b9832d98a9a2d75d18a5f586190b601d9a7c82fa92927be5fae3b4",
+    "packages/coding-agent/src/modes/interactive/interactive-mode.ts": "0af3d03d1af8bbe7672c704aa9414d14bd7f15b511320acc038af7148d214388",
+    "packages/coding-agent/src/core/auth-guidance.ts": "8fbee7c272953bf881f22e9ce4b163bb0df9c091f63ee823dbfe32186991efe0",
+    "packages/coding-agent/src/modes/interactive/components/footer.ts": "9e0f71e0f405a9f0fdae901de2778834649facd0f78a78b53c682179f8faf693",
+    "packages/coding-agent/src/cli/args.ts": "94d1490f9c0f66ae40482c8fec9a37ab541f92eb813ae859af66ed776da44315"
+  },
+  "tsPackage": {
+    "package.json": "627631b613ba4ca29eba8df793f5280fd20b19f01d73826e9ffda14c15def5dc",
+    "dist/bundle/cli.js": "e79626f2dd6f94aa45d30f3fa63cd84319a6eefcd150b353cfaf274366926774"
+  }
+}

@@ -1,0 +1,14 @@
+{
+  "id": "S16",
+  "provider": "openai-completions",
+  "model": "mock-model",
+  "mode": "rpc",
+  "exitCode": 0,
+  "runs": 1,
+  "stableLayers": {
+    "A": true,
+    "B": true,
+    "C": true
+  },
+  "stderr": ""
+}

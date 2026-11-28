@@ -1,0 +1,34 @@
+{
+  "id": "S20b",
+  "description": "手动压缩的成功路径：rpc compact（带自定义指令），回合后自动压缩未触发 ⇒ 摘要请求必须带上自定义指令",
+  "provider": "openai-completions",
+  "model": "mock-model",
+  "mode": "rpc",
+  "contextWindow": 200000,
+  "maxTokens": 1024,
+  "settings": {
+    "compaction": {
+      "enabled": true,
+      "reserveTokens": 1000,
+      "keepRecentTokens": 1
+    }
+  },
+  "script": [
+    { "action": "waitState", "match": "\"isStreaming\":false" },
+    { "action": "send", "command": { "type": "prompt", "message": "第一轮：说点长内容" } },
+    { "action": "waitState", "match": "\"isStreaming\":false" },
+    { "action": "send", "command": { "type": "prompt", "message": "第二轮：再说点长内容" } },
+    { "action": "waitState", "match": "\"isStreaming\":false" },
+    { "action": "send", "command": { "type": "compact", "customInstructions": "只保留结论" } },
+    { "action": "waitState", "match": "\"isStreaming\":false" },
+    { "action": "send", "command": { "type": "get_state" } },
+    { "action": "send", "command": { "type": "get_entries" } },
+    { "action": "send", "command": { "type": "get_messages" } },
+    { "action": "waitExit" }
+  ],
+  "responses": [
+    { "file": "fixtures/sse/openai/big-text-usage.sse" },
+    { "file": "fixtures/sse/openai/big-text-usage.sse" },
+    { "file": "fixtures/sse/openai/summary.sse" }
+  ]
+}

@@ -1,0 +1,17 @@
+{
+  "id": "S13b",
+  "description": "S13：length 截断（工具参数不完整）",
+  "provider": "openai-completions",
+  "model": "mock-model",
+  "mode": "print",
+  "prompt": "go",
+  "files": {},
+  "responses": [
+    {
+      "file": "fixtures/sse/openai/length-truncated.sse"
+    },
+    {
+      "file": "fixtures/sse/openai/text-basic.sse"
+    }
+  ]
+}

@@ -1,0 +1,27 @@
+{
+  "id": "S25-anthropic",
+  "description": "图片输入：read 一张 png，比对第二次请求里的图片块",
+  "provider": "anthropic-messages",
+  "model": "mock-model",
+  "mode": "print",
+  "files": {
+    "pic.png": "fixtures/images/pic-1x1.png"
+  },
+  "prompt": "看图",
+  "responses": [
+    {
+      "file": "fixtures/sse/anthropic/tool-read-png.sse"
+    },
+    {
+      "file": "fixtures/sse/anthropic/basic.sse"
+    }
+  ],
+  "followUp": [
+    {
+      "cliArgs": [
+        "--continue"
+      ],
+      "prompt": "再说一句"
+    }
+  ]
+}

@@ -1,0 +1,59 @@
+{
+ "id": "T111-resume-ctx-model",
+ "description": "U2：-c 恢复时扩展 ctx.model 必须有值（否则扩展页脚 no-model / 0.0%）",
+ "provider": "openai-completions",
+ "model": "mock-model",
+ "mode": "print",
+ "prompt": "hi",
+ "files": {},
+ "cliArgs": [
+  "-c"
+ ],
+ "sessionFiles": [
+  {
+   "fileName": "2026-11-06T00-43-43-067Z_01a1ae4f-ba5b-72a9-9b2a-d6d9ad30b65e.jsonl",
+   "content": "{\"type\": \"session\", \"version\": 3, \"id\": \"01a1ae4f-ba5b-72a9-9b2a-d6d9ad30b65e\", \"timestamp\": \"2026-11-06T00:43:43.067Z\", \"cwd\": \"C:\\\\Users\\\\Admin\\\\Desktop\\\\OA-Mails\"}\n{\"type\": \"model_change\", \"id\": \"e404ce19\", \"parentId\": null, \"timestamp\": \"2026-11-06T00:43:43.386Z\", \"provider\": \"mw-auto\", \"modelId\": \"auto\"}\n{\"type\": \"thinking_level_change\", \"id\": \"2d297dc5\", \"parentId\": \"e404ce19\", \"timestamp\": \"2026-11-06T00:43:43.386Z\", \"thinkingLevel\": \"off\"}\n{\"type\": \"message\", \"id\": \"c22ee451\", \"parentId\": \"4b4d89c1\", \"timestamp\": \"2026-11-06T00:46:26.551Z\", \"message\": {\"role\": \"assistant\", \"content\": [{\"type\": \"thinking\", \"thinking\": \"用户让我先了解这个工作目录的结构和相关文档。用户说了：\\n- 工作目录是 C:/Users/Admin/Desktop/OA-Mails\\n- 汇总分析是总文件夹\\n- Token系列产品发展通报、收官攻坚、蓄势启航、要客集团\\\"铸优\\\"攻坚行动 是针对 OA 邮件的三个分类分析的文件夹\\n\\n让我先看一下目录结构，然后读取相关文档（不读基础数据）。\", \"thinkingSignature\": \"reasoning\"}, {\"type\": \"text\", \"text\": \"我先查看目录结构，了解整体情况。\\n\\n\"}, {\"type\": \"toolCall\", \"id\": \"chatcmpl-tool-aff6ad149fcd856b\", \"name\": \"bash\", \"arguments\": {\"command\": \"cd /c/Users/Admin/Desktop/OA-Mails && find . -maxdepth 3 -type d | sort\"}}], \"api\": \"openai-completions\", \"provider\": \"mw-auto\", \"model\": \"auto\", \"usage\": {\"input\": 13231, \"output\": 167, \"cacheRead\": 0, \"cacheWrite\": 0, \"reasoning\": 0, \"totalTokens\": 13398, \"cost\": {\"input\": 0, \"output\": 0, \"cacheRead\": 0, \"cacheWrite\": 0, \"total\": 0}}, \"stopReason\": \"toolUse\", \"timestamp\": 1793925972895, \"responseId\": \"chatcmpl-c25ad13b-988a-453c-b0cb-263528ae8631\", \"responseModel\": \"dsv4_910C\", \"rawStopReason\": \"tool_calls\"}}\n{\"type\": \"message\", \"id\": \"ad1db3db\", \"parentId\": \"b81bed17\", \"timestamp\": \"2026-11-06T00:46:33.914Z\", \"message\": {\"role\": \"assistant\", \"content\": [{\"type\": \"thinking\", \"thinking\": \"Let me look at the files in each directory.\", \"thinkingSignature\": \"reasoning\"}, {\"type\": \"toolCall\", \"id\": \"chatcmpl-tool-b2580eca085c0745\", \"name\": \"bash\", \"arguments\": {\"command\": \"cd /c/Users/Admin/Desktop/OA-Mails && find . -type f | sort | head -100\"}}], \"api\": \"openai-completions\", \"provider\": \"mw-auto\", \"model\": \"auto\", \"usage\": {\"input\": 13443, \"output\": 78, \"cacheRead\": 0, \"cacheWrite\": 0, \"reasoning\": 0, \"totalTokens\": 13521, \"cost\": {\"input\": 0, \"output\": 0, \"cacheRead\": 0, \"cacheWrite\": 0, \"total\": 0}}, \"stopReason\": \"toolUse\", \"timestamp\": 1793925987146, \"responseId\": \"chatcmpl-ca3d74a3-071e-4dc7-a82f-d066108c32b3\", \"responseModel\": \"dsv4_910C\", \"rawStopReason\": \"tool_calls\"}}\n{\"type\": \"message\", \"id\": \"d27af54b\", \"parentId\": \"628208f3\", \"timestamp\": \"2026-11-06T00:46:48.578Z\", \"message\": {\"role\": \"assistant\", \"content\": [{\"type\": \"toolCall\", \"id\": \"chatcmpl-tool-8d126b84b5ace6b1\", \"name\": \"bash\", \"arguments\": {\"command\": \"cd /c/Users/Admin/Desktop/OA-Mails && find . -type f | sort | tail -60 && echo \\\"---总数---\\\" && find . -type f | wc -l\"}}], \"api\": \"openai-completions\", \"provider\": \"mw-auto\", \"model\": \"auto\", \"usage\": {\"input\": 14872, \"output\": 86, \"cacheRead\": 0, \"cacheWrite\": 0, \"reasoning\": 0, \"totalTokens\": 14958, \"cost\": {\"input\": 0, \"output\": 0, \"cacheRead\": 0, \"cacheWrite\": 0, \"total\": 0}}, \"stopReason\": \"toolUse\", \"timestamp\": 1793925994540, \"responseId\": \"chatcmpl-8c461754-ef72-4bde-ba40-21039a64d560\", \"responseModel\": \"dsv4_910C\", \"rawStopReason\": \"tool_calls\"}}\n"
+  }
+ ],
+ "extensions": {
+  "ctxprobe/package.json": "{\"type\":\"module\",\"name\":\"ctxprobe\"}",
+  "ctxprobe/index.js": "export default function probe(pi) {\n  pi.on(\"session_start\", (_e, ctx) => {\n    if (typeof ctx.ui?.setFooter !== \"function\") return;\n    ctx.ui.setFooter((_tui, theme) => ({\n      render() {\n        const m = ctx.model;\n        const cu = typeof ctx.getContextUsage === \"function\" ? ctx.getContextUsage() : undefined;\n        const win = cu?.contextWindow ?? m?.contextWindow ?? 0;\n        return [theme.fg(\"dim\", `MODEL=${m?.id ?? \"no-model\"} PROVIDER=${m?.provider ?? \"-\"} WIN=${win}`)];\n      },\n      invalidate() {},\n    }));\n  });\n}\n"
+ },
+ "responses": [
+  {
+   "file": "fixtures/sse/openai/text-basic.sse"
+  }
+ ],
+ "tui": {
+  "cols": 110,
+  "rows": 34,
+  "snapshots": [
+   "after"
+  ],
+  "steps": [
+   {
+    "action": "waitScreen",
+    "contains": "Pi can explain",
+    "timeoutMs": 30000
+   },
+   {
+    "action": "waitStable",
+    "quietMs": 1200,
+    "timeoutMs": 20000
+   },
+   {
+    "action": "snapshot",
+    "name": "after"
+   },
+   {
+    "action": "type",
+    "text": "\u0004"
+   },
+   {
+    "action": "waitStable",
+    "quietMs": 600,
+    "timeoutMs": 15000
+   }
+  ]
+ }
+}

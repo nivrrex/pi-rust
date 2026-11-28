@@ -1,0 +1,1331 @@
+//! 把一次运行的消息落成会话文件（`spec/c-session.md`）。
+//!
+//! 形状（`golden/S01/session.jsonl` 实测）：
+//! 1. 首行 header：`{"type":"session","version":3,"id":<uuid>,"timestamp":<iso>,"cwd":<cwd>}`；
+//! 2. 随后一条 `model_change`（`parentId: null`）；
+//! 3. 再逐条 `message`，`parentId` 指向上一条的 id，`timestamp` 为写入时刻。
+//!
+//! **未实现**（见 notes）：当前入口未覆盖的少数专用 entry 写入方法；未知 entry 通过
+//! `SessionEntry::Unknown` 原样保留，树/分支操作已在下方实现。
+
+use std::path::{Path, PathBuf};
+
+use pi_ai::message::Message;
+use pi_core::session::{SessionEntry, SessionHeader, CURRENT_SESSION_VERSION};
+use pi_core::{session_io::SessionFile, session_path, timefmt};
+
+/// 会话目录里**最新**的会话文件（`--continue`/`--resume` 要续写它）。
+///
+/// 文件名是 `<ISO 时间戳，`:` 与 `.` 换成 `-`>_<id>.jsonl`，定长且按时间递增，
+/// 因此**按文件名取最大**即可（与 ref 的"最近一次会话"语义一致），不必依赖 mtime
+/// （mtime 在复制/恢复过的目录里会骗人）。
+/// 目录里**最近修改**的会话文件。
+///
+/// 与 ref `session-manager.ts:749-767` 一致：按 `mtime` 倒序（此前用文件名字典序 `max`，
+/// 与"最近"不是一回事），并可要求 header 里的 `cwd` 与给定目录匹配
+/// （`sessionCwdMatches`，`session-manager.ts:744-746`；`--session-dir` 指定了共享目录时才需要）。
+/// `-c`/`--resume` 是否该按会话文件头里的 `cwd` 过滤。
+///
+/// ref `session-manager.ts:1791-1796` 的 `continueRecent`：
+/// `filterCwd = sessionDir !== undefined && dir !== getDefaultSessionDirPath(cwd)`。
+/// 默认分区目录里**不**过滤 ⇒ 目录改名后（`Colibrì` → `colibri`）旧会话仍能被续写。
+#[must_use]
+pub fn should_filter_by_cwd(
+    session_dir: &std::path::Path,
+    cwd: &std::path::Path,
+    agent_dir: &std::path::Path,
+) -> bool {
+    !pi_core::session_path::is_default_session_dir(
+        session_dir,
+        &cwd.to_string_lossy(),
+        &agent_dir.to_string_lossy(),
+    )
+}
+
+pub fn newest_session_file(
+    session_dir: &std::path::Path,
+    cwd: Option<&std::path::Path>,
+) -> Option<std::path::PathBuf> {
+    let mut files: Vec<(std::time::SystemTime, std::path::PathBuf)> =
+        std::fs::read_dir(session_dir)
+            .ok()?
+            .filter_map(|entry| entry.ok())
+            .map(|entry| entry.path())
+            .filter(|path| path.extension().is_some_and(|ext| ext == "jsonl"))
+            .filter_map(|path| {
+                let mtime = std::fs::metadata(&path).ok()?.modified().ok()?;
+                Some((mtime, path))
+            })
+            .collect();
+    // 按 mtime **倒序**（最近的在前）。
+    files.sort_by_key(|entry| std::cmp::Reverse(entry.0));
+    let want = cwd.map(resolve_for_compare);
+    for (_, path) in files {
+        match &want {
+            None => return Some(path),
+            Some(want) => {
+                let header_cwd = session_header_cwd(&path)
+                    .map(|value| resolve_for_compare(std::path::Path::new(&value)));
+                if header_cwd.as_deref() == Some(want.as_str()) {
+                    return Some(path);
+                }
+            }
+        }
+    }
+    None
+}
+
+/// 比较 cwd 时统一形态（`resolvePath` 的近似：去掉末尾分隔符；能规范化就规范化）。
+fn resolve_for_compare(path: &std::path::Path) -> String {
+    normalize_cwd_for_compare(&path.to_string_lossy())
+}
+
+/// 把 cwd 归一成"可比较"的形态（ref `utils/paths.ts:78-106` 的 `normalizePath` +
+/// `nodeResolvePath` 在对应平台上的输出）。
+///
+/// 规则（纯函数，便于在 Linux 上单测 Windows 分支）：
+/// - 去掉尾部 `/` 与 `\`（`C:\a\` 与 `C:\a` 是同一个目录）；
+/// - Windows 下把分隔符统一成 `\`：ref 的 `nodeResolvePath` 是 **win32** 版
+///   `path.resolve`，它输出反斜杠；会话头里若存的是 `C:/Users/x`（Git Bash / WSL 写法），
+///   不归一就永远匹配不上（`session-manager.ts:744-746` 直接比较 `resolvePath(cwd)`）。
+/// - 盘符**保留原大小写**：ref 不做大小写折叠（`normalizePath` 只处理 `~`/`file://`），
+///   擅自小写化会与 ref 相反。
+#[must_use]
+pub fn normalize_cwd_for_compare(text: &str) -> String {
+    let trimmed = text.trim_end_matches(['/', '\\']);
+    if cfg!(windows) || looks_like_windows_path(trimmed) {
+        return trimmed.replace('/', "\\");
+    }
+    trimmed.to_string()
+}
+
+/// 是否是 Windows 形态的路径（`C:\…` 或 `C:/…`）。
+///
+/// 单独抽出来是为了让 Linux 上的单测能走 Windows 分支——测试用 `normalize_windows_cwd`
+/// 直接验证行为，不依赖 `cfg!(windows)`。
+#[must_use]
+pub fn looks_like_windows_path(text: &str) -> bool {
+    let mut chars = text.chars();
+    matches!(
+        (chars.next(), chars.next()),
+        (Some(drive), Some(':')) if drive.is_ascii_alphabetic()
+    )
+}
+
+/// Windows 平台的 cwd 归一（`normalize_cwd_for_compare` 的 Windows 分支）。
+#[must_use]
+pub fn normalize_windows_cwd(text: &str) -> String {
+    text.trim_end_matches(['/', '\\']).replace('/', "\\")
+}
+
+/// 读会话文件首行的 `cwd`（ref `readSessionHeaderForDiscovery`）：读不到或不是 JSON 就当没有。
+fn session_header_cwd(path: &std::path::Path) -> Option<String> {
+    use std::io::BufRead as _;
+    let file = std::fs::File::open(path).ok()?;
+    let mut line = String::new();
+    std::io::BufReader::new(file).read_line(&mut line).ok()?;
+    let value: serde_json::Value = serde_json::from_str(line.trim()).ok()?;
+    value.get("cwd")?.as_str().map(str::to_string)
+}
+
+/// **预生成**一份会话的 (ISO 时间戳, 会话 id, 文件路径)——**不建文件**。
+///
+/// 与 TS 对齐：会话 id 与文件名在**启动时**就确定（`get_state` 会报出来），文件在**首次写入**时才创建。
+pub fn precompute_session(session_dir: &Path) -> (String, String, std::path::PathBuf) {
+    precompute_session_with_id(session_dir, None)
+}
+
+/// 同 [`precompute_session`]，但可**指定会话 id**（`--session-id`）。
+///
+/// 给定 id 时文件名与 header 都用它；`None` 时生成 UUID（与原来一致）。
+pub fn precompute_session_with_id(
+    session_dir: &Path,
+    id: Option<&str>,
+) -> (String, String, std::path::PathBuf) {
+    let iso = timefmt::unix_millis_to_iso8601(timefmt::now_unix_millis());
+    let id = id.map_or_else(|| uuid::Uuid::now_v7().to_string(), str::to_string);
+    let path = session_dir.join(session_path::session_file_name(&iso, &id));
+    (iso, id, path)
+}
+
+/// 会话写入器：持有文件路径与"上一条 entry 的 id"。
+pub struct SessionWriter {
+    path: PathBuf,
+    last_id: Option<String>,
+    /// 已写入（或从已有文件读到）的条目类型。`--continue` 要靠它判断
+    /// "会话里有没有 `thinking_level_change`"（ref `sdk.ts:196`）。
+    kinds: Vec<String>,
+    /// 最近一次写入/读到的思考档位。派发 `thinking_level_select` 时要用作
+    /// `previousLevel`（ref `agent-session.ts:2267-2274` 的 `previousLevel`）。
+    last_thinking_level: Option<String>,
+    /// 是否已经真正落盘（ref `session-manager.ts:1160-1190` 的 `flushed`）。
+    ///
+    /// **ref 是惰性创建**：第一条 assistant 消息出现之前，所有条目只在内存里攒着，
+    /// 会话目录里**没有文件**。这一行为对 `/resume` 的列表可见性有直接影响（P7-7d3）。
+    flushed: bool,
+    /// 尚未落盘的条目行（header 之后的部分；header 单独由 `header_line` 保存）。
+    pending: Vec<String>,
+    /// 与扩展 sink 共享的"当前叶子 id"（F25/S3）。
+    ///
+    /// 扩展的 `pi.appendEntry` 走独立线程裸追加，它也必须拿到**正确的 parentId**，
+    /// 否则会话链断掉（ref `session-manager.ts:1288-1299` 的 `appendCustomEntry` 用
+    /// `id: generateId(...)` + `parentId: this.leafId`）。两边共用这一份叶子。
+    chain: Option<std::sync::Arc<std::sync::Mutex<Option<String>>>>,
+    /// header 那一行的原文。json 模式的**事件流首行**就是它
+    /// （golden/S01 的 `events.jsonl` 第 1 行是 `{"type":"session",…}`），
+    /// 所以要把原文留着，不能只在建文件时写一次就算。
+    header_line: String,
+}
+
+impl SessionWriter {
+    /// 与扩展 sink 共享"当前叶子 id"（F25/S3）。
+    ///
+    /// writer 每次分配 id 后写回；sink 裸追加前读取，保证两条写路径落在**同一条** id 链上
+    /// （ref `session-manager.ts:1288-1299` 的 `appendCustomEntry`：`id: generateId(...)`、
+    /// `parentId: this.leafId`）。
+    pub fn set_chain(&mut self, chain: std::sync::Arc<std::sync::Mutex<Option<String>>>) {
+        if let Ok(mut guard) = chain.lock() {
+            if guard.is_none() {
+                *guard = self.last_id.clone();
+            }
+        }
+        self.chain = Some(chain);
+    }
+
+    /// 新建会话文件并写入 header 与 `model_change`（内部先生成 id 与文件名）。
+    ///
+    /// 需要"先确定 id/文件名、稍后再建文件"的场景（rpc 的 `get_state` 要在写器未建时也报出来，
+    /// 见 S35）请用 `precompute_session` + `create_precomputed`。
+    ///
+    /// `session_dir` 取 `--session-dir` 或 `PI_CODING_AGENT_SESSION_DIR`（由调用方解析好）。
+    pub fn create(
+        session_dir: &Path,
+        cwd: &Path,
+        provider: &str,
+        model_id: &str,
+        thinking_level: &str,
+    ) -> Result<Self, String> {
+        Self::create_with_id(session_dir, cwd, provider, model_id, thinking_level, None)
+    }
+
+    /// 同 [`Self::create`]，但可**指定会话 id**（`--session-id`）。
+    pub fn create_with_id(
+        session_dir: &Path,
+        cwd: &Path,
+        provider: &str,
+        model_id: &str,
+        thinking_level: &str,
+        id: Option<&str>,
+    ) -> Result<Self, String> {
+        let (iso, id, path) = precompute_session_with_id(session_dir, id);
+        Self::create_precomputed(
+            session_dir,
+            cwd,
+            provider,
+            model_id,
+            thinking_level,
+            &iso,
+            &id,
+            &path,
+        )
+    }
+
+    /// 用**预生成**的 `iso`/`id`/`path` 建会话文件（不重新生成 id，保证 `get_state` 早报的值与真实文件一致）。
+    #[allow(clippy::too_many_arguments)]
+    pub fn create_precomputed(
+        _session_dir: &Path,
+        cwd: &Path,
+        provider: &str,
+        model_id: &str,
+        thinking_level: &str,
+        iso: &str,
+        id: &str,
+        path: &Path,
+    ) -> Result<Self, String> {
+        let path = path.to_path_buf();
+        if let Some(parent) = path.parent() {
+            std::fs::create_dir_all(parent).map_err(|error| error.to_string())?;
+        }
+
+        let header = SessionHeader {
+            kind: "session".to_string(),
+            version: Some(CURRENT_SESSION_VERSION),
+            id: id.to_string(),
+            timestamp: iso.to_string(),
+            cwd: Some(cwd.to_string_lossy().to_string()),
+            extra: serde_json::Map::new(),
+        };
+        let header_line = serde_json::to_string(&header).map_err(|error| error.to_string())?;
+        // **不在这里建文件**：ref 等到第一条 assistant 消息才 `openSync(path, "wx")` 并整体 flush
+        // （`session-manager.ts:1174-1184`）。
+
+        // **首条 entry 的 `parentId` 是 `null`**（`golden/S01/session.jsonl` 第 2 行实测），
+        // 不是 header 的 id——header 不参与 id 链。
+        let mut writer = Self {
+            path,
+            last_id: None,
+            kinds: Vec::new(),
+            last_thinking_level: None,
+            flushed: false,
+            pending: Vec::new(),
+            chain: None,
+            header_line: header_line.clone(),
+        };
+        let (entry_id, parent_id) = writer.take_id_and_parent();
+        let model_change = SessionEntry::ModelChange {
+            id: entry_id,
+            parent_id,
+            timestamp: timefmt::unix_millis_to_iso8601(timefmt::now_unix_millis()),
+            provider: provider.to_string(),
+            model_id: model_id.to_string(),
+            extra: serde_json::Map::new(),
+        };
+        writer.append_entry(&model_change)?;
+        // 紧随 `model_change` 之后是 `thinking_level_change`（golden/S01 第 3 行）。
+        // 初始档位来自调用方解析出的 settings/CLI 值，不是固定 `off`。
+        let (entry_id, parent_id) = writer.take_id_and_parent();
+        writer.append_entry(&SessionEntry::ThinkingLevelChange {
+            id: entry_id,
+            parent_id,
+            timestamp: timefmt::unix_millis_to_iso8601(timefmt::now_unix_millis()),
+            thinking_level: thinking_level.to_string(),
+            extra: serde_json::Map::new(),
+        })?;
+        // 初始档位也要记下来，否则第一次 `append_thinking_level_change` 会把
+        // `previousLevel` 当成 `off`（派发载荷就错了）。
+        writer.last_thinking_level = Some(thinking_level.to_string());
+        Ok(writer)
+    }
+
+    /// 这次运行写了哪个文件。
+    pub fn path(&self) -> &Path {
+        &self.path
+    }
+
+    /// header 行的原文（json 事件流首行要用）。
+    pub fn header_line(&self) -> &str {
+        &self.header_line
+    }
+
+    /// 会话 id（header 的 `id`；F28/S1：`ctx.sessionManager.getSessionId()` 用）。
+    #[must_use]
+    pub fn session_id(&self) -> Option<String> {
+        serde_json::from_str::<serde_json::Value>(&self.header_line)
+            .ok()
+            .and_then(|value| {
+                value
+                    .get("id")
+                    .and_then(|id| id.as_str())
+                    .map(str::to_string)
+            })
+    }
+
+    /// 追加 **system 条目**。
+    ///
+    /// 形状照 `golden/S01` 第 4 行：`content` 是**空串**、正文由 `sections` 承载，
+    /// 且带 `toolsAdded`（本 turn 声明的工具）。我原先写的是**渲染后的正文**，与 golden 不符。
+    ///
+    /// 末尾会派发延后的 `session_start`（见 `flush_pending_session_start`）。
+    pub fn append_system_message(
+        &mut self,
+        sections: &[(String, String)],
+        tools_added: &[serde_json::Value],
+        // `tools_added_raw`：同一份 `toolsAdded` 的**按 TS 键序文本**（空串表示没有工具）。
+        // `Message::System` 的手写 `Serialize` 会以 `RawValue` 原样写出它，
+        // 从而让 TS 的 `declarationsEqual`（`JSON.stringify` 判等）认为声明没变。
+        tools_added_raw: &str,
+    ) -> Result<(), String> {
+        let (id, parent_id) = self.take_id_and_parent();
+        let mut extra = serde_json::Map::new();
+        if !sections.is_empty() {
+            let map: serde_json::Map<String, serde_json::Value> = sections
+                .iter()
+                .map(|(name, text)| (name.clone(), serde_json::Value::String(text.clone())))
+                .collect();
+            extra.insert("sections".to_string(), serde_json::Value::Object(map));
+        }
+        if !tools_added.is_empty() {
+            extra.insert(
+                "toolsAdded".to_string(),
+                serde_json::Value::Array(tools_added.to_vec()),
+            );
+        }
+        // `toolsRemoved`：ref `packages/ai/src/utils/transcript.ts:150-167` 的
+        // `getToolStateChanges`——**上一份**声明里"当前没有**或声明变了**"的工具（只取 `{name}`）。
+        // 上一份取**会话文件里最后一条 system 消息**的 `toolsAdded`（`--continue` 的场景里就是
+        // 上一次声明的工具集）；读不到就当"没有上一份"，此时 `removed` 为空、不写该键。
+        let (added, removed) =
+            pi_core::agent::tool_state_changes(&self.last_system_tools_added(), tools_added);
+        if !removed.is_empty() {
+            extra.insert(
+                "toolsRemoved".to_string(),
+                serde_json::Value::Array(removed),
+            );
+        }
+        // 有"上一份"时 `toolsAdded` 也应是**差集**（ref 同源）。当前只在"新增/声明变化"这一
+        // 分支里沿用调用方给的完整列表（`tools_added_raw` 与之一致）；差集与完整列表不同的
+        // 情形（部分工具未变）留待后续：那时需要同时按差集重建原文文本。
+        let _ = added;
+        if !sections.is_empty() {
+            // `sections` 也要**按 TS 的顺序**原样写出（否则 TS 重放会话时按字母序拼系统提示）。
+            let mut raw = String::from("{");
+            for (index, (name, text)) in sections.iter().enumerate() {
+                if index > 0 {
+                    raw.push(',');
+                }
+                raw.push_str(&serde_json::to_string(name).unwrap_or_else(|_| "\"\"".to_string()));
+                raw.push(':');
+                raw.push_str(&serde_json::to_string(text).unwrap_or_else(|_| "\"\"".to_string()));
+            }
+            raw.push('}');
+            extra.insert(
+                pi_ai::message::SECTIONS_RAW_KEY.to_string(),
+                serde_json::Value::String(raw),
+            );
+        }
+        if !tools_added_raw.is_empty() {
+            extra.insert(
+                pi_ai::message::TOOLS_ADDED_RAW_KEY.to_string(),
+                serde_json::Value::String(tools_added_raw.to_string()),
+            );
+        }
+        self.append_entry(&SessionEntry::Message {
+            id,
+            parent_id,
+            timestamp: timefmt::unix_millis_to_iso8601(timefmt::now_unix_millis()),
+            message: Message::System {
+                content: pi_ai::UserContent::Text(String::new()),
+                // TS 的会话里 system 消息带**真实时间**（`core/session-manager.ts:1207…1351` 一律
+                // `new Date().toISOString()`；“0”不是 TS 的形态）⇒ 用同一时刻的毫秒时间戳。
+                timestamp: timefmt::now_unix_millis(),
+                extra,
+            },
+            extra: serde_json::Map::new(),
+        })?;
+        // F28/S1：system 条目写完（链叶子已更新）后才派发延后的 `session_start`，
+        // 扩展在该事件里 `appendEntry` 的 `parentId` 才能正确指向 system 条目。
+        crate::ext_tools::flush_pending_session_start();
+        Ok(())
+    }
+
+    /// 会话是否**已经真正落盘**（ref `session-manager.ts:1136` 的 `isPersisted()`
+    /// + `formatResumeCommand` 里的 `existsSync(sessionFile)`）。
+    ///
+    /// ref 是惰性创建文件：没有任何会话条目时目录里**没有文件**，此时退出**不打印**
+    /// `To resume this session:`（T28/T35/T77 三个纯 UI 场景的 golden 尾部实测没有该行）。
+    #[must_use]
+    pub fn is_flushed(&self) -> bool {
+        self.flushed
+    }
+
+    /// header 里的会话 id（`get_state` 要报 `sessionId`，golden/S16 实测是 uuid）。
+    pub fn header_id(&self) -> Option<String> {
+        let value: serde_json::Value = serde_json::from_str(&self.header_line).ok()?;
+        value
+            .get("id")
+            .and_then(serde_json::Value::as_str)
+            .map(str::to_string)
+    }
+
+    /// 追加一条 `model_change`（`set_model` 用；**即使模型没变也写**，golden/S16 实测）。
+    pub fn append_model_change(&mut self, provider: &str, model_id: &str) -> Result<(), String> {
+        let (id, parent_id) = self.take_id_and_parent();
+        self.append_entry(&SessionEntry::ModelChange {
+            id,
+            parent_id,
+            timestamp: timefmt::unix_millis_to_iso8601(timefmt::now_unix_millis()),
+            provider: provider.to_string(),
+            model_id: model_id.to_string(),
+            extra: serde_json::Map::new(),
+        })
+    }
+
+    /// 续写时按需补一条 `thinking_level_change`。
+    ///
+    /// ref `sdk.ts:196`：`hasThinkingEntry = sessionManager.getBranch().some(e => e.type === "thinking_level_change")`
+    /// ——**只有会话里还没有该条目时才写**（S17 的种子没有 → golden 里补了一条；
+    /// S14 的第一阶段写过 → 续写阶段不再补）。
+    pub fn append_thinking_level_change(&mut self, level: &str) -> Result<(), String> {
+        // 旧档位须在写条目**之前**取（ref `agent-session.ts:2268` 的 `previousLevel`）。
+        let previous = self
+            .last_thinking_level
+            .clone()
+            .unwrap_or_else(|| "off".to_string());
+        let (id, parent_id) = self.take_id_and_parent();
+        self.append_entry(&SessionEntry::ThinkingLevelChange {
+            id,
+            parent_id,
+            timestamp: timefmt::unix_millis_to_iso8601(timefmt::now_unix_millis()),
+            thinking_level: level.to_string(),
+            extra: serde_json::Map::new(),
+        })?;
+        self.last_thinking_level = Some(level.to_string());
+        // 与 `agent-session.ts:2269-2274` 同一处：`thinking_level_select` 只在
+        // 档位真的变化时派发。TUI（`/thinking`、`ctrl+t`）与 rpc 的
+        // `set_thinking_level` 都经由本函数写条目，因此这是唯一派发点。
+        if previous != level {
+            crate::ext_tools::emit_thinking_level_select(level, &previous);
+        }
+        Ok(())
+    }
+
+    /// 会话里**是否已有**某种类型的条目。
+    pub fn has_entry_kind(&self, kind: &str) -> bool {
+        self.kinds.iter().any(|existing| existing == kind)
+    }
+
+    /// **打开已有会话文件继续写**（`--continue` / `--resume`）。
+    ///
+    /// 与 `create` 的区别：**不写** header、`model_change`、`thinking_level_change`
+    /// （golden/S14 的会话里只有**一条** `session`、且没有重复的 `model_change`），
+    /// 并把最后一条 entry 的 id 当作后续 `parentId`。
+    pub fn open(path: &Path) -> Result<Self, String> {
+        let text = std::fs::read_to_string(path).map_err(|error| error.to_string())?;
+        let header_line = text
+            .lines()
+            .next()
+            .ok_or_else(|| "会话文件是空的".to_string())?
+            .to_string();
+        let file = SessionFile::read(path).map_err(|error| error.to_string())?;
+        let last_id = file
+            .entries
+            .iter()
+            .rev()
+            .find_map(|entry| entry.id().map(str::to_string));
+        Ok(Self {
+            path: path.to_path_buf(),
+            last_id,
+            kinds: file
+                .entries
+                .iter()
+                .map(|entry| entry.kind().to_string())
+                .collect(),
+            // 续写已有会话：把文件里最后的档位当作 `previousLevel`。
+            last_thinking_level: file.entries.iter().rev().find_map(|entry| {
+                if let SessionEntry::ThinkingLevelChange { thinking_level, .. } = entry {
+                    Some(thinking_level.clone())
+                } else {
+                    None
+                }
+            }),
+            // 打开已存在的会话文件 ⇒ 视为已经落盘（后续一律追加）。
+            flushed: true,
+            pending: Vec::new(),
+            chain: None,
+            header_line,
+        })
+    }
+
+    /// **最后一条已写入 entry 的 id**（重试包装器要用它当 `context_edit` 的 `targetId`）。
+    pub fn last_entry_id(&self) -> Option<&str> {
+        self.last_id.as_deref()
+    }
+
+    /// 追加 `context_edit`，返回**刚写入的那条 entry 的 JSON**（`entry_appended` 的载荷要用它）。
+    /// `replacement: null` 表示"移除该条"（golden/S07 第 7 行）。
+    pub fn append_context_edit(&mut self, target_id: &str) -> Result<serde_json::Value, String> {
+        let (id, parent_id) = self.take_id_and_parent();
+        let entry = SessionEntry::ContextEdit {
+            id,
+            parent_id,
+            timestamp: timefmt::unix_millis_to_iso8601(timefmt::now_unix_millis()),
+            target_id: target_id.to_string(),
+            replacement: serde_json::Value::Null,
+            extra: serde_json::Map::new(),
+        };
+        self.append_entry(&entry)?;
+        serde_json::to_value(&entry).map_err(|error| error.to_string())
+    }
+
+    /// 追加一条消息。
+    pub fn append_message(&mut self, message: &Message) -> Result<(), String> {
+        let (id, parent_id) = self.take_id_and_parent();
+        let entry = SessionEntry::Message {
+            id,
+            parent_id,
+            timestamp: timefmt::unix_millis_to_iso8601(timefmt::now_unix_millis()),
+            message: message.clone(),
+            extra: serde_json::Map::new(),
+        };
+        self.append_entry(&entry)
+    }
+
+    /// 会话里**最后一份**已声明的工具（没有则空）。
+    ///
+    /// 用于 `toolsRemoved` 的差分（ref `transcript.ts:150-167` 的 `previous`）。
+    /// **必须用 `last_declared_tools`**：`compaction` 条目的 `systemMessage` 里也可能带着
+    /// 上一份声明（`--continue` 载入的种子会话就常常只有它、没有独立的 system 消息条目）——
+    /// 我第一版只扫 system 消息条目，于是 `previous` 恒空、`toolsRemoved` 永远不写（S20c 实测）。
+    fn last_system_tools_added(&self) -> Vec<serde_json::Value> {
+        let Ok(file) = pi_core::session_io::SessionFile::read(&self.path) else {
+            return Vec::new();
+        };
+        pi_core::agent::last_declared_tools(&file.entries)
+    }
+
+    /// 生成新 entry 的 id，并给出**它之前**那一条的 id 作为 `parentId`。
+    ///
+    /// 必须一步取回两者：我第一版写成"先 `next_id()`（内部更新 `last_id`），
+    /// 再读 `self.last_id` 当 parent"，`parentId` 于是等于自己的 id——
+    /// 由 golden 对比时的形状检查发现。
+    fn take_id_and_parent(&mut self) -> (String, Option<String>) {
+        // 共享叶子（扩展 sink 可能已经追加过条目）优先于本 writer 自己的记账。
+        let shared_parent = self
+            .chain
+            .as_ref()
+            .and_then(|chain| chain.lock().ok().and_then(|guard| guard.clone()));
+        let parent = shared_parent.or_else(|| self.last_id.clone());
+        // entry id 是 **uuid 的前 8 位**：`session-manager.ts:277-283` 的
+        // `randomUUID().slice(0, 8)`（撞了就重试，最多 100 次，仍撞才退回整条 uuid）。
+        // 我原先用整条 uuid，B 层比对的 `entry_appended` 里立刻显出形态不同
+        // （golden 归一化成 `<IDn>`、我的是 `<UUID>`）。
+        // **必须是 v4（随机）**：v7 的前 8 位是时间戳，同一毫秒内两次 append 会得到相同的 id
+        // （我的测试 `t3_32` 当场报出 `left == right`）。TS 用的是 `randomUUID()`（v4）。
+        let id = uuid::Uuid::new_v4()
+            .to_string()
+            .chars()
+            .take(8)
+            .collect::<String>();
+        self.last_id = Some(id.clone());
+        if let Some(chain) = &self.chain {
+            if let Ok(mut guard) = chain.lock() {
+                *guard = Some(id.clone());
+            }
+        }
+        (id, parent)
+    }
+
+    /// 追加一条 `label` 条目（ref `session-manager.ts:1439-1451` 的 `appendLabelChange`）。
+    ///
+    /// 本项目的 `SessionEntry` 没有 `label` 变体（ref 的 entry 联合里也把它列为"其它类型"），
+    /// 因此以 [`SessionEntry::Unknown`] 原样写入，字段顺序与 ref 一致。
+    ///
+    /// # Errors
+    /// 写文件失败时返回错误描述。
+    pub fn append_label(&mut self, target_id: &str, label: &str) -> Result<(), String> {
+        let (entry_id, parent_id) = self.take_id_and_parent();
+        let target = if target_id.is_empty() {
+            self.last_id.clone().unwrap_or_else(|| entry_id.clone())
+        } else {
+            target_id.to_string()
+        };
+        let mut object = serde_json::Map::new();
+        object.insert(
+            "type".to_string(),
+            serde_json::Value::String("label".into()),
+        );
+        object.insert("id".to_string(), serde_json::Value::String(entry_id));
+        object.insert(
+            "parentId".to_string(),
+            parent_id.map_or(serde_json::Value::Null, serde_json::Value::String),
+        );
+        object.insert(
+            "timestamp".to_string(),
+            serde_json::Value::String(timefmt::unix_millis_to_iso8601(timefmt::now_unix_millis())),
+        );
+        object.insert("targetId".to_string(), serde_json::Value::String(target));
+        object.insert(
+            "label".to_string(),
+            if label.is_empty() {
+                serde_json::Value::Null
+            } else {
+                serde_json::Value::String(label.to_string())
+            },
+        );
+        self.append_entry(&SessionEntry::Unknown(serde_json::Value::Object(object)))
+    }
+
+    fn append_entry(&mut self, entry: &SessionEntry) -> Result<(), String> {
+        self.kinds.push(entry.kind().to_string());
+        let line = serde_json::to_string(entry).map_err(|error| error.to_string())?;
+        // 已经 flush 过 ⇒ 直接追加（ref `:1186-1188`）。
+        if self.flushed {
+            return SessionFile::append(&self.path, entry).map_err(|error| error.to_string());
+        }
+        // 还没 flush：遇到第一条 **assistant** 消息才落盘，把 header + 攒下的全部条目 + 本条一次写出
+        // （ref `:1167-1184`：`openSync(path, "wx")` 后逐条写）。
+        let has_assistant = matches!(entry, SessionEntry::Message { message, .. }
+            if matches!(message, pi_ai::message::Message::Assistant { .. }));
+        if !has_assistant {
+            self.pending.push(line);
+            return Ok(());
+        }
+        self.write_first_flush(Some(&line))
+    }
+    /// 首次整文件落盘（header + `pending` + 这一条），并把早写进文件的 `custom` 行按逻辑顺序并入。
+    ///
+    /// 抽出来是为了让"只有 bash 条目、没有 assistant"的会话也能落盘（ref 是逐条即时写）。
+    fn write_first_flush(&mut self, extra_line: Option<&str>) -> Result<(), String> {
+        if let Some(parent) = self.path.parent() {
+            std::fs::create_dir_all(parent).map_err(|error| error.to_string())?;
+        }
+        // **仅测试用**的钩子（F22/S1b）：把"首次落盘"人为推迟，让 sink 线程的 `appendEntry`
+        // 必然先写入同一路径，从而确定性地暴露"整文件写入截断掉追加行"的竞态。
+        // 生产路径默认不设置该变量 ⇒ 行为不变。
+        if let Ok(ms) = std::env::var("PI_TEST_DELAY_FIRST_FLUSH_MS") {
+            if let Ok(ms) = ms.trim().parse::<u64>() {
+                if ms > 0 {
+                    std::thread::sleep(std::time::Duration::from_millis(ms));
+                }
+            }
+        }
+        // **先读回已存在的行**：sink 线程是裸追加（`OpenOptions::append`），完全可能在我们首次
+        // 整文件写入之前就写好了一条 `custom` 条目；`std::fs::write` 是截断语义，不并回来就丢。
+        let preexisting: Vec<String> = std::fs::read_to_string(&self.path)
+            .map(|text| {
+                text.lines()
+                    .map(str::to_string)
+                    .filter(|line| !line.trim().is_empty() && *line != self.header_line)
+                    .collect()
+            })
+            .unwrap_or_default();
+        let extra_len = extra_line.map_or(0, str::len);
+        let mut body = String::with_capacity(self.header_line.len() + extra_len + 64);
+        body.push_str(&self.header_line);
+        body.push('\n');
+        for buffered in self.pending.drain(..) {
+            body.push_str(&buffered);
+            body.push('\n');
+        }
+        if let Some(line) = extra_line {
+            body.push_str(line);
+            body.push('\n');
+        }
+        // 并入早写的行时**按逻辑顺序**插到 system 条目之后：sink 的 `appendEntry` 是在
+        // `session_start` 里发生的（此时 system 已攒进 `pending`、user/assistant 还没写），
+        // 直接追加到文件末尾会让"文件顺序"与"parentId 链"不一致（F28/S1 暴露）。
+        let mut merged: Vec<String> = Vec::new();
+        for extra in preexisting {
+            if !self.pending.contains(&extra) && !body.contains(&extra) && !merged.contains(&extra)
+            {
+                merged.push(extra);
+            }
+        }
+        if merged.is_empty() {
+            // 没有早写的行：保持原样。
+        } else {
+            let mut lines: Vec<&str> = body.lines().collect();
+            let insert_at = lines
+                .iter()
+                .rposition(|line| line.contains("\"role\":\"system\""))
+                .map_or(lines.len(), |index| index + 1);
+            let tail: Vec<&str> = lines.split_off(insert_at);
+            lines.extend(merged.iter().map(String::as_str));
+            lines.extend(tail);
+            body = lines.join("\n");
+            body.push('\n');
+        }
+        std::fs::write(&self.path, body).map_err(|error| error.to_string())?;
+        self.flushed = true;
+        Ok(())
+    }
+
+    /// 把"已攒的条目"写进文件——**仅在已经落盘过之后**才有意义。
+    ///
+    /// ref `core/session-manager.ts:1160-1175`：没有 assistant 消息时 `_persist` 一个字节都不写，
+    /// 条目只进内存（`flushed=false`），等首条 assistant 到达再整体落盘。因此这里对未落盘的会话
+    /// 直接返回：之前那版会强制写盘，导致"只有 `!` 命令、没有 assistant"的会话也留下 jsonl 并
+    /// 打印 `To resume this session`（与 TS 实测不符，见 notes/p9-f31）。
+    /// 强制把**尚未落盘**的条目写出去（导出前用）。
+    ///
+    /// 会话文件是**惰性创建**的：第一条 assistant 消息之前目录里根本没有文件
+    /// （ref `session-manager.ts:1167-1184`）。`/export` 要读文件，所以在读之前
+    /// 先调这里把 header + pending 落盘；已经 flush 过时是无操作。
+    ///
+    /// **线程安全**：`&mut self`，调用方需持有 writer 的锁。
+    pub fn flush_pending(&mut self) -> Result<(), String> {
+        if self.flushed {
+            return Ok(());
+        }
+        if self.pending.is_empty() {
+            // 一条都没攒下：没什么可导出的，保持文件不存在（与 ref 一致）。
+            return Ok(());
+        }
+        self.write_first_flush(None)
+    }
+
+    pub fn ensure_flushed(&mut self) -> Result<(), String> {
+        if !self.flushed {
+            return Ok(());
+        }
+        Ok(())
+    }
+
+    /// 追加一条 `compaction` 条目（ref `session-manager.ts:1259-1285` 的 `appendCompaction`）。
+    ///
+    /// 字段与 ref 一致：`type/id/parentId/timestamp/summary/firstKeptEntryId/tokensBefore/details/usage/fromHook/systemMessage`。
+    /// - `first_kept_entry_id` 为 `None` 时用**本条自己的 id**（ref 的 `?? id`）；
+    /// - `details`/`usage` 为 `None` 时不写该键（ref 传 `undefined`，`JSON.stringify` 会丢掉）；
+    /// - `fromHook` 恒 `false`（pi 自己生成的压缩；golden/S21 的条目里就是 `false`）；
+    /// - `systemMessage` 由调用方给**原始 JSON 文本**（ref 用当前投影的最后一条 system）。
+    ///   走 [`pi_core::session_io::SessionFile::append_with_raw_system_message`]：`serde_json::Map`
+    ///   会把 `toolsAdded[].parameters` 的键序排序掉，而 TS 的键序参与 A 层判等（`Message::System`
+    ///   的 `__toolsAddedRaw`/`__sectionsRaw` 是同一套 `RawValue` 机制）。
+    ///
+    /// 追加一条 `branch_summary` 条目（`/tree` 选 `Summarize` 后由摘要请求产生）。
+    ///
+    /// 字段照 TS 会话实测：`{type, id, parentId, timestamp, fromId, details:{readFiles,modifiedFiles},
+    /// usage, fromHook:false, summary}`（`fromHook` 恒 `false`——不是扩展钩子生成的）。
+    ///
+    /// # Errors
+    /// 写文件失败时返回错误描述。
+    /// 写一条 `branch_summary`（ref `session-manager.ts:1593-1618` 的 `branchWithSummary`）。
+    ///
+    /// **`parent_id` 是导航目标**（`branchFromId`），**不是**当前叶子：
+    /// ref 的实现是
+    /// ```text
+    /// const fromId = this.leafId ?? "root";
+    /// this.leafId = branchFromId;          // 先把叶子挪到目标
+    /// entry = { parentId: branchFromId, fromId, summary, … };
+    /// ```
+    /// 也就是说摘要在**新分支**上、`fromId` 记的是被离开的旧叶子。
+    ///
+    /// 我此前用 `take_id_and_parent()`（parent = 当前叶子 = 旧分支末尾）⇒ 摘要被挂到
+    /// **旧分支**上，`fromId` 也丢了：会话树里出现"旧分支又多出一条子节点"，
+    /// 而切过去的分支上什么都没有（ref 的 `getBranch()` 与新屏幕不一致）。
+    ///
+    /// `parent_id: None` = 导航到根（ref 允许 `branchFromId === null`）。
+    pub fn append_branch_summary(
+        &mut self,
+        parent_id: Option<&str>,
+        from_id: &str,
+        summary: &str,
+        usage_input: u64,
+        usage_output: u64,
+    ) -> Result<(), String> {
+        let (entry_id, _ignored_parent) = self.take_id_and_parent();
+        // 叶子改由**导航目标**决定（ref 里 `this.leafId = branchFromId` 在构造条目之前）。
+        if let Some(chain) = self.chain.as_ref() {
+            if let Ok(mut guard) = chain.lock() {
+                *guard = Some(entry_id.clone());
+            }
+        }
+        let parent_id = parent_id.map(str::to_string);
+        let mut usage = serde_json::Map::new();
+        usage.insert("input".to_string(), serde_json::Value::from(usage_input));
+        usage.insert("output".to_string(), serde_json::Value::from(usage_output));
+        usage.insert("cacheRead".to_string(), serde_json::Value::from(0));
+        usage.insert("cacheWrite".to_string(), serde_json::Value::from(0));
+        usage.insert("reasoning".to_string(), serde_json::Value::from(0));
+        usage.insert(
+            "totalTokens".to_string(),
+            serde_json::Value::from(usage_input + usage_output),
+        );
+        let mut cost = serde_json::Map::new();
+        for key in ["input", "output", "cacheRead", "cacheWrite", "total"] {
+            cost.insert(key.to_string(), serde_json::Value::from(0));
+        }
+        usage.insert("cost".to_string(), serde_json::Value::Object(cost));
+
+        let mut details = serde_json::Map::new();
+        details.insert(
+            "readFiles".to_string(),
+            serde_json::Value::Array(Vec::new()),
+        );
+        details.insert(
+            "modifiedFiles".to_string(),
+            serde_json::Value::Array(Vec::new()),
+        );
+
+        let mut object = serde_json::Map::new();
+        object.insert(
+            "type".to_string(),
+            serde_json::Value::String("branch_summary".into()),
+        );
+        object.insert("id".to_string(), serde_json::Value::String(entry_id));
+        object.insert(
+            "parentId".to_string(),
+            parent_id.map_or(serde_json::Value::Null, serde_json::Value::String),
+        );
+        object.insert(
+            "timestamp".to_string(),
+            serde_json::Value::String(timefmt::unix_millis_to_iso8601(timefmt::now_unix_millis())),
+        );
+        object.insert(
+            "fromId".to_string(),
+            serde_json::Value::String(from_id.to_string()),
+        );
+        object.insert("details".to_string(), serde_json::Value::Object(details));
+        object.insert("usage".to_string(), serde_json::Value::Object(usage));
+        object.insert("fromHook".to_string(), serde_json::Value::Bool(false));
+        object.insert(
+            "summary".to_string(),
+            serde_json::Value::String(summary.to_string()),
+        );
+        self.append_entry(&SessionEntry::Unknown(serde_json::Value::Object(object)))
+    }
+
+    /// 写一条 `session_info`（会话显示名，ref `session-manager.ts:1302-1313` 的
+    /// `appendSessionInfo`）。
+    ///
+    /// 名字先**归一**：`[\r\n]+` → 空格、首尾 trim（ref `:1303` 同款）。
+    /// 条目类型是 `session_info`，pi-rs 没有专门变体 ⇒ 走 `Unknown` 原样往返
+    /// （读后写回不丢字段，符合互通约束）。
+    ///
+    /// 返回写出的名字（归一后的），供 `/name` 判断是否需要提示"被归一过"。
+    /// 写一条 `label` 条目（`pi.setLabel`，ref `session-manager.ts:1439-1460`）。
+    ///
+    /// 形状 `{type:"label", id, parentId, timestamp, targetId, label}`；
+    /// `label` 为 `None` 时写 `null`（表示清除标记）。
+    ///
+    /// **目标条目必须存在**，否则按 ref 抛错且**不写任何东西**——
+    /// 这里通过读回会话文件核对 id 集合（writer 只记最后一条 id）。
+    pub fn append_label_change(
+        &mut self,
+        target_id: &str,
+        label: Option<&str>,
+    ) -> Result<String, String> {
+        // 先核对目标存在（ref 在构造 entry 之前就 `throw new Error`）。
+        let text = std::fs::read_to_string(&self.path).map_err(|error| error.to_string())?;
+        let exists = text.lines().any(|line| {
+            serde_json::from_str::<serde_json::Value>(line)
+                .ok()
+                .and_then(|value| {
+                    value
+                        .get("id")
+                        .and_then(serde_json::Value::as_str)
+                        .map(str::to_string)
+                })
+                .is_some_and(|id| id == target_id)
+        });
+        // 内存里尚未落盘的条目也要算（`flushed=false` 时文件可能还没有它们）。
+        let exists = exists
+            || self.pending.iter().any(|line| {
+                serde_json::from_str::<serde_json::Value>(line)
+                    .ok()
+                    .and_then(|value| {
+                        value
+                            .get("id")
+                            .and_then(serde_json::Value::as_str)
+                            .map(str::to_string)
+                    })
+                    .is_some_and(|id| id == target_id)
+            });
+        if !exists {
+            return Err(format!("Entry {target_id} not found"));
+        }
+        let (entry_id, parent_id) = self.take_id_and_parent();
+        let entry = serde_json::json!({
+            "type": "label",
+            "id": entry_id,
+            "parentId": parent_id,
+            "timestamp": timefmt::unix_millis_to_iso8601(timefmt::now_unix_millis()),
+            "targetId": target_id,
+            "label": label,
+        });
+        self.append_entry(&SessionEntry::Unknown(entry))?;
+        Ok(entry_id)
+    }
+
+    pub fn append_session_info(&mut self, name: &str) -> Result<String, String> {
+        let sanitized = name
+            .split(['\r', '\n'])
+            .collect::<Vec<_>>()
+            .join(" ")
+            .trim()
+            .to_string();
+        let (entry_id, parent_id) = self.take_id_and_parent();
+        let entry = serde_json::json!({
+            "type": "session_info",
+            "id": entry_id,
+            "parentId": parent_id,
+            "timestamp": timefmt::unix_millis_to_iso8601(timefmt::now_unix_millis()),
+            "name": sanitized,
+        });
+        self.append_entry(&SessionEntry::Unknown(entry))?;
+        // ref `agent-session.ts:3559-3564`：写完 `session_info` 条目后派发
+        // `session_info_changed`。空名 ⇒ `name: null`（表示清空）。
+        crate::ext_tools::emit_session_info_changed(
+            (!sanitized.is_empty()).then_some(sanitized.as_str()),
+        );
+        // `pi.getSessionName()` 读的是 `ctx.sessionName`（ref `types.ts:1508-1509`），
+        // 改名后必须同步，否则扩展读到的还是旧名/空。
+        crate::ext_tools::set_ctx_session_name(
+            (!sanitized.is_empty()).then_some(sanitized.as_str()),
+        );
+        Ok(sanitized)
+    }
+
+    /// `/clone`：把**当前叶子路径**复制成一个新会话文件并切过去
+    /// （ref `interactive-mode.ts:5379-5398` 的 `handleCloneCommand` →
+    /// `runtimeHost.fork(leafId, {position:"at"})` → `createBranchedSession`）。
+    ///
+    /// 与 rpc 的 `clone` 同源：都用 `rpc_session::branch_path` 取路径。
+    /// **不复用 rpc 的 `fork()`**——那条路径绑在 `RpcShared` 上（要维护队列/transcript/
+    /// written 三个锁），TUI 没有那套状态。
+    ///
+    /// 返回新会话的路径；`Ok(None)` = 还没有任何可克隆的条目（ref 的
+    /// `Nothing to clone yet`）。
+    pub fn clone_current_branch(&mut self) -> Result<Option<std::path::PathBuf>, String> {
+        let (entries, cwd) = {
+            // **文件可能还不存在**（懒创建：新会话在首条 assistant 之前没有文件）。
+            // 那种情况下条目为空 ⇒ 调用方给 `Nothing to clone yet`（ref `:5381-5383`：
+            // `getLeafId()` 为 null 时的同一提示），而不是报"读会话失败"。
+            if !self.path.is_file() {
+                return Ok(None);
+            }
+            let file = pi_core::session_io::SessionFile::read(&self.path)
+                .map_err(|error| format!("Failed to read session: {error}"))?;
+            // 新会话的 `cwd` 沿用**原会话头**的（ref `createBranchedSession` 用
+            // `sessionManager.getCwd()`，也就是会话头里的那个，不是进程 cwd）。
+            let cwd = file.header.cwd.clone().unwrap_or_default();
+            let entries = file
+                .entries
+                .iter()
+                .map(|entry| serde_json::to_value(entry).unwrap_or(serde_json::Value::Null))
+                .collect::<Vec<_>>();
+            (entries, cwd)
+        };
+        // 叶子：链上记录的优先（扩展也可能追加过条目），否则取最后一条。
+        let leaf = self
+            .chain
+            .as_ref()
+            .and_then(|chain| chain.lock().ok().and_then(|guard| guard.clone()))
+            .or_else(|| {
+                entries
+                    .iter()
+                    .rev()
+                    .find_map(|entry| entry.get("id")?.as_str().map(str::to_string))
+            });
+        let path = crate::rpc_session::branch_path(&entries, leaf.as_deref());
+        if path.is_empty() {
+            return Ok(None);
+        }
+        self.write_branch_session(&path, &cwd).map(Some)
+    }
+
+    /// `/fork`：以**某条用户消息之前**为界，把该分支复制成新会话
+    /// （ref `interactive-mode.ts:5352-5365` 的 `showUserMessageSelector` →
+    /// `runtimeHost.fork(entryId)`，position 默认 `"before"`）。
+    ///
+    /// 与 `/clone` 的区别只在**叶子选择**：clone 取当前叶子、fork 取该消息的 `parentId`。
+    /// 返回 `(新会话路径, 该消息的正文)`——正文供调用方回填编辑器（ref `:5363`）。
+    pub fn fork_from_user_message(
+        &mut self,
+        entry_id: &str,
+    ) -> Result<Option<(std::path::PathBuf, String)>, String> {
+        if !self.path.is_file() {
+            return Ok(None);
+        }
+        let file = pi_core::session_io::SessionFile::read(&self.path)
+            .map_err(|error| format!("Failed to read session: {error}"))?;
+        let cwd = file.header.cwd.clone().unwrap_or_default();
+        let entries: Vec<serde_json::Value> = file
+            .entries
+            .iter()
+            .map(|entry| serde_json::to_value(entry).unwrap_or(serde_json::Value::Null))
+            .collect();
+        let Some(target) = entries
+            .iter()
+            .find(|entry| entry.get("id").and_then(serde_json::Value::as_str) == Some(entry_id))
+        else {
+            return Err("Invalid entry ID for forking".to_string());
+        };
+        // ref `:512-517`：`fork` 的默认 position 是 `"before"`，要求目标是**用户消息**，
+        // 新叶子取它的 `parentId`（`None` = 分叉到根）。
+        let is_user_message = target.get("type").and_then(serde_json::Value::as_str)
+            == Some("message")
+            && target
+                .get("message")
+                .and_then(|message| message.get("role"))
+                .and_then(serde_json::Value::as_str)
+                == Some("user");
+        if !is_user_message {
+            return Err("Invalid entry ID for forking".to_string());
+        }
+        let leaf = target
+            .get("parentId")
+            .and_then(serde_json::Value::as_str)
+            .map(str::to_string);
+        let text = crate::rpc_session::message_text(target);
+        let path = crate::rpc_session::branch_path(&entries, leaf.as_deref());
+        let file = self.write_branch_session(&path, &cwd)?;
+        Ok(Some((file, text)))
+    }
+
+    /// 把一条**分支路径**写成新会话文件并切过去（`/clone` 与 `/fork` 共用）。
+    ///
+    /// ref `session-manager.ts:1663-1690` 的 `createBranchedSession` 主体：
+    /// 新 header（带 `parentSession`）+ 逐条复制路径条目。
+    fn write_branch_session(
+        &mut self,
+        path: &[serde_json::Value],
+        cwd: &str,
+    ) -> Result<std::path::PathBuf, String> {
+        let dir = self
+            .path
+            .parent()
+            .ok_or_else(|| "Failed to create branched session: no session dir".to_string())?
+            .to_path_buf();
+        let new_id = uuid::Uuid::now_v7().to_string();
+        let stamp = pi_core::timefmt::now_unix_millis();
+        let file = dir.join(format!("{stamp}_{new_id}.jsonl"));
+        let mut extra = serde_json::Map::new();
+        extra.insert(
+            "parentSession".to_string(),
+            serde_json::Value::String(self.path.to_string_lossy().to_string()),
+        );
+        let header = pi_core::session::SessionHeader {
+            kind: "session".to_string(),
+            version: Some(pi_core::session::CURRENT_SESSION_VERSION),
+            id: new_id,
+            timestamp: pi_core::timefmt::unix_millis_to_iso8601(stamp),
+            cwd: Some(cwd.to_string()),
+            extra,
+        };
+        let mut text = serde_json::to_string(&header)
+            .map_err(|error| format!("Failed to serialize session header: {error}"))?;
+        for item in path {
+            text.push('\n');
+            text.push_str(&item.to_string());
+        }
+        std::fs::write(&file, text)
+            .map_err(|error| format!("Failed to write branched session: {error}"))?;
+        // 切到新会话（写器 + 共享链 + 扩展可见的 sessionFile/sessionId）。
+        let mut writer = Self::open(&file)?;
+        writer.set_chain(std::sync::Arc::clone(
+            self.chain
+                .as_ref()
+                .unwrap_or(&crate::ext_tools::session_chain()),
+        ));
+        crate::ext_tools::set_session_file(writer.path());
+        crate::ext_tools::set_session_id(writer.session_id());
+        *self = writer;
+        Ok(file)
+    }
+
+    /// 当前会话的显示名（最后一条 `session_info` 的 `name`，ref
+    /// `session-manager.ts:1316-1325` 的 `getSessionName`：**倒序**找最新一条）。
+    ///
+    /// 会话文件是**懒创建**的：还没落盘时读不到，回退到 `pending` 里的行
+    /// （`session_info` 可能在首次 flush 之前就写了）。
+    #[must_use]
+    pub fn session_name(&self) -> Option<String> {
+        let read_name = |line: &str| -> Option<String> {
+            let value: serde_json::Value = serde_json::from_str(line).ok()?;
+            if value.get("type")?.as_str()? != "session_info" {
+                return None;
+            }
+            value.get("name")?.as_str().map(str::to_string)
+        };
+        if let Ok(text) = std::fs::read_to_string(&self.path) {
+            if let Some(name) = text.lines().rev().find_map(read_name) {
+                return Some(name);
+            }
+        }
+        self.pending.iter().rev().find_map(|line| read_name(line))
+    }
+
+    pub fn append_compaction(
+        &mut self,
+        summary: &str,
+        first_kept_entry_id: Option<&str>,
+        tokens_before: u64,
+        details: Option<serde_json::Value>,
+        usage: Option<serde_json::Value>,
+        system_message_raw: Option<&str>,
+    ) -> Result<serde_json::Value, String> {
+        let (id, parent_id) = self.take_id_and_parent();
+        let mut extra = serde_json::Map::new();
+        extra.insert("fromHook".to_string(), serde_json::Value::Bool(false));
+        if let Some(details) = details {
+            extra.insert("details".to_string(), details);
+        }
+        if let Some(usage) = usage {
+            extra.insert("usage".to_string(), usage);
+        }
+        if let Some(raw) = system_message_raw {
+            // 内存里保留解析后的对象（投影要读它）；**写出的那一行**用原文（保序）。
+            if let Ok(value) = serde_json::from_str::<serde_json::Value>(raw) {
+                extra.insert("systemMessage".to_string(), value);
+            }
+        }
+        let entry = SessionEntry::Compaction {
+            id: id.clone(),
+            parent_id,
+            timestamp: timefmt::unix_millis_to_iso8601(timefmt::now_unix_millis()),
+            summary: summary.to_string(),
+            first_kept_entry_id: first_kept_entry_id.unwrap_or(&id).to_string(),
+            tokens_before,
+            extra,
+        };
+        match system_message_raw {
+            Some(raw) => {
+                self.kinds.push(entry.kind().to_string());
+                pi_core::session_io::SessionFile::append_with_raw_system_message(
+                    &self.path, &entry, raw,
+                )
+                .map_err(|error| error.to_string())?;
+            }
+            None => self.append_entry(&entry)?,
+        }
+        serde_json::to_value(&entry).map_err(|error| error.to_string())
+    }
+}
+
+/// 按 ref `footer.ts:86-105` 汇总**整个会话**的用量（footer 显示的是累计值）：
+/// - `message` 且 `role == assistant` → `message.usage`
+/// - `message` 且 `role == toolResult` 且带 `usage` → `message.usage`
+/// - `branch_summary` / `compaction` 且带 `usage` → `entry.usage`
+///
+/// 返回 `(input, output, cost)`。读不到的条目按 0 计（不 panic、不猜测）。
+#[must_use]
+/// 会话累计用量（ref `footer.ts:86-105`）：`↑ ↓ R W $` 与**最近一条 assistant 的缓存命中率**。
+#[derive(Debug, Default, Clone, Copy)]
+pub struct UsageTotals {
+    pub input: u64,
+    pub output: u64,
+    pub cache_read: u64,
+    pub cache_write: u64,
+    pub cost: f64,
+    /// `cacheRead / (input + cacheRead + cacheWrite)`（ref `footer.ts:96-101`），仅最后一条 assistant。
+    pub cache_hit_rate: Option<f64>,
+}
+
+pub fn session_usage_totals(path: &std::path::Path) -> UsageTotals {
+    let Ok(file) = pi_core::session_io::SessionFile::read(path) else {
+        return UsageTotals::default();
+    };
+    session_usage_totals_of(&file.entries)
+}
+
+/// 与 [`session_usage_totals`] 相同，但直接吃**已解析**的条目。
+///
+/// 用于恢复路径：调用方已经把会话读进内存（`resumed_file`），再按路径重读
+/// 等于把 116 MB 解析第二遍（F56/D 实测：`transcript_renderers_filled → first_draw_begin`
+/// 里约 1.9 s 全在这一句）。
+/// 读取会话条目的辅助：优先用 `AgentParts` 里**已解析的** `resumed_entries`
+/// （F56 的性能约定：116 MB 会话不要反复解析），没有则读文件。
+fn entries_of_parts(
+    parts: &crate::tui::AgentParts,
+) -> Option<std::sync::Arc<Vec<pi_core::session::SessionEntry>>> {
+    if let Some(entries) = parts.resumed_entries.as_ref() {
+        return Some(std::sync::Arc::clone(entries));
+    }
+    let path = parts
+        .writer
+        .as_ref()
+        .and_then(|writer| writer.lock().ok().map(|guard| guard.path().to_path_buf()))?;
+    pi_core::session_io::SessionFile::read(&path)
+        .ok()
+        .map(|file| std::sync::Arc::new(file.entries))
+}
+
+/// `/session` 面板的消息统计（ref `interactive-mode.ts:6453-6456` 的
+/// `totalMessages` / `userMessages` / `assistantMessages` / `toolCalls` / `toolResults`）。
+///
+/// 返回 `(total, user, assistant, tool_calls, tool_results)`。
+/// 口径：`total` 计所有 `message` 条目（含 toolResult），`tool_calls` 数助手消息里的
+/// `toolCall` 内容块，`tool_results` 数 `toolResult` 条目。
+#[must_use]
+pub fn session_message_stats(parts: &crate::tui::AgentParts) -> (u64, u64, u64, u64, u64) {
+    let Some(entries) = entries_of_parts(parts) else {
+        return (0, 0, 0, 0, 0);
+    };
+    let (mut total, mut user, mut assistant, mut calls, mut results) =
+        (0u64, 0u64, 0u64, 0u64, 0u64);
+    for entry in entries.iter() {
+        let pi_core::session::SessionEntry::Message { message, .. } = entry else {
+            continue;
+        };
+        total += 1;
+        match message {
+            pi_ai::message::Message::User { .. } => user += 1,
+            pi_ai::message::Message::Assistant(assistant_message) => {
+                assistant += 1;
+                calls += assistant_message
+                    .content
+                    .iter()
+                    .filter(|block| matches!(block, pi_ai::types::Content::ToolCall { .. }))
+                    .count() as u64;
+            }
+            pi_ai::message::Message::ToolResult { .. } => results += 1,
+            other => {
+                let _ = other;
+            }
+        }
+    }
+    (total, user, assistant, calls, results)
+}
+
+/// `/session` 面板的用量汇总（复用 [`session_usage_totals_of`] 的既有口径）。
+pub fn usage_totals_of_parts(parts: &crate::tui::AgentParts) -> UsageTotals {
+    entries_of_parts(parts)
+        .map(|entries| session_usage_totals_of(&entries))
+        .unwrap_or_default()
+}
+
+/// 会话累计用量（按 `resumed_entries` 或会话文件）。
+pub fn session_usage_totals_of(entries: &[pi_core::session::SessionEntry]) -> UsageTotals {
+    let mut totals = UsageTotals::default();
+    for entry in entries {
+        let usage = match entry {
+            pi_core::session::SessionEntry::Message { message, .. } => match message {
+                pi_ai::message::Message::Assistant(assistant) => Some(assistant.usage),
+                pi_ai::message::Message::ToolResult { extra, .. } => extra
+                    .get("usage")
+                    .and_then(|value| serde_json::from_value::<pi_ai::Usage>(value.clone()).ok()),
+                _other => None,
+            },
+            pi_core::session::SessionEntry::BranchSummary { extra, .. }
+            | pi_core::session::SessionEntry::Compaction { extra, .. } => extra
+                .get("usage")
+                .and_then(|value| serde_json::from_value::<pi_ai::Usage>(value.clone()).ok()),
+            _other => None,
+        };
+        if let Some(usage) = usage {
+            totals.input = totals.input.saturating_add(usage.input);
+            totals.output = totals.output.saturating_add(usage.output);
+            totals.cache_read = totals.cache_read.saturating_add(usage.cache_read);
+            totals.cache_write = totals.cache_write.saturating_add(usage.cache_write);
+            totals.cost += usage.cost.total;
+            let prompt = usage.input + usage.cache_read + usage.cache_write;
+            if prompt > 0 {
+                totals.cache_hit_rate = Some(usage.cache_read as f64 / prompt as f64 * 100.0);
+            }
+        }
+    }
+    totals
+}
+
+/// 往**任意**会话文件追加一条 `session_info`（`/resume` 的重命名用，ref
+/// `session-selector.ts:933-937` 的 `renameSession(target, next)`）。
+///
+/// 与 [`Self::append_session_info`] 的区别：那个写**当前**会话（要维护 writer 自己的
+/// `pending`/`flushed`/叶子 id），这里的目标是**别的**文件，只需要"接在该文件最后
+/// 一条条目的 `id` 之后"，因此走 `SessionFile::append` 而不碰 writer 状态。
+///
+/// # Errors
+/// 文件读不出或写不进时返回可读错误（调用方据此给状态行，不静默失败）。
+pub fn append_session_info_to(path: &std::path::Path, name: &str) -> Result<String, String> {
+    let sanitized = name
+        .split(['\r', '\n'])
+        .collect::<Vec<_>>()
+        .join(" ")
+        .trim()
+        .to_string();
+    // 父 id = 该文件最后一条条目的 id（与 `append_session_info` 同语义）。
+    let parent_id = pi_core::session_io::SessionFile::read(path)
+        .ok()
+        .and_then(|file| {
+            file.entries
+                .last()
+                .and_then(|entry| entry.id().map(str::to_string))
+        });
+    let entry = serde_json::json!({
+        "type": "session_info",
+        "id": uuid::Uuid::now_v7().to_string(),
+        "parentId": parent_id,
+        "timestamp": timefmt::unix_millis_to_iso8601(timefmt::now_unix_millis()),
+        "name": sanitized,
+    });
+    pi_core::session_io::SessionFile::append(path, &SessionEntry::Unknown(entry))
+        .map_err(|error| error.to_string())?;
+    // 与 [`SessionWriter::append_session_info`] 同一事件：ref 里 `/name` 与
+    // `/resume` 改名都走 `setSessionName`，因此只有**一个**派发点。
+    crate::ext_tools::emit_session_info_changed(
+        (!sanitized.is_empty()).then_some(sanitized.as_str()),
+    );
+    crate::ext_tools::set_ctx_session_name((!sanitized.is_empty()).then_some(sanitized.as_str()));
+    Ok(sanitized)
+}

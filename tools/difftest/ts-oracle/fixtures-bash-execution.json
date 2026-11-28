@@ -1,0 +1,142 @@
+{
+ "generator": "tools/difftest/ts-oracle/gen-bash-execution.mjs",
+ "tsVersion": "0.87.1",
+ "projections": [
+  {
+   "id": "ok",
+   "input": {
+    "role": "bashExecution",
+    "command": "echo hi",
+    "output": "hi\n",
+    "exitCode": 0,
+    "cancelled": false,
+    "truncated": false,
+    "timestamp": 1730000000000
+   },
+   "llm": [
+    {
+     "role": "user",
+     "content": [
+      {
+       "type": "text",
+       "text": "Ran `echo hi`\n```\nhi\n\n```"
+      }
+     ],
+     "timestamp": 1730000000000
+    }
+   ]
+  },
+  {
+   "id": "nonzero",
+   "input": {
+    "role": "bashExecution",
+    "command": "false",
+    "output": "",
+    "exitCode": 1,
+    "cancelled": false,
+    "truncated": false,
+    "timestamp": 1730000000001
+   },
+   "llm": [
+    {
+     "role": "user",
+     "content": [
+      {
+       "type": "text",
+       "text": "Ran `false`\n(no output)\n\nCommand exited with code 1"
+      }
+     ],
+     "timestamp": 1730000000001
+    }
+   ]
+  },
+  {
+   "id": "cancelled",
+   "input": {
+    "role": "bashExecution",
+    "command": "sleep 10",
+    "output": "",
+    "cancelled": true,
+    "truncated": false,
+    "timestamp": 1730000000002
+   },
+   "llm": [
+    {
+     "role": "user",
+     "content": [
+      {
+       "type": "text",
+       "text": "Ran `sleep 10`\n(no output)\n\n(command cancelled)"
+      }
+     ],
+     "timestamp": 1730000000002
+    }
+   ]
+  },
+  {
+   "id": "truncated",
+   "input": {
+    "role": "bashExecution",
+    "command": "seq 1 9999",
+    "output": "1\n2\n",
+    "exitCode": 0,
+    "cancelled": false,
+    "truncated": true,
+    "fullOutputPath": "/tmp/full.log",
+    "timestamp": 1730000000003,
+    "unknownField": {
+     "keep": true
+    }
+   },
+   "llm": [
+    {
+     "role": "user",
+     "content": [
+      {
+       "type": "text",
+       "text": "Ran `seq 1 9999`\n```\n1\n2\n\n```\n\n[Output truncated. Full output: /tmp/full.log]"
+      }
+     ],
+     "timestamp": 1730000000003
+    }
+   ]
+  },
+  {
+   "id": "excluded",
+   "input": {
+    "role": "bashExecution",
+    "command": "echo secret",
+    "output": "secret\n",
+    "exitCode": 0,
+    "cancelled": false,
+    "truncated": false,
+    "timestamp": 1730000000004,
+    "excludeFromContext": true
+   },
+   "llm": []
+  },
+  {
+   "id": "no-exit-code",
+   "input": {
+    "role": "bashExecution",
+    "command": "kill -9 $$",
+    "output": "",
+    "cancelled": false,
+    "truncated": false,
+    "timestamp": 1730000000005
+   },
+   "llm": [
+    {
+     "role": "user",
+     "content": [
+      {
+       "type": "text",
+       "text": "Ran `kill -9 $$`\n(no output)"
+      }
+     ],
+     "timestamp": 1730000000005
+    }
+   ]
+  }
+ ]
+}

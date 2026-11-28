@@ -1,0 +1,18 @@
+{
+  "id": "T106-md-list-hang",
+  "cols": 110,
+  "rows": 40,
+  "helperExit": 0,
+  "exitCode": 0,
+  "stderr": "",
+  "mockStderr": "",
+  "requestLog": "/tmp/s1t-pi-ts/requests.jsonl",
+  "snapshotOffsets": [
+    {
+      "name": "md",
+      "offset": 7776,
+      "t": 89590.386920064
+    }
+  ],
+  "sessionDir": "/tmp/s1t-pi-ts/session"
+}

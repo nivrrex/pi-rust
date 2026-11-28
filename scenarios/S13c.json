@@ -1,0 +1,39 @@
+{
+  "id": "S13c",
+  "description": "context overflow：首轮 usage 越过阈值，第二轮返回 overflow 错误，触发压缩后重试",
+  "provider": "openai-completions",
+  "model": "mock-model",
+  "mode": "print",
+  "contextWindow": 20000,
+  "maxTokens": 1024,
+  "settings": {
+    "compaction": {
+      "enabled": true,
+      "reserveTokens": 1000,
+      "keepRecentTokens": 2000
+    }
+  },
+  "prompt": "说点长内容",
+  "responses": [
+    {
+      "file": "fixtures/sse/openai/big-text-usage.sse"
+    },
+    {
+      "file": "fixtures/sse/openai/overflow-error.sse"
+    },
+    {
+      "file": "fixtures/sse/openai/summary.sse"
+    },
+    {
+      "file": "fixtures/sse/openai/after-compact.sse"
+    }
+  ],
+  "followUp": [
+    {
+      "cliArgs": [
+        "--continue"
+      ],
+      "prompt": "继续"
+    }
+  ]
+}

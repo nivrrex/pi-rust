@@ -1,0 +1,78 @@
+{
+  "id": "T81-footer-provider-prefix-80",
+  "description": "P8e-10/F：两个 provider 时 footer 的 (provider) 前缀（80 列）",
+  "provider": "openai-completions",
+  "model": "mock-model",
+  "mode": "print",
+  "prompt": "say hi",
+  "files": {
+    "AGENTS.md": "# 项目规则\n\n- 项目级：改代码前先跑测试。\n"
+  },
+  "globalFiles": {
+    "CLAUDE.md": "# 全局规则\n\n- 全局级：回答用中文。\n"
+  },
+  "tui": {
+    "cols": 80,
+    "rows": 30,
+    "steps": [
+      {
+        "action": "waitScreen",
+        "contains": "Pi can explain",
+        "timeoutMs": 25000
+      },
+      {
+        "action": "type",
+        "text": "say hi"
+      },
+      {
+        "action": "waitStable",
+        "quietMs": 600,
+        "timeoutMs": 15000
+      },
+      {
+        "action": "type",
+        "text": "\r"
+      },
+      {
+        "action": "delay",
+        "ms": 20000
+      },
+      {
+        "action": "waitStable",
+        "quietMs": 1500,
+        "timeoutMs": 20000
+      },
+      {
+        "action": "snapshot",
+        "name": "after-prompt"
+      },
+      {
+        "action": "type",
+        "text": "\u0004"
+      },
+      {
+        "action": "waitStable",
+        "quietMs": 500,
+        "timeoutMs": 10000
+      }
+    ],
+    "snapshots": [
+      "after-prompt"
+    ]
+  },
+  "responses": [
+    {
+      "file": "fixtures/sse/openai/text-basic.sse"
+    }
+  ],
+  "extraProviders": {
+    "other": {
+      "api": "openai-completions",
+      "models": [
+        {
+          "id": "mock-model"
+        }
+      ]
+    }
+  }
+}

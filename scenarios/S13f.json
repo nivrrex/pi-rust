@@ -1,0 +1,32 @@
+{
+  "id": "S13f",
+  "description": "rpc 路径的摘要重试事件：回合后自动压缩的摘要请求先失败可重试、再成功 ⇒ 事件流里应出现三个 summarization_retry_*（ref agent-session.ts:188-205/3339-3360）",
+  "provider": "openai-completions",
+  "model": "mock-model",
+  "mode": "rpc",
+  "contextWindow": 20000,
+  "maxTokens": 1024,
+  "settings": {
+    "compaction": {
+      "enabled": true,
+      "reserveTokens": 1000,
+      "keepRecentTokens": 2000
+    }
+  },
+  "commands": [
+    {
+      "type": "prompt",
+      "message": "说点长内容"
+    }
+  ],
+  "script": [
+    { "action": "waitState", "match": "\"isStreaming\":false" },
+    { "action": "waitState", "match": "\"isStreaming\":false" },
+    { "action": "waitExit" }
+  ],
+  "responses": [
+    { "file": "fixtures/sse/openai/big-text-usage.sse" },
+    { "file": "fixtures/sse/openai/overflow-error.sse" },
+    { "file": "fixtures/sse/openai/summary.sse" }
+  ]
+}

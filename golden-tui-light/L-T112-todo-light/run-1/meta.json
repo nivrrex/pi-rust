@@ -1,0 +1,18 @@
+{
+  "id": "L-T112-todo-light",
+  "cols": 100,
+  "rows": 34,
+  "helperExit": 0,
+  "exitCode": 0,
+  "stderr": "",
+  "mockStderr": "",
+  "requestLog": "/tmp/rec-lt112/requests.jsonl",
+  "snapshotOffsets": [
+    {
+      "name": "after",
+      "offset": 2964,
+      "t": 121295.617108638
+    }
+  ],
+  "sessionDir": "/tmp/rec-lt112/session"
+}

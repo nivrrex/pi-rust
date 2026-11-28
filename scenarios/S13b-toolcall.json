@@ -1,0 +1,17 @@
+{
+  "id": "S13b-toolcall",
+  "description": "S13b：length 截断（工具调用）",
+  "provider": "openai-completions",
+  "model": "mock-model",
+  "mode": "print",
+  "prompt": "go",
+  "files": {},
+  "responses": [
+    {
+      "file": "fixtures/sse/openai/length-toolcall.sse"
+    },
+    {
+      "file": "fixtures/sse/openai/text-basic.sse"
+    }
+  ]
+}

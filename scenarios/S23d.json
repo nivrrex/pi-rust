@@ -1,0 +1,19 @@
+{
+  "id": "S23d",
+  "description": "非法 UTF-8 的 AGENTS.md（二进制夹具经 runner 复制）仍被采用，内容含 U+FFFD",
+  "provider": "openai-completions",
+  "model": "mock-model",
+  "mode": "print",
+  "prompt": "say hi",
+  "files": {
+    "AGENTS.md": "fixtures/context/invalid-utf8.md"
+  },
+  "globalFiles": {
+    "CLAUDE.md": "# 全局规则\n\n- 全局级：回答用中文。\n"
+  },
+  "responses": [
+    {
+      "file": "fixtures/sse/openai/text-basic.sse"
+    }
+  ]
+}

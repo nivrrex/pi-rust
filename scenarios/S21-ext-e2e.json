@@ -1,0 +1,1 @@
+{"id": "S21-ext-e2e", "description": "扩展工具两轮：模型调用 ext_echo → 宿主执行 → tool_result 钩子脱敏后回填", "provider": "openai-completions", "model": "mock-model", "mode": "print", "prompt": "call ext_echo", "files": {}, "responses": [{"file": "fixtures/sse/openai/tool-ext-echo.sse"}, {"file": "fixtures/sse/openai/text-basic.sse"}]}

@@ -1,0 +1,23 @@
+{
+  "id": "L-T117-resume-tool-rows",
+  "cols": 110,
+  "rows": 40,
+  "helperExit": 0,
+  "exitCode": 0,
+  "stderr": "",
+  "mockStderr": "",
+  "requestLog": "/tmp/rec-L-T117-resume-tool-rows/requests.jsonl",
+  "snapshotOffsets": [
+    {
+      "name": "folded",
+      "offset": 7683,
+      "t": 158805.66570185
+    },
+    {
+      "name": "expanded",
+      "offset": 18359,
+      "t": 158808.732293082
+    }
+  ],
+  "sessionDir": "/tmp/rec-L-T117-resume-tool-rows/session"
+}

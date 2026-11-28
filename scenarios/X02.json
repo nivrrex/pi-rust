@@ -1,0 +1,34 @@
+{
+  "id": "X02",
+  "description": "互操作：Rust 写会话 → TS 续写 → Rust 再读（断言 TS 能在 Rust 写的会话上继续，且续写结果与全 TS 时无法区分）",
+  "provider": "openai-completions",
+  "model": "mock-model",
+  "mode": "print",
+  "responses": [
+    {
+      "file": "fixtures/sse/openai/text-basic.sse"
+    },
+    {
+      "file": "fixtures/sse/openai/tool-bash.sse"
+    },
+    {
+      "file": "fixtures/sse/openai/usage-cache.sse"
+    }
+  ],
+  "followUp": [
+    {
+      "impl": "ts",
+      "cliArgs": [
+        "--continue"
+      ],
+      "prompt": "继续：读一下刚才的文件"
+    },
+    {
+      "impl": "pi-rs",
+      "cliArgs": [
+        "--continue"
+      ],
+      "prompt": "再说一句"
+    }
+  ]
+}

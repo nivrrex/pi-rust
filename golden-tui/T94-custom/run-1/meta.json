@@ -1,0 +1,23 @@
+{
+  "id": "T94-custom",
+  "cols": 100,
+  "rows": 30,
+  "helperExit": 0,
+  "exitCode": 0,
+  "stderr": "",
+  "mockStderr": "",
+  "snapshotOffsets": [
+    {
+      "name": "custom-open",
+      "offset": 2573
+    },
+    {
+      "name": "custom-moved",
+      "offset": 2646
+    },
+    {
+      "name": "custom-done",
+      "offset": 3682
+    }
+  ]
+}

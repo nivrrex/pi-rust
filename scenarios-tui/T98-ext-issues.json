@@ -1,0 +1,50 @@
+{
+ "id": "T98-ext-issues",
+ "description": "F21/S0a：[Extension issues] 对拍——agent 目录里放一个语法错误的 .js 扩展，比较段标题是否出现",
+ "provider": "openai-completions",
+ "model": "mock-model",
+ "mode": "print",
+ "prompt": "hi",
+ "files": {},
+ "responses": [
+  {
+   "file": "fixtures/sse/openai/text-basic.sse"
+  }
+ ],
+ "extensions": {
+  "broken/package.json": "{\n  \"type\": \"module\"\n}",
+  "broken/index.js": "export default function (pi) { this is not valid javascript }\n"
+ },
+ "tui": {
+  "cols": 100,
+  "rows": 30,
+  "steps": [
+   {
+    "action": "waitScreen",
+    "contains": "Pi can explain",
+    "timeoutMs": 25000
+   },
+   {
+    "action": "waitStable",
+    "quietMs": 800,
+    "timeoutMs": 15000
+   },
+   {
+    "action": "snapshot",
+    "name": "startup"
+   },
+   {
+    "action": "type",
+    "text": "\u0004"
+   },
+   {
+    "action": "waitStable",
+    "quietMs": 500,
+    "timeoutMs": 10000
+   }
+  ],
+  "snapshots": [
+   "startup"
+  ]
+ }
+}

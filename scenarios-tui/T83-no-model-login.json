@@ -1,0 +1,79 @@
+{
+  "id": "T83-no-model-login",
+  "description": "P8e-11：无模型空目录启动 → /login 面板 → Esc 取消 → 退出（dark）",
+  "provider": "openai-completions",
+  "model": "mock-model",
+  "mode": "print",
+  "prompt": "say hi",
+  "files": {
+    "AGENTS.md": "# 项目规则\n\n- 项目级：改代码前先跑测试。\n"
+  },
+  "globalFiles": {
+    "CLAUDE.md": "# 全局规则\n\n- 全局级：回答用中文。\n"
+  },
+  "tui": {
+    "cols": 100,
+    "rows": 30,
+    "steps": [
+      {
+        "action": "waitScreen",
+        "contains": "Pi can explain",
+        "timeoutMs": 30000
+      },
+      {
+        "action": "waitStable",
+        "quietMs": 1200,
+        "timeoutMs": 25000
+      },
+      {
+        "action": "snapshot",
+        "name": "no-model-start"
+      },
+      {
+        "action": "type",
+        "text": "/login\r"
+      },
+      {
+        "action": "waitStable",
+        "quietMs": 900,
+        "timeoutMs": 20000
+      },
+      {
+        "action": "snapshot",
+        "name": "login-panel"
+      },
+      {
+        "action": "type",
+        "text": "\u001b"
+      },
+      {
+        "action": "waitStable",
+        "quietMs": 900,
+        "timeoutMs": 20000
+      },
+      {
+        "action": "snapshot",
+        "name": "after-escape"
+      },
+      {
+        "action": "type",
+        "text": "\u0004"
+      },
+      {
+        "action": "waitExit",
+        "timeoutMs": 20000
+      }
+    ],
+    "snapshots": [
+      "no-model-start",
+      "login-panel",
+      "after-escape"
+    ]
+  },
+  "responses": [
+    {
+      "file": "fixtures/sse/openai/text-basic.sse"
+    }
+  ],
+  "settings": {}
+}

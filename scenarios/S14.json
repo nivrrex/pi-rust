@@ -1,0 +1,21 @@
+{
+  "id": "S14",
+  "description": "--continue：第二次运行的请求必须包含第一次的历史",
+  "provider": "openai-completions",
+  "model": "mock-model",
+  "mode": "print",
+  "prompt": "first turn",
+  "responses": [
+    {
+      "file": "fixtures/sse/openai/text-basic.sse"
+    }
+  ],
+  "followUp": [
+    {
+      "cliArgs": [
+        "--continue"
+      ],
+      "prompt": "second turn"
+    }
+  ]
+}

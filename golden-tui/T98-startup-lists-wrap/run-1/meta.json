@@ -1,0 +1,18 @@
+{
+  "id": "T98-startup-lists-wrap",
+  "cols": 80,
+  "rows": 40,
+  "helperExit": 0,
+  "exitCode": 0,
+  "stderr": "",
+  "mockStderr": "",
+  "requestLog": "/tmp/m1-pi-ts-T98-startup-lists-wrap/requests.jsonl",
+  "snapshotOffsets": [
+    {
+      "name": "start",
+      "offset": 3998,
+      "t": 62743.773073657
+    }
+  ],
+  "sessionDir": "/tmp/m1-pi-ts-T98-startup-lists-wrap/session"
+}

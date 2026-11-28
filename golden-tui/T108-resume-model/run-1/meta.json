@@ -1,0 +1,18 @@
+{
+  "id": "T108-resume-model",
+  "cols": 100,
+  "rows": 34,
+  "helperExit": 0,
+  "exitCode": 0,
+  "stderr": "",
+  "mockStderr": "",
+  "requestLog": "/tmp/t3-pi-ts/requests.jsonl",
+  "snapshotOffsets": [
+    {
+      "name": "after",
+      "offset": 4369,
+      "t": 99805.703831556
+    }
+  ],
+  "sessionDir": "/tmp/t3-pi-ts/session"
+}

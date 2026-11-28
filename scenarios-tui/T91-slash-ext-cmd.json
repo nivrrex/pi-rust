@@ -1,0 +1,91 @@
+{
+ "id": "T91-slash-ext-cmd",
+ "description": "扩展开命令进入斜杠补全菜单（K3c）：registerCommand 的 name/description 与 [t] 来源标签",
+ "provider": "openai-completions",
+ "model": "mock-model",
+ "mode": "print",
+ "prompt": "hi",
+ "files": {},
+ "extensions": {
+  "cmd/package.json": "{\n  \"type\": \"module\",\n  \"name\": \"pi-rs-cmd-fixture\"\n}",
+  "cmd/index.js": "// K3c 合成夹具：注册两个带 description 的命令，验证斜杠菜单的来源标签与描述。\nexport default function cmdFixture(pi) {\n  pi.registerCommand(\"zz-echo\", { description: \"Echo back the given args\", handler: async () => {} });\n  pi.registerCommand(\"zz-todo\", { description: \"Show the todo panel\", handler: async () => {} });\n}\n"
+ },
+ "tui": {
+  "cols": 100,
+  "rows": 30,
+  "snapshots": [
+   "slash-all",
+   "slash-zz"
+  ],
+  "steps": [
+   {
+    "action": "waitScreen",
+    "contains": "Pi can explain",
+    "timeoutMs": 40000
+   },
+   {
+    "action": "waitStable",
+    "quietMs": 600,
+    "timeoutMs": 15000
+   },
+   {
+    "action": "type",
+    "text": "/zz"
+   },
+   {
+    "action": "waitStable",
+    "quietMs": 600,
+    "timeoutMs": 15000
+   },
+   {
+    "action": "snapshot",
+    "name": "slash-zz"
+   },
+   {
+    "action": "type",
+    "text": "\u0015"
+   },
+   {
+    "action": "waitStable",
+    "quietMs": 600,
+    "timeoutMs": 15000
+   },
+   {
+    "action": "type",
+    "text": "/"
+   },
+   {
+    "action": "waitStable",
+    "quietMs": 600,
+    "timeoutMs": 15000
+   },
+   {
+    "action": "snapshot",
+    "name": "slash-all"
+   },
+   {
+    "action": "type",
+    "text": "\u0015"
+   },
+   {
+    "action": "waitStable",
+    "quietMs": 400,
+    "timeoutMs": 10000
+   },
+   {
+    "action": "type",
+    "text": "\u0004"
+   },
+   {
+    "action": "waitStable",
+    "quietMs": 400,
+    "timeoutMs": 10000
+   }
+  ]
+ },
+ "responses": [
+  {
+   "file": "fixtures/sse/openai/text-basic.sse"
+  }
+ ]
+}

@@ -1,0 +1,22 @@
+{
+  "id": "S13e",
+  "description": "溢出后的重试回合：mock 返回溢出错误（stopReason 非 stop）⇒ willRetry=true，压缩后用 _omitRecoveryAttempt 省略失败的助手消息再重跑该回合",
+  "provider": "openai-completions",
+  "model": "mock-model",
+  "mode": "print",
+  "contextWindow": 20000,
+  "maxTokens": 1024,
+  "settings": {
+    "compaction": {
+      "enabled": true,
+      "reserveTokens": 1000,
+      "keepRecentTokens": 1
+    }
+  },
+  "prompt": "第一轮：说点长内容",
+  "responses": [
+    { "file": "fixtures/sse/openai/overflow-error-proper.sse" },
+    { "file": "fixtures/sse/openai/summary.sse" },
+    { "file": "fixtures/sse/openai/text-basic.sse" }
+  ]
+}

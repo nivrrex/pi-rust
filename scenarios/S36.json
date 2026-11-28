@@ -1,0 +1,21 @@
+{
+  "provider": "openai-completions",
+  "model": "mock-model",
+  "enableSkills": true,
+  "mode": "print",
+  "prompt": "say hi",
+  "responses": [
+    {
+      "file": "fixtures/sse/openai/text-basic.sse"
+    }
+  ],
+  "files": {
+    "AGENTS.md": "# 项目规则\n\n- 项目级：先跑测试再改代码。\n"
+  },
+  "globalFiles": {
+    "CLAUDE.md": "# 全局规则\n\n- 全局级：回答用中文。\n",
+    "skills/review-helper/SKILL.md": "---\nname: review-helper\ndescription: 审阅改动时使用。\n---\n\n# review-helper\n\n- 先跑测试再改代码。\n"
+  },
+  "id": "S36",
+  "description": "单个全局 skill 注入 system 段（skills 段出现 review-helper）"
+}

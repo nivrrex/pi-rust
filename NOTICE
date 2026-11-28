@@ -1,0 +1,11 @@
+pi-rs
+=====
+
+本仓库是 **pi v0.87.1**（tag `v0.87.1`，commit `f07218c`）的 Rust 重写。
+
+- 上游项目：pi — https://github.com/badlogic/pi-mono
+- 上游许可：MIT，Copyright (c) 2025 Mario Zechner（见上游 `LICENSE`）
+- 上游源码**不随本仓库分发**；`golden/`、`golden-tui/` 中的差分基线是
+  本仓库用上游二进制录制的结果（可用 `tools/difftest/` 重新录制），不是上游源码。
+
+本仓库以 MIT 许可发布，见 `LICENSE`。

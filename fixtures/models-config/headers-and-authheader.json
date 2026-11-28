@@ -1,0 +1,17 @@
+{
+  "providers": {
+    "p": {
+      "baseUrl": "https://a.example/v1",
+      "api": "openai-completions",
+      "authHeader": false,
+      "headers": {
+        "X-Trace": "1"
+      },
+      "models": [
+        {
+          "id": "m"
+        }
+      ]
+    }
+  }
+}

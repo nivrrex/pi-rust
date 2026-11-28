@@ -1,0 +1,59 @@
+{
+ "id": "T114-md-blank-loose-w110",
+ "description": "W1：块间空行矩阵（loose，宽度 110）—— ref markdown.ts 各 case 的 nextTokenType 条件",
+ "provider": "openai-completions",
+ "model": "mock-model",
+ "mode": "print",
+ "prompt": "hi",
+ "files": {},
+ "responses": [
+  {
+   "file": "fixtures/sse/openai/md-blank-loose.sse"
+  }
+ ],
+ "tui": {
+  "cols": 110,
+  "rows": 40,
+  "snapshots": [
+   "md"
+  ],
+  "steps": [
+   {
+    "action": "waitScreen",
+    "contains": "Pi can explain",
+    "timeoutMs": 30000
+   },
+   {
+    "action": "waitStable",
+    "quietMs": 1200,
+    "timeoutMs": 20000
+   },
+   {
+    "action": "type",
+    "text": "hi\r"
+   },
+   {
+    "action": "delay",
+    "ms": 6000
+   },
+   {
+    "action": "waitStable",
+    "quietMs": 1500,
+    "timeoutMs": 20000
+   },
+   {
+    "action": "snapshot",
+    "name": "md"
+   },
+   {
+    "action": "type",
+    "text": "\u0004"
+   },
+   {
+    "action": "waitStable",
+    "quietMs": 500,
+    "timeoutMs": 10000
+   }
+  ]
+ }
+}

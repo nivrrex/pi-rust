@@ -1,0 +1,14 @@
+#!/usr/bin/env bash
+# 版本化的 pre-commit 钩子（**由仓库跟踪**，避免每台机器各写一份、把本机绝对路径写死）。
+#
+# 安装：`./scripts/install-git-hooks.sh`（把本文件复制到 .git/hooks/pre-commit）。
+# 之所以要版本化：2026-10 Windows 侧发现本机钩子写死了一个 UNC 绝对路径（网络盘上的
+# 仓库路径），导致 `git commit` 在 Windows 上直接失败，只能 `--no-verify` 绕过
+# （等于没有检查）。
+set -uo pipefail
+root="$(git rev-parse --show-toplevel 2>/dev/null)"
+if [ -z "$root" ] || [ ! -x "$root/scripts/precommit.sh" ]; then
+  echo "pre-commit: 找不到 scripts/precommit.sh（root=${root:-<none>}）——跳过检查" >&2
+  exit 0
+fi
+exec "$root/scripts/precommit.sh"

@@ -1,0 +1,82 @@
+{
+ "provider": "openai-completions",
+ "model": "mock-model",
+ "mode": "print",
+ "prompt": "hi",
+ "files": {},
+ "extensions": {
+  "ui-select/package.json": "{\n  \"type\": \"module\",\n  \"name\": \"pi-rs-select-after-turn\"\n}",
+  "ui-select/index.js": "// 一轮结束后的 `ctx.ui.select`（P9 E2 TUI 面板对拍用）。\nimport fs from \"node:fs\";\n\nconst logPath = process.env.PI_EXT_TEST_LOG;\nlet asked = false;\n\nexport default function selectAfterTurn(pi) {\n  pi.on(\"agent_end\", async (_event, ctx) => {\n    if (asked) return;\n    asked = true;\n    const selected = await ctx.ui.select(\"Pick a color\", [\"red\", \"green\", \"blue\"]);\n    if (logPath) fs.appendFileSync(logPath, `selected:${String(selected)}\\n`);\n  });\n}\n"
+ },
+ "responses": [
+  {
+   "file": "fixtures/sse/openai/text-basic.sse"
+  }
+ ],
+ "tui": {
+  "cols": 100,
+  "rows": 30,
+  "steps": [
+   {
+    "action": "waitScreen",
+    "contains": "Pi can explain",
+    "timeoutMs": 40000
+   },
+   {
+    "action": "type",
+    "text": "hi"
+   },
+   {
+    "action": "waitStable",
+    "quietMs": 500,
+    "timeoutMs": 15000
+   },
+   {
+    "action": "type",
+    "text": "\r"
+   },
+   {
+    "action": "waitScreen",
+    "contains": "Pick a color",
+    "timeoutMs": 60000
+   },
+   {
+    "action": "waitStable",
+    "quietMs": 800,
+    "timeoutMs": 20000
+   },
+   {
+    "action": "snapshot",
+    "name": "select-panel"
+   },
+   {
+    "action": "type",
+    "text": "\r"
+   },
+   {
+    "action": "waitStable",
+    "quietMs": 800,
+    "timeoutMs": 20000
+   },
+   {
+    "action": "snapshot",
+    "name": "after-select"
+   },
+   {
+    "action": "type",
+    "text": "\u0004"
+   },
+   {
+    "action": "waitStable",
+    "quietMs": 500,
+    "timeoutMs": 10000
+   }
+  ],
+  "snapshots": [
+   "select-panel",
+   "after-select"
+  ]
+ },
+ "id": "L-T89-ext-select",
+ "theme": "light"
+}

@@ -1,0 +1,196 @@
+{
+  "id": "T86-resume-window",
+  "description": "P9-1-A：/resume 会话数(12) > maxVisible(10) 时的窗口、(n/total) 与 PageUp/PageDown",
+  "provider": "openai-completions",
+  "model": "mock-model",
+  "mode": "print",
+  "prompt": "say hi",
+  "files": {
+    "AGENTS.md": "# 项目规则\n\n- 项目级：改代码前先跑测试。\n"
+  },
+  "globalFiles": {
+    "CLAUDE.md": "# 全局规则\n\n- 全局级：回答用中文。\n"
+  },
+  "responses": [
+    {
+      "file": "fixtures/sse/openai/text-basic.sse"
+    }
+  ],
+  "sessionFiles": [
+    {
+      "fileName": "2026-01-01T00-01-00-000Z_01a1window01.jsonl",
+      "content": "{\"type\": \"session\", \"version\": 3, \"id\": \"01a1window01\", \"timestamp\": \"2026-01-01T00:01:00.000Z\", \"cwd\": \"<CWD>\"}\n{\"type\": \"model_change\", \"id\": \"mc1\", \"parentId\": null, \"timestamp\": \"2026-01-01T00:01:00.000Z\", \"provider\": \"openai-completions\", \"modelId\": \"mock-model\"}\n{\"type\": \"thinking_level_change\", \"id\": \"tl1\", \"parentId\": \"mc1\", \"timestamp\": \"2026-01-01T00:01:00.000Z\", \"thinkingLevel\": \"off\"}\n{\"type\": \"message\", \"id\": \"u1\", \"parentId\": \"tl1\", \"timestamp\": \"2026-01-01T00:01:00.000Z\", \"message\": {\"role\": \"user\", \"content\": [{\"type\": \"text\", \"text\": \"分页会话 01：这是第 1 个预置会话\"}]}}\n{\"type\": \"message\", \"id\": \"a1\", \"parentId\": \"u1\", \"timestamp\": \"2026-01-01T00:01:00.000Z\", \"message\": {\"role\": \"assistant\", \"content\": [{\"type\": \"text\", \"text\": \"收到（会话 01）\"}], \"stopReason\": \"stop\", \"usage\": {\"input\": 2, \"output\": 1, \"cacheRead\": 0, \"cacheWrite\": 0, \"totalTokens\": 3, \"cost\": {\"input\": 0, \"output\": 0, \"cacheRead\": 0, \"cacheWrite\": 0, \"total\": 0}}}}\n"
+    },
+    {
+      "fileName": "2026-01-01T00-02-00-000Z_01a1window02.jsonl",
+      "content": "{\"type\": \"session\", \"version\": 3, \"id\": \"01a1window02\", \"timestamp\": \"2026-01-01T00:02:00.000Z\", \"cwd\": \"<CWD>\"}\n{\"type\": \"model_change\", \"id\": \"mc2\", \"parentId\": null, \"timestamp\": \"2026-01-01T00:02:00.000Z\", \"provider\": \"openai-completions\", \"modelId\": \"mock-model\"}\n{\"type\": \"thinking_level_change\", \"id\": \"tl2\", \"parentId\": \"mc2\", \"timestamp\": \"2026-01-01T00:02:00.000Z\", \"thinkingLevel\": \"off\"}\n{\"type\": \"message\", \"id\": \"u2\", \"parentId\": \"tl2\", \"timestamp\": \"2026-01-01T00:02:00.000Z\", \"message\": {\"role\": \"user\", \"content\": [{\"type\": \"text\", \"text\": \"分页会话 02：这是第 2 个预置会话\"}]}}\n{\"type\": \"message\", \"id\": \"a2\", \"parentId\": \"u2\", \"timestamp\": \"2026-01-01T00:02:00.000Z\", \"message\": {\"role\": \"assistant\", \"content\": [{\"type\": \"text\", \"text\": \"收到（会话 02）\"}], \"stopReason\": \"stop\", \"usage\": {\"input\": 3, \"output\": 1, \"cacheRead\": 0, \"cacheWrite\": 0, \"totalTokens\": 4, \"cost\": {\"input\": 0, \"output\": 0, \"cacheRead\": 0, \"cacheWrite\": 0, \"total\": 0}}}}\n"
+    },
+    {
+      "fileName": "2026-01-01T00-03-00-000Z_01a1window03.jsonl",
+      "content": "{\"type\": \"session\", \"version\": 3, \"id\": \"01a1window03\", \"timestamp\": \"2026-01-01T00:03:00.000Z\", \"cwd\": \"<CWD>\"}\n{\"type\": \"model_change\", \"id\": \"mc3\", \"parentId\": null, \"timestamp\": \"2026-01-01T00:03:00.000Z\", \"provider\": \"openai-completions\", \"modelId\": \"mock-model\"}\n{\"type\": \"thinking_level_change\", \"id\": \"tl3\", \"parentId\": \"mc3\", \"timestamp\": \"2026-01-01T00:03:00.000Z\", \"thinkingLevel\": \"off\"}\n{\"type\": \"message\", \"id\": \"u3\", \"parentId\": \"tl3\", \"timestamp\": \"2026-01-01T00:03:00.000Z\", \"message\": {\"role\": \"user\", \"content\": [{\"type\": \"text\", \"text\": \"分页会话 03：这是第 3 个预置会话\"}]}}\n{\"type\": \"message\", \"id\": \"a3\", \"parentId\": \"u3\", \"timestamp\": \"2026-01-01T00:03:00.000Z\", \"message\": {\"role\": \"assistant\", \"content\": [{\"type\": \"text\", \"text\": \"收到（会话 03）\"}], \"stopReason\": \"stop\", \"usage\": {\"input\": 4, \"output\": 1, \"cacheRead\": 0, \"cacheWrite\": 0, \"totalTokens\": 5, \"cost\": {\"input\": 0, \"output\": 0, \"cacheRead\": 0, \"cacheWrite\": 0, \"total\": 0}}}}\n"
+    },
+    {
+      "fileName": "2026-01-01T00-04-00-000Z_01a1window04.jsonl",
+      "content": "{\"type\": \"session\", \"version\": 3, \"id\": \"01a1window04\", \"timestamp\": \"2026-01-01T00:04:00.000Z\", \"cwd\": \"<CWD>\"}\n{\"type\": \"model_change\", \"id\": \"mc4\", \"parentId\": null, \"timestamp\": \"2026-01-01T00:04:00.000Z\", \"provider\": \"openai-completions\", \"modelId\": \"mock-model\"}\n{\"type\": \"thinking_level_change\", \"id\": \"tl4\", \"parentId\": \"mc4\", \"timestamp\": \"2026-01-01T00:04:00.000Z\", \"thinkingLevel\": \"off\"}\n{\"type\": \"message\", \"id\": \"u4\", \"parentId\": \"tl4\", \"timestamp\": \"2026-01-01T00:04:00.000Z\", \"message\": {\"role\": \"user\", \"content\": [{\"type\": \"text\", \"text\": \"分页会话 04：这是第 4 个预置会话\"}]}}\n{\"type\": \"message\", \"id\": \"a4\", \"parentId\": \"u4\", \"timestamp\": \"2026-01-01T00:04:00.000Z\", \"message\": {\"role\": \"assistant\", \"content\": [{\"type\": \"text\", \"text\": \"收到（会话 04）\"}], \"stopReason\": \"stop\", \"usage\": {\"input\": 5, \"output\": 1, \"cacheRead\": 0, \"cacheWrite\": 0, \"totalTokens\": 6, \"cost\": {\"input\": 0, \"output\": 0, \"cacheRead\": 0, \"cacheWrite\": 0, \"total\": 0}}}}\n"
+    },
+    {
+      "fileName": "2026-01-01T00-05-00-000Z_01a1window05.jsonl",
+      "content": "{\"type\": \"session\", \"version\": 3, \"id\": \"01a1window05\", \"timestamp\": \"2026-01-01T00:05:00.000Z\", \"cwd\": \"<CWD>\"}\n{\"type\": \"model_change\", \"id\": \"mc5\", \"parentId\": null, \"timestamp\": \"2026-01-01T00:05:00.000Z\", \"provider\": \"openai-completions\", \"modelId\": \"mock-model\"}\n{\"type\": \"thinking_level_change\", \"id\": \"tl5\", \"parentId\": \"mc5\", \"timestamp\": \"2026-01-01T00:05:00.000Z\", \"thinkingLevel\": \"off\"}\n{\"type\": \"message\", \"id\": \"u5\", \"parentId\": \"tl5\", \"timestamp\": \"2026-01-01T00:05:00.000Z\", \"message\": {\"role\": \"user\", \"content\": [{\"type\": \"text\", \"text\": \"分页会话 05：这是第 5 个预置会话\"}]}}\n{\"type\": \"message\", \"id\": \"a5\", \"parentId\": \"u5\", \"timestamp\": \"2026-01-01T00:05:00.000Z\", \"message\": {\"role\": \"assistant\", \"content\": [{\"type\": \"text\", \"text\": \"收到（会话 05）\"}], \"stopReason\": \"stop\", \"usage\": {\"input\": 6, \"output\": 1, \"cacheRead\": 0, \"cacheWrite\": 0, \"totalTokens\": 7, \"cost\": {\"input\": 0, \"output\": 0, \"cacheRead\": 0, \"cacheWrite\": 0, \"total\": 0}}}}\n"
+    },
+    {
+      "fileName": "2026-01-01T00-06-00-000Z_01a1window06.jsonl",
+      "content": "{\"type\": \"session\", \"version\": 3, \"id\": \"01a1window06\", \"timestamp\": \"2026-01-01T00:06:00.000Z\", \"cwd\": \"<CWD>\"}\n{\"type\": \"model_change\", \"id\": \"mc6\", \"parentId\": null, \"timestamp\": \"2026-01-01T00:06:00.000Z\", \"provider\": \"openai-completions\", \"modelId\": \"mock-model\"}\n{\"type\": \"thinking_level_change\", \"id\": \"tl6\", \"parentId\": \"mc6\", \"timestamp\": \"2026-01-01T00:06:00.000Z\", \"thinkingLevel\": \"off\"}\n{\"type\": \"message\", \"id\": \"u6\", \"parentId\": \"tl6\", \"timestamp\": \"2026-01-01T00:06:00.000Z\", \"message\": {\"role\": \"user\", \"content\": [{\"type\": \"text\", \"text\": \"分页会话 06：这是第 6 个预置会话\"}]}}\n{\"type\": \"message\", \"id\": \"a6\", \"parentId\": \"u6\", \"timestamp\": \"2026-01-01T00:06:00.000Z\", \"message\": {\"role\": \"assistant\", \"content\": [{\"type\": \"text\", \"text\": \"收到（会话 06）\"}], \"stopReason\": \"stop\", \"usage\": {\"input\": 7, \"output\": 1, \"cacheRead\": 0, \"cacheWrite\": 0, \"totalTokens\": 8, \"cost\": {\"input\": 0, \"output\": 0, \"cacheRead\": 0, \"cacheWrite\": 0, \"total\": 0}}}}\n"
+    },
+    {
+      "fileName": "2026-01-01T00-07-00-000Z_01a1window07.jsonl",
+      "content": "{\"type\": \"session\", \"version\": 3, \"id\": \"01a1window07\", \"timestamp\": \"2026-01-01T00:07:00.000Z\", \"cwd\": \"<CWD>\"}\n{\"type\": \"model_change\", \"id\": \"mc7\", \"parentId\": null, \"timestamp\": \"2026-01-01T00:07:00.000Z\", \"provider\": \"openai-completions\", \"modelId\": \"mock-model\"}\n{\"type\": \"thinking_level_change\", \"id\": \"tl7\", \"parentId\": \"mc7\", \"timestamp\": \"2026-01-01T00:07:00.000Z\", \"thinkingLevel\": \"off\"}\n{\"type\": \"message\", \"id\": \"u7\", \"parentId\": \"tl7\", \"timestamp\": \"2026-01-01T00:07:00.000Z\", \"message\": {\"role\": \"user\", \"content\": [{\"type\": \"text\", \"text\": \"分页会话 07：这是第 7 个预置会话\"}]}}\n{\"type\": \"message\", \"id\": \"a7\", \"parentId\": \"u7\", \"timestamp\": \"2026-01-01T00:07:00.000Z\", \"message\": {\"role\": \"assistant\", \"content\": [{\"type\": \"text\", \"text\": \"收到（会话 07）\"}], \"stopReason\": \"stop\", \"usage\": {\"input\": 8, \"output\": 1, \"cacheRead\": 0, \"cacheWrite\": 0, \"totalTokens\": 9, \"cost\": {\"input\": 0, \"output\": 0, \"cacheRead\": 0, \"cacheWrite\": 0, \"total\": 0}}}}\n"
+    },
+    {
+      "fileName": "2026-01-01T00-08-00-000Z_01a1window08.jsonl",
+      "content": "{\"type\": \"session\", \"version\": 3, \"id\": \"01a1window08\", \"timestamp\": \"2026-01-01T00:08:00.000Z\", \"cwd\": \"<CWD>\"}\n{\"type\": \"model_change\", \"id\": \"mc8\", \"parentId\": null, \"timestamp\": \"2026-01-01T00:08:00.000Z\", \"provider\": \"openai-completions\", \"modelId\": \"mock-model\"}\n{\"type\": \"thinking_level_change\", \"id\": \"tl8\", \"parentId\": \"mc8\", \"timestamp\": \"2026-01-01T00:08:00.000Z\", \"thinkingLevel\": \"off\"}\n{\"type\": \"message\", \"id\": \"u8\", \"parentId\": \"tl8\", \"timestamp\": \"2026-01-01T00:08:00.000Z\", \"message\": {\"role\": \"user\", \"content\": [{\"type\": \"text\", \"text\": \"分页会话 08：这是第 8 个预置会话\"}]}}\n{\"type\": \"message\", \"id\": \"a8\", \"parentId\": \"u8\", \"timestamp\": \"2026-01-01T00:08:00.000Z\", \"message\": {\"role\": \"assistant\", \"content\": [{\"type\": \"text\", \"text\": \"收到（会话 08）\"}], \"stopReason\": \"stop\", \"usage\": {\"input\": 9, \"output\": 1, \"cacheRead\": 0, \"cacheWrite\": 0, \"totalTokens\": 10, \"cost\": {\"input\": 0, \"output\": 0, \"cacheRead\": 0, \"cacheWrite\": 0, \"total\": 0}}}}\n"
+    },
+    {
+      "fileName": "2026-01-01T00-09-00-000Z_01a1window09.jsonl",
+      "content": "{\"type\": \"session\", \"version\": 3, \"id\": \"01a1window09\", \"timestamp\": \"2026-01-01T00:09:00.000Z\", \"cwd\": \"<CWD>\"}\n{\"type\": \"model_change\", \"id\": \"mc9\", \"parentId\": null, \"timestamp\": \"2026-01-01T00:09:00.000Z\", \"provider\": \"openai-completions\", \"modelId\": \"mock-model\"}\n{\"type\": \"thinking_level_change\", \"id\": \"tl9\", \"parentId\": \"mc9\", \"timestamp\": \"2026-01-01T00:09:00.000Z\", \"thinkingLevel\": \"off\"}\n{\"type\": \"message\", \"id\": \"u9\", \"parentId\": \"tl9\", \"timestamp\": \"2026-01-01T00:09:00.000Z\", \"message\": {\"role\": \"user\", \"content\": [{\"type\": \"text\", \"text\": \"分页会话 09：这是第 9 个预置会话\"}]}}\n{\"type\": \"message\", \"id\": \"a9\", \"parentId\": \"u9\", \"timestamp\": \"2026-01-01T00:09:00.000Z\", \"message\": {\"role\": \"assistant\", \"content\": [{\"type\": \"text\", \"text\": \"收到（会话 09）\"}], \"stopReason\": \"stop\", \"usage\": {\"input\": 10, \"output\": 1, \"cacheRead\": 0, \"cacheWrite\": 0, \"totalTokens\": 11, \"cost\": {\"input\": 0, \"output\": 0, \"cacheRead\": 0, \"cacheWrite\": 0, \"total\": 0}}}}\n"
+    },
+    {
+      "fileName": "2026-01-01T00-10-00-000Z_01a1window10.jsonl",
+      "content": "{\"type\": \"session\", \"version\": 3, \"id\": \"01a1window10\", \"timestamp\": \"2026-01-01T00:10:00.000Z\", \"cwd\": \"<CWD>\"}\n{\"type\": \"model_change\", \"id\": \"mc10\", \"parentId\": null, \"timestamp\": \"2026-01-01T00:10:00.000Z\", \"provider\": \"openai-completions\", \"modelId\": \"mock-model\"}\n{\"type\": \"thinking_level_change\", \"id\": \"tl10\", \"parentId\": \"mc10\", \"timestamp\": \"2026-01-01T00:10:00.000Z\", \"thinkingLevel\": \"off\"}\n{\"type\": \"message\", \"id\": \"u10\", \"parentId\": \"tl10\", \"timestamp\": \"2026-01-01T00:10:00.000Z\", \"message\": {\"role\": \"user\", \"content\": [{\"type\": \"text\", \"text\": \"分页会话 10：这是第 10 个预置会话\"}]}}\n{\"type\": \"message\", \"id\": \"a10\", \"parentId\": \"u10\", \"timestamp\": \"2026-01-01T00:10:00.000Z\", \"message\": {\"role\": \"assistant\", \"content\": [{\"type\": \"text\", \"text\": \"收到（会话 10）\"}], \"stopReason\": \"stop\", \"usage\": {\"input\": 11, \"output\": 1, \"cacheRead\": 0, \"cacheWrite\": 0, \"totalTokens\": 12, \"cost\": {\"input\": 0, \"output\": 0, \"cacheRead\": 0, \"cacheWrite\": 0, \"total\": 0}}}}\n"
+    },
+    {
+      "fileName": "2026-01-01T00-11-00-000Z_01a1window11.jsonl",
+      "content": "{\"type\": \"session\", \"version\": 3, \"id\": \"01a1window11\", \"timestamp\": \"2026-01-01T00:11:00.000Z\", \"cwd\": \"<CWD>\"}\n{\"type\": \"model_change\", \"id\": \"mc11\", \"parentId\": null, \"timestamp\": \"2026-01-01T00:11:00.000Z\", \"provider\": \"openai-completions\", \"modelId\": \"mock-model\"}\n{\"type\": \"thinking_level_change\", \"id\": \"tl11\", \"parentId\": \"mc11\", \"timestamp\": \"2026-01-01T00:11:00.000Z\", \"thinkingLevel\": \"off\"}\n{\"type\": \"message\", \"id\": \"u11\", \"parentId\": \"tl11\", \"timestamp\": \"2026-01-01T00:11:00.000Z\", \"message\": {\"role\": \"user\", \"content\": [{\"type\": \"text\", \"text\": \"分页会话 11：这是第 11 个预置会话\"}]}}\n{\"type\": \"message\", \"id\": \"a11\", \"parentId\": \"u11\", \"timestamp\": \"2026-01-01T00:11:00.000Z\", \"message\": {\"role\": \"assistant\", \"content\": [{\"type\": \"text\", \"text\": \"收到（会话 11）\"}], \"stopReason\": \"stop\", \"usage\": {\"input\": 12, \"output\": 1, \"cacheRead\": 0, \"cacheWrite\": 0, \"totalTokens\": 13, \"cost\": {\"input\": 0, \"output\": 0, \"cacheRead\": 0, \"cacheWrite\": 0, \"total\": 0}}}}\n"
+    },
+    {
+      "fileName": "2026-01-01T00-12-00-000Z_01a1window12.jsonl",
+      "content": "{\"type\": \"session\", \"version\": 3, \"id\": \"01a1window12\", \"timestamp\": \"2026-01-01T00:12:00.000Z\", \"cwd\": \"<CWD>\"}\n{\"type\": \"model_change\", \"id\": \"mc12\", \"parentId\": null, \"timestamp\": \"2026-01-01T00:12:00.000Z\", \"provider\": \"openai-completions\", \"modelId\": \"mock-model\"}\n{\"type\": \"thinking_level_change\", \"id\": \"tl12\", \"parentId\": \"mc12\", \"timestamp\": \"2026-01-01T00:12:00.000Z\", \"thinkingLevel\": \"off\"}\n{\"type\": \"message\", \"id\": \"u12\", \"parentId\": \"tl12\", \"timestamp\": \"2026-01-01T00:12:00.000Z\", \"message\": {\"role\": \"user\", \"content\": [{\"type\": \"text\", \"text\": \"分页会话 12：这是第 12 个预置会话\"}]}}\n{\"type\": \"message\", \"id\": \"a12\", \"parentId\": \"u12\", \"timestamp\": \"2026-01-01T00:12:00.000Z\", \"message\": {\"role\": \"assistant\", \"content\": [{\"type\": \"text\", \"text\": \"收到（会话 12）\"}], \"stopReason\": \"stop\", \"usage\": {\"input\": 13, \"output\": 1, \"cacheRead\": 0, \"cacheWrite\": 0, \"totalTokens\": 14, \"cost\": {\"input\": 0, \"output\": 0, \"cacheRead\": 0, \"cacheWrite\": 0, \"total\": 0}}}}\n"
+    }
+  ],
+  "tui": {
+    "cols": 100,
+    "rows": 44,
+    "snapshots": [
+      "resume-window",
+      "after-pagedown",
+      "after-pagedown-clamp",
+      "after-pageup"
+    ],
+    "steps": [
+      {
+        "action": "waitScreen",
+        "contains": "Pi can explain",
+        "timeoutMs": 25000
+      },
+      {
+        "action": "type",
+        "text": "/resume"
+      },
+      {
+        "action": "waitStable",
+        "quietMs": 800,
+        "timeoutMs": 15000
+      },
+      {
+        "action": "type",
+        "text": "\r"
+      },
+      {
+        "action": "delay",
+        "ms": 3000
+      },
+      {
+        "action": "waitStable",
+        "quietMs": 1500,
+        "timeoutMs": 20000
+      },
+      {
+        "action": "snapshot",
+        "name": "resume-window"
+      },
+      {
+        "action": "type",
+        "text": "\u001b[6~"
+      },
+      {
+        "action": "delay",
+        "ms": 1000
+      },
+      {
+        "action": "waitStable",
+        "quietMs": 800,
+        "timeoutMs": 15000
+      },
+      {
+        "action": "snapshot",
+        "name": "after-pagedown"
+      },
+      {
+        "action": "waitScreen",
+        "contains": "(11/12)",
+        "timeoutMs": 10000
+      },
+      {
+        "action": "type",
+        "text": "\u001b[6~"
+      },
+      {
+        "action": "delay",
+        "ms": 1000
+      },
+      {
+        "action": "waitStable",
+        "quietMs": 800,
+        "timeoutMs": 15000
+      },
+      {
+        "action": "snapshot",
+        "name": "after-pagedown-clamp"
+      },
+      {
+        "action": "waitScreen",
+        "contains": "(12/12)",
+        "timeoutMs": 10000
+      },
+      {
+        "action": "type",
+        "text": "\u001b[5~"
+      },
+      {
+        "action": "delay",
+        "ms": 1000
+      },
+      {
+        "action": "waitStable",
+        "quietMs": 800,
+        "timeoutMs": 15000
+      },
+      {
+        "action": "snapshot",
+        "name": "after-pageup"
+      },
+      {
+        "action": "waitScreen",
+        "contains": "(2/12)",
+        "timeoutMs": 10000
+      },
+      {
+        "action": "type",
+        "text": "\u001b"
+      },
+      {
+        "action": "waitStable",
+        "quietMs": 800,
+        "timeoutMs": 15000
+      },
+      {
+        "action": "type",
+        "text": "\u0004"
+      },
+      {
+        "action": "waitStable",
+        "quietMs": 500,
+        "timeoutMs": 10000
+      }
+    ]
+  }
+}
